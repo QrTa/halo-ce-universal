@@ -1041,6 +1041,67 @@ BOOL platform_video_hdr(float *sdr_white, float *headroom)
 }
 #endif
 
+#ifdef _WIN32
+/* ---------- the window without an OpenGL context
+
+The Direct3D 11 executable (port/windows/D3D11.md, "The platform layer")
+makes the window without SDL_WINDOW_OPENGL: no context, no GL entry points,
+no swap, its renderer presenting on the window itself. Its device says so
+before it asks for the window; halo.exe never does, and takes the path
+below. */
+
+static BOOL platform_without_gl = FALSE;
+
+void platform_video_without_gl(void)
+{
+	platform_without_gl = TRUE;
+}
+
+void *platform_video_native_window(void)
+{
+	return platform_window ? SDL_GetPointerProperty(SDL_GetWindowProperties(platform_window),
+		SDL_PROP_WINDOW_WIN32_HWND_POINTER, NULL) : NULL;
+}
+
+/* platform_video_initialize's desktop window, with the same flags but
+SDL_WINDOW_OPENGL, and everything it does but the context's */
+static BOOL platform_video_initialize_without_gl(void)
+{
+	int pixel_width = 0, pixel_height = 0;
+
+	platform_window_size_setting(&platform_window_width, &platform_window_height);
+	platform_window = SDL_CreateWindow("Halo", (int)platform_window_width, (int)platform_window_height,
+		SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY |
+		(config_boolean("debug.hidden_window") ? SDL_WINDOW_HIDDEN : 0) |
+		(platform_fullscreen_setting() ? SDL_WINDOW_FULLSCREEN : 0));
+	if (!platform_window)
+	{
+		platform_log("SDL_CreateWindow failed: %s", SDL_GetError());
+		return FALSE;
+	}
+	if (platform_window_icon_size)
+	{
+		SDL_Surface *icon = SDL_LoadPNG_IO(SDL_IOFromConstMem(platform_window_icon, platform_window_icon_size), true);
+
+		if (!icon || !SDL_SetWindowIcon(platform_window, icon))
+			platform_log("cannot set the window's icon: %s", SDL_GetError());
+		SDL_DestroySurface(icon);
+	}
+	platform_fullscreen_requested = platform_fullscreen_setting();
+	platform_window_mode = platform_display_mode();
+	platform_fullscreen_kind_apply();
+#ifdef HALO_WINDOWS
+	win32_window_borderless_apply(platform_window);
+#endif
+	platform_event_thread = SDL_GetCurrentThreadID();
+	/* (in place of the OpenGL line: which path the window took) */
+	SDL_GetWindowSizeInPixels(platform_window, &pixel_width, &pixel_height);
+	platform_log("window: %dx%d pixels, no OpenGL context (the renderer presents)", pixel_width, pixel_height);
+	platform_mouse_capture(TRUE);
+	return TRUE;
+}
+
+#endif
 BOOL platform_video_initialize(unsigned long width, unsigned long height)
 {
 	int version;
@@ -1050,6 +1111,10 @@ BOOL platform_video_initialize(unsigned long width, unsigned long height)
 	platform_video_tried = TRUE;
 	if (!platform_sdl_initialize())
 		return FALSE;
+#ifdef _WIN32
+	if (platform_without_gl)
+		return platform_video_initialize_without_gl();
+#endif
 #ifndef HALO_ANDROID
 #ifdef HALO_WEB
 	/* (a browser's canvas has 8 bits a channel) */
@@ -1222,6 +1287,11 @@ void platform_display_apply(void)
 	if (!platform_window)
 		return;
 #endif
+#ifdef _WIN32
+	/* (no context: display.vsync is the pacing's, platform_video_swap) */
+	if (platform_without_gl)
+		return;
+#endif
 	SDL_GL_SetSwapInterval(config_boolean("display.vsync") ? 1 : 0);
 }
 
@@ -1240,6 +1310,9 @@ static Uint64 frame_interval_ns(void)
 	static int vsync;
 	static long maximum;
 	static unsigned long read_at = (unsigned long)-1;
+#ifdef _WIN32
+	static float refresh_rate;
+#endif
 	float rate;
 
 	if (read_at != config_changes())
@@ -1247,7 +1320,22 @@ static Uint64 frame_interval_ns(void)
 		read_at = config_changes();
 		vsync = config_boolean("display.vsync");
 		maximum = config_integer("display.max_fps");
+#ifdef _WIN32
+		if (platform_without_gl)
+		{
+			SDL_DisplayID display = SDL_GetDisplayForWindow(platform_window);
+			const SDL_DisplayMode *mode = display ? SDL_GetCurrentDisplayMode(display) : NULL;
+
+			refresh_rate = mode && mode->refresh_rate > 0.0f ? mode->refresh_rate : 60.0f;
+		}
+#endif
 	}
+#ifdef _WIN32
+	/* (no context, so no swap waits for the display: with vsync, its refresh
+	rate, until the Direct3D 11 renderer's present takes the sync interval) */
+	if (platform_without_gl && vsync)
+		return (Uint64)(1e9f / refresh_rate);
+#endif
 	if (vsync || maximum < 0)
 		return 0;
 	rate = (float)maximum;
@@ -1284,6 +1372,10 @@ void platform_video_swap(void)
 	win32_window_borderless_apply(platform_window);
 #endif
 
+#ifdef _WIN32
+	/* (no context: nothing to swap, only the pacing below) */
+	if (!platform_without_gl)
+#endif
 	SDL_GL_SwapWindow(platform_window);
 	/* (a frame the graphics driver held for seconds: the game froze, and
 	online, a host stops hearing a machine after a few; the log says where) */
