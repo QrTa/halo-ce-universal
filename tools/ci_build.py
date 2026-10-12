@@ -51,7 +51,9 @@ OUTPUTS = {
                     "build/linux_arm64/SDL3-LICENSE.txt"],
     "linux_x86_64": ["build/linux_x86_64/halo", "build/linux_x86_64/libSDL3.so.0",
                      "build/linux_x86_64/SDL3-LICENSE.txt"],
-    "windows": ["build/windows/halo.exe", "build/windows/SDL3.dll"],
+    # (halo_d3d11.exe: the Direct3D 11 executable, in development,
+    # port/windows/D3D11.md)
+    "windows": ["build/windows/halo.exe", "build/windows/halo_d3d11.exe", "build/windows/SDL3.dll"],
     "android": [],  # the APK, below
     # the Switch is a host and a guest, and both are wanted: the NRO is the
     # program the console runs, and the ELF is the ILP32 game image it loads
@@ -149,7 +151,7 @@ def main() -> int:
         shutil.copy2(ROOT / output, dist)
         print(f"{output} -> {dist.relative_to(ROOT)}", flush=True)
     if args.platform == "windows":
-        # the symbols of halo.exe and SDL3.dll, apart (players do not need
+        # the symbols of halo.exe, halo_d3d11.exe and SDL3.dll, apart (players do not need
         # them): the workflow uploads them to Sentry, which turns the crash
         # reports' minidumps into function names and lines
         # (port/windows/src/win32_crash.c), and tools/symbolize_crash.py
@@ -158,7 +160,7 @@ def main() -> int:
         if symbols.exists():
             shutil.rmtree(symbols)
         symbols.mkdir(parents=True)
-        for pdb in [ROOT / "build/windows/halo.pdb", *sorted((ROOT / "build/windows/third_party").glob("SDL3-*/lib/x86/SDL3.pdb"))]:
+        for pdb in [ROOT / "build/windows/halo.pdb", ROOT / "build/windows/halo_d3d11.pdb", *sorted((ROOT / "build/windows/third_party").glob("SDL3-*/lib/x86/SDL3.pdb"))]:
             shutil.copy2(pdb, symbols)
             print(f"{pdb.relative_to(ROOT)} -> {symbols.relative_to(ROOT)}", flush=True)
     # OpenCE's own licence, the AGPL, which asks each copy to carry its text
