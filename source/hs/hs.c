@@ -2846,6 +2846,7 @@ symbols in this file:
 #include "profile_console.h" /* port: port/linux/game/profile_console.c */
 #endif
 #include "structure_culling.h" /* port: port/linux/game/structure_culling.c */
+#include "halo_keyboard.h" /* port: port/linux/src/sdl_platform.c */
 
 /* ---------- constants */
 
@@ -3336,6 +3337,13 @@ struct hs_arguments_long_string
 	char const *value1;
 };
 
+/* port: key_press */
+struct hs_arguments_string_long
+{
+	char const *value0;
+	long value1;
+};
+
 struct hs_arguments_long_long
 {
 	long value0;
@@ -3384,7 +3392,7 @@ typedef void (*hs_token_enumerator)(
 
 struct hs_function_table_storage
 {
-	struct hs_function_definition const *functions[418 + 7];
+	struct hs_function_definition const *functions[418 + 8];
 	struct profile_section profile;
 	hs_token_enumerator token_enumerators[18];
 };
@@ -11792,7 +11800,28 @@ static struct hs_function_definition_with_1_parameter const debug_structure_cull
 	},
 };
 
-long const hs_function_table_count= 418 + 7;
+/* port: a key of the window pressed from the console (halo_keyboard_press:
+port/linux/src/sdl_platform.c), so a script can walk the menus from outside
+(debug.telnet_console) without the window in front */
+HS_EVALUATE_RETURN_BOOLEAN(hs_key_press_evaluate, struct hs_arguments_string_long, (halo_keyboard_press(arguments->value0, arguments->value1) != 0))
+
+static struct hs_function_definition_with_2_parameters const key_press_definition=
+{
+	{
+		_hs_type_boolean,
+		0,
+		"key_press",
+		hs_macro_function_parse,
+		hs_key_press_evaluate,
+		"presses a key of the window (named as SDL names keys: down, return, escape, a) for that many frames; false when no key has the name.",
+		NULL,
+		2,
+		{ _hs_type_string },
+	},
+	{ _hs_type_long_integer },
+};
+
+long const hs_function_table_count= 418 + 8;
 
 struct hs_enum_definition const hs_enum_table[]=
 {
@@ -12231,6 +12260,7 @@ struct hs_function_table_storage hs_function_table=
 		&mods_list_definition,
 		&structure_culling_definition.definition, /* port: local structure culling switch */
 		&debug_structure_culling_definition.definition, /* port: local culling debug view */
+		&key_press_definition.definition,
 	},
 	{
 		"hs_update",
@@ -12741,6 +12771,9 @@ static boolean const hs_function_allowed_in_maps[]=
 	/* port: local structure rendering */
 	FALSE, /* structure_culling: this machine's rendering */
 	FALSE, /* debug_structure_culling: this machine's rendering */
+
+	/* the port's, for scripts that drive the game from outside */
+	FALSE, /* key_press: the console's */
 };
 typedef char verify_hs_function_allowed_in_maps_size[
 	NUMBEROF(hs_function_allowed_in_maps) == NUMBEROF(hs_function_table.functions) ? 1 : -1];
