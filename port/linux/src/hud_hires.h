@@ -104,7 +104,7 @@ unsigned long hud_hires_placeholder_serial(void);
 nv2a_psh.c: point_threshold) */
 int hud_hires_override_point_threshold(long asset);
 
-#if defined(HALO_SWITCH) || defined(HALO_ANDROID) || defined(HALO_PS5)
+#if defined(HALO_SWITCH) || defined(HALO_ANDROID) || defined(HALO_PS5) || defined(_WIN32)
 /* the deko3d and Vulkan renderers': an 8-bit RGBA PNG's pixels (malloc'd, red first,
 rows top down) and size; NULL if it could not be decoded */
 unsigned char *hud_hires_png_pixels(const void *png, unsigned long size, unsigned long *width, unsigned long *height);

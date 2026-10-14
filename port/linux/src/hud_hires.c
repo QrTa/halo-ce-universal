@@ -600,7 +600,7 @@ static unsigned int png_pixels_texture(unsigned char *pixels, unsigned long widt
 	return texture;
 }
 
-#if defined(HALO_SWITCH) || defined(HALO_ANDROID) || defined(HALO_PS5)
+#if defined(HALO_SWITCH) || defined(HALO_ANDROID) || defined(HALO_PS5) || defined(_WIN32)
 unsigned char *hud_hires_png_pixels(const void *png, unsigned long size, unsigned long *width, unsigned long *height)
 {
 	*width = *height = 0;
