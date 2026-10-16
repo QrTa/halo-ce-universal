@@ -1,9 +1,10 @@
 # PS5 port: handoff
 
 What was found out about PS5 homebrew on 2026-10-16, before any work started on
-this branch (`ps5`, from `main` at Build 101, `d271f7b32`). Nothing here has
-been tried on a console. The projects' claims below are from their READMEs, not
-checked against their code.
+this branch (`ps5`, from `main` at Build 101, `d271f7b32`), and what the
+probes then answered on a console (Open questions). The projects' claims below
+are from their READMEs, not checked against their code. The plan for the host
+is at the end (Plan: the host).
 
 ## Graphics: Vulkan exists, from the community
 
@@ -59,8 +60,38 @@ a "PS5 OpenGL SDK 0.3.0", only as where its shader compiler comes from.
   26.2.0 on an Arch/CachyOS host (`make doctor` checks the setup).
 - The console: jailbroken, with a homebrew environment (PS5_Vulkan was
   validated with etaHEN, ShadowMountPlus, ftpsrv on port 2121 and klogsrv on
-  port 3232). Homebrew runs as a 64-bit ELF payload loaded into a process by an
-  ELF loader. Supported firmware versions are not stated in what was read.
+  port 3232).
+- **The game has to be a title, not a payload.** A payload sent to the ELF
+  loader (port 9021) runs inside the loader's process. PS5_Vulkan's driver,
+  PS5 RetroArch and vkQuake all run as *titles*: directory-style homebrew
+  applications (`eboot.bin`, a fake-signed FSELF; `sce_sys/param.json`;
+  `sce_module/libc.prx`, a clean-room shim) copied to
+  `/data/homebrew/<TITLE_ID>/` over FTP and started from the home screen,
+  which ShadowMountPlus lists them on. VideoOut, AGC, the pad and audio are a
+  title's. A title differs from a payload in what the memory probe found:
+  - anonymous memory comes from a budget of flexible memory (448 MB on
+    PS5_PayloadSDK's console), and anything larger from direct memory
+    (12 GB, mapped with `sceKernelMapDirectMemory`);
+  - execute is refused at map time and given only by `sceKernelMprotect` on
+    direct memory (read, write and execute at once is granted);
+  - `sceKernelJitCreateSharedMemory` is refused; `access()` and `realpath()`
+    are refused for every path; a title starts with flush-to-zero and
+    denormals-are-zero set, which `ps5_fp_ieee()` clears;
+  - files the title creates need mode 0666 or 0777 for FTP's user to read
+    them (the title runs as its own user).
+  (PS5_PayloadSDK's `platform/docs/PROBE.md` has the measurements.)
+- Building a title: PS5_Vulkan's packaging (its C runtime, linker script,
+  FSELF tool and libc.prx) over its SDK fork. `port/ps5/probe/title/build.sh`
+  uses them from a PS5_Vulkan checkout (`~/projects/ps5-deps/PS5_Vulkan`, set
+  up by its `tools/setup-native-dependencies.sh`). Its RADV build needs meson
+  1.4+, LLVM 18 with Clang's headers, libclc 18, the SPIR-V translator 18 and
+  glslang; here they are unpacked from Ubuntu's packages without root
+  (`~/projects/ps5-deps/hostdeps/env.sh`). The driver archive has to be
+  compiled with clang 22 (`LLVM_CONFIG=/usr/bin/llvm-config-22`): with clang
+  18, Mesa's weak entry points keep default visibility and the title link
+  refuses them as imports no system library has.
+- PS5_Vulkan's `payload/ps5vkctl` is a small resident payload that starts and
+  closes titles over the network, for runs without a person at the console.
 
 ## The CPU side is the bigger job
 
@@ -125,13 +156,159 @@ place of libnx.
    - about 1.5 MB of rwx memory from the loader sits below 4 GB at an address
      that moves between runs (0x778c8000, then 0x39664000). It could land in
      the guest's ranges, so the host has to check for it at start-up.
-2. Does PR #359's x32 guest build with a toolchain usable for the PS5, and can
-   the payload SDK's clang link a host that loads it?
+2. Does PR #359's x32 guest run on the PS5? **Its CPU side does**
+   (2026-10-16, `port/ps5/probe/guest`, PPSA99102, as a title):
+   - a title has PS5_Vulkan's `libc.prx` at 0x80000000-0x80118000, so the
+     Xbox window cannot be there. The guest now takes it where the host puts
+     it (`HALO_MOVABLE_WINDOW`, `configure.py --linux-x86-64-movable-window`,
+     Android's mechanism with the size kept at 512 MB); the probe puts it at
+     0x90000000. Everything else below 4 GB is free but the title's code at
+     0x400000;
+   - the image's range (0x70000000, 64 MB, read, write and execute), the
+     window, Custom Edition's range and a 256 MB pool at 0x10000000 map as
+     direct memory; code there runs, loads through 32-bit pointers, calls
+     the host above 4 GB and runs on a stack below 4 GB, on the main thread
+     and a pthread;
+   - the game loads, its header and 265 imports check, and it runs its C
+     library's start, reserves its window and starts its allocator (14 host
+     calls, 0.1 s), up to `host_sdl_get_base_path`, the first import the
+     probe does not answer. Titles start with MXCSR 0x9fc0 (FTZ and DAZ);
+     `ps5_fp_ieee()` makes it 0x1f80.
 3. How much of `port/switch/host` ports to the payload SDK's libc and FreeBSD
    system calls (threads, futex equivalent `_umtx_op`, mmap, sockets, files)?
-4. Input, audio and networking on the payload SDK: what the RetroArch and
-   ProsperoEden ports use.
-5. Which firmware versions the jailbreak and the Vulkan driver support.
+   Open; the plan below answers it file by file.
+4. Input and audio: **they work** (`port/ps5/probe/io`, PPSA99101).
+   - AudioOut at 48 kHz in grains of 256 frames, 16-bit and float stereo,
+     opened for the system user (0xff): 2 s of sound took 2 s of calls, the
+     slowest 5.4 ms, no errors;
+   - the pad (opened for the initial user): every button, both sticks, the
+     analog triggers and the touch pad; 871 reads in 15 s, up to 45 samples
+     a read, none empty, no errors. Bit 0x80000000 of the buttons
+     ("intercepted") is set while the system has the pad (its menu);
+   - `scePadSetVibration` answers 0 (whether the pad shook was not asked).
+   Networking is not probed.
+5. The Vulkan driver on this firmware: **it works**
+   (`port/ps5/probe/vk`, PPSA99014, PS5_Vulkan's own smoke test): 102 of 102
+   checks passed on system software 13.590.001, where PS5_Vulkan had been
+   proved on 12.02, 12.09 and 12.70: RADV NAVI21, Vulkan 1.4, fills,
+   copies, compute, tessellation, geometry, scratch, mesh and task shaders,
+   acceleration structures, a GPU write to a title's anonymous memory, and
+   `VK_KHR_display`: one 3840x2160 display at 59.94 Hz, FIFO presents paced
+   by its flips. (The payload memory probe had read 0x13600007 from the
+   kernel; titles report 0x13590001 from `sceKernelGetSystemSwVersion`.)
+
+## Plan: the host
+
+The Switch's way again: the guest is the x32 image of `ninja linux_x86_64`
+(with the movable window), and the host is the Android host library
+(`port/android/host`) with the files that touch the system replaced, built
+as a title with PS5_Vulkan's toolchain (`port/ps5/probe/title/build.sh` is
+the first version of that build). Each step ends with something to run on
+the console.
+
+### 1. The build (`ninja ps5`)
+
+- `tools/ps5_build.py`, after `tools/switch_build.py`: the guest from
+  `tools/linux_guest_build.py`'s x32 target with the movable window and the
+  Vulkan renderer (`generate_guest_image(..., vulkan=True)`, which only
+  Android uses so far: `d3d8_vk.c` and its texture and shader files in place
+  of `d3d8_gl.c`); the host with the title toolchain, linked with RADV's
+  archive (clang 22, as `port/ps5/probe/vk/build.sh` builds it); packaged as
+  a title with the image beside the eboot.
+- A title ID of our own (PPSA, five digits), `param.json`, an icon.
+- `tools/ps5_deploy.py`: FTP upload, as `deploy.sh`; start and stop through
+  PS5_Vulkan's `ps5vkctl` payload (port 9111), so a run needs no hands on
+  the console.
+- Logs: the kernel log and a file in the data folder, as the probes do.
+
+### 2. The host's core, no graphics
+
+Shared Android host files used as they are, or nearly: `host_common.c`
+(boot structure, environment, logging), `host_loader.c` (the image at
+0x70000000, never moved), `host_thread.c` (stacks below 4 GB through
+`pthread_attr_setstack`, proved), `host_debug.c` (faults, with the
+registers in `uc_mcontext.mc_*`), `host_memory.c`'s bookkeeping.
+
+New files, after the Switch's:
+
+| File | What it does on the PS5 |
+|---|---|
+| `host_main.c` | title start-up: `ps5_fp_ieee()`, the data folder, the environment, the user service |
+| `host_mman.c` | the image's range, the window, Custom Edition's range and a pool as direct memory (`sceKernelAllocateDirectMemory`, `sceKernelMapDirectMemory` fixed, `sceKernelMprotect` for execute), and the guest's `mmap`/`munmap`/`mprotect` served inside them, as the probe does. The window goes to the first free 256 MB from 0x80000000 |
+| `host_syscall.c` | the guest's Linux system calls on the PS5's FreeBSD libc, after the Switch's (which maps them onto newlib): files, `stat` layouts and open flags translated, clocks, `writev` to the log |
+| `host_futex.c` | futexes over `_umtx_op` (or a mutex and condition variable per address, as the Switch's) |
+
+Memory budget: a title's own heap (flexible memory) is 448 MB, and RADV,
+glslang and the host's tables live in it; the guest's memory and the GPU's
+come from the 12 GB of direct memory.
+
+Ends with: the game running headless with SDL answered by stubs, as far as
+it goes before it needs a frame.
+
+### 3. SDL: window, events, pad, audio
+
+The guest calls SDL3 through `host_sdl_*` imports (69 on the desktop
+guest: Android's 34, and the 35 of `port/linux/host/host_imports.list`:
+window, display, renderer and file dialog calls). Two ways:
+
+- **A shim** (`host_sdl_ps5.c`, the Switch's `host_sdl2.c` and
+  `host_sdl3_events.c` as the model): one fixed window the size of the
+  display, events made from pad samples, the gamepad calls on `scePad*`,
+  audio streams on an `sceAudioOut` thread (float stereo, 48 kHz, 256
+  frames a grain, as probed), ticks from the TSC, and the desktop-only calls
+  (message boxes, file dialogs, the debug renderer, display modes) answered
+  as a fixed console would.
+- **SDL3 itself**, if PS5_Dusklight's SDL3 port (RADV, Dawn, SDL3) holds up:
+  then `port/android/host/host_sdl.c`, which forwards to real SDL3, nearly
+  as it is. Look at it first; take the shim if it is not a clean, buildable
+  port.
+
+The game's desktop code paths stay (the guest is built without
+`HALO_ANDROID`); the self-updater is left out (`host_update_*` answer
+"unavailable"), as on a release build without it.
+
+Ends with: menus driven by the pad and heard, with nothing drawn yet.
+
+### 4. Rendering: the Vulkan renderer on RADV
+
+- `host_vk*.c` from the Android host, with two files replaced:
+  `host_vk_driver.c` (no adrenotools: RADV is linked in, and its
+  `vkGetInstanceProcAddr` is called directly, as PS5_Vulkan's titles do) and
+  `host_vk_present.c` (`VK_KHR_display` on VideoOut instead of an Android
+  surface; the smoke test's sequence, which passed: display, mode, plane
+  surface, FIFO swapchain, replacement).
+- glslang compiled for the console, for `host_vk_shader_compile`: Mesa's
+  ACO already builds there as C++, so the toolchain handles it; whether
+  glslang does without changes is the first thing to try. The fallback is
+  SPIR-V compiled on the PC and shipped in the title.
+- The SPIR-V and pipeline caches in the data folder (`host_vk_shaders.c`
+  already keeps them as files).
+- The display is 3840x2160 at 59.94 Hz: render at 1080p and scale, then
+  try native.
+- PS5_Vulkan's known gaps to check against the game: imprecise occlusion
+  queries (lens flares, the sun's glow), line lists.
+
+Ends with: the game on the TV.
+
+### 5. The rest
+
+- Game data: the maps and the ISO in a folder of the console's storage
+  reached over FTP (`/data/halo`), named in `config.toml`; saves and
+  settings beside them.
+- The PS button: the pad's intercepted bit pauses input; suspend and resume
+  have to be tried with RADV holding the display.
+- Networking (FreeBSD sockets through `host_syscall.c`, the Switch's
+  `host_net.c` as the model), last.
+
+### Risks
+
+- glslang on the console (step 4's fallback covers it).
+- 448 MB of flexible memory for everything the host allocates.
+- Firmware: proved on 13.59 here and 12.x by PS5_Vulkan; other versions
+  unknown.
+- PS5_Vulkan's toolchain and SDK fork are GPL-3.0-or-later, so the PS5
+  build is a GPL work (see above); nothing of theirs is copied into this
+  repository.
 
 ## Sources
 
