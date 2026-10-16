@@ -53,6 +53,9 @@ enum network_game_message_type
 	_message_client_remove_player_request_postgame,
 	_message_client_switch_to_pregame,
 	_message_client_graceful_game_exit_postgame,
+	/* port: this build can run a randomized campaign. A host of one refuses
+	a machine that never sends it (network_server_manager.c) */
+	_message_client_randomizer_capability,
 	NUMBER_OF_NETWORK_GAME_MESSAGE_TYPES,
 };
 

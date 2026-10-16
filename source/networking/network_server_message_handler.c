@@ -1179,7 +1179,8 @@ boolean network_game_server_handle_client_message(
 			case _message_type_packet:
 				packet_type = ((byte *)message)[message_buffer_size - 1];
 				if (network_game_server_client_machine_is_joined_to_game(server, machine) ||
-					packet_type == _message_client_join_game_request)
+					packet_type == _message_client_join_game_request ||
+					packet_type == _message_client_randomizer_capability)
 				{
 					switch (packet_type)
 					{
@@ -1354,6 +1355,19 @@ boolean network_game_server_handle_client_message(
 								network_event("network_game_server_handle_message_client_graceful_game_exit_postgame() failed");
 							}
 							break;
+
+						/* port: this build can run a randomized campaign. It
+						may arrive before the join (port/linux/game/randomizer.c) */
+						case _message_client_randomizer_capability:
+						{
+							extern void network_game_server_note_randomizer_capability(
+								struct network_game_server *server,
+								struct network_game_server_client_machine *machine);
+
+							network_game_server_note_randomizer_capability(server, machine);
+							result = TRUE;
+							break;
+						}
 
 						default:
 							network_event(
@@ -1764,6 +1778,13 @@ static boolean network_game_server_handle_message_client_broadcast_game_search(
 				network_game_server_game_is_loading(server))
 			{
 				advertisement.reserved[HALO_PORT_ADVERTISED_FLAGS_OFFSET] |= HALO_PORT_ADVERTISED_IN_PROGRESS_FLAG;
+			}
+			/* port: a randomized campaign, and the setup its clients use
+			(port/linux/game/randomizer.c) */
+			{
+				extern void randomizer_advertisement(unsigned char *reserved);
+
+				randomizer_advertisement(advertisement.reserved);
 			}
 			/* (open to joins: not while the machines load the game, nor
 			once it is over, nor in progress when no player can join it) */

@@ -2439,20 +2439,27 @@ void actor_customize_unit(
 
 	if (actor_variant_definition->ranged_combat.reference.index != NONE)
 	{
-		long weapon_index;
+		/* port: the campaign randomizer's weapon, among those this unit
+		can hold (port/linux/game/randomizer.c). One it cannot take is
+		deleted, as the unit's own refusal is */
+		long attempt;
+		extern long randomizer_enemy_weapon(long, long, long);
 
-		object_placement_data_new(
-			&placement_data,
-			actor_variant_definition->ranged_combat.reference.index,
-			unit_index);
-		weapon_index = object_new(&placement_data);
-		if (weapon_index != NONE &&
-			!unit_add_weapon_to_inventory(
-				unit_index,
-				weapon_index,
-				_unit_add_weapon_replace))
+		for (attempt = 0; attempt < 8; attempt++)
 		{
-			object_delete(weapon_index);
+			long chosen = randomizer_enemy_weapon(
+				actor_variant_definition->ranged_combat.reference.index, unit_index, attempt);
+			long weapon_index;
+
+			if (chosen == NONE)
+				break;
+			object_placement_data_new(&placement_data, chosen, unit_index);
+			weapon_index = object_new(&placement_data);
+			if (weapon_index != NONE &&
+				unit_add_weapon_to_inventory(unit_index, weapon_index, _unit_add_weapon_replace))
+				break;
+			if (weapon_index != NONE)
+				object_delete(weapon_index);
 		}
 	}
 
@@ -2702,6 +2709,17 @@ long actor_place(
 			actor_variant_definition_index != NONE);
 		actor_variant_definition =
 			actor_variant_definition_get(actor_variant_definition_index);
+	}
+
+	/* port: the campaign randomizer's actor, in place of the squad's
+	(port/linux/game/randomizer.c). A starting location with a command
+	list, and a squad in a conversation, keep the squad's */
+	{
+		extern long randomizer_actor_variant(long, long, long, void *);
+
+		actor_variant_definition_index = randomizer_actor_variant(
+			actor_variant_definition_index, encounter_index, squad_index, starting_location);
+		actor_variant_definition = actor_variant_definition_get(actor_variant_definition_index);
 	}
 
 	actor_definition =

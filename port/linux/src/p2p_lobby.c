@@ -74,6 +74,9 @@ enum
 	_listing_closed = 8,
 	/* its token sealed with a password's key */
 	_listing_password = 16,
+	/* the hosted game randomizes its campaign. Older builds ignore a bit
+	they do not know, so the listing's format stays */
+	_listing_randomizer = 32,
 	STAMP_SIZE = 8,
 	/* the signed part's end: everything but the signature */
 	MAXIMUM_LISTING_SIZE = 2 + 1 + 2 + 1 + 4 + 4 + P2P_KEY_SIZE + P2P_SEALED_TOKEN_SIZE + 3 +
@@ -640,6 +643,7 @@ static void listing_take(const struct queued *queued, const struct listing *list
 	shown->open = (listing->flags & _listing_open) != 0;
 	shown->in_progress = (listing->flags & _listing_in_progress) != 0;
 	shown->has_teams = (listing->flags & _listing_has_teams) != 0;
+	shown->randomized = (listing->flags & _listing_randomizer) != 0;
 	shown->ping = -1;
 }
 
@@ -754,13 +758,13 @@ void p2p_set_hosting_password(const char *password)
 }
 
 void p2p_set_game_listing(const char *name, const char *map, const char *gametype, int engine_type, int open,
-	int in_progress, int has_teams)
+	int in_progress, int has_teams, int randomized)
 {
 	char new_name[P2P_LISTING_NAME_SIZE + 1];
 	char new_map[P2P_LISTING_MAP_SIZE + 1];
 	char new_gametype[P2P_LISTING_GAMETYPE_SIZE + 1];
 	int flags = (open ? _listing_open : 0) | (in_progress ? _listing_in_progress : 0) |
-		(has_teams ? _listing_has_teams : 0);
+		(has_teams ? _listing_has_teams : 0) | (randomized ? _listing_randomizer : 0);
 
 	sanitize(new_name, P2P_LISTING_NAME_SIZE, name ? name : lobby.name, P2P_LISTING_NAME_SIZE);
 	sanitize(new_map, P2P_LISTING_MAP_SIZE, map ? map : lobby.map, P2P_LISTING_MAP_SIZE);

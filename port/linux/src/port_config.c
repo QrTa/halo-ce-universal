@@ -347,6 +347,28 @@ static const struct config_setting config_settings[] =
 	{ "game.ragdoll_ai", _config_string, "\"none\"", "HALO_RAGDOLL_AI", _environment_value, _platform_all,
 		"How an AI's body falls, the same choices as game.ragdoll_players.\n"
 		"Settings > Gameplay, or here. A cinematic keeps its own." },
+	{ "game.randomizer", _config_boolean, "false", "HALO_RANDOMIZER", _environment_value, _platform_all,
+		"Settings > Gameplay. true: after the difficulty of one of the ten\n"
+		"campaign levels, a screen sets how that level's enemies and weapons\n"
+		"are swapped. The choice is kept for the later levels. A co-op game\n"
+		"that is actually randomized is listed with \"[RNDM MOD]\" before its\n"
+		"level's name, and a player whose build cannot run it is refused.\n"
+		"A slayer game is not randomized." },
+	{ "game.randomizer_enemies", _config_boolean, "true", "HALO_RANDOMIZER_ENEMIES", _environment_value, _platform_all,
+		"The randomizer screen. true: a squad's actors are taken from the\n"
+		"pool, except one with a command list or in a conversation." },
+	{ "game.randomizer_pickups", _config_boolean, "true", "HALO_RANDOMIZER_PICKUPS", _environment_value, _platform_all,
+		"The randomizer screen. true: a weapon lying in the level is swapped\n"
+		"for another, except one a script names." },
+	{ "game.randomizer_enemy_weapons", _config_boolean, "true", "HALO_RANDOMIZER_ENEMY_WEAPONS", _environment_value, _platform_all,
+		"The randomizer screen. true: the weapon an actor is given is swapped\n"
+		"for another that actor can hold." },
+	{ "game.randomizer_pool", _config_string, "\"any\"", "HALO_RANDOMIZER_POOL", _environment_value, _platform_all,
+		"The randomizer screen. Which actors a squad may become: \"any\",\n"
+		"\"covenant\", \"flood\", \"human\", or \"one\" (game.randomizer_type)." },
+	{ "game.randomizer_type", _config_string, "\"grunt\"", "HALO_RANDOMIZER_TYPE", _environment_value, _platform_all,
+		"The randomizer screen, when the pool is \"one\": \"grunt\", \"elite\",\n"
+		"\"jackal\", \"hunter\", \"flood_combat\", \"flood_carrier\" or \"marine\"." },
 	{ "game.custom_edition", _config_boolean, "true", "HALO_CUSTOM_EDITION", _environment_value, _platform_all,
 		"Load and run Halo Custom Edition maps (not those that need OpenSauce):\n"
 		"put them and Custom Edition's bitmaps.map, sounds.map and loc.map in\n"
@@ -819,6 +841,21 @@ static void config_path(char *path, size_t size)
 
 	snprintf(path, size, "%sconfig.toml", base ? base : "");
 #endif
+}
+
+/* the folder config.toml is in, with its separator, for a file kept beside it */
+void config_directory(char *path, unsigned int size)
+{
+	char file[1024];
+	char *slash;
+
+	config_path(file, sizeof(file));
+	slash = strrchr(file, '/');
+	if (!slash)
+		slash = strrchr(file, '\\');
+	if (slash)
+		slash[1] = 0;
+	snprintf(path, size, "%s", slash ? file : "");
 }
 
 /* the whole file, NUL terminated, or NULL; free() it */

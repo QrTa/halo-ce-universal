@@ -5286,6 +5286,15 @@ static void widget_instance_render_text_box(
 		{
 			string = (wchar_t *)kills_to_win_extra_descriptions[string_list_index - SPINNER_EXTRA_DESCRIPTION_BASE];
 		}
+		/* port: the lobby's map line, with [RNDM MOD] while the game is
+		randomized (port/linux/game/randomizer.c) */
+		{
+			extern wchar_t const *randomizer_level_title_text(void *widget, wchar_t const *string);
+			wchar_t const *prefixed = randomizer_level_title_text(widget, string);
+
+			if (prefixed)
+				string = (wchar_t *)prefixed;
+		}
 		length = ustrlen(string);
 		widget->parameters.text_box.text = pool_resize_pointer(
 			widget_memory_pool,

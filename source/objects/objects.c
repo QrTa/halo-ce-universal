@@ -3940,6 +3940,15 @@ long object_new_from_scenario(
 				struct scenario_object_palette_entry
 			)->reference.index;
 
+			/* port: the campaign randomizer's weapon, in place of an
+			unnamed one (port/linux/game/randomizer.c). A named placement
+			stays, because a script creates it by that name */
+			{
+				extern long randomizer_weapon_definition(long, void *);
+
+				definition_index = randomizer_weapon_definition(definition_index, scenario_object);
+			}
+
 			if (definition_index!=NONE)
 			{
 				object_placement_data_new(&placement_data, definition_index, NONE);

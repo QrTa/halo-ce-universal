@@ -25,6 +25,9 @@ enum
 	_rejection_code_game_is_full,
 	_rejection_code_game_is_closed,
 	_rejection_code_blacklisted_machine,
+	/* port: the game randomizes the campaign, and this machine never said
+	its build can run that */
+	_rejection_code_randomizer,
 	NUMBER_OF_SERVER_REJECTION_CODES,
 };
 

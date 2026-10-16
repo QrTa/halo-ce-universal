@@ -333,6 +333,10 @@ SCREENS["gameplay"] = {
          [("NONE", "none"), ("WOODY", "woody"), ("HALO 2", "halo2")],
          "How an AI's body falls:\nthe animation, a loose ragdoll, or Halo 2's.",
          None),
+        ("RANDOMIZER:", "game.randomizer",
+         [("OFF", "false"), ("ON", "true")],
+         "On: after a campaign level's difficulty, a screen\nsets how that level's enemies and weapons change.",
+         None),
     ],
 }
 
@@ -385,7 +389,7 @@ STRING_OVERRIDES = {
         "Internet play, updates and the\\nmultiplayer HUD.\\n\\nProfile:",
         "Change the current profile's\\nfree-for-all multiplayer color.\\n\\nProfile:",
         "Halo: Combat Evolved, the Xbox\\ngame, on this computer.\\n\\nProfile:",
-        "How players and the AI fall:\\nthe animation, or a ragdoll.\\n\\nProfile:",
+        "How players and the AI fall, and\\nthe campaign randomizer.\\n\\nProfile:",
     ],
 }
 
@@ -615,6 +619,113 @@ def _gameplay_profile_item() -> list:
                     '<on event="left_mouse" run="mouse emit accept event"/>'])
 
 
+def _randomizer_spinner(base: str, key: str, index: int, setting: str, choices: list, wide: bool) -> list:
+    """one row of the randomizer screen: its label and the setting it shows"""
+    width, x, text_y = (206, 286, 4) if wide else (147, 320, 1)
+    bounds = ("7 -13 19 -7", "7 208 19 214") if wide else ("7 -6 19 0", "7 150 19 156")
+    return _widget(f"{base}/op_{key}", [("width", 512), ("height", 28), ("flags", "pass_unhandled_to_focused_child"),
+                                        ("bitmap", "bitmaps/option_bkds"), ("color", "#FF2896FF")],
+                   [f'<child widget="{base}/{key}_label"/>',
+                    f'<child{attributes([("widget", f"{base}/{key}_spinner"), ("x", x), ("y", 1)])}/>']) + \
+        _widget(f"{base}/{key}_label",
+                [("type", "text"), ("controller", 1), ("width", 300), ("height", 22),
+                 ("string_list", f"{base}/labels"), ("string_index", index), ("font", "ui\\large_ui"),
+                 ("color", "#FF2896FF"), ("text_x", 13), ("text_y", 4)], []) + \
+        _widget(f"{base}/{key}_spinner",
+                [("type", "spinner"), ("left", 3), ("top", 2), ("width", width), ("height", 20),
+                 ("flags", "pass_unhandled_to_focused_child left_right_tabs_items"),
+                 ("strings", "|".join(shown for shown, _ in choices)), ("setting", setting),
+                 ("values", "|".join(value for _, value in choices)), ("font", "ui\\large_ui"),
+                 ("color", "#FF2896FF"), ("align", "center"), ("text_y", text_y),
+                 ("header_bitmap", "bitmaps/arrow_sm_left"), ("footer_bitmap", "bitmaps/arrow_sm_right"),
+                 ("header_bounds", bounds[0]), ("footer_bounds", bounds[1])],
+                ['<on event="created" run="port setting load"/>'])
+
+
+def _randomizer_screen() -> list:
+    """the screen difficulty opens when the randomizer is on: the three
+    swaps, the pool, one enemy type, the saved profiles, and OK, which
+    starts the level"""
+    base = "main_menu/difficulty_select/randomizer"
+    rows = [
+        ("enemies", "ENEMIES:", "game.randomizer_enemies", [("OFF", "false"), ("ON", "true")], False,
+         "On: a squad's actors are taken from the pool."),
+        ("pickups", "WEAPON PICKUPS:", "game.randomizer_pickups", [("OFF", "false"), ("ON", "true")], False,
+         "On: a weapon lying in the level is swapped.\\nOne a script names stays."),
+        ("enemy_weapons", "ENEMY WEAPONS:", "game.randomizer_enemy_weapons", [("OFF", "false"), ("ON", "true")], False,
+         "On: the weapon an actor carries is swapped\\nfor another it can hold."),
+        ("pool", "ENEMY POOL:", "game.randomizer_pool",
+         [("ANY", "any"), ("COVENANT", "covenant"), ("FLOOD", "flood"), ("HUMAN", "human"), ("ONE TYPE", "one")],
+         True, "Which actors a squad may become."),
+        ("type", "ONE TYPE:", "game.randomizer_type",
+         [("GRUNT", "grunt"), ("ELITE", "elite"), ("JACKAL", "jackal"), ("HUNTER", "hunter"),
+          ("COMBAT", "flood_combat"), ("CARRIER", "flood_carrier"), ("MARINE", "marine")],
+         True, "When the pool is ONE TYPE, the only actor\\na squad may become."),
+    ]
+    lines = _widget(f"{base}/randomizer_screen",
+                    [("width", 640), ("height", 480), ("flags", "pass_unhandled_to_focused_child pause_game"),
+                     ("bitmap", "bitmaps/gradient")],
+                    ['<on event="b" back="true"/>', '<on event="back" back="true"/>',
+                     f'<child widget="{base}/header_randomizer"/>',
+                     f'<child widget="{base}/options_menu"/>'])
+    lines += _widget(f"{base}/header_randomizer",
+                     [("controller", 1), ("left", 35), ("top", 11), ("width", 605), ("height", 59),
+                      ("bitmap", f"{base}/header_randomizer")], [])
+    lines += _widget(f"{base}/help",
+                     [("type", "text"), ("controller", 1), ("left", 68), ("top", 388), ("width", 482), ("height", 24),
+                      ("string_list", f"{base}/help_strings"), ("font", "ui\\small_ui"), ("color", "#FFFFFFFF")], [])
+    children = ['<data input="port settings help"/>', '<data input="randomizer profiles update"/>']
+    extra = []
+    labels = []
+    for index, (key, label, setting, choices, wide, _) in enumerate(rows):
+        children.append(f'<child{attributes([("widget", f"{base}/op_{key}"), ("x", 54), ("y", 70 + index * 26)])}/>')
+        extra += _randomizer_spinner(base, key, index, setting, choices, wide)
+        labels.append(label)
+    for index in range(8):
+        y = 206 + index * 20
+        children.append(f'<child{attributes([("widget", f"{base}/profile_{index}"), ("x", 54), ("y", y)])}/>')
+        extra += _widget(f"{base}/profile_{index}",
+                         [("type", "text"), ("width", 512), ("height", 18), ("font", "ui\\large_ui"),
+                          ("color", "#FF2896FF"), ("text_x", 13), ("text_y", 0)],
+                         ['<on event="a" run="randomizer profile load"/>',
+                          '<on event="start" run="randomizer profile load"/>',
+                          '<on event="left_mouse" run="mouse emit accept event"/>'])
+    children.append(f'<child{attributes([("widget", f"{base}/button_bar"), ("y", 414)])}/>')
+    lines += _widget(f"{base}/options_menu",
+                     [("type", "column_list"), ("width", 640), ("height", 480),
+                      ("flags", "pass_unhandled_to_focused_child up_down_tabs_children"),
+                      ("description", f"{base}/help")], children)
+    lines += _widget(f"{base}/button_bar",
+                     [("type", "column_list"), ("width", 640), ("height", 28),
+                      ("flags", "pass_unhandled_to_focused_child left_right_tabs_items")],
+                     [f'<child{attributes([("widget", f"{base}/button_save"), ("y", 1)])}/>',
+                      f'<child{attributes([("widget", f"{base}/button_load"), ("x", 130), ("y", 1)])}/>',
+                      f'<child{attributes([("widget", f"{base}/button_ok"), ("x", 380), ("y", 1)])}/>',
+                      '<child widget="common_button_cancel" x="510" y="1"/>'])
+    lines += extra
+    lines += _widget(f"{base}/button_save",
+                     [("type", "text"), ("width", 128), ("height", 24), ("bitmap", "bitmaps/text_button_background"),
+                      ("text", "SAVE"), ("font", "ui\\small_ui"), ("color", "#FFFFFFFF"), ("align", "center"),
+                      ("text_y", 2)],
+                     ['<on event="a" run="randomizer profile save"/>',
+                      '<on event="start" run="randomizer profile save"/>',
+                      '<on event="left_mouse" run="mouse emit accept event"/>'])
+    lines += _widget(f"{base}/button_load",
+                     [("type", "text"), ("width", 128), ("height", 24), ("bitmap", "bitmaps/text_button_background"),
+                      ("text", "LOAD"), ("font", "ui\\small_ui"), ("color", "#FFFFFFFF"), ("align", "center"),
+                      ("text_y", 2)],
+                     ['<on event="a" run="randomizer profile load"/>',
+                      '<on event="start" run="randomizer profile load"/>',
+                      '<on event="left_mouse" run="mouse emit accept event"/>'])
+    lines += _button(f"{base}/button_ok", 1, ['<on event="a" run="randomizer start"/>',
+                                              '<on event="start" run="randomizer start"/>'])
+    lines += _strings(f"{base}/labels", labels)
+    lines += _strings(f"{base}/help_strings",
+                      ["A saved setup. A or Load uses the one chosen."] +
+                      [help_text for *_, help_text in rows])
+    return lines
+
+
 def settings_files() -> dict:
     """the files of the port's screens, by their names in ce/"""
     files = {}
@@ -624,6 +735,7 @@ def settings_files() -> dict:
             lines += _gameplay_profile_item()
         files[f"{PE}/{folder}".replace("/", ".") + ".xml"] = lines
     files[f"{PE}/controls_setup".replace("/", ".") + ".xml"] = _controls_screen()
+    files["main_menu.difficulty_select.randomizer.xml"] = _randomizer_screen()
     return {name: ['<?xml version="1.0" encoding="UTF-8"?>',
                    "<!-- The port's settings screen, in the PC version's style (tools/port_settings.py) -->",
                    "<menus>", *lines, "</menus>", ""] for name, lines in files.items()}
@@ -847,6 +959,7 @@ TITLES = {
     f"{MT}/coop/header_player_2": "PLAYER 2 PROFILE",
     f"{MT}/lobby/header_add_player": "ADD PLAYER",
     f"{PE}/gameplay/header_gameplay": "GAMEPLAY",
+    "main_menu/difficulty_select/randomizer/header_randomizer": "RANDOMIZER",
 }
 
 

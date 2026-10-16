@@ -16,11 +16,12 @@ controller, the keyboard and the mouse, on every port.
 
 `tools/ce_menus.py` writes all of them from the PC version's tags and the
 redraws, but the settings screens (Controls Setup, Gamepads, Mouse, Audio,
-Video, Network Setup and Gameplay), which `tools/port_settings.py` writes in their
+Video, Network Setup and Gameplay) and the campaign randomizer's screen,
+which `tools/port_settings.py` writes in their
 style with what this port has to set: config.toml's settings (a window or
 the full screen, the frame rate, the volumes, internet play, the
-multiplayer HUD), the profile's controller settings, and the keyboard and
-mouse's controls.
+multiplayer HUD), the profile's controller settings, the keyboard and
+mouse's controls, and how a campaign level's enemies and weapons are swapped.
 
 To change the menus without building the game, put files in a `menus` folder
 next to `config.toml`. A file with the same path as one here replaces it. On
@@ -59,7 +60,7 @@ It needs `rsvg-convert`, Pillow, NumPy and SciPy. It writes every file, so
 `ninja linux` (or `ninja android`) embeds them in the game.
 
 A settings screen (Controls Setup, Gamepads, Mouse, Audio, Video, Network
-Setup or Gameplay) is changed in `tools/port_settings.py`, not in its XML, and written
+Setup or Gameplay) or the randomizer's screen is changed in `tools/port_settings.py`, not in its XML, and written
 with the command above.
 
 ## Elements

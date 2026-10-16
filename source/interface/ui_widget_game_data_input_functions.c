@@ -2422,6 +2422,12 @@ static void multiplayer_game_set_text_box_for_map_name(
 		0xA39,
 		widget->type == _ui_widget_type_text_box,
 		"expected text box widget for mp game settings text");
+	/* port: this is the lobby's map line (port/linux/game/randomizer.c) */
+	{
+		extern void randomizer_note_map_widget(void *widget);
+
+		randomizer_note_map_widget(widget);
+	}
 
 	game = network_game_get_game();
 	if (game)

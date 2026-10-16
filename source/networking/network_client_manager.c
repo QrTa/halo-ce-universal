@@ -806,7 +806,12 @@ static struct
 {
 	word version;
 	byte flags;
+	byte setup[3];
 } network_game_client_advertised_versions[MAXIMUM_NETWORK_ADVERTISED_GAMES];
+/* the advertised game this machine is joining, so a later advertisement
+can replace the setup it was given */
+static long network_game_client_randomizer_game = NONE;
+static unsigned long network_game_client_randomizer_capability_time;
 
 struct network_game_client network_game_client_dont_use_directly;
 boolean allow_out_of_sync = FALSE;
@@ -2051,10 +2056,24 @@ boolean network_game_client_initiate_join_game(
 
 	if (success == TRUE)
 	{
+		long game_index = game - client->available_games;
+
 		/* port: the join's wait counted from the connection made, not from
 		before a connect that took seconds (idle_joining) */
 		network_connection_keep_alive(client->connection);
 		client->state = _network_game_client_state_joining;
+		/* port: the host's randomizer setup, if this game is one
+		(port/linux/game/randomizer.c) */
+		network_game_client_randomizer_game = game_index;
+		if (game_index >= 0 && game_index < MAXIMUM_NETWORK_ADVERTISED_GAMES)
+		{
+			extern void randomizer_set_remote(int on, unsigned char const *setup);
+
+			randomizer_set_remote(
+				(network_game_client_advertised_versions[game_index].flags &
+					HALO_PORT_ADVERTISED_RANDOMIZER_FLAG) != 0,
+				network_game_client_advertised_versions[game_index].setup);
+		}
 		network_event(
 			"attempting to connect to game @ %s",
 			transport_address_to_string(address));
@@ -2203,6 +2222,12 @@ void network_game_client_reset(
 
 	client->machine_index = NONE;
 	client->state = _network_game_client_state_searching;
+	network_game_client_randomizer_game = NONE;
+	{
+		extern void randomizer_set_remote(int on, unsigned char const *setup);
+
+		randomizer_set_remote(0, NULL);
+	}
 
 	/* (port: or one that was lost, whose socket stays until it is torn down) */
 	if (teardown_connection && client->connection &&
@@ -2275,6 +2300,9 @@ struct network_game_client *network_game_client_create(
 	return client;
 }
 
+/* the platform layer's (sdl_platform.c) */
+void platform_show_message(char const *title, char const *message);
+
 void network_game_client_rejected_by_game(
 	struct network_game_client *client,
 	struct transport_address *source_address,
@@ -2317,6 +2345,13 @@ void network_game_client_rejected_by_game(
 
 	case _rejection_code_blacklisted_machine:
 		reason = "_rejection_code_blacklisted_machine";
+		break;
+
+	case _rejection_code_randomizer:
+		reason = "_rejection_code_randomizer";
+		platform_show_message("Halo: cannot join this game",
+			"This game randomizes the campaign.\n\n"
+			"Update the game to join it.");
 		break;
 	}
 
@@ -2504,6 +2539,18 @@ static boolean add_advertised_game(
 				(advertisement->__unknown5A[HALO_PORT_ADVERTISED_VERSION_OFFSET + 1] << 8));
 			network_game_client_advertised_versions[game_index].flags =
 				advertisement->__unknown5A[HALO_PORT_ADVERTISED_FLAGS_OFFSET];
+			csmemcpy(network_game_client_advertised_versions[game_index].setup,
+				advertisement->__unknown5A + HALO_PORT_ADVERTISED_RANDOMIZER_SETUP_OFFSET,
+				sizeof(network_game_client_advertised_versions[game_index].setup));
+			if (game_index == network_game_client_randomizer_game)
+			{
+				extern void randomizer_set_remote(int on, unsigned char const *setup);
+
+				randomizer_set_remote(
+					(network_game_client_advertised_versions[game_index].flags &
+						HALO_PORT_ADVERTISED_RANDOMIZER_FLAG) != 0,
+					network_game_client_advertised_versions[game_index].setup);
+			}
 		}
 
 		if (advertisement->game_name[0] != L'\0')
@@ -2801,6 +2848,19 @@ static boolean network_game_client_idle_searching(
 	return success;
 }
 
+/* port: this build can run a randomized campaign. Sent before the join,
+and again in the lobby, because the two can arrive out of order */
+static void network_game_client_send_randomizer_capability(
+	struct network_game_client *client)
+{
+	byte capable = 1;
+	message_header *message = create_network_game_message(
+		_message_client_randomizer_capability, &capable, sizeof(capable));
+
+	if (message)
+		network_game_client_write(client->connection, message, GET_MESSAGE_SIZE(*message), NULL, 1);
+}
+
 static boolean network_game_client_idle_joining(
 	struct network_game_client *client)
 {
@@ -2829,6 +2889,7 @@ static boolean network_game_client_idle_joining(
 					p2p_hardware_id(hardware_id, sizeof(hardware_id));
 					csmemcpy(join_game_request.hardware_id, hardware_id, csstrlen(hardware_id));
 				}
+				network_game_client_send_randomizer_capability(client);
 
 				message = create_network_game_message(
 					_message_client_join_game_request,
@@ -2901,6 +2962,11 @@ static boolean network_game_client_idle_pregame(
 			(boolean)network_connection_connected(client->connection))
 		{
 			network_game_client_update_precache_status(client);
+			if (system_milliseconds() - network_game_client_randomizer_capability_time > 1000)
+			{
+				network_game_client_randomizer_capability_time = system_milliseconds();
+				network_game_client_send_randomizer_capability(client);
+			}
 
 			if (!(success = network_connection_idle(client->connection, 15000, NULL)))
 			{
@@ -3150,6 +3216,17 @@ boolean network_game_client_advertised_game_in_progress(
 
 	return game_index >= 0 && game_index < MAXIMUM_NETWORK_ADVERTISED_GAMES &&
 		(network_game_client_advertised_versions[game_index].flags & HALO_PORT_ADVERTISED_IN_PROGRESS_FLAG) != 0;
+}
+
+/* port: whether the advertised game randomizes its campaign */
+int network_game_client_advertised_randomizer(
+	void const *game)
+{
+	struct network_game_client *client = global_network_game_client_get();
+	long game_index = client && game ? (struct network_advertised_game const *)game - client->available_games : NONE;
+
+	return game_index >= 0 && game_index < MAXIMUM_NETWORK_ADVERTISED_GAMES &&
+		(network_game_client_advertised_versions[game_index].flags & HALO_PORT_ADVERTISED_RANDOMIZER_FLAG) != 0;
 }
 
 boolean network_game_client_join_first_available_game(

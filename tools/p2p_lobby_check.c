@@ -219,7 +219,7 @@ static void lobby_checks(void)
 	hosting_token = token;
 	/* hosting a public game: listed */
 	p2p_set_hosting_public(1);
-	p2p_set_game_listing("Test game", "bloodgulch", "Slayer", 2, 1, 0, 1);
+	p2p_set_game_listing("Test game", "bloodgulch", "Slayer", 2, 1, 0, 1, 0);
 	lobby_update(token, 3, 16);
 	check(publish_count == 1 && !published_closing && p2p_lobby_listed(), "the host publishes its listing");
 	memcpy(first, published, (size_t)published_size);
@@ -243,7 +243,7 @@ static void lobby_checks(void)
 		!strcmp(listing.gametype, "Slayer") && listing.player_count == 3 && listing.maximum_player_count == 16 &&
 		listing.engine_type == 2 && listing.open && listing.has_teams && !listing.in_progress, "the listing's details");
 	/* a change: published again after TRIGGER_INTERVAL */
-	p2p_set_game_listing(NULL, NULL, NULL, 2, 1, 1, 1);
+	p2p_set_game_listing(NULL, NULL, NULL, 2, 1, 1, 1, 0);
 	clock_now += 1000;
 	lobby_update(token, 3, 16);
 	check(publish_count == 1, "no publish sooner than 5 s after the last");

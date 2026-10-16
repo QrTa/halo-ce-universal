@@ -664,6 +664,13 @@ void scenario_tags_unload(
 		loose_sounds_tags_unloaded();
 	}
 	texture_cache_close();
+	/* port: the randomizer's tags go, and the table without them comes
+	back, before the menus restore the map's own (port/linux/game/randomizer.c) */
+	{
+		extern void randomizer_tags_unloaded(void);
+
+		randomizer_tags_unloaded();
+	}
 	/* port: the menus' tags go, and the map's own table comes back
 	(port/linux/game/menu_tags.c): after the texture cache, which writes to
 	the bitmaps it has loaded as it closes, theirs among them */
@@ -1395,6 +1402,13 @@ long scenario_tags_load(
 				extern void loose_sounds_tags_loaded(void);
 
 				loose_sounds_tags_loaded();
+			}
+			/* port: a campaign randomizer's tags, copied from the other
+			campaign maps (port/linux/game/randomizer.c) */
+			{
+				extern void randomizer_tags_loaded(char const *scenario_name);
+
+				randomizer_tags_loaded(scenario_name);
 			}
 			result = cache_file_globals.tag_header->scenario_tag_index;
 		}

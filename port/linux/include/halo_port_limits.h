@@ -77,6 +77,14 @@ netcode was removed; hosts of version 4 built before then may not) */
 /* ... the game is under way (loading, playing or over), not in its lobby:
 the menus show it before joining it (hosts built before then never set it) */
 #define HALO_PORT_ADVERTISED_IN_PROGRESS_FLAG 0x02
+/* ... the game randomizes a campaign level. The next three reserved bytes
+are which swaps are on (bit 0 enemies, bit 1 weapon pickups, bit 2 the
+weapons actors carry), the pool (0 any, 1 covenant, 2 flood, 3 human, 4 one
+type) and that type (0 grunt, 1 elite, 2 jackal, 3 hunter, 4 flood combat,
+5 flood carrier, 6 marine). A build that cannot run it leaves its join's
+capability clear and is refused only for this game */
+#define HALO_PORT_ADVERTISED_RANDOMIZER_FLAG 0x04
+#define HALO_PORT_ADVERTISED_RANDOMIZER_SETUP_OFFSET 3
 
 /* a message header's 12-bit length allows messages of up to 0xFFF bytes,
 header included; the per-tick update of 128 players is 3,857 */

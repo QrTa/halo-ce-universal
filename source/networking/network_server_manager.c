@@ -480,7 +480,7 @@ symbols in this file:
 server browser's listing of a public game (p2p_lobby.c) */
 void p2p_set_game_player_counts(int count, int maximum);
 void p2p_set_game_listing(const char *name, const char *map, const char *gametype, int engine_type, int open,
-	int in_progress, int has_teams);
+	int in_progress, int has_teams, int randomized);
 
 /* ---------- constants */
 
@@ -725,6 +725,9 @@ static void network_game_server_refuse_late_joiner(
 	struct network_game_server *server,
 	struct network_game_server_client_machine *machine,
 	word reason);
+static void network_game_server_refuse_randomizer(
+	struct network_game_server *server,
+	struct network_game_server_client_machine *machine);
 static boolean network_game_server_drop_client_machine(
 	struct network_game_server *server,
 	struct network_game_server_client_machine *client);
@@ -860,6 +863,9 @@ static unsigned long network_game_server_client_machine_join_times[MAXIMUM_NETWO
 not sent the start with the others. Once the download is done it is started
 then, in progress if the game has begun. */
 static boolean network_game_server_map_pending[MAXIMUM_NETWORK_MACHINE_COUNT];
+/* port: a machine that has said its build can run a randomized campaign
+(the message may arrive before its join) */
+static boolean network_game_server_randomizer_capable[MAXIMUM_NETWORK_MACHINE_COUNT];
 /* port: those machines' players, taken out of the game the others start, and
 put back when the download is done (they spawn then, not before) */
 static struct network_player network_game_server_held_players[MAXIMUM_NETWORK_PLAYER_COUNT];
@@ -1296,6 +1302,7 @@ struct network_game_server *network_game_server_create(
 				server->client_machines[i].last_heard_time = 0;
 				server->client_machines[i].machine_index = NONE;
 				server->client_machines[i].flags = 0;
+				network_game_server_randomizer_capable[i] = FALSE;
 				network_game_server_client_machine_addresses[i] = 0;
 				network_game_invalidate_machine(&server->game, i);
 			}
@@ -1513,8 +1520,12 @@ static void network_game_server_list(
 		snprintf(gametype + length, sizeof(gametype) - length, " %s", difficulty_names[game->difficulty]);
 	}
 	/* (the scenario's name, not its path: the listing has 32 characters) */
-	p2p_set_game_listing(name, tag_name_strip_path(game->map.name), gametype, game->variant.game_engine_index, open,
-		in_progress, game->variant.universal_variant.teams);
+	{
+		extern int randomizer_show_prefix(void);
+
+		p2p_set_game_listing(name, tag_name_strip_path(game->map.name), gametype, game->variant.game_engine_index, open,
+			in_progress, game->variant.universal_variant.teams, randomizer_show_prefix());
+	}
 }
 
 boolean network_game_server_idle(
@@ -1810,6 +1821,29 @@ boolean network_game_server_start_network_game(
 		A machine still downloading the map is left out of this start, and so
 		are its players: they spawn when it joins, not while it is downloading. */
 		network_game_server_hold_map_fetcher_players(server);
+		/* port: a randomized campaign drops a joined machine that never said
+		its build can run it. The message can arrive after the join, so this
+		waits until the level is about to load */
+		{
+			extern int randomizer_show_prefix(void);
+
+			if (randomizer_show_prefix())
+			{
+				long machine_index;
+
+				for (machine_index = 0; machine_index < MAXIMUM_NETWORK_MACHINE_COUNT; machine_index++)
+				{
+					struct network_game_server_client_machine *machine =
+						&server->client_machines[machine_index];
+
+					if (!network_game_server_client_machine_is_joined_to_game(server, machine) ||
+						network_game_server_client_machine_is_local(server, machine) ||
+						network_game_server_randomizer_capable[machine_index])
+						continue;
+					network_game_server_refuse_randomizer(server, machine);
+				}
+			}
+		}
 		if (network_game_server_send_game_settings_to_all_machines(server, &server->game, sizeof(server->game)) &&
 			((message = create_network_game_message(
 				_message_server_begin_game,
@@ -2761,6 +2795,43 @@ static void network_game_server_refuse_late_joiner(
 	network_game_server_drop_client_machine(server, machine);
 }
 
+/* a randomized campaign, and a machine whose build never said it can run
+one: told why, and let go */
+static void network_game_server_refuse_randomizer(
+	struct network_game_server *server,
+	struct network_game_server_client_machine *machine)
+{
+	struct message_server_machine_rejected rejection = { _rejection_code_randomizer };
+	struct network_message *message;
+
+	network_event("refusing machine #%d: it cannot run a randomized campaign", machine->machine_index);
+	message = create_network_game_message(_message_server_machine_rejected, &rejection, sizeof(rejection));
+	if (message)
+		network_game_server_send_message_to_client_machine(server, machine, message);
+	network_game_server_drop_client_machine(server, machine);
+}
+
+/* port: the machine's build can run a randomized campaign. The message
+handler has no view of the machine (network_server_message_handler.c), so
+the slot is the one this pointer is */
+void network_game_server_note_randomizer_capability(
+	struct network_game_server *server,
+	struct network_game_server_client_machine *machine)
+{
+	long index;
+
+	if (!server || !machine)
+		return;
+	for (index = 0; index < MAXIMUM_NETWORK_MACHINE_COUNT; index++)
+	{
+		if (&server->client_machines[index] == machine)
+		{
+			network_game_server_randomizer_capable[index] = TRUE;
+			return;
+		}
+	}
+}
+
 /* the players in the settings each machine joining the game in progress
 was started with (by machine index): those added and gone while it loaded
 it, whose messages it did not hear, it is told of once it has */
@@ -3675,6 +3746,7 @@ boolean network_game_server_remove_client_machine_from_game(
 			server->client_machines[i].last_heard_time = 0;
 			server->client_machines[i].machine_index = NONE;
 			server->client_machines[i].flags = 0;
+			network_game_server_randomizer_capable[i] = FALSE;
 			network_game_server_client_machine_addresses[i] = 0;
 			success = TRUE;
 			break;
@@ -4487,6 +4559,7 @@ static boolean network_game_server_add_new_client(
 						server->client_machines[i].machine_index = (short)i;
 						server->client_machines[i].flags =
 							FLAG(_network_client_machine_connected_bit);
+						network_game_server_randomizer_capable[i] = FALSE;
 						/* (it has until the join timeout to join) */
 						server->client_machines[i].last_heard_time = system_milliseconds();
 						success = network_connection_server_accept_client_connection(

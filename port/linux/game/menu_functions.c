@@ -30,6 +30,12 @@ calls them from PC_MENU_FUNCTION_BASE on):
   config.toml themselves), "port settings defaults" shows the defaults,
   "port settings help" the help of the row chosen (and Video Setup's
   Resolution or Window Size, for the display mode shown);
+- the campaign randomizer's screen (tools/port_settings.py), after a
+  campaign level's difficulty when game.randomizer is on: "randomizer
+  profile save" asks for a name and writes that setup beside config.toml,
+  "randomizer profile load" copies a saved one into the setup shown,
+  "randomizer start" writes the setup and starts the level, and
+  "randomizer profiles update" shows the names saved;
 - Controls Setup's: the keyboard and mouse's controls, two bindings each,
   shown a group at a time ("controls update menu"); "controls begin
   binding" takes the next key or button pressed for the binding left and
@@ -87,6 +93,7 @@ their handlers open opens.
 /* (internet play's server browser: the platform layer's) */
 #include "../src/p2p.h"
 
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <xtl.h>
@@ -100,6 +107,7 @@ void event_manager_post_button(short controller_index, short button_index);
 int config_text(char const *name, char *text, unsigned int size);
 int config_write(char const *name, char const *value);
 int config_boolean(char const *name);
+void config_directory(char *path, unsigned int size);
 int config_default(char const *name, char *text, unsigned int size);
 char const *config_string(char const *name);
 void platform_display_apply(void);
@@ -1540,19 +1548,323 @@ static boolean level_choose(struct widget_instance *list, short controller)
 	return TRUE;
 }
 
+static void settings_each(struct widget_instance *widget, boolean (*visit)(struct widget_instance *spinner,
+	struct pc_menu_setting *setting));
+static struct widget_instance *screen_of(struct widget_instance *widget);
+static boolean setting_changed_save(struct widget_instance *spinner, struct pc_menu_setting *setting);
+static boolean text_field_editing(struct widget_instance *row);
+static void text_field_end(boolean keep);
+static void text_field_begin(struct widget_instance *row, char const *text, short maximum,
+	void (*done)(char const *text));
+static void text_field_show(struct widget_instance *value, char const *text, boolean editing);
+static short campaign_level_of(char const *map_name);
+
+/* the campaign randomizer's named setups, beside config.toml
+(randomizer_profiles.txt: a name, then the five settings, tab-separated).
+Eight, the oldest first; a new name past eight drops the oldest */
+#define RANDOMIZER_PROFILE_MAX 8
+#define RANDOMIZER_PROFILE_NAME 24
+
+static char const *const randomizer_keys[] =
+{
+	"game.randomizer_enemies",
+	"game.randomizer_pickups",
+	"game.randomizer_enemy_weapons",
+	"game.randomizer_pool",
+	"game.randomizer_type",
+};
+
+static struct
+{
+	struct
+	{
+		char name[RANDOMIZER_PROFILE_NAME + 1];
+		char value[5][16];
+	} profiles[RANDOMIZER_PROFILE_MAX];
+	short count;
+	short chosen;
+	short controller;
+	short difficulty;
+} randomizer_menu;
+
+static int randomizer_profile_path(char *path, unsigned int size)
+{
+	char directory[1024];
+
+	config_directory(directory, sizeof(directory));
+	if (!directory[0] || strlen(directory) + strlen("randomizer_profiles.txt") >= size)
+		return 0;
+	snprintf(path, size, "%srandomizer_profiles.txt", directory);
+	return 1;
+}
+
+static int randomizer_split(char *line, char **fields, int count)
+{
+	int found = 1;
+
+	fields[0] = line;
+	for (; *line && found < count; line++)
+	{
+		if (*line == '\t')
+		{
+			*line = 0;
+			fields[found++] = line + 1;
+		}
+		else if (*line == '\n' || *line == '\r')
+			*line = 0;
+	}
+	if (*line == '\n' || *line == '\r')
+		*line = 0;
+	return found;
+}
+
+static void randomizer_profiles_read(void)
+{
+	char path[1100];
+	FILE *file;
+	char line[160];
+
+	randomizer_menu.count = 0;
+	if (!randomizer_profile_path(path, sizeof(path)))
+		return;
+	file = fopen(path, "r");
+	if (!file)
+		return;
+	while (randomizer_menu.count < RANDOMIZER_PROFILE_MAX && fgets(line, sizeof(line), file))
+	{
+		char *fields[6];
+		short index;
+		short field;
+
+		if (randomizer_split(line, fields, 6) < 6 || !fields[0][0])
+			continue;
+		index = randomizer_menu.count;
+		snprintf(randomizer_menu.profiles[index].name, sizeof(randomizer_menu.profiles[index].name),
+			"%s", fields[0]);
+		for (field = 0; field < 5; field++)
+			snprintf(randomizer_menu.profiles[index].value[field],
+				sizeof(randomizer_menu.profiles[index].value[field]), "%s", fields[field + 1]);
+		randomizer_menu.count++;
+	}
+	fclose(file);
+}
+
+static void randomizer_profiles_write(void)
+{
+	char path[1100];
+	FILE *file;
+	short index;
+
+	if (!randomizer_profile_path(path, sizeof(path)))
+		return;
+	file = fopen(path, "w");
+	if (!file)
+	{
+		platform_log("menus: could not write %s", path);
+		return;
+	}
+	for (index = 0; index < randomizer_menu.count; index++)
+		fprintf(file, "%s\t%s\t%s\t%s\t%s\t%s\n", randomizer_menu.profiles[index].name,
+			randomizer_menu.profiles[index].value[0], randomizer_menu.profiles[index].value[1],
+			randomizer_menu.profiles[index].value[2], randomizer_menu.profiles[index].value[3],
+			randomizer_menu.profiles[index].value[4]);
+	fclose(file);
+}
+
+static int randomizer_name_clean(char *name)
+{
+	char *read = name;
+	char *write = name;
+
+	while (*read == ' ')
+		read++;
+	for (; *read; read++)
+	{
+		char character = *read;
+
+		if ((character >= 'A' && character <= 'Z') || (character >= 'a' && character <= 'z') ||
+			(character >= '0' && character <= '9') || character == ' ' || character == '_' || character == '-')
+			*write++ = character;
+	}
+	while (write > name && write[-1] == ' ')
+		write--;
+	*write = 0;
+	return write != name;
+}
+
+static void randomizer_profile_saved(char const *text)
+{
+	char name[RANDOMIZER_PROFILE_NAME + 1];
+	char value[5][16];
+	short field;
+	short index;
+
+	snprintf(name, sizeof(name), "%s", text);
+	if (!randomizer_name_clean(name))
+		return;
+	randomizer_profiles_read();
+	for (field = 0; field < 5; field++)
+	{
+		if (!setting_text(randomizer_keys[field], value[field], sizeof(value[field]), FALSE))
+			snprintf(value[field], sizeof(value[field]), "%s", "");
+	}
+	for (index = 0; index < randomizer_menu.count; index++)
+	{
+		if (!_stricmp(randomizer_menu.profiles[index].name, name))
+			break;
+	}
+	if (index == randomizer_menu.count)
+	{
+		if (randomizer_menu.count == RANDOMIZER_PROFILE_MAX)
+		{
+			memmove(&randomizer_menu.profiles[0], &randomizer_menu.profiles[1],
+				sizeof(randomizer_menu.profiles[0]) * (RANDOMIZER_PROFILE_MAX - 1));
+			index = RANDOMIZER_PROFILE_MAX - 1;
+		}
+		else
+		{
+			index = randomizer_menu.count;
+			randomizer_menu.count++;
+		}
+	}
+	snprintf(randomizer_menu.profiles[index].name, sizeof(randomizer_menu.profiles[index].name), "%s", name);
+	for (field = 0; field < 5; field++)
+		snprintf(randomizer_menu.profiles[index].value[field],
+			sizeof(randomizer_menu.profiles[index].value[field]), "%s", value[field]);
+	randomizer_profiles_write();
+}
+
+static boolean setting_show_saved(struct widget_instance *spinner, struct pc_menu_setting *setting)
+{
+	(void)setting;
+	setting_load(spinner);
+	return TRUE;
+}
+
+static short randomizer_profile_index(struct widget_instance *widget)
+{
+	if (!widget || strncmp(widget->name, "profile_", 8))
+		return NONE;
+	return (short)atoi(widget->name + 8);
+}
+
+static boolean randomizer_profile_apply(short index, struct widget_instance *widget)
+{
+	short field;
+
+	if (index < 0 || index >= randomizer_menu.count)
+		return campaign_fail();
+	for (field = 0; field < 5; field++)
+	{
+		if (!config_write(randomizer_keys[field], randomizer_menu.profiles[index].value[field]))
+			return campaign_fail();
+	}
+	settings_each(screen_of(widget), setting_show_saved);
+	return TRUE;
+}
+
+/* "randomizer profile save": the setup shown, under the name typed */
+static boolean randomizer_profile_save_event(struct widget_instance *widget)
+{
+	if (text_field_editing(widget))
+	{
+		text_field_end(TRUE);
+		return TRUE;
+	}
+	settings_each(screen_of(widget), setting_changed_save);
+	text_field_begin(widget, "", RANDOMIZER_PROFILE_NAME, randomizer_profile_saved);
+	return TRUE;
+}
+
+/* "randomizer profile load": the profile chosen, into the setup shown */
+static boolean randomizer_profile_load_event(struct widget_instance *widget)
+{
+	short index = randomizer_profile_index(widget);
+
+	randomizer_profiles_read();
+	if (index == NONE)
+		index = randomizer_menu.chosen;
+	return randomizer_profile_apply(index, widget);
+}
+
+/* "randomizer start": the setup shown, then the level */
+static boolean randomizer_ok(struct widget_instance *widget)
+{
+	settings_each(screen_of(widget), setting_changed_save);
+	campaign_start(main_get_map_name(), randomizer_menu.difficulty, randomizer_menu.controller);
+	return TRUE;
+}
+
+/* "randomizer profiles update": the names saved, and a name being typed */
+static void randomizer_profiles_update(struct widget_instance *list)
+{
+	struct widget_instance *save = named(list, "button_save", 0);
+	short index;
+
+	randomizer_profiles_read();
+	if (randomizer_profile_index(list->focused_child) != NONE)
+		randomizer_menu.chosen = randomizer_profile_index(list->focused_child);
+	for (index = 0; index < RANDOMIZER_PROFILE_MAX; index++)
+	{
+		char name[16];
+		struct widget_instance *row;
+		wchar_t text[RANDOMIZER_PROFILE_NAME + 1];
+		short character;
+
+		snprintf(name, sizeof(name), "profile_%d", index);
+		row = named(list, name, 0);
+		if (!row)
+			continue;
+		row->visible = index < randomizer_menu.count;
+		row->disabled = index >= randomizer_menu.count;
+		if (index >= randomizer_menu.count)
+			continue;
+		for (character = 0; randomizer_menu.profiles[index].name[character]; character++)
+			text[character] = (wchar_t)(unsigned char)randomizer_menu.profiles[index].name[character];
+		text[character] = 0;
+		text_set(row, text);
+	}
+	if (save && text_field_editing(save))
+		text_field_show(save, "", TRUE);
+	else if (save)
+		text_set(save, L"SAVE");
+}
+
 /* the difficulty menu: "difficulty item select" starts the game at the
-item's; "set difficulty" (its OK button) at the one its description shows */
-static boolean difficulty_start(short difficulty, short controller)
+item's; "set difficulty" (its OK button) at the one its description shows.
+With the randomizer on, one of the ten campaign levels opens its screen
+first (tools/port_settings.py); Continue and Load Game do not */
+static boolean difficulty_start(struct widget_instance *widget, short difficulty, short controller,
+	boolean *widget_deleted)
 {
 	struct player_profile profile;
 	char const *map_name = main_get_map_name();
+	int base_campaign = campaign_level_of(map_name) != NONE;
 
 	if (!campaign_profile(controller, &profile))
 		return campaign_fail();
 	/* (a campaign level, or a Custom Edition campaign map) */
 	if (!custom_edition_maps_level_campaign(map_name))
 		map_name = main_get_solo_level_name(0);
-	campaign_start(map_name, PIN(difficulty, 0, 3), controller);
+	difficulty = PIN(difficulty, 0, 3);
+	if (config_boolean("game.randomizer") && base_campaign)
+	{
+		long screen_tag = screen_of(widget)->definition_tag_index;
+		struct widget_instance *opened;
+
+		randomizer_menu.controller = controller;
+		randomizer_menu.difficulty = difficulty;
+		main_set_difficulty(difficulty);
+		opened = ui_widget_load_by_name_or_tag(
+			"pc\\main_menu\\difficulty_select\\randomizer\\randomizer_screen",
+			NONE, NULL, NONE, screen_tag, NONE, NONE);
+		if (opened)
+		{
+			*widget_deleted = TRUE;
+			return TRUE;
+		}
+	}
+	campaign_start(map_name, difficulty, controller);
 	return TRUE;
 }
 
@@ -3766,9 +4078,29 @@ static void map_display_name(char const *map_name, wchar_t *text)
 	text[index] = 0;
 }
 
+static void randomizer_prefix_name(wchar_t *text)
+{
+	static wchar_t const prefix[] = L"[RNDM MOD] ";
+	wchar_t shifted[ROW_TEXT_LENGTH];
+	short out;
+	short index;
+
+	for (out = 0; prefix[out] && out < ROW_TEXT_LENGTH - 1; out++)
+		shifted[out] = prefix[out];
+	for (index = 0; text[index] && out < ROW_TEXT_LENGTH - 1; index++, out++)
+		shifted[out] = text[index];
+	shifted[out] = 0;
+	ustrncpy(text, shifted, ROW_TEXT_LENGTH - 1);
+	text[ROW_TEXT_LENGTH - 1] = 0;
+}
+
 static void game_map_name(struct advertised_game const *game, wchar_t *text)
 {
+	extern int network_game_client_advertised_randomizer(void const *game);
+
 	map_display_name(game->map_name, text);
+	if (network_game_client_advertised_randomizer(game))
+		randomizer_prefix_name(text);
 }
 
 /* ---- Join Game > Server Browser: internet play's public games (their
@@ -3964,6 +4296,8 @@ static void lobby_browser_update(struct widget_instance *list)
 		text_to_wide(game->name, text, ROW_TEXT_LENGTH);
 		text_set(named(row, "server_item_server_name", 0), text);
 		map_display_name(game->map, text);
+		if (game->randomized)
+			randomizer_prefix_name(text);
 		text_set(named(row, "server_item_map", 0), text);
 		text_set(named(row, "server_item_type", 0), game_type_name(game->engine_type));
 		usnprintf(text, ROW_TEXT_LENGTH - 1, L"%d/%d", game->player_count, game->maximum_player_count);
@@ -6158,7 +6492,7 @@ boolean pc_menu_event_function_invoke(
 		}
 		else if (!strcmp(name, "difficulty item select"))
 		{
-			return difficulty_start(sibling_index(widget), controller);
+			return difficulty_start(widget, sibling_index(widget), controller, widget_deleted);
 		}
 		else if (!strcmp(name, "set difficulty"))
 		{
@@ -6179,6 +6513,18 @@ boolean pc_menu_event_function_invoke(
 		else if (!strcmp(name, "load game menu delete finish"))
 		{
 			return saved_game_delete(controller);
+		}
+		else if (!strcmp(name, "randomizer profile save"))
+		{
+			return randomizer_profile_save_event(widget);
+		}
+		else if (!strcmp(name, "randomizer profile load"))
+		{
+			return randomizer_profile_load_event(widget);
+		}
+		else if (!strcmp(name, "randomizer start"))
+		{
+			return randomizer_ok(widget);
 		}
 		else if (!strcmp(name, "controls back handler") || !strcmp(name, "gamespy back handler") ||
 			!strcmp(name, "gamespy dismiss error") || !strcmp(name, "gamespy dismiss filters"))
@@ -6245,4 +6591,6 @@ void pc_menu_game_data_function_invoke(
 		profile_gamepad_layout(widget);
 	else if (!strcmp(name, "port renderer textbox"))
 		renderer_text_update(widget);
+	else if (!strcmp(name, "randomizer profiles update"))
+		randomizer_profiles_update(widget);
 }

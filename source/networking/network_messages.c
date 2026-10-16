@@ -268,7 +268,9 @@ struct network_game_message_packet_definitions
 	struct data_packet_definition client_switch_to_pregame;
 	struct data_packet_field client_graceful_game_exit_postgame_fields[2];
 	struct data_packet_definition client_graceful_game_exit_postgame;
-	struct data_packet_entry packets[35];
+	struct data_packet_field client_randomizer_capability_fields[2];
+	struct data_packet_definition client_randomizer_capability;
+	struct data_packet_entry packets[36];
 	struct data_packet_group_definition group;
 };
 
@@ -320,6 +322,9 @@ DEFINE_NETWORK_GAME_MESSAGE(message_server_graceful_game_exit_postgame, 0x04);
 DEFINE_NETWORK_GAME_MESSAGE(message_client_remove_player_request_postgame, 0x20);
 DEFINE_NETWORK_GAME_MESSAGE(message_client_switch_to_pregame, 0x04);
 DEFINE_NETWORK_GAME_MESSAGE(message_client_graceful_game_exit_postgame, 0x04);
+/* port: one byte, sent before a join and again in the lobby: this build
+can run a randomized campaign */
+DEFINE_NETWORK_GAME_MESSAGE(message_client_randomizer_capability, 0x01);
 
 #undef DEFINE_NETWORK_GAME_MESSAGE
 
@@ -549,6 +554,11 @@ static struct network_game_message_packet_definitions data_0030aa68 =
 	},
 	NETWORK_GAME_MESSAGE_DEFINITION(client_graceful_game_exit_postgame, "message_client_graceful_game_exit_postgame_packet", message_client_graceful_game_exit_postgame),
 	{
+		DATA_PACKET_FIELD(_data_packet_field_bytes, 1),
+		DATA_PACKET_FIELD_END,
+	},
+	NETWORK_GAME_MESSAGE_DEFINITION(client_randomizer_capability, "message_client_randomizer_capability_packet", message_client_randomizer_capability),
+	{
 		{ 0, 0, &data_0030aa68.client_broadcast_game_search },
 		{ 0, 0, &data_0030aa68.client_ping },
 		{ 1, 0, &data_0030aa68.server_game_advertise },
@@ -584,10 +594,11 @@ static struct network_game_message_packet_definitions data_0030aa68 =
 		{ 7, 0, &data_0030aa68.client_remove_player_request_postgame },
 		{ 7, 0, &data_0030aa68.client_switch_to_pregame },
 		{ 7, 0, &data_0030aa68.client_graceful_game_exit_postgame },
+		{ 3, 0, &data_0030aa68.client_randomizer_capability },
 	},
 	{
 		"network_game_messages_group",
-		35,
+		36,
 		8,
 		/* the per-tick update of 128 players decodes to 0x1010 bytes */
 		HALO_PORT_NETWORK_PACKET_SIZE,
@@ -822,6 +833,9 @@ void *create_network_game_message(
 	case _message_client_graceful_game_exit_postgame:
 #line 211 "c:\\halo\\SOURCE\\networking\\network_messages.c"
 		match_assert(__FILE__, __LINE__, message_struct_size==sizeof(message_client_graceful_game_exit_postgame));
+		break;
+	case _message_client_randomizer_capability:
+		match_assert(__FILE__, __LINE__, message_struct_size==sizeof(message_client_randomizer_capability));
 		break;
 	default:
 #line 213 "c:\\halo\\SOURCE\\networking\\network_messages.c"

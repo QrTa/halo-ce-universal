@@ -387,6 +387,8 @@ static char const *const port_function_names[] =
 	/* (a new profile's screens: Settings' is then being edited, which the
 	Xbox's leaves to its own screens) */
 	"new campaign decision",
+	/* (the campaign randomizer's screen, after a campaign level's difficulty) */
+	"randomizer profile save", "randomizer profile load", "randomizer start",
 };
 
 /* the PC version's game data functions that the Xbox's have not, from
@@ -410,6 +412,8 @@ static char const *const port_game_data_input_names[] =
 	"port gamepad layout preview",
 	/* (the main menu's line under the version number: the renderer, and its driver) */
 	"port renderer textbox",
+	/* (the campaign randomizer's saved profiles) */
+	"randomizer profiles update",
 };
 
 static struct
