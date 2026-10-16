@@ -160,7 +160,7 @@ static short const rasterizer_vertex_type_sizes[]=
 
 /* ---------- public code */
 
-#ifdef HALO_ANDROID
+#if defined(HALO_ANDROID) || defined(HALO_MOVABLE_WINDOW)
 void *vertex_buffer_base_address(
 	struct vertex_buffer const *buffer)
 {

@@ -30,10 +30,12 @@ void __guest_thread_initialize_main(void);
 
 extern char **__environ;
 
-#ifdef HALO_ANDROID
+#if defined(HALO_ANDROID) || defined(HALO_MOVABLE_WINDOW)
 /* where the host put the Xbox memory window (port/linux/src/platform.h; the
 desktop guests' is where it was linked) */
 extern unsigned long platform_contiguous_base;
+#endif
+#ifdef HALO_ANDROID
 extern unsigned long platform_contiguous_size;
 #endif
 /* how far the host moved this image from where it was linked
@@ -74,8 +76,10 @@ void __guest_start(const struct halo_guest_boot *boot)
 	libc.page_size = boot->page_size;
 	libc.auxv = (size_t *)"\0\0\0\0\0\0\0";
 	__environ = (char **)boot->environment;
-#ifdef HALO_ANDROID
+#if defined(HALO_ANDROID) || defined(HALO_MOVABLE_WINDOW)
 	platform_contiguous_base = boot->contiguous_base;
+#endif
+#ifdef HALO_ANDROID
 	platform_contiguous_size = boot->contiguous_size;
 #endif
 	platform_image_shift = boot->image_shift;

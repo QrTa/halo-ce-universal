@@ -65,7 +65,7 @@ window somewhere else has to move them; where the window is where the game
 expects it these are the fields themselves. A read of either has to go
 through here, or the game hands the rasterizer a link-time address. Each
 takes the buffer, which is a pointer. */
-#ifdef HALO_ANDROID
+#if defined(HALO_ANDROID) || defined(HALO_MOVABLE_WINDOW)
 void *vertex_buffer_base_address(struct vertex_buffer const *buffer);
 void *vertex_buffer_hardware_format(struct vertex_buffer const *buffer);
 void *triangle_buffer_base_address(struct triangle_buffer const *buffer);

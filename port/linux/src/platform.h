@@ -123,9 +123,13 @@ memory of its own there, so the host looks for the window where the address
 space is free and passes its address to the guest in the boot structure
 (port/android). Everything that names a fixed place in the window must then
 be PLATFORM_CONTIGUOUS_ADDRESS(offset) rather than a literal. The window
-stays a multiple of 256 MB, which keeps the masking below correct. */
+stays a multiple of 256 MB, which keeps the masking below correct.
 
-#ifdef HALO_ANDROID
+The PS5's x32 guest (HALO_MOVABLE_WINDOW) is told its base the same way, as
+the console loads a system module at 0x80000000; its size stays the x86-64
+guest's 512 MB. */
+
+#if defined(HALO_ANDROID) || defined(HALO_MOVABLE_WINDOW)
 extern unsigned long platform_contiguous_base;
 #define PLATFORM_CONTIGUOUS_BASE (platform_contiguous_base)
 #else

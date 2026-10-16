@@ -192,6 +192,10 @@ def _generate(n: Writer, sln: Any, target: LinuxGuest, config_path: Path, third_
     # the guest's and the host's code paths: the desktop's (no HALO_ANDROID),
     # and the renderer's
     guest_defines = [] if desktop_gl else ["-DHALO_GLES=1"]
+    # (and, for the PS5, the window wherever the host puts it, as Android's:
+    # configure.py --linux-x86-64-movable-window)
+    if getattr(sln, f"{prefix}_movable_window", False):
+        guest_defines.append("-DHALO_MOVABLE_WINDOW=1")
     host_defines = ["-DHALO_DESKTOP_GL=1"] if desktop_gl else []
 
     n.comment(f"{target.title} build (ninja {target.name}); see port/linux/README.md")

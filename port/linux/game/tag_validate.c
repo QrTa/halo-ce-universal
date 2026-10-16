@@ -106,7 +106,7 @@ reads it, before checking or following it: the tags are then this process's
 (the game's accessors, TAG_BLOCK_ADDRESS and the rest, leave a moved address
 as it is). A Custom Edition map's addresses lie outside the window and are
 left alone. */
-#ifdef HALO_ANDROID
+#if defined(HALO_ANDROID) || defined(HALO_MOVABLE_WINDOW)
 #define VALIDATE_MOVE(pointer) ((pointer) = PORT_WINDOW_REBASE(pointer))
 #else
 #define VALIDATE_MOVE(pointer) ((void)0)

@@ -908,7 +908,7 @@ boolean rasterizer_transparent_geometry_is_enclosure(
 	IDirect3DVertexBuffer8_Lock(VERTEX_BUFFER_HARDWARE_FORMAT(outer), 0, 0, &outer_data, D3DLOCK_READONLY);
 	IDirect3DVertexBuffer8_Lock(VERTEX_BUFFER_HARDWARE_FORMAT(inner), 0, 0, &inner_data, D3DLOCK_READONLY);
 	IDirect3DIndexBuffer8_Lock(TRIANGLE_BUFFER_HARDWARE_FORMAT(triangles), 0, 0, &index_data, D3DLOCK_READONLY);
-#ifdef HALO_ANDROID
+#if defined(HALO_ANDROID) || defined(HALO_MOVABLE_WINDOW)
 	/* (an index buffer's lock is its data's address as the map has it) */
 	index_data = PORT_WINDOW_REBASE(index_data);
 #endif

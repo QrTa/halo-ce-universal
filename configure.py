@@ -120,6 +120,12 @@ parser.add_argument(
     help="clang (with the x32 target) for `ninja linux_x86_64`, the 64-bit x86 Linux build (default: clang)",
 )
 parser.add_argument(
+    "--linux-x86-64-movable-window",
+    action="store_true",
+    help="build `ninja linux_x86_64`'s guest image to take the Xbox window wherever its host puts it "
+    "(HALO_MOVABLE_WINDOW), as the PS5 needs: its console loads a system module at 0x80000000",
+)
+parser.add_argument(
     "--web-emcc",
     type=str,
     help="Emscripten's emcc for `ninja web` (default: emcc on the PATH, then EMSDK's or ~/emsdk's)",
@@ -149,6 +155,7 @@ sln = SimpleNamespace(
     linux_arm64_gl=args.linux_arm64_gl,
     linux_x86_64=args.linux_x86_64,
     linux_x86_64_cc=args.linux_x86_64_cc,
+    linux_x86_64_movable_window=args.linux_x86_64_movable_window,
     web_emcc=args.web_emcc,
 )
 

@@ -47,13 +47,17 @@ C heap there, do not run.
 run time: its caches are half of it, halo_port_capacity.h) */
 #ifndef HALO_ANDROID
 #ifdef HALO_GUEST
-typedef char window_is_the_hosts[PLATFORM_CONTIGUOUS_BASE == HALO_GUEST_WINDOW_BASE &&
+typedef char window_is_the_hosts[
+#ifndef HALO_MOVABLE_WINDOW
+	PLATFORM_CONTIGUOUS_BASE == HALO_GUEST_WINDOW_BASE &&
+#endif
 	PLATFORM_CONTIGUOUS_SIZE == HALO_GUEST_WINDOW_SIZE ? 1 : -1];
 #endif
 /* the texture and sound caches, which the window hands out top-down, fit
-above the game state (halo_port_capacity.h) */
+above the game state (halo_port_capacity.h; measured from where the game
+data is linked, as the window may be elsewhere) */
 typedef char caches_fit_the_window[HALO_PORT_GAME_STATE_BASE_ADDRESS + HALO_PORT_GAME_STATE_SIZE -
-	PLATFORM_CONTIGUOUS_BASE + HALO_PORT_TEXTURE_CACHE_SIZE + HALO_PORT_SOUND_CACHE_SIZE <=
+	0x80000000UL + HALO_PORT_TEXTURE_CACHE_SIZE + HALO_PORT_SOUND_CACHE_SIZE <=
 	PLATFORM_CONTIGUOUS_SIZE ? 1 : -1];
 #endif
 
@@ -73,6 +77,9 @@ static void *custom_edition_tag_cache = NULL;
 address in the boot structure, before the constructor below runs */
 unsigned long platform_contiguous_base = 0x80000000UL;
 unsigned long platform_contiguous_size = 0x08000000UL;
+#elif defined(HALO_MOVABLE_WINDOW)
+/* (the PS5's x32 guest: the base only, its size is fixed) */
+unsigned long platform_contiguous_base = 0x80000000UL;
 #endif
 
 static int protection_to_host(DWORD protect)

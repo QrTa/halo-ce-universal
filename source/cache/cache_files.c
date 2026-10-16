@@ -278,7 +278,7 @@ static char const *data_00316820[] =
 
 /* ---------- private code */
 
-#ifdef HALO_ANDROID
+#if defined(HALO_ANDROID) || defined(HALO_MOVABLE_WINDOW)
 /* A map's tag directory is linked to the addresses of the window the game
 was built for: the header names its vertex and index buffers, and every tag
 instance names where its data and its name live. Where the host put the
@@ -496,7 +496,7 @@ static boolean cache_file_tag_header_verify(
 		{
 			void const *base_address = tag_header->tag_instances[absolute_index].base_address;
 
-#ifdef HALO_ANDROID
+#if defined(HALO_ANDROID) || defined(HALO_MOVABLE_WINDOW)
 			/* (checked where it is moved to, as it is once this passes) */
 			base_address = cache_file_rebase_address((void *)base_address);
 #endif
@@ -1298,7 +1298,7 @@ long scenario_tags_load(
 
 				return NONE;
 			}
-#ifdef HALO_ANDROID
+#if defined(HALO_ANDROID) || defined(HALO_MOVABLE_WINDOW)
 			/* the header's own addresses are moved before they are checked
 			against where the tags were read; its tags', once they are */
 			{
@@ -1318,7 +1318,7 @@ long scenario_tags_load(
 
 				return NONE;
 			}
-#ifdef HALO_ANDROID
+#if defined(HALO_ANDROID) || defined(HALO_MOVABLE_WINDOW)
 			/* the tags' names and data moved too, before the validator
 			follows them (it moves every other address it reads:
 			port/linux/game/tag_validate.c) */
@@ -1413,7 +1413,7 @@ boolean scenario_structure_bsp_load(
 	/* port: the bsp's header, once read and checked */
 	struct cache_file_structure_bsp_header *structure_bsp_header;
 
-#ifdef HALO_ANDROID
+#if defined(HALO_ANDROID) || defined(HALO_MOVABLE_WINDOW)
 	/* the scenario's own tag data names where the level is read to, in an
 	address the map was written with */
 	reference->base_address = cache_file_rebase_address(reference->base_address);
@@ -1471,7 +1471,7 @@ boolean scenario_structure_bsp_load(
 		/* port: a bsp that did not all read, or whose header's pointers
 		leave what was read, is not loaded */
 		structure_bsp_header = reference->base_address;
-#ifdef HALO_ANDROID
+#if defined(HALO_ANDROID) || defined(HALO_MOVABLE_WINDOW)
 		if (read_complete == TRUE)
 		{
 			cache_file_rebase_structure_bsp(structure_bsp_header);
