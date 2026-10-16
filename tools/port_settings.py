@@ -228,8 +228,10 @@ _gamepads["categories"] = [
 SCREENS["gamepad_setup/gyro"] = {
     "screen": "gyro_aim_screen", "header": _gamepads["header"], "spacing": 30,
     "rows": [
-        ("GYRO AIM:", "input.gyro_aim", ON_OFF + [("ONLY ON ZOOM", "zoom")],
-         "Turn the view with the gyroscope,\nalways, or only while zoomed in.", None),
+        ("GYRO AIM:", "input.gyro_aim", ON_OFF,
+         "Turn the view with the gyroscope.", None),
+        ("ONLY ON ZOOM:", "input.gyro_zoom_only", YES_NO,
+         "The gyroscope turns the view only while\nzoomed in.", None),
         ("HORIZONTAL SENSITIVITY:", "input.gyro_sensitivity_horizontal",
          [(f"{value:g}", f"{value:g}") for value in
           (0.25, 0.5, 0.75, 1, 1.25, 1.5, 2, 2.5, 3, 4, 5, 6, 7, 8, 9, 10)],
@@ -317,6 +319,23 @@ SCREENS["network_setup/map_sharing"] = {
     ],
 }
 
+# Gameplay, a screen of its own from Settings (a row of the profile menu)
+SCREENS["gameplay"] = {
+    "screen": "gameplay_settings_screen",
+    "header": ("header_gameplay", f"{PE}/gameplay/header_gameplay"),
+    "spacing": 30,
+    "rows": [
+        ("PLAYER RAGDOLLS:", "game.ragdoll_players",
+         [("NONE", "none"), ("WOODY", "woody"), ("HALO 2", "halo2")],
+         "How a player's body falls:\nthe animation, a loose ragdoll, or Halo 2's.",
+         None),
+        ("AI RAGDOLLS:", "game.ragdoll_ai",
+         [("NONE", "none"), ("WOODY", "woody"), ("HALO 2", "halo2")],
+         "How an AI's body falls:\nthe animation, a loose ragdoll, or Halo 2's.",
+         None),
+    ],
+}
+
 # Controls Setup: the keyboard and mouse's actions, in groups (the order of
 # port/linux/game/menu_functions.c's table of them)
 CONTROL_GROUPS = ["MOVEMENT", "WEAPONS", "ACTIONS"]
@@ -366,6 +385,7 @@ STRING_OVERRIDES = {
         "Internet play, updates and the\\nmultiplayer HUD.\\n\\nProfile:",
         "Change the current profile's\\nfree-for-all multiplayer color.\\n\\nProfile:",
         "Halo: Combat Evolved, the Xbox\\ngame, on this computer.\\n\\nProfile:",
+        "How players and the AI fall:\\nthe animation, or a ragdoll.\\n\\nProfile:",
     ],
 }
 
@@ -584,11 +604,25 @@ def _controls_screen() -> list:
                    extra)
 
 
+def _gameplay_profile_item() -> list:
+    """Settings' Gameplay row, after About: the screen is this folder's"""
+    name = f"{PE}/gameplay_profile_item"
+    return _widget(name, [("type", "text"), ("left", 51), ("top", 342), ("width", 232), ("height", 32),
+                          ("bitmap", "bitmaps/list_item_bkd"), ("text", "GAMEPLAY"), ("font", "ui\\large_ui"),
+                          ("color", "#FF2896FF"), ("text_x", 13), ("text_y", 5)],
+                   [f'<on event="a" open="{PE}/gameplay/gameplay_settings_screen"/>',
+                    f'<on event="start" open="{PE}/gameplay/gameplay_settings_screen"/>',
+                    '<on event="left_mouse" run="mouse emit accept event"/>'])
+
+
 def settings_files() -> dict:
     """the files of the port's screens, by their names in ce/"""
     files = {}
     for folder, spec in SCREENS.items():
-        files[f"{PE}/{folder}".replace("/", ".") + ".xml"] = _setting_screen(folder, spec)
+        lines = _setting_screen(folder, spec)
+        if folder == "gameplay":
+            lines += _gameplay_profile_item()
+        files[f"{PE}/{folder}".replace("/", ".") + ".xml"] = lines
     files[f"{PE}/controls_setup".replace("/", ".") + ".xml"] = _controls_screen()
     return {name: ['<?xml version="1.0" encoding="UTF-8"?>',
                    "<!-- The port's settings screen, in the PC version's style (tools/port_settings.py) -->",
@@ -704,6 +738,10 @@ WIDGET_PATCHES = {
     # button settings, BITMAP_FRAMES; menu_functions.c's
     # profile_gamepad_layout)
     f"{PE}/profile_edit_extended_desc_pic": {"inputs": ["port gamepad layout preview"]},
+    # (Gameplay, after About: its screen is the gameplay file's)
+    f"{PE}/profile_edit_select_list": {"insert_before": {
+        f"{PE}/profile_edit_button_bar": [f'<child widget="{PE}/gameplay_profile_item" y="33"/>'],
+    }},
     # (straight to their screens: no "checking for updates" dialog, which
     # asked the PC version's servers)
     f"{MT}/multiplayer_type_join_internet_item": {"set": {"string_index": 6}, "handlers": [
@@ -808,6 +846,7 @@ TITLES = {
     f"{MT}/lobby/header_lobby": "GAME LOBBY",
     f"{MT}/coop/header_player_2": "PLAYER 2 PROFILE",
     f"{MT}/lobby/header_add_player": "ADD PLAYER",
+    f"{PE}/gameplay/header_gameplay": "GAMEPLAY",
 }
 
 

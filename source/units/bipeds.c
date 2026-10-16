@@ -4332,8 +4332,8 @@ boolean biped_update(
 			biped_verify_object_vectors(biped_index, "post-turning");
 		}
 
-		/* port: a body in a multiplayer game falls as a ragdoll, which moves
-		it in place of its physics (game.ragdoll,
+		/* port: a body falls as a ragdoll, which moves it in place of its
+		physics (game.ragdoll_players, game.ragdoll_ai,
 		port/linux/game/biped_ragdoll.c), but for a network game's host's,
 		which moves as before and is only drawn as its ragdoll lies */
 		ragdoll = TEST_FLAG(biped->object.damage_flags, _object_dead_bit) &&

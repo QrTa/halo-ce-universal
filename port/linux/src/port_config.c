@@ -330,11 +330,23 @@ static const struct config_setting config_settings[] =
 		"to throw and reload, and a player turns with the aim while throwing;\n"
 		"false: the original animations, which freeze the legs and stand a\n"
 		"rider up." },
-	{ "game.ragdoll", _config_string, "\"woody\"", "HALO_RAGDOLL", _environment_value, _platform_all,
-		"How a body falls in a multiplayer game: \"woody\" (a ragdoll of light,\n"
-		"freely swinging limbs), \"halo2\" (a ragdoll as Halo 2's: a heavy torso,\n"
-		"limbs that keep out of it, joints that drag, thrown further by blasts)\n"
-		"or \"none\" (the original death animations). Each machine draws its own." },
+	{ "game.ragdoll", _config_string, "\"none\"", "HALO_RAGDOLL", _environment_value, _platform_all,
+		"The older ragdoll setting. When game.ragdoll_players or game.ragdoll_ai\n"
+		"is not in this file, that one takes this (\"woody\", \"halo2\" or \"none\").\n"
+		"A new file has \"none\", so both stay off. Once each has its own line,\n"
+		"this is not read." },
+	{ "game.ragdoll_players", _config_string, "\"none\"", "HALO_RAGDOLL_PLAYERS", _environment_value, _platform_all,
+		"How a player's body falls, in a campaign or a multiplayer game:\n"
+		"\"none\" (the original death animations), \"woody\" (a ragdoll of light,\n"
+		"freely swinging limbs) or \"halo2\" (a ragdoll as Halo 2's: a heavy\n"
+		"torso, limbs that keep out of it, joints that drag, thrown further by\n"
+		"blasts). Settings > Gameplay, or here. A cinematic keeps its own. On a\n"
+		"client, and in a game of one machine, the ragdoll moves the body; the\n"
+		"host of a network game leaves its bodies as the stock game moves them\n"
+		"and only draws them as their ragdolls lie. Each machine draws its own." },
+	{ "game.ragdoll_ai", _config_string, "\"none\"", "HALO_RAGDOLL_AI", _environment_value, _platform_all,
+		"How an AI's body falls, the same choices as game.ragdoll_players.\n"
+		"Settings > Gameplay, or here. A cinematic keeps its own." },
 	{ "game.custom_edition", _config_boolean, "true", "HALO_CUSTOM_EDITION", _environment_value, _platform_all,
 		"Load and run Halo Custom Edition maps (not those that need OpenSauce):\n"
 		"put them and Custom Edition's bitmaps.map, sounds.map and loc.map in\n"
@@ -657,8 +669,14 @@ static const struct config_setting config_settings[] =
 		"Aim with the gyroscope: the phone's on Android; on the Switch the\n"
 		"controller's, each local player from their own (a Pro Controller, the\n"
 		"console held in the hands, or one Joy-Con; of two, the right one).\n"
-		"\"false\" is the stick only, \"true\" adds the turn to the view, \"zoom\" adds\n"
-		"it only while the player is zoomed in, for fine aiming." },
+		"\"false\" is the stick only, \"true\" adds the turn to the view. \"zoom\" is\n"
+		"the same as \"true\" with input.gyro_zoom_only. Settings > Gamepads >\n"
+		"Gyro Aim, or here." },
+	{ "input.gyro_zoom_only", _config_boolean, "false", "HALO_GYRO_ZOOM_ONLY", _environment_value, _platform_android,
+		"While input.gyro_aim is on, the gyroscope turns the view only while the\n"
+		"player is zoomed in (a scope), for fine aiming. false: it aims all the\n"
+		"time it is on. An older input.gyro_aim of \"zoom\", with this line not yet\n"
+		"in the file, is read as this on." },
 	{ "input.gyro_sensitivity_horizontal", _config_real, "1.0", "HALO_GYRO_SENSITIVITY_HORIZONTAL",
 		_environment_value, _platform_android,
 		"How far the view turns left and right for the gyroscope, when\n"
@@ -913,13 +931,63 @@ static char *config_copy(const char *text, size_t length)
 	return copy;
 }
 
-/* one setting as the file holds it: its comment, and its key at the
-default */
-static void config_append_setting(struct config_text *text, const struct config_setting *setting)
+static int config_text_is_false(const char *text);
+static long config_setting_index(const char *name);
+
+/* the line "key = value": the setting's default, or, once the values are
+loaded, the value it already has when that is not the default (an older
+setting copied onto a new one) */
+static int config_values_ready;
+
+static int config_append_value_line(struct config_text *text, const struct config_setting *setting)
 {
 	const char *dot = strchr(setting->name, '.');
+	long index = config_setting_index(setting->name);
+	char buffer[300];
+	int at_default = 1;
+
+	if (config_values_ready && index >= 0 && setting->type == _config_string)
+	{
+		const char *def = setting->default_value;
+		size_t length = strlen(def);
+		const char *live = config_values[index].string ? config_values[index].string : "";
+
+		if (!(length >= 2 && def[0] == '"' && def[length - 1] == '"' &&
+			strlen(live) == length - 2 && !strncmp(live, def + 1, length - 2)))
+		{
+			char *end = buffer + snprintf(buffer, sizeof(buffer), "%s = \"", dot + 1);
+			const char *character;
+
+			at_default = 0;
+			for (character = live; *character && end < buffer + sizeof(buffer) - 3; character++)
+			{
+				if (*character == '"' || *character == '\\')
+					*end++ = '\\';
+				*end++ = *character;
+			}
+			strcpy(end, "\"\n");
+			config_append(text, buffer);
+			return at_default;
+		}
+	}
+	else if (config_values_ready && index >= 0 && setting->type == _config_boolean &&
+		config_values[index].boolean != !config_text_is_false(setting->default_value))
+	{
+		snprintf(buffer, sizeof(buffer), "%s = %s\n", dot + 1, config_values[index].boolean ? "true" : "false");
+		config_append(text, buffer);
+		return 0;
+	}
+	snprintf(buffer, sizeof(buffer), "%s = %s\n", dot + 1, setting->default_value);
+	config_append(text, buffer);
+	return at_default;
+}
+
+/* one setting as the file holds it: its comment, and its key */
+static int config_append_setting(struct config_text *text, const struct config_setting *setting)
+{
 	const char *line;
 	char buffer[256];
+	int at_default;
 
 	config_append(text, "\n");
 	for (line = setting->comment; *line;)
@@ -948,8 +1016,8 @@ static void config_append_setting(struct config_text *text, const struct config_
 	}
 	config_append(text, buffer);
 #endif
-	snprintf(buffer, sizeof(buffer), "%s = %s\n", dot + 1, setting->default_value);
-	config_append(text, buffer);
+	at_default = config_append_value_line(text, setting);
+	return at_default;
 }
 
 /* the file with every setting of this build at its default. Each section
@@ -1027,6 +1095,7 @@ static char *config_add_missing(const char *text, toml_datum_t table)
 		char header[40];
 		const char *line;
 		const char *insert = NULL;
+		int at_default = 1;
 
 		if (!(setting->platforms & CONFIG_PLATFORM) || !dot || toml_seek(table, setting->name).type != TOML_UNKNOWN)
 			continue;
@@ -1053,7 +1122,7 @@ static char *config_add_missing(const char *text, toml_datum_t table)
 		{
 			if (*insert)
 				insert++;
-			config_append_setting(&block, setting);
+			at_default = config_append_setting(&block, setting);
 		}
 		else
 		{
@@ -1062,7 +1131,7 @@ static char *config_add_missing(const char *text, toml_datum_t table)
 			config_append(&block, current[0] && insert[-1] != '\n' ? "\n\n" : "\n");
 			config_append(&block, header);
 			config_append(&block, "\n");
-			config_append_setting(&block, setting);
+			at_default = config_append_setting(&block, setting);
 		}
 		if (!block.buffer)
 			continue;
@@ -1082,7 +1151,8 @@ static char *config_add_missing(const char *text, toml_datum_t table)
 		{
 			free(result);
 			result = updated.buffer;
-			platform_log("settings: added %s (new in this version) at its default", setting->name);
+			platform_log("settings: added %s (new in this version)%s", setting->name,
+				at_default ? " at its default" : " from an older setting");
 		}
 	}
 	return result;
@@ -1321,6 +1391,49 @@ so the rest parses, or NULL */
 static char *config_repair_unreadable_lines(const char *text, const char *message, toml_result_t *parsed,
 	int *first_line);
 
+/* a string setting, replaced (the old one freed: callers of config_string
+hold the pointer only after load) */
+static void config_replace_string(const char *name, const char *text)
+{
+	long index = config_setting_index(name);
+	char *copy;
+
+	if (index < 0 || config_settings[index].type != _config_string || !text)
+		return;
+	copy = strdup(text);
+	if (!copy)
+		return;
+	free(config_values[index].string);
+	config_values[index].string = copy;
+}
+
+/* settings added after an older one that meant both: a file that has
+game.ragdoll and not game.ragdoll_players or game.ragdoll_ai gives that
+value to the one it lacks (a new file has both, at "none"). An older
+input.gyro_aim of "zoom", with input.gyro_zoom_only not yet in the file,
+is that setting on */
+static void config_apply_older_settings(toml_datum_t table)
+{
+	toml_datum_t legacy = toml_seek(table, "game.ragdoll");
+	toml_datum_t aim = toml_seek(table, "input.gyro_aim");
+	toml_datum_t zoom = toml_seek(table, "input.gyro_zoom_only");
+	long index;
+
+	if (legacy.type == TOML_STRING)
+	{
+		if (toml_seek(table, "game.ragdoll_players").type == TOML_UNKNOWN)
+			config_replace_string("game.ragdoll_players", legacy.u.s);
+		if (toml_seek(table, "game.ragdoll_ai").type == TOML_UNKNOWN)
+			config_replace_string("game.ragdoll_ai", legacy.u.s);
+	}
+	if (aim.type == TOML_STRING && !strcmp(aim.u.s, "zoom") && zoom.type == TOML_UNKNOWN)
+	{
+		index = config_setting_index("input.gyro_zoom_only");
+		if (index >= 0 && config_settings[index].type == _config_boolean)
+			config_values[index].boolean = 1;
+	}
+}
+
 static void config_load(void)
 {
 	char path[1024];
@@ -1344,6 +1457,7 @@ static void config_load(void)
 			config_set_from_text(&config_values[index], config_settings[index].type, default_value);
 		}
 	}
+	config_values_ready = 1;
 
 	config_path(path, sizeof(path));
 	text = config_read_file(path, &size);
@@ -1411,6 +1525,7 @@ static void config_load(void)
 			}
 			for (index = 0; index < NUMBER_OF_CONFIG_SETTINGS; index++)
 				config_set_from_file(&config_values[index], &config_settings[index], result.toptab);
+			config_apply_older_settings(result.toptab);
 			config_report_unknown_keys(result.toptab);
 			platform_log("settings: %s", path);
 			completed = config_add_missing(parsed, result.toptab);

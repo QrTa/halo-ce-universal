@@ -56,12 +56,16 @@ def test_negative_control(before, after, case):
     assert status == CHECK_FAILED, output
 
 
-def test_multiplayer_only():
-    # A ragdoll starts only in a multiplayer game (game_engine_running), and only as the setting has it.
-    enabled = function(read('port/linux/game/biped_ragdoll.c'), 'ragdoll_enabled')
-    style = function(read('port/linux/game/biped_ragdoll.c'), 'ragdoll_style')
-    assert 'config_string("game.ragdoll")' in style and 'game_engine_running()' in style
-    assert 'ragdoll_style() != _ragdoll_style_none' in enabled
+def test_ragdoll_where():
+    # The setting chooses the ragdoll in a campaign and in multiplayer. A cinematic, and a body marked as an
+    # actor in one, keep the scripted death.
+    source = read('port/linux/game/biped_ragdoll.c')
+    style = function(source, 'ragdoll_style')
+    should = function(source, 'ragdoll_should_start')
+    assert 'config_string("game.ragdoll_players")' in style and 'config_string("game.ragdoll_ai")' in style
+    assert 'player_index' in style and 'game_engine_running()' not in style
+    assert 'ragdoll_style(biped_index) != _ragdoll_style_none' in should
+    assert 'cinematic_in_progress()' in should and '_object_movie_star_bit' in should
 
 
 def test_host_word_skips_ragdolls():

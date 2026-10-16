@@ -7065,8 +7065,8 @@ void unit_damage_aftermath(
 		lethal &&
 		damage_definition->instantaneous_acceleration >= 2.f;
 
-	/* port: the killing blow pushes the ragdoll the body falls as in a
-	multiplayer game (port/linux/game/biped_ragdoll.c) */
+	/* port: the killing blow pushes the ragdoll the body falls as
+	(port/linux/game/biped_ragdoll.c) */
 	if (lethal)
 	{
 		biped_ragdoll_note_killing_blow(

@@ -3764,6 +3764,18 @@ static boolean ui_widget_load_children_recursive(
 	return result;
 }
 
+/* port: the main menu's background is the menu map, and it runs while the
+clock does. The settings screens pause that clock, which stops it. At the
+main menu they do not, so it keeps playing. In a game they still pause,
+which holds the pause the pause menu started. */
+static boolean main_menu_settings_screen(
+	long tag_index)
+{
+	char const *name = tag_get_name(tag_index);
+
+	return we_are_at_the_main_menu && name && strstr(name, "\\player_profile_edit\\");
+}
+
 static void widget_instance_initialize(
 	struct widget_instance *widget,
 	struct widget_instance *parent,
@@ -3789,9 +3801,10 @@ static void widget_instance_initialize(
 	widget->render_regardless_of_controller_index =
 		TEST_FLAG(definition->flags, _widget_render_regardless_of_controller_index_bit);
 	/* port: a network co-op game never pauses (it opens the campaign's pause
-	screen, which would) */
+	screen, which would); nor do the settings screens at the main menu
+	(main_menu_settings_screen) */
 	widget->pause_game_time = TEST_FLAG(definition->flags, _widget_pause_game_time_bit) &&
-		!network_coop_active();
+		!network_coop_active() && !main_menu_settings_screen(tag_index);
 	widget->creation_time = widget_globals.current_system_milliseconds;
 	widget->milliseconds_to_auto_close = MAX(definition->milliseconds_to_auto_close, 0);
 	widget->auto_close_fade_time = MAX(definition->auto_close_fade_time, 0);

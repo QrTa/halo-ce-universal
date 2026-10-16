@@ -1,8 +1,8 @@
 /*
 BIPED_RAGDOLL.H
 
-A body in a multiplayer game falls as a ragdoll (biped_ragdoll.c,
-game.ragdoll).
+A body falls as a ragdoll (biped_ragdoll.c, game.ragdoll_players and
+game.ragdoll_ai), in a campaign or a multiplayer game.
 */
 
 #ifndef BIPED_RAGDOLL_H
@@ -11,7 +11,7 @@ game.ragdoll).
 /* a dead biped's tick (bipeds.c): TRUE when its ragdoll moves the body, in
 place of its physics and its dying animation (FALSE where it is only drawn:
 hosting a network game); it starts one for a biped that has just died in a
-multiplayer game */
+game (not during a cinematic) */
 boolean biped_ragdoll_update(long biped_index);
 /* whether this machine has a ragdoll for the body, which the host's word on
 where it is doesn't move (network_objects.c) */

@@ -1,9 +1,10 @@
 /*
 BIPED_RAGDOLL.C
 
-A body in a multiplayer game falls as a ragdoll (game.ragdoll), from the tick
-its unit dies, in place of its dying animation and the limp body it lies as
-afterwards (bipeds.c, biped_limp_noodle.c). "woody" is the ragdoll below;
+A body falls as a ragdoll (game.ragdoll_players, game.ragdoll_ai), in a
+campaign or a multiplayer game, from the tick its unit dies, in place of
+its dying animation and the limp body it lies as afterwards (bipeds.c,
+biped_limp_noodle.c). "woody" is the ragdoll below;
 "halo2" one after Halo 2's (Havok's, as its physics models describe them:
 rigid bodies of some size with friction in their joints), a heavy torso,
 limbs with a particle midway along each that keep out of the torso and each
@@ -39,8 +40,8 @@ The weapons it drops are the host's, as before.
 */
 
 #include "cseries.h"
+#include "cutscene/cinematics.h"
 #include "game/game.h"
-#include "game/game_engine.h"
 #include "math/real_math.h"
 #include "models/model_definitions.h"
 #include "objects/objects.h"
@@ -82,7 +83,7 @@ enum
 	RAGDOLL_BLOW_TICKS = 2,
 };
 
-/* game.ragdoll: how a body falls */
+/* game.ragdoll_players and game.ragdoll_ai: how a body falls */
 enum
 {
 	_ragdoll_style_none = 0,
@@ -247,28 +248,34 @@ static boolean ragdolls_initialized = FALSE;
 
 /* ---------- private code */
 
-/* game.ragdoll's style, in a multiplayer game; none elsewhere */
+/* a setting's style; none leaves the original death animations */
+static short ragdoll_named(
+	char const *name)
+{
+	return !strcmp(name, "halo2") ? _ragdoll_style_halo2 :
+		!strcmp(name, "woody") ? _ragdoll_style_woody : _ragdoll_style_none;
+}
+
+/* the body's style: a player's (game.ragdoll_players) or the AI's
+(game.ragdoll_ai). none for anything that is not a biped */
 static short ragdoll_style(
-	void)
+	long biped_index)
 {
 	static unsigned long changes = (unsigned long)-1;
-	static short style = _ragdoll_style_none;
+	static short players = _ragdoll_style_none;
+	static short ai = _ragdoll_style_none;
+	struct biped_datum *biped;
 
 	if (changes != config_changes())
 	{
-		char const *name = config_string("game.ragdoll");
-
 		changes = config_changes();
-		style = !strcmp(name, "halo2") ? _ragdoll_style_halo2 :
-			!strcmp(name, "woody") ? _ragdoll_style_woody : _ragdoll_style_none;
+		players = ragdoll_named(config_string("game.ragdoll_players"));
+		ai = ragdoll_named(config_string("game.ragdoll_ai"));
 	}
-	return game_engine_running() ? style : _ragdoll_style_none;
-}
-
-static boolean ragdoll_enabled(
-	void)
-{
-	return ragdoll_style() != _ragdoll_style_none;
+	biped = biped_try_and_get(biped_index);
+	if (!biped)
+		return _ragdoll_style_none;
+	return biped->unit.player_index != NONE ? players : ai;
 }
 
 static void ragdolls_initialize(
@@ -1317,7 +1324,11 @@ static boolean ragdoll_should_start(
 	struct biped_definition *definition = biped_definition_get(biped->definition_index);
 	long now = game_time_get();
 
-	return ragdoll_enabled() &&
+	/* a cinematic, and a body the scene marks as an actor, keep the
+	scripted death */
+	if (cinematic_in_progress() || TEST_FLAG(biped->object.flags, _object_movie_star_bit))
+		return FALSE;
+	return ragdoll_style(biped_index) != _ragdoll_style_none &&
 		TEST_FLAG(biped->object.damage_flags, _object_dead_bit) &&
 		biped->object.parent_object_index == NONE &&
 		biped->unit.time_of_death != NONE &&
@@ -1659,7 +1670,7 @@ boolean biped_ragdoll_update(
 		if (!ragdoll_should_start(biped_index))
 			return FALSE;
 		ragdoll = ragdoll_new(biped_index);
-		ragdoll->style = ragdoll_style();
+		ragdoll->style = ragdoll_style(biped_index);
 		if (!ragdoll_build(ragdoll, biped_index))
 		{
 			ragdoll->object_index = NONE;
@@ -1727,7 +1738,7 @@ void biped_ragdoll_note_killing_blow(
 {
 	struct ragdoll_blow *blow;
 
-	if (!ragdoll_enabled())
+	if (ragdoll_style(unit_index) == _ragdoll_style_none)
 		return;
 	ragdolls_initialize();
 	blow = &ragdoll_blows[ragdoll_next_blow];
