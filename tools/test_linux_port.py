@@ -345,7 +345,7 @@ def test_config_sections_join(tmp_path):
     flags = _platform_compile_flags("build/linux/obj/port/linux/src/port_config.o")
     program = tmp_path / "config_sections_check"
     built = subprocess.run(["clang", *flags, "-O1", "-no-pie", "-Wl,--unresolved-symbols=ignore-all",
-                            "-DHALO_ANDROID", "-DHALO_SWITCH", "-DHALO_ARM64_GUEST", "-DHALO_CONFIG_SECTIONS_TEST",
+                            "-DHALO_ANDROID", "-DHALO_SWITCH", "-DHALO_GUEST", "-DHALO_CONFIG_SECTIONS_TEST",
                             "-o", str(program), "port/linux/src/port_config.c",
                             "port/third_party/tomlc17/tomlc17.c"],
                            capture_output=True, text=True)
@@ -441,7 +441,7 @@ def test_config_has_each_section_once(tmp_path):
         shutil.copy(root / "port/linux/src" / name, stubs / name)
     (tmp_path / "main.c").write_text(CONFIG_PROGRAM)
     program = tmp_path / "config_program"
-    subprocess.run([compiler, "-DHALO_ANDROID=1", "-DHALO_ARM64_GUEST=1", f"-I{stubs}",
+    subprocess.run([compiler, "-DHALO_ANDROID=1", "-DHALO_GUEST=1", f"-I{stubs}",
                     f"-I{root}/port/third_party/tomlc17", "-o", str(program),
                     str(tmp_path / "main.c"), str(stubs / "port_config.c"),
                     str(root / "port/third_party/tomlc17/tomlc17.c"), "-lpthread"], check=True)

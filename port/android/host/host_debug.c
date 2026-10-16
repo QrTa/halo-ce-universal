@@ -4,9 +4,9 @@ HOST_DEBUG.C
 A sampler for finding where the guest spends its time (or hangs) on a
 device without root, where debuggerd cannot attach: with sample_seconds in
 config.toml's [debug], every guest thread is interrupted that often and its program
-counter, link register and frame chain are written to logcat. The addresses
-symbolize against build/android/halo_guest.elf (llvm-symbolizer
---obj=build/android/halo_guest.elf 0x...).
+counter, link register (none on x86-64) and frame chain are written to the
+log (host_arch.c reads them). The addresses symbolize against the build's
+halo_guest.elf (llvm-symbolizer --obj=build/android/halo_guest.elf 0x...).
 
 A second mode profiles (debug.profile_hz in config.toml's [debug]): every guest
 thread is interrupted that many times a second, the handler writes the
@@ -31,9 +31,7 @@ tools/android_profile_report.py reads it (port/android/VULKAN.md, step 6).
 #include <string.h>
 #include <sys/mman.h>
 #include <sys/syscall.h>
-#include <sys/uio.h>
 #include <time.h>
-#include <ucontext.h>
 #include <unistd.h>
 
 #define MAXIMUM_THREADS 64
@@ -44,6 +42,7 @@ static pthread_mutex_t threads_lock = PTHREAD_MUTEX_INITIALIZER;
 
 void host_debug_thread_started(void)
 {
+	static int overflow_logged;
 	int index;
 
 	pthread_mutex_lock(&threads_lock);
@@ -54,6 +53,11 @@ void host_debug_thread_started(void)
 			guest_threads[index] = gettid();
 			break;
 		}
+	}
+	if (index == MAXIMUM_THREADS && !overflow_logged)
+	{
+		overflow_logged = 1;
+		host_logf(HOST_LOG_WARN, "more than %d guest threads: the sampler leaves the others out", MAXIMUM_THREADS);
 	}
 	pthread_mutex_unlock(&threads_lock);
 }
@@ -70,16 +74,6 @@ void host_debug_thread_exited(void)
 			guest_threads[index] = 0;
 	}
 	pthread_mutex_unlock(&threads_lock);
-}
-
-/* Reads 16 bytes (a frame record) at an address of the guest without a lock and without faulting: the
-kernel says no for an address that is not mapped. A signal handler may not take the memory lock
-(host_low_owns does) that the thread it interrupted may hold. */
-static int read_memory(uint64_t address, void *out, size_t size)
-{
-	struct iovec local = { out, size }, remote = { (void *)address, size };
-
-	return syscall(SYS_process_vm_readv, getpid(), &local, 1, &remote, 1, 0) == (long)size;
 }
 
 /* ---- the profiling ring */
@@ -100,11 +94,11 @@ static uint64_t profile_capacity; /* a power of two */
 static uint64_t profile_head;
 static volatile uint64_t profile_dropped;
 
-static void profile_record(const struct sigcontext *registers)
+static void profile_record(const void *context)
 {
 	uint64_t index = __atomic_fetch_add(&profile_head, 1, __ATOMIC_RELAXED) & (profile_capacity - 1);
 	struct profile_sample *sample = &profile_ring[index];
-	uint64_t fp = registers->regs[29];
+	uint64_t pc, sp, fp, lr;
 	int depth = 0;
 
 	if (__atomic_load_n(&sample->tid, __ATOMIC_ACQUIRE))
@@ -113,57 +107,59 @@ static void profile_record(const struct sigcontext *registers)
 		__atomic_fetch_add(&profile_dropped, 1, __ATOMIC_RELAXED);
 		return;
 	}
-	sample->pc = registers->pc;
-	sample->lr = registers->regs[30];
-	/* in a system call (blocked, or only just back): the instruction before the pc is svc #0 */
+	host_arch_context(context, &pc, &sp, &fp, &lr);
+	sample->pc = pc;
+	sample->lr = lr;
+	/* in a system call (blocked, or only just back): the instruction before
+	the pc is AArch64's svc #0, or x86-64's syscall */
 	{
+#if defined(__aarch64__)
 		uint32_t before = 0;
 
-		sample->reserved = registers->pc >= 4 && read_memory(registers->pc - 4, &before, 4) && before == 0xd4000001u;
+		sample->reserved = pc >= 4 && host_arch_read_memory(pc - 4, &before, 4) && before == 0xd4000001u;
+#else
+		uint16_t before = 0;
+
+		sample->reserved = pc >= 2 && host_arch_read_memory(pc - 2, &before, 2) && before == 0x050fu;
+#endif
 	}
 	for (depth = 0; depth < PROFILE_FRAMES; depth++)
 		sample->frames[depth] = 0;
-	for (depth = 0; depth < PROFILE_FRAMES && fp && fp < 0x100000000ULL && !(fp & 7); depth++)
-	{
-		uint64_t frame[2];
-
-		if (!read_memory(fp, frame, 16))
-			break;
-		sample->frames[depth] = frame[1];
-		if (frame[0] <= fp)
-			break;
-		fp = frame[0];
-	}
+	host_arch_walk_frames(fp, host_arch_read_memory, sample->frames, PROFILE_FRAMES);
 	__atomic_store_n(&sample->tid, (uint32_t)gettid(), __ATOMIC_RELEASE);
 }
 
+/* (a signal handler: it formats into its own buffer, the log's sink
+neither locks nor uses stdio, and the frame walk copies each record without
+faulting, whatever the frame pointer register held: host_arch.c) */
 static void sample_handler(int signal_number, siginfo_t *information, void *context)
 {
-	const ucontext_t *ucontext = context;
-	const struct sigcontext *registers = (const struct sigcontext *)&ucontext->uc_mcontext;
 	char line[512];
-	int length, depth;
-	uint64_t fp = registers->regs[29];
+	uint64_t pc, sp, fp, lr;
+	uint64_t returns[12];
+	int length, count, index;
+	int saved_errno = errno;
 
 	(void)signal_number;
 	if (information->si_code == SI_QUEUE && information->si_value.sival_int == PROFILE_TAG)
 	{
-		profile_record(registers);
+		profile_record(context);
+		errno = saved_errno;
 		return;
 	}
-	length = snprintf(line, sizeof(line), "sample tid %d: pc %llx lr %llx", gettid(),
-		(unsigned long long)registers->pc, (unsigned long long)registers->regs[30]);
-	for (depth = 0; depth < 12 && fp && fp < 0x100000000ULL && !(fp & 7) && host_low_owns(fp, 16); depth++)
-	{
-		const uint64_t *frame = (const uint64_t *)fp;
-
-		length += snprintf(line + length, sizeof(line) - length, " %llx", (unsigned long long)frame[1]);
-		if (frame[0] <= fp)
-			break;
-		fp = frame[0];
-	}
-	host_logf(HOST_LOG_INFO, "%s", line);
+	host_arch_context(context, &pc, &sp, &fp, &lr);
+	length = snprintf(line, sizeof(line), "sample tid %d: pc %llx lr %llx", (int)gettid(),
+		(unsigned long long)pc, (unsigned long long)lr);
+	count = host_arch_walk_frames(fp, host_arch_read_memory, returns, (int)(sizeof(returns) / sizeof(returns[0])));
+	for (index = 0; index < count && length > 0 && (size_t)length < sizeof(line); index++)
+		length += snprintf(line + length, sizeof(line) - length, " %llx", (unsigned long long)returns[index]);
+	host_log(HOST_LOG_INFO, line);
+	/* (the interrupted code may be between a call and its errno check) */
+	errno = saved_errno;
 }
+
+/* the time between samples */
+static struct timespec sample_interval;
 
 static void install_sample_handler(void)
 {
@@ -182,14 +178,15 @@ static void install_sample_handler(void)
 
 static void *sampler(void *context)
 {
-	unsigned int seconds = (unsigned int)(uintptr_t)context;
-
+	(void)context;
 	for (;;)
 	{
 		pid_t threads[MAXIMUM_THREADS];
+		struct timespec remaining = sample_interval;
 		int index;
 
-		sleep(seconds);
+		while (nanosleep(&remaining, &remaining) != 0 && errno == EINTR)
+			;
 		pthread_mutex_lock(&threads_lock);
 		memcpy(threads, guest_threads, sizeof(threads));
 		pthread_mutex_unlock(&threads_lock);
@@ -205,14 +202,22 @@ static void *sampler(void *context)
 void host_debug_start_sampler(const char *setting)
 {
 	pthread_t thread;
-	unsigned int seconds = setting ? (unsigned int)atoi(setting) : 0;
+	/* (a real number of seconds, as the setting is: 0.5 is twice a second) */
+	double seconds = setting ? strtod(setting, NULL) : 0.0;
 
-	if (!seconds)
+	if (!(seconds > 0.0))
 		return;
+	/* (at most a hundred samples a second, and at least one a day) */
+	if (seconds < 0.01)
+		seconds = 0.01;
+	if (seconds > 86400.0)
+		seconds = 86400.0;
+	sample_interval.tv_sec = (time_t)seconds;
+	sample_interval.tv_nsec = (long)((seconds - (double)sample_interval.tv_sec) * 1e9);
 	install_sample_handler();
-	if (pthread_create(&thread, NULL, sampler, (void *)(uintptr_t)seconds) == 0)
+	if (pthread_create(&thread, NULL, sampler, NULL) == 0)
 		pthread_detach(thread);
-	host_logf(HOST_LOG_INFO, "sampling guest threads every %u s", seconds);
+	host_logf(HOST_LOG_INFO, "sampling guest threads every %g s", seconds);
 }
 
 /* ---- the profiler's threads */

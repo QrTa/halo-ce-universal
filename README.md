@@ -265,6 +265,8 @@ To build the game:
 | Target | Result |
 | --- | --- |
 | `ninja linux` | `build/linux/halo` |
+| `ninja linux_arm64` (on 64-bit ARM Linux) | `build/linux_arm64/halo` and `libSDL3.so.0` |
+| `ninja linux_x86_64` (on 64-bit x86 Linux, after `python configure.py --linux-x86-64`) | `build/linux_x86_64/halo` and `libSDL3.so.0` |
 | `ninja windows` (on Windows) | `build/windows/halo.exe` and `SDL3.dll` |
 | `ninja android_apk` | `port/android/app/build/outputs/apk/debug/app-debug.apk` |
 | `ninja switch` | `build/switch/halo.nro` and `build/switch/halo_guest.elf` |
@@ -286,7 +288,7 @@ sudo dkp-pacman -S --needed devkitA64 libnx switch-sdl2 switch-mesa switch-libdr
 ELF is the game image it loads from the card.
 
 If you enter `ninja` without a target, ninja builds the game for the
-computer that you use.
+computer that you use: on 64-bit x86 Linux, the x86 build (`ninja linux`).
 
 `tools/ci_build.py` makes the same builds as GitHub Actions. For example,
 enter `python tools/ci_build.py linux release`.

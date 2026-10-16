@@ -30,14 +30,23 @@ void __guest_thread_initialize_main(void);
 
 extern char **__environ;
 
-/* where the host put the Xbox memory window (port/linux/src/platform.h) */
+#ifdef HALO_ANDROID
+/* where the host put the Xbox memory window (port/linux/src/platform.h; the
+desktop guests' is where it was linked) */
 extern unsigned long platform_contiguous_base;
 extern unsigned long platform_contiguous_size;
+#endif
 /* how far the host moved this image from where it was linked
 (halo_port_window.h) */
 unsigned long platform_image_shift;
 
+/* (first in the image, guest.ld; a Mach-O section name for a guest whose
+assembly is converted to ELF's, which names it .guest_header) */
+#ifdef HALO_GUEST_MACHO
 __attribute__((section("__TEXT,__guest_header"), used))
+#else
+__attribute__((section(".guest_header"), used))
+#endif
 const struct halo_guest_header __guest_header =
 {
 	HALO_GUEST_MAGIC,
@@ -65,8 +74,10 @@ void __guest_start(const struct halo_guest_boot *boot)
 	libc.page_size = boot->page_size;
 	libc.auxv = (size_t *)"\0\0\0\0\0\0\0";
 	__environ = (char **)boot->environment;
+#ifdef HALO_ANDROID
 	platform_contiguous_base = boot->contiguous_base;
 	platform_contiguous_size = boot->contiguous_size;
+#endif
 	platform_image_shift = boot->image_shift;
 	__guest_thread_initialize_main();
 

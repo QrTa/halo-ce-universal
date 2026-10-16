@@ -15,13 +15,14 @@ maps/) is the app's external files directory,
 /sdcard/Android/data/<package>/files, where the launcher activity copies it
 on first run; saves go to its save/ subdirectory. The settings,
 config.toml, live there too (port/linux/src/port_config.c, which the game
-reads); this file reads only debug.sample_seconds and debug.profile_hz from
-it, for the samplers that run here, and debug.vk_probe, which runs the
+reads); the host reads its debugging settings (host_common.c), and this
+file debug.profile_hz, for the profiler, and debug.vk_probe, which runs the
 Vulkan probe (host_vk_probe.c) instead of the game, on the driver that
 display.vk_driver names (host_vk_driver.c). It also reads display.renderer, to
 choose between the two game images (halo_guest.elf, drawing with OpenGL ES,
 and halo_guest_vk.elf, with Vulkan: port/android/VULKAN.md), and
-debug.vk_validation for the Vulkan renderer.
+debug.vk_validation for the Vulkan renderer. The log is logcat's, tag
+"halo".
 */
 
 #include "host.h"
@@ -31,69 +32,21 @@ debug.vk_validation for the Vulkan renderer.
 #include <SDL3/SDL_main.h>
 #include <android/log.h>
 #include <jni.h>
-#include <errno.h>
 #include <ftw.h>
-#include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/system_properties.h>
-#include <sys/mman.h>
 #include <sys/stat.h>
-#include <time.h>
 #include <unistd.h>
 
-void host_install_signal_handlers(void);
+/* ---------- the log: logcat */
 
 int host_renderer_vulkan;
 
-/* ---------- logging and termination */
-
-void host_logf(int priority, const char *format, ...)
+static void log_to_logcat(int priority, const char *line)
 {
-	va_list arguments;
-
-	va_start(arguments, format);
-	__android_log_vprint(priority, "halo", format, arguments);
-	va_end(arguments);
-}
-
-void host_log(int priority, const char *text)
-{
-	__android_log_write(priority, "halo", text);
-}
-
-void host_fatal(const char *format, ...)
-{
-	char message[1024];
-	va_list arguments;
-
-	va_start(arguments, format);
-	vsnprintf(message, sizeof(message), format, arguments);
-	va_end(arguments);
-	__android_log_write(ANDROID_LOG_FATAL, "halo", message);
-	SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Halo", message, NULL);
-	_exit(1);
-}
-
-void host_abort(const char *reason)
-{
-	__android_log_print(ANDROID_LOG_FATAL, "halo", "guest abort: %s", reason);
-	abort();
-}
-
-void host_exit(int code)
-{
-	host_logf(HOST_LOG_INFO, "the game exited (%d)", code);
-	host_vk_exit();
-	/* the process ends with the game; Android restarts it from the
-	launcher next time */
-	_exit(code);
-}
-
-int host_errno(void)
-{
-	return errno;
+	__android_log_write(priority, "halo", line);
 }
 
 /* ---------- paths */
@@ -135,15 +88,7 @@ static void share_save_tree(const char *root)
 	nftw(root, share_entry, 16, FTW_PHYS);
 }
 
-/* ---------- the guest's environment */
-
-#define ENVIRONMENT_MAXIMUM 64
-
-struct environment
-{
-	char *entries[ENVIRONMENT_MAXIMUM];
-	int count;
-};
+/* ---------- the system's gesture edges */
 
 /* asks the activity for Android's system gesture insets via JNI
 (HaloActivity.getSystemGestureInsetsPixels); the guest calls it at every
@@ -191,33 +136,9 @@ void host_gesture_insets(int *insets)
 	}
 }
 
-static void environment_set(struct environment *environment, const char *name, const char *value)
-{
-	size_t length = strlen(name);
-	char *entry;
-	int index;
-
-	entry = malloc(length + strlen(value) + 2);
-	sprintf(entry, "%s=%s", name, value);
-	for (index = 0; index < environment->count; index++)
-	{
-		if (!strncmp(environment->entries[index], name, length) && environment->entries[index][length] == '=')
-		{
-			free(environment->entries[index]);
-			environment->entries[index] = entry;
-			return;
-		}
-	}
-	if (environment->count < ENVIRONMENT_MAXIMUM)
-		environment->entries[environment->count++] = entry;
-	else
-		free(entry);
-}
-
 /* the settings of [debug] that this file reads, from config.toml */
 struct host_settings
 {
-	char sample_seconds[32]; /* as text for the sampler; empty for none */
 	int profile_hz;
 	char vk_probe[128]; /* empty: the game runs */
 	char vk_driver[256]; /* display.vk_driver: empty (the default) for the phone's own driver, "auto", or an archive */
@@ -241,7 +162,6 @@ static void config_read(const char *path, struct host_settings *settings)
 		return;
 	}
 	{
-		toml_datum_t seconds = toml_seek(result.toptab, "debug.sample_seconds");
 		toml_datum_t hz = toml_seek(result.toptab, "debug.profile_hz");
 		toml_datum_t probe = toml_seek(result.toptab, "debug.vk_probe");
 		toml_datum_t driver = toml_seek(result.toptab, "display.vk_driver");
@@ -250,11 +170,7 @@ static void config_read(const char *path, struct host_settings *settings)
 		toml_datum_t statistics = toml_seek(result.toptab, "debug.gpu_stats");
 		toml_datum_t marker = toml_seek(result.toptab, "debug.vk_present_marker");
 		toml_datum_t self_test = toml_seek(result.toptab, "debug.vk_self_test");
-		double value = seconds.type == TOML_FP64 ? seconds.u.fp64 :
-			seconds.type == TOML_INT64 ? (double)seconds.u.int64 : 0.0;
 
-		if (value > 0.0)
-			snprintf(settings->sample_seconds, sizeof(settings->sample_seconds), "%g", value);
 		if (hz.type == TOML_INT64 && hz.u.int64 > 0)
 			settings->profile_hz = hz.u.int64 > 10000 ? 10000 : (int)hz.u.int64;
 		if (probe.type == TOML_STRING)
@@ -271,25 +187,6 @@ static void config_read(const char *path, struct host_settings *settings)
 	toml_free(result);
 }
 
-/* a boolean setting of config.toml (a dotted name), or otherwise when the
-file, the setting or a boolean is missing */
-static int config_boolean_or(const char *path, const char *name, int otherwise)
-{
-	toml_result_t result = toml_parse_file_ex(path);
-	int value = otherwise;
-
-	if (!result.ok)
-		return otherwise;
-	{
-		toml_datum_t datum = toml_seek(result.toptab, name);
-
-		if (datum.type == TOML_BOOLEAN)
-			value = datum.u.boolean ? 1 : 0;
-	}
-	toml_free(result);
-	return value;
-}
-
 /* Whether the app runs through an ARM translator. The x86 emulator runs the
 app's ARM code through one, which ro.dalvik.vm.native.bridge names; it
 cannot deliver the page faults of the write tracking to the app
@@ -300,57 +197,6 @@ static int native_bridge_active(void)
 
 	__system_property_get("ro.dalvik.vm.native.bridge", value);
 	return value[0] && strcmp(value, "0") != 0;
-}
-
-/* POSIX TZ for the current local offset (the guest's musl has no zone
-database) */
-static void time_zone(char *buffer, size_t size)
-{
-	time_t now = time(NULL);
-	struct tm local;
-	long offset;
-
-	localtime_r(&now, &local);
-	offset = -local.tm_gmtoff;
-	snprintf(buffer, size, "<L>%s%ld:%02ld", offset < 0 ? "-" : "", labs(offset) / 3600, (labs(offset) / 60) % 60);
-}
-
-/* copies argv and the environment into guest memory */
-static uint32_t make_boot(const struct environment *environment)
-{
-	size_t size = 0x10000;
-	char *memory = host_low_map(size, PROT_READ | PROT_WRITE);
-	struct halo_guest_boot *boot = (struct halo_guest_boot *)memory;
-	uint32_t *argv = (uint32_t *)(memory + sizeof(*boot));
-	uint32_t *environ_list = argv + 2;
-	char *strings = (char *)(environ_list + ENVIRONMENT_MAXIMUM + 1);
-	int index;
-
-	if (!memory)
-		host_fatal("cannot allocate the guest's environment");
-	strcpy(strings, "halo");
-	argv[0] = (uint32_t)(uintptr_t)strings;
-	argv[1] = 0;
-	strings += strlen(strings) + 1;
-	for (index = 0; index < environment->count; index++)
-	{
-		size_t length = strlen(environment->entries[index]) + 1;
-
-		if (strings + length > memory + size)
-			break;
-		memcpy(strings, environment->entries[index], length);
-		environ_list[index] = (uint32_t)(uintptr_t)strings;
-		strings += length;
-	}
-	environ_list[index] = 0;
-	boot->argc = 1;
-	boot->argv = (uint32_t)(uintptr_t)argv;
-	boot->environment = (uint32_t)(uintptr_t)environ_list;
-	boot->page_size = (uint32_t)getpagesize();
-	boot->contiguous_base = host_memory_window_base();
-	boot->contiguous_size = host_memory_window_size();
-	boot->image_shift = host_image.shift;
-	return (uint32_t)(uintptr_t)boot;
 }
 
 /* ---------- main */
@@ -364,7 +210,7 @@ translated or when debug.memory_watch is false), and runs the guest's main;
 never returns normally */
 static void *game_main(void *unused)
 {
-	struct environment environment = { { 0 }, 0 };
+	struct host_environment environment = { { 0 }, 0 };
 	const char *external;
 	char zone[64];
 	char path[600];
@@ -391,11 +237,11 @@ static void *game_main(void *unused)
 			"the folder that contains maps, into\n%s\nor import it from the launcher screen.", data_root);
 	}
 
-	environment_set(&environment, "HOME", save_root);
-	environment_set(&environment, "HALO_DATA_ROOT", data_root);
-	environment_set(&environment, "HALO_SAVE_ROOT", save_root);
-	time_zone(zone, sizeof(zone));
-	environment_set(&environment, "TZ", zone);
+	host_environment_set(&environment, "HOME", save_root);
+	host_environment_set(&environment, "HALO_DATA_ROOT", data_root);
+	host_environment_set(&environment, "HALO_SAVE_ROOT", save_root);
+	host_time_zone(zone, sizeof(zone));
+	host_environment_set(&environment, "TZ", zone);
 	/* internet play's MQTT brokers (network.brokers_file): the APK's list,
 	written beside config.toml at each start, as a desktop update replaces
 	the file beside its game */
@@ -487,7 +333,7 @@ static void *game_main(void *unused)
 			int shorter = mode->w > mode->h ? mode->h : mode->w;
 
 			snprintf(width, sizeof(width), "%d", (480 * longer / shorter) & ~1);
-			environment_set(&environment, "HALO_DISPLAY_WIDTH", width);
+			host_environment_set(&environment, "HALO_DISPLAY_WIDTH", width);
 			host_logf(HOST_LOG_INFO, "display %dx%d: rendering %sx480", mode->w, mode->h, width);
 		}
 		{
@@ -499,7 +345,7 @@ static void *game_main(void *unused)
 			if (density > 0.0f)
 			{
 				snprintf(text, sizeof(text), "%g", density);
-				environment_set(&environment, "HALO_DISPLAY_DENSITY", text);
+				host_environment_set(&environment, "HALO_DISPLAY_DENSITY", text);
 				host_logf(HOST_LOG_INFO, "display density %s", text);
 			}
 		}
@@ -551,26 +397,12 @@ static void *game_main(void *unused)
 		host_logf(HOST_LOG_INFO, "running the Vulkan probe (%s) instead of the game", settings.vk_probe);
 		host_vk_probe_run(settings.vk_probe, data_root, settings.vk_driver);
 	}
-	if (native_bridge_active())
-	{
-		host_memory_watch_use_hashes();
-		host_logf(HOST_LOG_INFO, "write tracking: page hashes (ARM translation)");
-	}
-	else if (!config_boolean_or(path, "debug.memory_watch", 1))
-	{
-		host_memory_watch_use_hashes();
-		host_logf(HOST_LOG_INFO, "write tracking: page hashes (debug.memory_watch = false)");
-	}
-	else
-	{
-		host_logf(HOST_LOG_INFO, "write tracking: page protection");
-	}
-	if (settings.sample_seconds[0])
-		host_debug_start_sampler(settings.sample_seconds);
+	/* (the sampler and the write tracking: host_common.c) */
+	host_apply_debug_settings(path, native_bridge_active() ? "ARM translation" : NULL);
 	host_debug_start_profiler(settings.profile_hz, data_root);
 	host_vk_present_marker = settings.vk_present_marker;
 	host_vk_self_test = settings.vk_self_test;
-	boot = make_boot(&environment);
+	boot = host_make_boot(&environment, "halo");
 	host_logf(HOST_LOG_INFO, "data %s, saves %s", data_root, save_root);
 	host_run_guest_main(boot);
 }
@@ -583,6 +415,8 @@ JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void *reserved)
 {
 	(void)vm;
 	(void)reserved;
+	/* (before main: what the reservation finds goes to logcat too) */
+	host_log_set_sink(log_to_logcat);
 	host_memory_reserve_early();
 	return JNI_VERSION_1_6;
 }
@@ -591,9 +425,10 @@ int main(int argc, char *argv[])
 {
 	(void)argc;
 	(void)argv;
+	host_log_set_sink(log_to_logcat);
 	host_logf(HOST_LOG_INFO, "Halo for Android starting");
 	host_install_signal_handlers();
-
+	host_signal_stack_install();
 	if (host_native_thread_create(game_main, NULL, MAIN_STACK_SIZE) != 0)
 		host_fatal("cannot start the game thread");
 	/* the game ends the process itself (host_exit) */

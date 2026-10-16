@@ -529,6 +529,8 @@ Commands are written here over a frame and handed to the host half
 host reads them during the call and nothing later. */
 
 void host_vk_submit(unsigned int commands, unsigned int size);
+/* the highest submission the GPU has finished (imported, not yet called) */
+unsigned int host_vk_retired(void);
 /* the shader service (host_vk_shaders.c; the imports pass a 64-bit hash in one register) */
 void host_vk_shader_compile(uint32_t stage, uint64_t hash, uint32_t glsl, uint32_t glsl_size);
 uint32_t host_vk_shader_find(uint32_t stage, uint64_t hash, uint32_t status_out);
