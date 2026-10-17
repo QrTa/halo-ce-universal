@@ -232,7 +232,7 @@
 		<string text="On: an actor's weapon is swapped for one it\ncan hold; one that can hold none keeps its own."/>
 		<string text="Which weapons an actor may be given. An actor\nthat can hold none of them keeps its own."/>
 		<string text="Only enemies that can hold it get it; others\nkeep theirs (Go Crazy lends them the hands)."/>
-		<string text="On: flamethrowers, engineers and sentinels join\nthe pools; enemies hold any weapon they get."/>
+		<string text="Any NPC can hold any weapon, but may not use it\nwell. Adds unused NPCs and multiplayer weapons."/>
 	</strings>
 	<widget name="main_menu/difficulty_select/randomizer/profiles_screen" width="640" height="480" flags="pass_unhandled_to_focused_child pause_game" bitmap="bitmaps/gradient">
 		<on event="b" back="true"/>

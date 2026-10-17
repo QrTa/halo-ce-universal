@@ -414,12 +414,13 @@ static const struct config_setting config_settings[] =
 		"The randomizer screen, when the enemy weapon pool is \"one\": a choice\n"
 		"of game.randomizer_pickup_type, \"fuel_rod\" or \"energy_sword\"." },
 	{ "game.randomizer_crazy", _config_boolean, "false", "HALO_RANDOMIZER_CRAZY", _environment_value, _platform_all,
-		"The randomizer screen's Go Crazy. true: the flamethrower is in the\n"
-		"weapon pools of more than one weapon, the engineers and the sentinels\n"
-		"in the enemy pools, and an actor given a weapon it has no animations\n"
-		"for holds it with a near one's (a marine's plasma pistol as its\n"
-		"pistol, an elite's shotgun as its plasma rifle). false: an actor keeps\n"
-		"its own weapon instead." },
+		"The randomizer screen's Go Crazy. true: any NPC can hold any weapon,\n"
+		"but might not know how to use it (one with no animations for it holds\n"
+		"it as a near weapon: a marine's plasma pistol as its pistol, an elite's\n"
+		"shotgun as its plasma rifle). The unused NPCs (engineers, sentinels)\n"
+		"join the enemy pools, and the multiplayer-only flamethrower the weapon\n"
+		"pools of more than one weapon. Things might not go as smooth. false: an\n"
+		"actor keeps its own weapon instead." },
 	{ "game.randomizer_profile_1", _config_string, "\"\"", "HALO_RANDOMIZER_PROFILE_1", _environment_value, _platform_all,
 		"The randomizer screen's saved setups (Save, then Load), one a setting:\n"
 		"a name, then the screen's settings, separated by semicolons. Written by\n"

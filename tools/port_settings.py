@@ -695,7 +695,7 @@ RANDOMIZER_ROWS = [
      RANDOMIZER_WEAPONS + [("FUEL ROD", "fuel_rod"), ("ENERGY SWORD", "energy_sword")],
      "Only enemies that can hold it get it; others\\nkeep theirs (Go Crazy lends them the hands)."),
     ("crazy", "GO CRAZY:", "game.randomizer_crazy", OFF_ON,
-     "On: flamethrowers, engineers and sentinels join\\nthe pools; enemies hold any weapon they get."),
+     "Any NPC can hold any weapon, but may not use it\\nwell. Adds unused NPCs and multiplayer weapons."),
 ]
 
 

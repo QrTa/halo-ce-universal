@@ -833,13 +833,18 @@ static void campaign_levels_read(struct player_profile const *profile)
 		campaign.saved_level = NONE;
 }
 
-/* plays the map, at the difficulty (a saved game in it goes on: main.c's
-main_new_map, if its difficulty is this one) */
-static void campaign_start(char const *map_name, short difficulty, short controller)
+/* plays the map, at the difficulty. Continue and Load Game go on with a
+saved game in it (main.c's main_new_map, if its difficulty is this one);
+New Game (fresh) starts the level again, as the next level does
+(ui_set_next_level): the randomizer's setup, changed since the save, would
+otherwise have no say */
+static void campaign_start(char const *map_name, short difficulty, short controller, boolean fresh)
 {
 	if (player_spawn_count < 2)
 		player_ui_set_single_player_local_player_controller(0, controller);
 	main_set_map_name(map_name);
+	if (fresh)
+		main_disallow_persistent_storage();
 	main_set_difficulty(difficulty);
 	game_connection_set(0);
 	main_menu_switch_to_single_player();
@@ -946,7 +951,7 @@ static boolean campaign_continue(short controller)
 
 	if (!campaign_profile(controller, &profile) || !ui_widget_port_saved_game(&map_name, &level, &difficulty))
 		return campaign_fail();
-	campaign_start(map_name, difficulty, controller);
+	campaign_start(map_name, difficulty, controller, FALSE);
 	return TRUE;
 }
 
@@ -1531,7 +1536,7 @@ static boolean level_choose(struct widget_instance *list, short controller)
 
 		if (!map_name || !campaign_profile(controller, &profile))
 			return campaign_fail();
-		campaign_start(map_name, main_get_difficulty(), controller);
+		campaign_start(map_name, main_get_difficulty(), controller, TRUE);
 		return FALSE;
 	}
 	if (level_list.kind == MAP_KIND_CUSTOM_SINGLEPLAYER)
@@ -1893,7 +1898,7 @@ static boolean randomizer_profile_delete_event(struct widget_instance *widget)
 static boolean randomizer_ok(struct widget_instance *widget)
 {
 	settings_each(screen_of(widget), setting_changed_save);
-	campaign_start(main_get_map_name(), randomizer_menu.difficulty, randomizer_menu.controller);
+	campaign_start(main_get_map_name(), randomizer_menu.difficulty, randomizer_menu.controller, TRUE);
 	return TRUE;
 }
 
@@ -2063,7 +2068,7 @@ static boolean difficulty_start(struct widget_instance *widget, short difficulty
 			return TRUE;
 		}
 	}
-	campaign_start(map_name, difficulty, controller);
+	campaign_start(map_name, difficulty, controller, TRUE);
 	return TRUE;
 }
 
@@ -2189,7 +2194,7 @@ static boolean saved_game_continue(short controller)
 	if (!player_profile_get(saved_game->profile_index, &profile))
 		return campaign_fail();
 	player_ui_set_active_player_profile(0, saved_game->profile_index, &profile);
-	campaign_start(main_get_solo_level_name(saved_game->level), saved_game->difficulty, controller);
+	campaign_start(main_get_solo_level_name(saved_game->level), saved_game->difficulty, controller, FALSE);
 	return TRUE;
 }
 
