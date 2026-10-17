@@ -31,11 +31,9 @@ SND = struct.unpack(">I", b"snd!")[0]
 HEAD = struct.unpack(">I", b"head")[0]
 TAGS = struct.unpack(">I", b"tags")[0]
 
-# bitmap_group.pixel_data is a tag_data at 0x30 (size, then file_offset at +8).
-# On these caches that size is 0: the pixels are named by each bitmap_data
-# in the bitmaps block at 0x60. The game reads file_offset + pixels_offset.
-PIXEL_SIZE = 0x30
-PIXEL_OFFSET = 0x38
+# bitmap_group.pixel_data is a tag_data at 0x30. On these caches its size is 0
+# and its file_offset is not a pixel base. Each bitmap_data in the bitmaps
+# block at 0x60 names its own pixels, and the cache reads that pixels_offset.
 BITMAPS_COUNT = 0x60
 BITMAPS_ADDRESS = 0x64
 BITMAP_DATA = 0x30
@@ -161,7 +159,7 @@ def keep_bytes(group, name):
             "levels\\", "sky\\", "ui\\", "rasterizer\\", "scenery\\", "cinematics\\"))
     if group == SND:
         return not name.startswith((
-            "sound\\music\\", "sound\\sinomatixx", "sound\\sfx\\ambience\\"))
+            "sound\\music\\", "sound\\sfx\\ambience\\"))
     return True
 
 
@@ -197,13 +195,11 @@ def collect(blob, file_length):
             if base + BITMAPS_ADDRESS + 4 > len(blob):
                 continue
             bitmaps += 1
-            file_off = i32(blob, base + PIXEL_OFFSET)
-            add_range(ranges, file_length, file_off, i32(blob, base + PIXEL_SIZE))
             bitmap_count = i32(blob, base + BITMAPS_COUNT)
             bitmap_at = locate(blob, u32(blob, base + BITMAPS_ADDRESS))
             if bitmap_at is None or bitmap_count <= 0 or bitmap_count > 512:
                 continue
-            if bitmap_at + bitmap_count * BITMAP_DATA > len(blob) or file_off < 0:
+            if bitmap_at + bitmap_count * BITMAP_DATA > len(blob):
                 continue
             for bitmap in range(bitmap_count):
                 rec = bitmap_at + bitmap * BITMAP_DATA
@@ -218,10 +214,7 @@ def collect(blob, file_length):
                 read = bitmap_bytes(width, height, depth, kind, fmt, flags, mipmaps)
                 if read > need:
                     need = read
-                start = file_off + pixels_offset
-                if start < file_off:
-                    continue
-                add_range(ranges, file_length, start, need)
+                add_range(ranges, file_length, pixels_offset, need)
         elif group == SND:
             if base + PITCH_ADDRESS + 4 > len(blob):
                 continue

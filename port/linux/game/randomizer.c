@@ -10,9 +10,11 @@ machine. A bitmap's pixels and a sound's samples are read from
 maps/randomizer.pack when that file is there (tools/randomizer_pack.py);
 otherwise from the other map.
 
-The choice is a hash of the map, the setup and the placement, so a
-checkpoint reloads the same level. A starting location with a command list,
-and a squad named by a conversation, keep the actor the level gave them. A
+The choice is a hash of the map, the setup, the placement and a roll made
+when the level loads, so starting it again is a different layout. A
+checkpoint reloads the saved actors, not the tags. A starting location with
+a command list, and a squad named by a conversation, keep the actor the
+level gave them. A
 weapon a script names is left where it was.
 
 Off unless game.randomizer is on, and only for the ten campaign levels. A
@@ -28,6 +30,7 @@ setup the host advertised, not its own.
 #include "cseries/errors.h"
 #include "ai/actor_definitions.h"
 #include "ai/ai_scenario_definitions.h"
+#include "bitmaps/bitmap_group.h"
 #include "cache/cache_files.h"
 #include "game/game.h"
 #include "interface/progress_bar.h"
@@ -40,6 +43,7 @@ setup the host advertised, not its own.
 #include "rasterizer/rasterizer_geometry.h"
 #include "scenario/scenario.h"
 #include "scenario/scenario_definitions.h"
+#include "sound/sound_definitions.h"
 #include "tag_files/tag_files.h"
 #include "tag_files/tag_groups.h"
 #include "units/units.h"
@@ -250,6 +254,19 @@ static long grown_count;
 static long import_absolute[IMPORT_MAX];
 static short import_donor[IMPORT_MAX];
 static long import_count;
+/* how many copied bitmap and sound ranges the pack does not hold, and what
+the reads during play actually returned. The detail lines stop after a few
+dozen so a level does not fill the log */
+static long resource_checked;
+static long resource_uncovered;
+static long resource_empty;
+static long resource_logged;
+static long donor_reads;
+static long donor_misses;
+static long donor_logged;
+static int donor_saw_bitmap;
+static int donor_saw_sound;
+static unsigned char donor_noted[IMPORT_MAX];
 static long variant_pool[POOL_MAX];
 static long variant_count;
 static long weapon_pool[WEAPON_MAX];
@@ -260,7 +277,10 @@ static struct setup current;
 static int loaded;
 static char map_name_leaf[32];
 static int remote_on;
-static unsigned char remote_setup[3];
+/* three setup bytes, then the host's placement roll (little endian) */
+static unsigned char remote_setup[7];
+static unsigned long placement_roll;
+static int placement_roll_ready;
 static void *map_widget;
 static wchar_t prefixed_title[96];
 
@@ -1154,12 +1174,45 @@ static int pack_read_tags(struct donor *donor, struct pack_entry *entry)
 	return 1;
 }
 
-static void pack_copy(struct donor *donor, long offset, long size, void *buffer)
+/* 1 when one pack range holds the whole read, -1 when it holds the start
+only, 0 when the offset is not in any range */
+static int span_covers(struct donor *donor, long offset, long size)
+{
+	long low;
+	long high;
+	struct pack_span *span;
+
+	if (!donor || !donor->from_pack || !donor->spans || donor->span_count <= 0 || offset < 0 || size <= 0)
+		return 0;
+	low = 0;
+	high = donor->span_count;
+	while (low < high)
+	{
+		long mid = low + (high - low) / 2;
+
+		if (donor->spans[mid].file_offset <= offset)
+			low = mid + 1;
+		else
+			high = mid;
+	}
+	if (low == 0)
+		return 0;
+	span = donor->spans + (low - 1);
+	if (span->size <= 0 || offset < span->file_offset || offset >= span->file_offset + span->size)
+		return 0;
+	if (size > span->file_offset + span->size - offset)
+		return -1;
+
+	return 1;
+}
+
+static long pack_copy(struct donor *donor, long offset, long size, void *buffer)
 {
 	unsigned char *out = buffer;
+	long filled = 0;
 
 	if (!donor->spans || donor->span_count <= 0 || !pack_file || pack_file == INVALID_HANDLE_VALUE)
-		return;
+		return 0;
 	while (size > 0)
 	{
 		long low = 0;
@@ -1178,23 +1231,26 @@ static void pack_copy(struct donor *donor, long offset, long size, void *buffer)
 				high = mid;
 		}
 		if (low == 0)
-			return;
+			return filled;
 		span = donor->spans + (low - 1);
 		if (span->size <= 0 || offset < span->file_offset || offset >= span->file_offset + span->size)
-			return;
+			return filled;
 		into = offset - span->file_offset;
 		have = span->size - into;
 		if (have > size)
 			have = size;
 		if (span->data_at < 0 || into < 0)
-			return;
+			return filled;
 		if (!donor_file_at(pack_file, span->data_at + into) ||
 			!donor_file_read(pack_file, out, (unsigned long)have))
-			return;
+			return filled;
 		offset += have;
 		size -= have;
 		out += have;
+		filled += have;
 	}
+
+	return filled;
 }
 
 /* the tag bytes only. datum_of stays, so a tag found while the file was open
@@ -1625,6 +1681,100 @@ static void import_progress_end(void)
 	import_progress_open = 0;
 }
 
+/* a copied bitmap's or sound's file range, checked against the pack before
+the tag bytes are dropped. A miss here is a black texture or an empty sample */
+static void note_range(struct donor *donor, char const *kind, char const *name, long index, long offset, long size)
+{
+	int cover;
+	long probe;
+
+	if (size < 0)
+		size = 0;
+	probe = size > 0 ? size : 1;
+	cover = span_covers(donor, offset, probe);
+	resource_checked++;
+	if (size <= 0)
+		resource_empty++;
+	if (cover == 1)
+		return;
+	resource_uncovered++;
+	if (resource_logged >= 48)
+		return;
+	resource_logged++;
+	error(_error_silent, "randomizer: %s '%s' #%ld offset %ld size %ld %s (%s.map, %ld ranges)",
+		kind, name ? name : "?", index, offset, size,
+		cover < 0 ? "only partly in the pack" : "not in the pack",
+		donor->leaf, donor->span_count);
+}
+
+static void note_bitmap(struct donor *donor, char const *name, void *root)
+{
+	struct bitmap_group *group = root;
+	long index;
+	long count;
+
+	if (!group)
+		return;
+	count = group->bitmaps.count;
+	/* the pixels are at pixels_offset. pixel_data.file_offset is not a base
+	on these caches (adding it lands off the pixels, and the blocks come out
+	as noise). A loaded map never adds it; clear it so nothing does later */
+	if (count > 256)
+		count = 256;
+	for (index = 0; index < count; index++)
+	{
+		struct bitmap_data *bitmap;
+
+		bitmap = tag_block_get_element_with_size(&group->bitmaps, index, sizeof(*bitmap));
+		if (!bitmap)
+			continue;
+		note_range(donor, "bitm", name, index, bitmap->pixels_offset, bitmap->pixels_size);
+	}
+	group->pixel_data.file_offset = 0;
+}
+
+static void note_sound(struct donor *donor, char const *name, void *root, long datum)
+{
+	struct sound_definition *sound = root;
+	long range_index;
+	long range_count;
+
+	if (!sound)
+		return;
+	range_count = sound->pitch_ranges.count;
+	if (range_count > 64)
+		range_count = 64;
+	for (range_index = 0; range_index < range_count; range_index++)
+	{
+		struct sound_pitch_range *range;
+		long permutation_index;
+		long permutation_count;
+
+		range = tag_block_get_element_with_size(&sound->pitch_ranges, range_index, sizeof(*range));
+		if (!range)
+			continue;
+		permutation_count = range->permutations.count;
+		if (permutation_count > 256)
+			permutation_count = 256;
+		for (permutation_index = 0; permutation_index < permutation_count; permutation_index++)
+		{
+			struct sound_permutation *permutation;
+
+			permutation = tag_block_get_element_with_size(
+				&range->permutations, permutation_index, sizeof(*permutation));
+			if (!permutation)
+				continue;
+			/* the sample read goes through cache_tag_index (unknown2). A
+			loaded map's check writes this sound's tag there; a copy still
+			names the donor's, so the read never reaches the pack */
+			permutation->unknown2 = (unsigned long)datum;
+			permutation->unknown3 = (unsigned long)datum;
+			note_range(donor, "snd!", name, permutation_index,
+				permutation->samples.file_offset, permutation->samples.size);
+		}
+	}
+}
+
 static void import_wanted(void)
 {
 	long existing = 0;
@@ -1636,6 +1786,10 @@ static void import_wanted(void)
 
 	copying = -1;
 	failed = -1;
+	resource_checked = 0;
+	resource_uncovered = 0;
+	resource_empty = 0;
+	resource_logged = 0;
 	if (!instances || wanted_count <= 0)
 		return;
 	if (wanted_count > IMPORT_MAX)
@@ -1722,9 +1876,13 @@ static void import_wanted(void)
 		memcpy(root, root_source, (unsigned long)schema->size);
 		strcpy(name_copy, name);
 		copy_fields(donor, root, schema, 0);
+		if (source->group_tag == BITMAP_GROUP_TAG)
+			note_bitmap(donor, name, root);
 		if (source->group_tag == 'mode')
 			bind_model(donor, root);
 		datum = (salt << 16) | grown_count;
+		if (source->group_tag == SOUND_DEFINITION_TAG)
+			note_sound(donor, name, root, datum);
 		dest = grown_instances + grown_count;
 		memset(dest, 0, sizeof(*dest));
 		dest->group_tag = source->group_tag;
@@ -1745,6 +1903,8 @@ static void import_wanted(void)
 	}
 	import_progress(wanted_count, wanted_count);
 	import_progress_end();
+	error(_error_silent, "randomizer: %ld pixel and sample ranges, %ld not in the pack, %ld empty",
+		resource_checked, resource_uncovered, resource_empty);
 	for (index = 0; index < donor_count; index++)
 		release_donor_blob(donors + index);
 	for (index = 0; index < copied_count; index++)
@@ -1906,10 +2066,35 @@ static int squad_is_protected(char const *name)
 	return 0;
 }
 
+/* a fresh load of a mission. A checkpoint revert does not load the tags
+again, so the actors already placed keep this roll */
+static void placement_roll_new(void)
+{
+	static unsigned long salt;
+
+	salt++;
+	placement_roll = mix(system_milliseconds() ^ salt);
+	if (!placement_roll)
+		placement_roll = 1;
+	placement_roll_ready = 1;
+	error(_error_silent, "randomizer: roll %08lx", placement_roll);
+}
+
+static void placement_roll_from_remote(void)
+{
+	placement_roll = (unsigned long)remote_setup[3] |
+		((unsigned long)remote_setup[4] << 8) |
+		((unsigned long)remote_setup[5] << 16) |
+		((unsigned long)remote_setup[6] << 24);
+	placement_roll_ready = 1;
+	error(_error_silent, "randomizer: roll %08lx", placement_roll);
+}
+
 static unsigned long placement_seed(long encounter_index, long squad_index, long location_index, float const *position)
 {
 	unsigned long seed = mix_text(0x524E444DUL, map_name_leaf);
 
+	seed = mix(seed ^ placement_roll);
 	seed = mix(seed ^ (unsigned long)current.enemies);
 	seed = mix(seed ^ ((unsigned long)current.pickups << 1));
 	seed = mix(seed ^ ((unsigned long)current.weapons << 2));
@@ -1978,6 +2163,7 @@ void randomizer_tags_loaded(char const *scenario_name)
 {
 	struct network_game *game = network_game_get_game();
 	char leaf[32];
+	int index;
 
 	randomizer_tags_unloaded();
 	if (!campaign_leaf(scenario_name, leaf, sizeof(leaf)))
@@ -1987,6 +2173,7 @@ void randomizer_tags_loaded(char const *scenario_name)
 		if (!remote_on)
 			return;
 		setup_from_remote(&current);
+		placement_roll_from_remote();
 	}
 	else
 	{
@@ -1998,18 +2185,25 @@ void randomizer_tags_loaded(char const *scenario_name)
 		return;
 	if (!setup_swaps(&current))
 		return;
+	if (!network_game_distributed_client() && !placement_roll_ready)
+		placement_roll_new();
 	snprintf(map_name_leaf, sizeof(map_name_leaf), "%s", leaf);
 	import_campaign(leaf);
 	error(_error_silent, "randomizer: gathering actors already in %s", leaf);
 	build_pools();
 	build_protected();
 	loaded = 1;
-	{
-		int index;
-
-		for (index = 0; index < donor_count; index++)
-			close_donor_bytes(donors + index);
-	}
+	/* the tag blobs are already gone. The pack ranges stay until the level
+	unloads: bitmap pixels and sound samples are read from them in play */
+	donor_reads = 0;
+	donor_misses = 0;
+	donor_logged = 0;
+	donor_saw_bitmap = 0;
+	donor_saw_sound = 0;
+	memset(donor_noted, 0, sizeof(donor_noted));
+	for (index = 0; index < donor_count; index++)
+		error(_error_silent, "randomizer: %s.map keeps %ld pack ranges",
+			donors[index].leaf, donors[index].from_pack ? donors[index].span_count : 0);
 	if (wanted)
 		free(wanted);
 	wanted = NULL;
@@ -2018,6 +2212,11 @@ void randomizer_tags_loaded(char const *scenario_name)
 
 void randomizer_tags_unloaded(void)
 {
+	/* the level is going away. The next start, or the next advertisement
+	before it, rolls again. The cleanup at the start of a load finds this
+	already clear */
+	if (loaded)
+		placement_roll_ready = 0;
 	donors_close();
 	held_free();
 	if (saved_instances)
@@ -2042,10 +2241,99 @@ void randomizer_tags_unloaded(void)
 	map_widget = NULL;
 }
 
+static void fourcc_text(long group, char text[5])
+{
+	int index;
+
+	text[0] = (char)((group >> 24) & 0xFF);
+	text[1] = (char)((group >> 16) & 0xFF);
+	text[2] = (char)((group >> 8) & 0xFF);
+	text[3] = (char)(group & 0xFF);
+	text[4] = 0;
+	for (index = 0; index < 4; index++)
+	{
+		if (text[index] < 32 || text[index] > 126)
+			text[index] = '?';
+	}
+}
+
+static int leading_zero(void const *buffer, long size)
+{
+	unsigned char const *bytes = buffer;
+	long index;
+	long check;
+
+	check = size;
+	if (check > 32)
+		check = 32;
+	if (check <= 0)
+		return 1;
+	for (index = 0; index < check; index++)
+	{
+		if (bytes[index] != 0)
+			return 0;
+	}
+
+	return 1;
+}
+
+static void log_donor_read(struct donor *donor, long slot, long absolute, long offset, long size, long filled,
+	void const *buffer)
+{
+	long tags = 0;
+	struct cache_file_tag_instance *instances;
+	char const *name;
+	long group;
+	char kind[5];
+	int miss;
+	int zero;
+	int named;
+	int detail;
+
+	donor_reads++;
+	miss = filled < size;
+	if (miss)
+		donor_misses++;
+	instances = cache_files_tag_instances(&tags);
+	name = "?";
+	group = 0;
+	if (instances && absolute >= 0 && absolute < tags)
+	{
+		if (instances[absolute].name)
+			name = instances[absolute].name;
+		group = instances[absolute].group_tag;
+	}
+	fourcc_text(group, kind);
+	zero = !miss && leading_zero(buffer, filled);
+	named = name && (strstr(name, "elite") || strstr(name, "carrier"));
+	detail = miss || zero || named ||
+		(group == BITMAP_GROUP_TAG && !donor_saw_bitmap) ||
+		(group == SOUND_DEFINITION_TAG && !donor_saw_sound);
+	if (named && slot >= 0 && slot < IMPORT_MAX && donor_noted[slot] && !miss && !zero)
+		detail = 0;
+	if (detail && donor_logged < 64)
+	{
+		donor_logged++;
+		if (slot >= 0 && slot < IMPORT_MAX)
+			donor_noted[slot] = 1;
+		if (!miss && group == BITMAP_GROUP_TAG)
+			donor_saw_bitmap = 1;
+		if (!miss && group == SOUND_DEFINITION_TAG)
+			donor_saw_sound = 1;
+		error(_error_silent, "randomizer: %s %s '%s' offset %ld size %ld filled %ld donor %s (%ld ranges)",
+			miss ? (filled == 0 ? "miss" : "short") : (zero ? "zero" : "ok"),
+			kind, name, offset, size, filled, donor->leaf, donor->from_pack ? donor->span_count : 0);
+	}
+	if (donor_reads == 1 || donor_misses == 1 || (donor_reads % 200) == 0)
+		error(_error_silent, "randomizer: resource reads %ld, misses %ld", donor_reads, donor_misses);
+}
+
 int randomizer_donor_read(long tag_index, long offset, long size, void *buffer)
 {
 	long absolute;
 	long index;
+	long filled;
+	long asked;
 	struct donor *donor;
 
 	if (!loaded || tag_index == NONE || !buffer || offset < 0 || size < 0)
@@ -2060,31 +2348,36 @@ int randomizer_donor_read(long tag_index, long offset, long size, void *buffer)
 		return 0;
 	donor = donors + import_donor[index];
 	memset(buffer, 0, (unsigned long)size);
-	if (offset >= donor->file_length)
-		return 1;
-	if (size > donor->file_length - offset)
-		size = donor->file_length - offset;
-	if (donor->from_pack)
+	asked = size;
+	filled = 0;
+	if (offset < donor->file_length)
 	{
-		pack_copy(donor, offset, size, buffer);
-		return 1;
+		if (size > donor->file_length - offset)
+			size = donor->file_length - offset;
+		if (donor->from_pack)
+			filled = pack_copy(donor, offset, size, buffer);
+		else if (donor->file && donor->file != INVALID_HANDLE_VALUE)
+		{
+			if (!donor->compressed)
+			{
+				if (donor_file_at(donor->file, offset) &&
+					donor_file_read(donor->file, buffer, (unsigned long)size))
+					filled = size;
+			}
+			else if (offset >= 0x800)
+			{
+				if (inflate_span(donor->file, offset, size, buffer))
+					filled = size;
+			}
+			else if (offset + size <= 0x800)
+			{
+				if (donor_file_at(donor->file, offset) &&
+					donor_file_read(donor->file, buffer, (unsigned long)size))
+					filled = size;
+			}
+		}
 	}
-	if (!donor->file || donor->file == INVALID_HANDLE_VALUE)
-		return 1;
-	if (!donor->compressed)
-	{
-		if (!donor_file_at(donor->file, offset))
-			return 1;
-		donor_file_read(donor->file, buffer, (unsigned long)size);
-		return 1;
-	}
-	if (offset >= 0x800)
-		inflate_span(donor->file, offset, size, buffer);
-	else if (offset + size <= 0x800)
-	{
-		if (donor_file_at(donor->file, offset))
-			donor_file_read(donor->file, buffer, (unsigned long)size);
-	}
+	log_donor_read(donor, index, absolute, offset, asked, filled, buffer);
 
 	return 1;
 }
@@ -2109,7 +2402,12 @@ long randomizer_actor_variant(long original, long encounter_index, long squad_in
 	encounter_block = DATUM_INDEX_TO_ABSOLUTE_INDEX(encounter_index);
 	encounter = scenario ? tag_block_get_element_with_size(&scenario->ai_encounters, encounter_block, sizeof(*encounter)) :
 		NULL;
-	squad = encounter ? tag_block_get_element_with_size(&encounter->squads, squad_index, sizeof(*squad)) : NULL;
+	if (!encounter)
+		return original;
+	/* marines who fight with the player stay the actors the level gave them */
+	if (encounter->team_index == _game_team_player || encounter->team_index == _game_team_human)
+		return original;
+	squad = tag_block_get_element_with_size(&encounter->squads, squad_index, sizeof(*squad));
 	if (!squad)
 		return original;
 	if (squad_is_protected(squad->name))
@@ -2145,24 +2443,67 @@ long randomizer_weapon_definition(long definition_index, void *scenario_object)
 	return picked == NONE ? definition_index : picked;
 }
 
+/* weapons some actor variant of this unit actually carries. A flood combat
+form then cannot be handed a flamethrower it has no firing for */
+static long carried_weapons(long unit_definition, long *weapons, long capacity)
+{
+	long tags = 0;
+	struct cache_file_tag_instance *instances;
+	long index;
+	long count;
+
+	count = 0;
+	if (unit_definition == NONE || !weapons || capacity <= 0)
+		return 0;
+	instances = cache_files_tag_instances(&tags);
+	for (index = 0; instances && index < tags && count < capacity; index++)
+	{
+		struct actor_variant_definition *variant;
+		long weapon;
+		long seen;
+
+		if (instances[index].group_tag != ACTOR_VARIANT_DEFINITION_TAG)
+			continue;
+		variant = actor_variant_definition_get(instances[index].tag_index);
+		if (!variant || variant->unit_reference.index != unit_definition)
+			continue;
+		weapon = variant->ranged_combat.reference.index;
+		if (weapon == NONE || !tag_index_is_group(weapon, WEAPON_DEFINITION_TAG))
+			continue;
+		for (seen = 0; seen < count; seen++)
+		{
+			if (weapons[seen] == weapon)
+				break;
+		}
+		if (seen == count)
+			weapons[count++] = weapon;
+	}
+
+	return count;
+}
+
 long randomizer_enemy_weapon(long weapon_definition, long unit_index, long attempt)
 {
 	struct unit_datum *unit;
+	long carried[WEAPON_MAX];
+	long carried_count;
 	unsigned long seed;
-	long picked;
 
-	(void)unit_index;
 	if (!loaded || !current.weapons || weapon_count <= 0)
 		return attempt == 0 ? weapon_definition : NONE;
 	if (attempt < 0 || attempt >= 8)
 		return NONE;
 	unit = unit_try_and_get(unit_index);
+	if (!unit)
+		return attempt == 0 ? weapon_definition : NONE;
+	carried_count = carried_weapons(unit->definition_index, carried, WEAPON_MAX);
+	if (carried_count <= 0)
+		return attempt == 0 ? weapon_definition : NONE;
 	/* the place it spawned, not the unit's index: a checkpoint's unit is a
 	new one, and the weapon has to be the one it had */
-	seed = placement_seed(weapon_definition, 0, attempt, unit ? &unit->object.position.x : NULL);
-	picked = pool_pick(weapon_pool, weapon_count, seed);
+	seed = placement_seed(weapon_definition, 0, attempt, &unit->object.position.x);
 
-	return picked == NONE ? weapon_definition : picked;
+	return pool_pick(carried, carried_count, seed);
 }
 
 void randomizer_advertisement(unsigned char *reserved)
@@ -2178,12 +2519,18 @@ void randomizer_advertisement(unsigned char *reserved)
 	setup_from_config(&setup);
 	if (!setup_swaps(&setup))
 		return;
+	if (!placement_roll_ready)
+		placement_roll_new();
 	reserved[HALO_PORT_ADVERTISED_FLAGS_OFFSET] =
 		(unsigned char)(reserved[HALO_PORT_ADVERTISED_FLAGS_OFFSET] | HALO_PORT_ADVERTISED_RANDOMIZER_FLAG);
 	reserved[HALO_PORT_ADVERTISED_RANDOMIZER_SETUP_OFFSET] =
 		(unsigned char)((setup.enemies ? 1 : 0) | (setup.pickups ? 2 : 0) | (setup.weapons ? 4 : 0));
 	reserved[HALO_PORT_ADVERTISED_RANDOMIZER_SETUP_OFFSET + 1] = (unsigned char)setup.pool;
 	reserved[HALO_PORT_ADVERTISED_RANDOMIZER_SETUP_OFFSET + 2] = (unsigned char)setup.type;
+	reserved[HALO_PORT_ADVERTISED_RANDOMIZER_ROLL_OFFSET] = (unsigned char)placement_roll;
+	reserved[HALO_PORT_ADVERTISED_RANDOMIZER_ROLL_OFFSET + 1] = (unsigned char)(placement_roll >> 8);
+	reserved[HALO_PORT_ADVERTISED_RANDOMIZER_ROLL_OFFSET + 2] = (unsigned char)(placement_roll >> 16);
+	reserved[HALO_PORT_ADVERTISED_RANDOMIZER_ROLL_OFFSET + 3] = (unsigned char)(placement_roll >> 24);
 }
 
 void randomizer_set_remote(int on, unsigned char const *setup)

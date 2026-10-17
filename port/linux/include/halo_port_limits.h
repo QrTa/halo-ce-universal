@@ -65,10 +65,8 @@ client does not join a host of another version, but tells the player which
 is newer (network_client_manager.c). A host advertises it, with its netcode,
 in its game's advertisement's reserved bytes (network_server_message_handler.c),
 which hosts built before there was a version send as zeros: version 0.
-Raise it with any change to what the machines send each other, or to
-anything they must agree on. 30 copies a randomized campaign's tags in map
-order, so every machine appends them at the same indices. */
-#define HALO_PORT_NETWORK_VERSION 30
+Raise it with any change to what the machines send each other. */
+#define HALO_PORT_NETWORK_VERSION 29
 /* ... the advertisement's reserved bytes: the version (a little-endian word),
 then flags */
 #define HALO_PORT_ADVERTISED_VERSION_OFFSET 0
@@ -83,10 +81,13 @@ the menus show it before joining it (hosts built before then never set it) */
 are which swaps are on (bit 0 enemies, bit 1 weapon pickups, bit 2 the
 weapons actors carry), the pool (0 any, 1 covenant, 2 flood, 3 human, 4 one
 type) and that type (0 grunt, 1 elite, 2 jackal, 3 hunter, 4 flood combat,
-5 flood carrier, 6 marine). A build that cannot run it leaves its join's
-capability clear and is refused only for this game */
+5 flood carrier, 6 marine). The next four bytes are the placement roll, a
+little-endian unsigned long, so a client lays out the level the host did.
+A build that cannot run it leaves its join's capability clear and is refused
+only for this game */
 #define HALO_PORT_ADVERTISED_RANDOMIZER_FLAG 0x04
 #define HALO_PORT_ADVERTISED_RANDOMIZER_SETUP_OFFSET 3
+#define HALO_PORT_ADVERTISED_RANDOMIZER_ROLL_OFFSET 6
 
 /* a message header's 12-bit length allows messages of up to 0xFFF bytes,
 header included; the per-tick update of 128 players is 3,857 */

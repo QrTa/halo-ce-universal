@@ -806,7 +806,9 @@ static struct
 {
 	word version;
 	byte flags;
-	byte setup[3];
+	/* port: the three setup bytes and the four-byte placement roll
+	(port/linux/game/randomizer.c) */
+	byte setup[7];
 } network_game_client_advertised_versions[MAXIMUM_NETWORK_ADVERTISED_GAMES];
 /* the advertised game this machine is joining, so a later advertisement
 can replace the setup it was given */
