@@ -357,6 +357,11 @@ static const struct config_setting config_settings[] =
 	{ "game.randomizer_enemies", _config_boolean, "true", "HALO_RANDOMIZER_ENEMIES", _environment_value, _platform_all,
 		"The randomizer screen. true: a squad's actors are taken from the\n"
 		"pool, except one with a command list or in a conversation." },
+	{ "game.randomizer_allies", _config_boolean, "false", "HALO_RANDOMIZER_ALLIES", _environment_value, _platform_all,
+		"The randomizer screen, with game.randomizer_enemies. true: the marines\n"
+		"and crew who fight beside the player are swapped too (a scene that\n"
+		"seats them in a vehicle may then leave it empty). false: they stay\n"
+		"the actors the level gave them." },
 	{ "game.randomizer_pickups", _config_boolean, "true", "HALO_RANDOMIZER_PICKUPS", _environment_value, _platform_all,
 		"The randomizer screen. true: a weapon lying in the level is swapped\n"
 		"for another, except one a script names." },

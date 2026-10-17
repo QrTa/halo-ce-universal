@@ -36,4 +36,20 @@ wchar_t const *randomizer_level_title_text(void *widget, wchar_t const *string);
 /* whether the game this machine is in, or is hosting, is randomized */
 int randomizer_show_prefix(void);
 
+/* maps/randomizer.pack, written from the campaign maps (randomizer_pack.c),
+behind the loading screen's bar. 1 when it was */
+int randomizer_pack_build(void);
+
+/* the pack is there and matches the maps */
+int randomizer_pack_ready(void);
+
+/* the pack is wanted (game.randomizer turned on): a notice, then, at the
+main menu, the pack written. Nothing when it is ready */
+void randomizer_pack_request(void);
+
+/* a campaign map's header, as the pack records it. 0 when the map is not
+there or is not an Xbox map */
+int randomizer_pack_map_header(char const *leaf, long *file_length, long *tag_offset, long *tag_size,
+	int *compressed);
+
 #endif /* __RANDOMIZER_H */

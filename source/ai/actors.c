@@ -2690,6 +2690,8 @@ long actor_place(
 	struct object_placement_data placement_data;
 	char encounter_name[256];
 	long unit_index;
+	/* port: the unit the squad gave, before the randomizer's swap */
+	long original_unit_definition_index;
 
 	match_assert("c:\\halo\\SOURCE\\ai\\actors.c", 603, starting_location);
 	/* port: none on a client of the distributed netcode (actor_new) */
@@ -2717,6 +2719,7 @@ long actor_place(
 	{
 		extern long randomizer_actor_variant(long, long, long, void *);
 
+		original_unit_definition_index = actor_variant_definition->unit_reference.index;
 		actor_variant_definition_index = randomizer_actor_variant(
 			actor_variant_definition_index, encounter_index, squad_index, starting_location);
 		actor_variant_definition = actor_variant_definition_get(actor_variant_definition_index);
@@ -2728,6 +2731,16 @@ long actor_place(
 		&placement_data,
 		actor_variant_definition->unit_reference.index,
 		NONE);
+	/* port: a swapped actor fights for the side of the unit it replaced. An
+	encounter of the default team takes its first unit's (encounter_attach_unit),
+	so a marine squad's first actor swapped for a grunt would turn the whole
+	encounter against the player */
+	if (original_unit_definition_index != NONE &&
+		original_unit_definition_index != actor_variant_definition->unit_reference.index)
+	{
+		placement_data.owner_team_index =
+			unit_definition_get(original_unit_definition_index)->unit.default_team;
+	}
 	placement_data.position = starting_location->position;
 	vector3d_from_angle(&placement_data.forward, starting_location->facing);
 	placement_data.variant_number = initial_variant;

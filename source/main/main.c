@@ -3525,6 +3525,16 @@ static boolean main_loop_iteration(
 			network_voice_update();
 			/* port: map sharing, in the lobby and in game (port/linux/game/map_share.c) */
 			map_share_update();
+			/* port: the campaign randomizer's profile being named, and its
+			pack, written at the main menu when it is wanted
+			(port/linux/game/menu_functions.c, randomizer_pack.c) */
+			{
+				extern void randomizer_pack_update(boolean main_menu);
+				extern void randomizer_profiles_poll(void);
+
+				randomizer_profiles_poll();
+				randomizer_pack_update(main_globals.main_menu_scenario_loaded);
+			}
 			profile_scope_enter(main_network_start_frame_section)
 			connection = main_globals.connection;
 			if (connection==_game_connection_network_client)

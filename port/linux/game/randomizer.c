@@ -7,15 +7,16 @@ from a pool (any of them, one faction, or one type). A tag the level does
 not have is copied from another campaign map, dependencies included, and
 appended to the tag table in map order, then by name, the same on every
 machine. A bitmap's pixels and a sound's samples are read from
-maps/randomizer.pack when that file is there (tools/randomizer_pack.py);
-otherwise from the other map.
+maps/randomizer.pack, which the game writes from the campaign maps at the
+main menu (randomizer_pack.c; tools/randomizer_pack.py writes the same
+file); otherwise from the other map.
 
 The choice is a hash of the map, the setup, the placement and a roll made
 when the level loads, so starting it again is a different layout. A
 checkpoint reloads the saved actors, not the tags. A starting location with
 a command list, and a squad named by a conversation, keep the actor the
-level gave them. A
-weapon a script names is left where it was.
+level gave them, and so do the player's allies unless game.randomizer_allies
+is on. A weapon a script names is left where it was.
 
 Off unless game.randomizer is on, and only for the ten campaign levels. A
 multiplayer game that is not co-op is not randomized. A client uses the
@@ -46,6 +47,7 @@ setup the host advertised, not its own.
 #include "sound/sound_definitions.h"
 #include "tag_files/tag_files.h"
 #include "tag_files/tag_groups.h"
+#include "units/unit_definitions.h"
 #include "units/units.h"
 
 #include "halo_port_limits.h"
@@ -205,6 +207,8 @@ struct held_block
 struct setup
 {
 	int enemies;
+	/* the player's allies are swapped with the enemies */
+	int allies;
 	int pickups;
 	int weapons;
 	int pool;
@@ -371,6 +375,7 @@ static int type_id(char const *text)
 static void setup_from_config(struct setup *setup)
 {
 	setup->enemies = config_boolean("game.randomizer_enemies");
+	setup->allies = config_boolean("game.randomizer_allies");
 	setup->pickups = config_boolean("game.randomizer_pickups");
 	setup->weapons = config_boolean("game.randomizer_enemy_weapons");
 	setup->pool = pool_id(config_string("game.randomizer_pool"));
@@ -382,6 +387,7 @@ static void setup_from_remote(struct setup *setup)
 	setup->enemies = (remote_setup[0] & 1) != 0;
 	setup->pickups = (remote_setup[0] & 2) != 0;
 	setup->weapons = (remote_setup[0] & 4) != 0;
+	setup->allies = (remote_setup[0] & 8) != 0;
 	setup->pool = remote_setup[1] <= POOL_ONE ? remote_setup[1] : POOL_ANY;
 	setup->type = remote_setup[2] <= TYPE_MARINE ? remote_setup[2] : TYPE_GRUNT;
 }
@@ -1039,31 +1045,47 @@ static void pack_close(void)
 	pack_state = 0;
 }
 
+/* each map the pack has is still the map in maps/. One that was replaced
+(another disc's, or a fresh copy) would have its pixels read at the old
+offsets */
+static int pack_matches_maps(void)
+{
+	int index;
+
+	for (index = 0; index < pack_entry_count; index++)
+	{
+		struct pack_entry *entry = pack_entries + index;
+		long file_length, tag_offset, tag_size;
+
+		if (!randomizer_pack_map_header(entry->name, &file_length, &tag_offset, &tag_size, NULL))
+			continue;
+		if (file_length != entry->file_length || tag_offset != entry->tag_offset || tag_size != entry->tag_size)
+		{
+			error(_error_silent, "randomizer: %s.map is not the one in the pack", entry->name);
+			return 0;
+		}
+	}
+
+	return 1;
+}
+
 /* maps/randomizer.pack: 'rpak', version 1, then one 32-byte record per map
 (8-byte name, file length, tag offset, tag size, where the tag bytes are,
-how many resource spans, where that table is). Absent or unusable once, and
-the maps are read instead */
-static int pack_open(void)
+how many resource spans, where that table is) */
+static int pack_load(char const *path)
 {
-	char path[512];
 	unsigned long magic = 0;
 	unsigned long version = 0;
 	unsigned long count = 0;
 	unsigned long index;
 	DWORD open_error;
 
-	if (pack_state == 1)
-		return 1;
-	if (pack_state < 0)
-		return 0;
-	snprintf(path, sizeof(path), "%srandomizer.pack", cache_files_map_directory());
 	pack_file = CreateFileA(path, GENERIC_READ, 0, NULL, OPEN_EXISTING, 0, NULL);
 	if (pack_file == INVALID_HANDLE_VALUE)
 	{
 		open_error = GetLastError();
-		error(_error_silent, "randomizer: no %s (error %lu), reading maps", path, (unsigned long)open_error);
+		error(_error_silent, "randomizer: no %s (error %lu)", path, (unsigned long)open_error);
 		pack_file = NULL;
-		pack_state = -1;
 		return 0;
 	}
 	if (!pack_read_u32(0, &magic) || !pack_read_u32(4, &version) || !pack_read_u32(8, &count) ||
@@ -1071,7 +1093,6 @@ static int pack_open(void)
 	{
 		error(_error_silent, "randomizer: %s is not a randomizer pack", path);
 		pack_close();
-		pack_state = -1;
 		return 0;
 	}
 	for (index = 0; index < count; index++)
@@ -1084,7 +1105,6 @@ static int pack_open(void)
 		{
 			error(_error_silent, "randomizer: %s directory is short", path);
 			pack_close();
-			pack_state = -1;
 			return 0;
 		}
 		memset(entry, 0, sizeof(*entry));
@@ -1097,6 +1117,32 @@ static int pack_open(void)
 		memcpy(&entry->resources_at, record + 28, 4);
 	}
 	pack_entry_count = (int)count;
+	if (!pack_matches_maps())
+	{
+		pack_close();
+		return 0;
+	}
+
+	return 1;
+}
+
+/* the pack (written at the main menu: randomizer_pack.c). Not there, or no
+longer the maps', and the maps are read instead */
+static int pack_open(void)
+{
+	char path[512];
+
+	if (pack_state == 1)
+		return 1;
+	if (pack_state < 0)
+		return 0;
+	snprintf(path, sizeof(path), "%srandomizer.pack", cache_files_map_directory());
+	if (!pack_load(path))
+	{
+		error(_error_silent, "randomizer: reading the maps instead of %s", path);
+		pack_state = -1;
+		return 0;
+	}
 	pack_state = 1;
 	error(_error_silent, "randomizer: using %s (%d maps)", path, pack_entry_count);
 
@@ -1556,6 +1602,64 @@ struct randomizer_model_part
 
 typedef char randomizer_model_part_size[sizeof(struct randomizer_model_part) == 0x68 ? 1 : -1];
 
+/* the parts given buffers here, whose buffers go when the level does. The
+map's own are released with its tags (tags_header_deregister_vertex_and_index_buffers);
+these were not, and each level load kept the last one's: the vertices in
+contiguous memory, which the textures need too, and the indices in the heap */
+#define BOUND_BLOCK_PARTS 256
+
+struct bound_block
+{
+	struct bound_block *next;
+	long count;
+	struct randomizer_model_part *parts[BOUND_BLOCK_PARTS];
+};
+
+static struct bound_block *bound_blocks;
+static long bound_part_count;
+static unsigned long bound_vertex_bytes;
+
+static void bound_remember(struct randomizer_model_part *part, unsigned long vertex_bytes)
+{
+	struct bound_block *block = bound_blocks;
+
+	if (!block || block->count >= BOUND_BLOCK_PARTS)
+	{
+		block = malloc(sizeof(*block));
+		if (!block)
+			return;
+		block->next = bound_blocks;
+		block->count = 0;
+		bound_blocks = block;
+	}
+	block->parts[block->count++] = part;
+	bound_part_count++;
+	bound_vertex_bytes += vertex_bytes;
+}
+
+static void bound_release(void)
+{
+	while (bound_blocks)
+	{
+		struct bound_block *next = bound_blocks->next;
+		long index;
+
+		for (index = 0; index < bound_blocks->count; index++)
+		{
+			struct randomizer_model_part *part = bound_blocks->parts[index];
+
+			rasterizer_triangle_buffer_delete(&part->triangle_buffer);
+			rasterizer_vertex_buffer_delete(&part->vertex_buffer);
+			csmemset(&part->triangle_buffer, 0, sizeof(part->triangle_buffer));
+			csmemset(&part->vertex_buffer, 0, sizeof(part->vertex_buffer));
+		}
+		free(bound_blocks);
+		bound_blocks = next;
+	}
+	bound_part_count = 0;
+	bound_vertex_bytes = 0;
+}
+
 static void *buffer_record_data(struct donor *donor, void *hardware_format, unsigned long bytes)
 {
 	unsigned char *record = donor_address(donor, hardware_format);
@@ -1570,8 +1674,10 @@ static void *buffer_record_data(struct donor *donor, void *hardware_format, unsi
 	return data;
 }
 
-static void bind_part(struct donor *donor, struct vertex_buffer *vertex, struct triangle_buffer *triangle)
+static void bind_part(struct donor *donor, struct randomizer_model_part *part)
 {
+	struct vertex_buffer *vertex = &part->vertex_buffer;
+	struct triangle_buffer *triangle = &part->triangle_buffer;
 	void *format;
 	void *vertices;
 	void *indices;
@@ -1620,7 +1726,9 @@ static void bind_part(struct donor *donor, struct vertex_buffer *vertex, struct 
 		rasterizer_vertex_buffer_delete(vertex);
 		csmemset(vertex, 0, sizeof(*vertex));
 		csmemset(triangle, 0, sizeof(*triangle));
+		return;
 	}
+	bound_remember(part, (unsigned long)count * (unsigned long)vertex_size);
 }
 
 static void bind_model(struct donor *donor, struct model *model)
@@ -1643,7 +1751,7 @@ static void bind_model(struct donor *donor, struct model *model)
 				&geometry->parts, part_index, sizeof(*part));
 
 			if (part)
-				bind_part(donor, &part->vertex_buffer, &part->triangle_buffer);
+				bind_part(donor, part);
 		}
 	}
 }
@@ -2207,7 +2315,8 @@ void randomizer_tags_loaded(char const *scenario_name)
 	if (wanted)
 		free(wanted);
 	wanted = NULL;
-	error(_error_silent, "randomizer: %s, %ld actors, %ld weapons", leaf, variant_count, weapon_count);
+	error(_error_silent, "randomizer: %s, %ld actors, %ld weapons, %ld model parts in %lu vertex bytes",
+		leaf, variant_count, weapon_count, bound_part_count, bound_vertex_bytes);
 }
 
 void randomizer_tags_unloaded(void)
@@ -2218,6 +2327,7 @@ void randomizer_tags_unloaded(void)
 	if (loaded)
 		placement_roll_ready = 0;
 	donors_close();
+	bound_release();
 	held_free();
 	if (saved_instances)
 		cache_files_set_tag_instances(saved_instances, saved_count);
@@ -2382,6 +2492,25 @@ int randomizer_donor_read(long tag_index, long offset, long size, void *buffer)
 	return 1;
 }
 
+/* the team an actor of this variant fights for in this encounter: the
+encounter's, or with the default team, its unit's own (encounter_attach_unit
+gives the encounter its first unit's) */
+static short variant_team(long variant_index, struct encounter_definition const *encounter)
+{
+	struct actor_variant_definition *variant;
+	struct unit_definition *unit;
+
+	if (encounter->team_index != _game_team_default)
+		return encounter->team_index;
+	variant = actor_variant_definition_get(variant_index);
+	if (!variant || variant->unit_reference.index == NONE ||
+		!tag_index_is_group(variant->unit_reference.index, UNIT_DEFINITION_TAG))
+		return _game_team_default;
+	unit = unit_definition_get(variant->unit_reference.index);
+
+	return unit ? unit->unit.default_team : _game_team_default;
+}
+
 long randomizer_actor_variant(long original, long encounter_index, long squad_index, void *starting_location)
 {
 	struct actor_starting_location *location = starting_location;
@@ -2404,9 +2533,16 @@ long randomizer_actor_variant(long original, long encounter_index, long squad_in
 		NULL;
 	if (!encounter)
 		return original;
-	/* marines who fight with the player stay the actors the level gave them */
-	if (encounter->team_index == _game_team_player || encounter->team_index == _game_team_human)
-		return original;
+	/* marines who fight with the player stay the actors the level gave them,
+	unless the setup swaps them too. Most of the levels' marines are in
+	encounters of the default team, which is their unit's */
+	if (!current.allies)
+	{
+		short team = variant_team(original, encounter);
+
+		if (team == _game_team_player || team == _game_team_human)
+			return original;
+	}
 	squad = tag_block_get_element_with_size(&encounter->squads, squad_index, sizeof(*squad));
 	if (!squad)
 		return original;
@@ -2524,7 +2660,8 @@ void randomizer_advertisement(unsigned char *reserved)
 	reserved[HALO_PORT_ADVERTISED_FLAGS_OFFSET] =
 		(unsigned char)(reserved[HALO_PORT_ADVERTISED_FLAGS_OFFSET] | HALO_PORT_ADVERTISED_RANDOMIZER_FLAG);
 	reserved[HALO_PORT_ADVERTISED_RANDOMIZER_SETUP_OFFSET] =
-		(unsigned char)((setup.enemies ? 1 : 0) | (setup.pickups ? 2 : 0) | (setup.weapons ? 4 : 0));
+		(unsigned char)((setup.enemies ? 1 : 0) | (setup.pickups ? 2 : 0) | (setup.weapons ? 4 : 0) |
+			(setup.allies ? 8 : 0));
 	reserved[HALO_PORT_ADVERTISED_RANDOMIZER_SETUP_OFFSET + 1] = (unsigned char)setup.pool;
 	reserved[HALO_PORT_ADVERTISED_RANDOMIZER_SETUP_OFFSET + 2] = (unsigned char)setup.type;
 	reserved[HALO_PORT_ADVERTISED_RANDOMIZER_ROLL_OFFSET] = (unsigned char)placement_roll;

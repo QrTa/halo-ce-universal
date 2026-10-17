@@ -644,12 +644,14 @@ def _randomizer_spinner(base: str, key: str, index: int, setting: str, choices: 
 
 def _randomizer_screen() -> list:
     """the screen difficulty opens when the randomizer is on: the three
-    swaps, the pool, one enemy type, the saved profiles, and OK, which
-    starts the level"""
+    swaps (and whether the enemies' takes the allies), the pool, one enemy
+    type, the saved profiles, and OK, which starts the level"""
     base = "main_menu/difficulty_select/randomizer"
     rows = [
         ("enemies", "ENEMIES:", "game.randomizer_enemies", [("OFF", "false"), ("ON", "true")], False,
          "On: a squad's actors are taken from the pool."),
+        ("allies", "ALLIES TOO:", "game.randomizer_allies", [("OFF", "false"), ("ON", "true")], False,
+         "On: the marines beside you are swapped too.\\nA scene may then lose them. Off: they stay."),
         ("pickups", "WEAPON PICKUPS:", "game.randomizer_pickups", [("OFF", "false"), ("ON", "true")], False,
          "On: a weapon lying in the level is swapped.\\nOne a script names stays."),
         ("enemy_weapons", "ENEMY WEAPONS:", "game.randomizer_enemy_weapons", [("OFF", "false"), ("ON", "true")], False,
@@ -681,8 +683,9 @@ def _randomizer_screen() -> list:
         children.append(f'<child{attributes([("widget", f"{base}/op_{key}"), ("x", 54), ("y", 70 + index * 26)])}/>')
         extra += _randomizer_spinner(base, key, index, setting, choices, wide)
         labels.append(label)
+    # (the rows end at 228; the help line starts at 388)
     for index in range(8):
-        y = 206 + index * 20
+        y = 232 + index * 19
         children.append(f'<child{attributes([("widget", f"{base}/profile_{index}"), ("x", 54), ("y", y)])}/>')
         extra += _widget(f"{base}/profile_{index}",
                          [("type", "text"), ("width", 512), ("height", 18), ("font", "ui\\large_ui"),

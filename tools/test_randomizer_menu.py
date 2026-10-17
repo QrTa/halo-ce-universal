@@ -19,6 +19,7 @@ def test_randomizer_menus():
     assert "RANDOMIZER:" in gameplay
     for setting in (
         "game.randomizer_enemies",
+        "game.randomizer_allies",
         "game.randomizer_pickups",
         "game.randomizer_enemy_weapons",
         "game.randomizer_pool",

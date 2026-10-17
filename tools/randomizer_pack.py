@@ -1,5 +1,9 @@
 """Build maps/randomizer.pack from the campaign caches in maps/.
 
+The game writes the same file itself at the main menu when the randomizer is
+turned on (port/linux/game/randomizer_pack.c), so this is not needed to play;
+it is kept to build or check a pack on a computer.
+
 Each map on the disc is a plain header plus a zlib stream. The game used to
 inflate that at level load. This writes one file the game can read instead:
 the inflated tag section of each campaign map, and the bitmap pixels and
