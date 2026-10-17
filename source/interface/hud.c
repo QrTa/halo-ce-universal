@@ -1430,7 +1430,8 @@ void hud_draw_screen(
 			motion_sensor_tick();
 		}
 
-		if (hud_scripted_globals->show_hud)
+		/* port: skull: Blind, no HUD (port/linux/game/skulls.c) */
+		if (hud_scripted_globals->show_hud && !skull_active(_skull_blind))
 		{
 			if (perspective != _director_perspective_neutral &&
 				perspective != _director_perspective_scripted &&

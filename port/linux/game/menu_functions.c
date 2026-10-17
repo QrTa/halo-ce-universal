@@ -36,6 +36,11 @@ calls them from PC_MENU_FUNCTION_BASE on):
   "randomizer profile load" copies a saved one into the setup shown,
   "randomizer start" writes the setup and starts the level, and
   "randomizer profiles update" shows the names saved;
+- the skulls screen (tools/port_settings.py), after a campaign level's
+  difficulty (and the randomizer's screen) when game.skulls is on: "skull
+  toggle" turns the skull of the item chosen on or off, "skulls all off" all
+  of them, "skulls start" writes game.skulls_active and starts the level,
+  and "skulls screen update" ticks them and shows the chosen one's help;
 - Controls Setup's: the keyboard and mouse's controls, two bindings each,
   shown a group at a time ("controls update menu"); "controls begin
   binding" takes the next key or button pressed for the binding left and
@@ -1607,15 +1612,28 @@ static struct
 		char value[RANDOMIZER_KEY_COUNT][24];
 	} profiles[RANDOMIZER_PROFILE_MAX];
 	short count;
-	short controller;
-	short difficulty;
 	boolean naming;
 	wchar_t name[RANDOMIZER_PROFILE_NAME + 1];
 	/* each setup loaded: the randomizer screen shows it when it next draws */
 	long applied;
 	/* the row X was pressed on once, which a second X deletes (NONE) */
 	short deleting;
-} randomizer_menu = { { { { 0 } } }, 0, 0, 0, FALSE, { 0 }, 0, NONE };
+} randomizer_menu = { { { { 0 } } }, 0, FALSE, { 0 }, 0, NONE };
+
+/* the level the randomizer's and the skulls' screens are before: its map,
+difficulty, and the controller that chose it (difficulty_start) */
+static struct
+{
+	char map_name[256];
+	short controller;
+	short difficulty;
+} campaign_pending;
+
+/* the skulls screen's skulls, from game.skulls_active as it opens, written
+by its OK (tools/port_settings.py's SKULLS) */
+static unsigned long skulls_menu_mask;
+
+static boolean skulls_open(struct widget_instance *widget, boolean *widget_deleted);
 
 extern boolean virtual_keyboard_launch(wchar_t *text_buffer, word buffer_size, short caption_index);
 extern void virtual_keyboard_allow_any_name(void);
@@ -1894,11 +1912,14 @@ static boolean randomizer_profile_delete_event(struct widget_instance *widget)
 	return randomizer_profiles_write();
 }
 
-/* "randomizer start": the setup shown, then the level */
-static boolean randomizer_ok(struct widget_instance *widget)
+/* "randomizer start": the setup shown, then the skulls' screen (with
+game.skulls on) or the level */
+static boolean randomizer_ok(struct widget_instance *widget, boolean *widget_deleted)
 {
 	settings_each(screen_of(widget), setting_changed_save);
-	campaign_start(main_get_map_name(), randomizer_menu.difficulty, randomizer_menu.controller, TRUE);
+	if (config_boolean("game.skulls") && skulls_open(widget, widget_deleted))
+		return TRUE;
+	campaign_start(campaign_pending.map_name, campaign_pending.difficulty, campaign_pending.controller, TRUE);
 	return TRUE;
 }
 
@@ -2034,10 +2055,115 @@ static void randomizer_screen_update(struct widget_instance *list)
 	}
 }
 
+/* the skulls screen (tools/port_settings.py's _skulls_screen), opened over
+the screen of the widget, which Back returns to; the skulls shown are
+game.skulls_active's */
+static boolean skulls_open(struct widget_instance *widget, boolean *widget_deleted)
+{
+	long screen_tag = screen_of(widget)->definition_tag_index;
+
+	skulls_menu_mask = skulls_mask_from_text(config_string("game.skulls_active"));
+	if (!ui_widget_load_by_name_or_tag("pc\\main_menu\\difficulty_select\\skulls\\skulls_screen",
+		NONE, NULL, NONE, screen_tag, NONE, NONE))
+	{
+		return FALSE;
+	}
+	*widget_deleted = TRUE;
+	return TRUE;
+}
+
+/* the skull a row's item is (its name skull_<key>), or NONE */
+static int skull_of(struct widget_instance *widget)
+{
+	int skull;
+
+	if (!widget || strncmp(widget->name, "skull_", 6))
+		return NONE;
+	for (skull = 0; skull < NUMBER_OF_SKULLS; skull++)
+	{
+		if (!strcmp(widget->name + 6, skull_descriptions[skull].key))
+			return skull;
+	}
+	return NONE;
+}
+
+/* "skull toggle" (A on a skull): it on or off */
+static boolean skull_toggle(struct widget_instance *widget)
+{
+	int skull = skull_of(widget);
+
+	if (skull == NONE)
+		return FALSE;
+	skulls_menu_mask ^= 1UL << skull;
+	ui_play_audio_feedback_sound((skulls_menu_mask & (1UL << skull)) ? SOUND_FORWARD : SOUND_BACK);
+	return TRUE;
+}
+
+/* "skulls start" (OK): the skulls shown written, then the level */
+static boolean skulls_start(void)
+{
+	char text[400];
+
+	skulls_text_from_mask(skulls_menu_mask, text, sizeof(text));
+	if (!config_write("game.skulls_active", text))
+		error(_error_silent, "skulls: could not write game.skulls_active");
+	campaign_start(campaign_pending.map_name, campaign_pending.difficulty, campaign_pending.controller, TRUE);
+	return TRUE;
+}
+
+/* text of ASCII, widened */
+static void text_widen(wchar_t *text, unsigned int length, char const *ascii)
+{
+	unsigned int index;
+
+	for (index = 0; ascii[index] && index + 1 < length; index++)
+		text[index] = (wchar_t)(unsigned char)ascii[index];
+	text[index] = 0;
+}
+
+/* "skulls screen update": each skull ticked or not, and the help line the
+focused skull's description and score multiplier (the Master Chief
+Collection's) */
+static void skulls_screen_update(struct widget_instance *list)
+{
+	struct widget_instance *focused = list->focused_child ? list->focused_child->focused_child : NULL;
+	int focused_skull = skull_of(focused);
+	struct widget_instance *help = list->parameters.list.extended_description;
+	char line[256];
+	wchar_t text[ROW_TEXT_LENGTH];
+	int skull;
+
+	for (skull = 0; skull < NUMBER_OF_SKULLS; skull++)
+	{
+		struct widget_instance *item;
+
+		snprintf(line, sizeof(line), "skull_%s", skull_descriptions[skull].key);
+		item = named(list, line, 0);
+		if (!item)
+			continue;
+		snprintf(line, sizeof(line), "%s %s", (skulls_menu_mask & (1UL << skull)) ? "[X]" : "[  ]",
+			skull_descriptions[skull].label);
+		text_widen(text, NUMBEROF(text), line);
+		text_set(item, text);
+	}
+	if (!help)
+		return;
+	if (focused_skull != NONE)
+	{
+		snprintf(line, sizeof(line), "%s (x%s)", skull_descriptions[focused_skull].description,
+			skull_descriptions[focused_skull].multiplier);
+	}
+	else
+		snprintf(line, sizeof(line), "A turns a skull on or off. They are kept for\nthe levels after this one.");
+	text_widen(text, NUMBEROF(text), line);
+	text_set(help, text);
+}
+
 /* the difficulty menu: "difficulty item select" starts the game at the
 item's; "set difficulty" (its OK button) at the one its description shows.
 With the randomizer on, one of the ten campaign levels opens its screen
-first (tools/port_settings.py); Continue and Load Game do not */
+first, and with the skulls on, theirs (after the randomizer's:
+tools/port_settings.py); Continue and Load Game do not */
 static boolean difficulty_start(struct widget_instance *widget, short difficulty, short controller,
 	boolean *widget_deleted)
 {
@@ -2051,13 +2177,14 @@ static boolean difficulty_start(struct widget_instance *widget, short difficulty
 	if (!custom_edition_maps_level_campaign(map_name))
 		map_name = main_get_solo_level_name(0);
 	difficulty = PIN(difficulty, 0, 3);
+	snprintf(campaign_pending.map_name, sizeof(campaign_pending.map_name), "%s", map_name);
+	campaign_pending.controller = controller;
+	campaign_pending.difficulty = difficulty;
 	if (config_boolean("game.randomizer") && base_campaign)
 	{
 		long screen_tag = screen_of(widget)->definition_tag_index;
 		struct widget_instance *opened;
 
-		randomizer_menu.controller = controller;
-		randomizer_menu.difficulty = difficulty;
 		main_set_difficulty(difficulty);
 		opened = ui_widget_load_by_name_or_tag(
 			"pc\\main_menu\\difficulty_select\\randomizer\\randomizer_screen",
@@ -2067,6 +2194,12 @@ static boolean difficulty_start(struct widget_instance *widget, short difficulty
 			*widget_deleted = TRUE;
 			return TRUE;
 		}
+	}
+	if (config_boolean("game.skulls"))
+	{
+		main_set_difficulty(difficulty);
+		if (skulls_open(widget, widget_deleted))
+			return TRUE;
 	}
 	campaign_start(map_name, difficulty, controller, TRUE);
 	return TRUE;
@@ -6737,7 +6870,20 @@ boolean pc_menu_event_function_invoke(
 		}
 		else if (!strcmp(name, "randomizer start"))
 		{
-			return randomizer_ok(widget);
+			return randomizer_ok(widget, widget_deleted);
+		}
+		else if (!strcmp(name, "skull toggle"))
+		{
+			return skull_toggle(widget);
+		}
+		else if (!strcmp(name, "skulls all off"))
+		{
+			skulls_menu_mask = 0;
+			ui_play_audio_feedback_sound(SOUND_BACK);
+		}
+		else if (!strcmp(name, "skulls start"))
+		{
+			return skulls_start();
 		}
 		else if (!strcmp(name, "randomizer profile delete"))
 		{
@@ -6812,4 +6958,6 @@ void pc_menu_game_data_function_invoke(
 		randomizer_profiles_update(widget);
 	else if (!strcmp(name, "randomizer screen update"))
 		randomizer_screen_update(widget);
+	else if (!strcmp(name, "skulls screen update"))
+		skulls_screen_update(widget);
 }

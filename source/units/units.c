@@ -2769,6 +2769,10 @@ void unit_died(
 	long equipment_index;
 
 	unit = unit_get(unit_index);
+	/* port: skull: Grunt Funeral, a grunt dies in plasma
+	(port/linux/game/skulls.c) */
+	if (!feigned)
+		skulls_unit_died(unit_index);
 	if (!feigned)
 	{
 		unit->unit.feign_death_timer = 0;
@@ -2866,6 +2870,31 @@ void unit_died(
 		unit->unit.grenade_throw_state = 0;
 
 	return;
+}
+
+/* port: skull: Pinata, a grenade of the type dropped from the unit's hand
+(port/linux/game/skulls.c) */
+void unit_port_drop_grenade(
+	long unit_index,
+	short grenade_type)
+{
+	struct game_globals *game_globals = scenario_get_game_globals();
+	struct game_globals_grenade *grenade;
+	struct object_placement_data placement_data;
+	long grenade_object_index;
+
+	if (grenade_type < 0 || grenade_type >= game_globals->grenades.count)
+		return;
+	grenade = TAG_BLOCK_GET_ELEMENT(&game_globals->grenades, grenade_type, struct game_globals_grenade);
+	if (grenade->item.index == NONE)
+		return;
+	object_placement_data_new(&placement_data, grenade->item.index, unit_index);
+	grenade_object_index = object_new(&placement_data);
+	if (grenade_object_index != NONE)
+	{
+		object_disconnect_from_map(grenade_object_index);
+		unit_drop_item(unit_index, grenade_object_index);
+	}
 }
 
 static void unit_drop_grenades(
@@ -7116,9 +7145,16 @@ void unit_damage_aftermath(
 			unit->unit.feign_death_timer > 0);
 	}
 
+	/* port: skull: Grunt Birthday Party, a grunt's headshot celebrated
+	(port/linux/game/skulls.c) */
+	if (lethal)
+		skulls_unit_killed(unit_index, body_part == _unit_damage_part_head);
+
 	if (!TEST_FLAG(
 			damage_data->flags,
 			_damage_silent_bit) &&
+		/* port: skull: Ghost, the enemies do not flinch */
+		!(skull_active(_skull_ghost) && !lethal && !feigned && skulls_unit_is_enemy(unit_index)) &&
 		(lethal ||
 			feigned ||
 			!TEST_FLAG(unit->object.damage_flags, _object_dead_bit)) &&
@@ -7930,7 +7966,8 @@ static void unit_throw_grenade_move_to_hand(
 
 	if ((
 		unit->unit.player_index==NONE ||
-		!cheat.infinite_ammo && !game_engine_infinite_grenades(unit->unit.player_index)) &&
+		/* port: skull: Bandanna's players' grenades are not used up (port/linux/game/skulls.c) */
+		!cheat.infinite_ammo && !skull_active(_skull_bandanna) && !game_engine_infinite_grenades(unit->unit.player_index)) &&
 		(unit->unit.actor_index==NONE ||
 		!actor_has_unlimited_grenades(unit->unit.actor_index)))
 	{

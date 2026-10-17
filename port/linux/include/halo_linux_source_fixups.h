@@ -86,6 +86,8 @@ void halo_screen_warp_blend(unsigned char on);
 /* TRUE when B steps out of a custom-map folder or the Map screen's
 difficulties and the screen stays (port/linux/game/menu_functions.c) */
 unsigned char menu_port_back(void *widget);
+/* the campaign's skulls (port/linux/game/skulls.c) */
+#include "halo_skulls.h"
 /* the Switch GPU, waited on before a map's memory goes
 (port/switch/guest/d3d8_dk.c) */
 #ifdef HALO_SWITCH

@@ -172,6 +172,10 @@ static boolean unit_get_aim_assist_parameters(
 	short zoom_level,
 	struct aim_assist_parameters *parameters)
 {
+	/* port: skull: Eye Patch, no aim assist for the players' weapons
+	(port/linux/game/skulls.c) */
+	if (skull_active(_skull_eye_patch))
+		return FALSE;
 	if (unit_index!=NONE)
 	{
 		struct unit_datum *unit= unit_get(unit_index);

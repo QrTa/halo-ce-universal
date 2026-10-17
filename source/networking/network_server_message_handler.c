@@ -1786,6 +1786,9 @@ static boolean network_game_server_handle_message_client_broadcast_game_search(
 
 				randomizer_advertisement(advertisement.reserved);
 			}
+			/* port: a campaign game's skulls, which its clients play with
+			(port/linux/game/skulls.c) */
+			skulls_advertisement(advertisement.reserved);
 			/* (open to joins: not while the machines load the game, nor
 			once it is over, nor in progress when no player can join it) */
 			if (network_game_server_get_state(server, NULL) == _network_game_server_state_ingame

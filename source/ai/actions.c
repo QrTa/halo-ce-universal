@@ -1263,9 +1263,12 @@ boolean actor_action_handle_berserking_from_attacking_mode(
 		actor_definition_get(actor->meta.definition_index);
 	boolean result = FALSE;
 
-	if (TEST_FLAG(
+	/* port: skull: Tough Luck, the enemies always go berserk
+	(port/linux/game/skulls.c) */
+	if ((TEST_FLAG(
 			definition->flags,
-			_actor_definition_always_berserk_in_attacking_mode_bit) &&
+			_actor_definition_always_berserk_in_attacking_mode_bit) ||
+			(skull_active(_skull_tough_luck) && skulls_team_is_enemy(actor->meta.team_index))) &&
 		!actor->external_orders.defending &&
 		actor->state.combat_status >= 5)
 	{
@@ -3372,13 +3375,19 @@ boolean actor_action_consider_grenade(
 				(real)current_time >=
 					(real)actor->control.grenade_last_check_time +
 					variant_definition->grenade_combat.throw_grenade_delay *
-						ACTOR_GRENADE_TICKS_PER_SECOND)
+						ACTOR_GRENADE_TICKS_PER_SECOND *
+						/* port: skull: Catch, the enemies think of a grenade
+						twice as often (port/linux/game/skulls.c) */
+						(skull_active(_skull_catch) && skulls_team_is_enemy(actor->meta.team_index) ? 0.5f : 1.0f))
 			{
 				chance =
 					variant_definition->grenade_combat.throw_grenade_chance;
 				chance *= game_difficulty_get_team_value(
 					_game_difficulty_value_grenade_chance_scale,
 					(word)actor->meta.team_index);
+				/* port: skull: Catch, and throw one four times as often */
+				if (skull_active(_skull_catch) && skulls_team_is_enemy(actor->meta.team_index))
+					chance = MIN(chance * 4.0f, 1.0f);
 
 				actor->control.grenade_last_check_time = current_time;
 
@@ -3694,6 +3703,9 @@ boolean actor_action_try_to_panic(
 	struct action_state_data state;
 	boolean result = FALSE;
 
+	/* port: skull: Tough Luck, the enemies never flee */
+	if (skull_active(_skull_tough_luck) && skulls_team_is_enemy(actor_get(actor_index)->meta.team_index))
+		return FALSE;
 	if (action_flee_setup(
 		actor_index,
 		panic_type,

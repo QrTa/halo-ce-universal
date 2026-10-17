@@ -97,6 +97,12 @@ the host only with all of them */
 #define HALO_PORT_ADVERTISED_RANDOMIZER_WEAPONS_OFFSET 10
 /* the bytes from the setup's to the last of these */
 #define HALO_PORT_ADVERTISED_RANDOMIZER_SETUP_SIZE 12
+/* ... the campaign game is played with skulls (port/linux/game/skulls.c).
+The four reserved bytes after the randomizer's are which (a little-endian
+mask, bit n halo_skulls.h's skull n); a client plays with these, not its own */
+#define HALO_PORT_ADVERTISED_SKULLS_FLAG 0x08
+#define HALO_PORT_ADVERTISED_SKULLS_OFFSET 15
+#define HALO_PORT_ADVERTISED_SKULLS_SIZE 4
 
 /* a message header's 12-bit length allows messages of up to 0xFFF bytes,
 header included; the per-tick update of 128 players is 3,857 */

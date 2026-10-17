@@ -439,6 +439,18 @@ static const struct config_setting config_settings[] =
 		"A saved setup of the randomizer screen (game.randomizer_profile_1)." },
 	{ "game.randomizer_profile_8", _config_string, "\"\"", "HALO_RANDOMIZER_PROFILE_8", _environment_value, _platform_all,
 		"A saved setup of the randomizer screen (game.randomizer_profile_1)." },
+	{ "game.skulls", _config_boolean, "false", "HALO_SKULLS", _environment_value, _platform_all,
+		"Settings > Gameplay. true: after a campaign level's difficulty (and\n"
+		"after the randomizer's screen, when that is on), a screen turns the\n"
+		"skulls on and off (game.skulls_active), as the Master Chief\n"
+		"Collection's. They then apply to every campaign game, Continue and Load\n"
+		"Game too. A co-op client plays with the host's." },
+	{ "game.skulls_active", _config_string, "\"\"", "HALO_SKULLS_ACTIVE", _environment_value, _platform_all,
+		"The skulls turned on, with game.skulls, separated by commas: acrophobia,\n"
+		"anger, bandanna, black_eye, blind, boom, catch, eye_patch, famine, fog,\n"
+		"foreign, ghost, grunt_birthday_party, grunt_funeral, iron, malfunction,\n"
+		"mythic, pinata, recession, sputnik, thats_just_wrong, thunderstorm,\n"
+		"tough_luck. Written by the skulls screen." },
 	{ "game.custom_edition", _config_boolean, "true", "HALO_CUSTOM_EDITION", _environment_value, _platform_all,
 		"Load and run Halo Custom Edition maps (not those that need OpenSauce):\n"
 		"put them and Custom Edition's bitmaps.map, sounds.map and loc.map in\n"

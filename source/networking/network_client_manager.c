@@ -810,6 +810,8 @@ static struct
 	the four-byte placement roll, the rank and the weapons' pools
 	(port/linux/game/randomizer.c) */
 	byte setup[HALO_PORT_ADVERTISED_RANDOMIZER_SETUP_SIZE];
+	/* port: the campaign's skulls (port/linux/game/skulls.c) */
+	byte skulls[HALO_PORT_ADVERTISED_SKULLS_SIZE];
 } network_game_client_advertised_versions[MAXIMUM_NETWORK_ADVERTISED_GAMES];
 /* the advertised game this machine is joining, so a later advertisement
 can replace the setup it was given */
@@ -2076,6 +2078,10 @@ boolean network_game_client_initiate_join_game(
 				(network_game_client_advertised_versions[game_index].flags &
 					HALO_PORT_ADVERTISED_RANDOMIZER_FLAG) != 0,
 				network_game_client_advertised_versions[game_index].setup);
+			skulls_set_remote(
+				(network_game_client_advertised_versions[game_index].flags &
+					HALO_PORT_ADVERTISED_SKULLS_FLAG) != 0,
+				network_game_client_advertised_versions[game_index].skulls);
 		}
 		network_event(
 			"attempting to connect to game @ %s",
@@ -2231,6 +2237,7 @@ void network_game_client_reset(
 
 		randomizer_set_remote(0, NULL);
 	}
+	skulls_set_remote(0, NULL);
 
 	/* (port: or one that was lost, whose socket stays until it is torn down) */
 	if (teardown_connection && client->connection &&
@@ -2545,6 +2552,9 @@ static boolean add_advertised_game(
 			csmemcpy(network_game_client_advertised_versions[game_index].setup,
 				advertisement->__unknown5A + HALO_PORT_ADVERTISED_RANDOMIZER_SETUP_OFFSET,
 				sizeof(network_game_client_advertised_versions[game_index].setup));
+			csmemcpy(network_game_client_advertised_versions[game_index].skulls,
+				advertisement->__unknown5A + HALO_PORT_ADVERTISED_SKULLS_OFFSET,
+				sizeof(network_game_client_advertised_versions[game_index].skulls));
 			if (game_index == network_game_client_randomizer_game)
 			{
 				extern void randomizer_set_remote(int on, unsigned char const *setup);
@@ -2553,6 +2563,10 @@ static boolean add_advertised_game(
 					(network_game_client_advertised_versions[game_index].flags &
 						HALO_PORT_ADVERTISED_RANDOMIZER_FLAG) != 0,
 					network_game_client_advertised_versions[game_index].setup);
+				skulls_set_remote(
+					(network_game_client_advertised_versions[game_index].flags &
+						HALO_PORT_ADVERTISED_SKULLS_FLAG) != 0,
+					network_game_client_advertised_versions[game_index].skulls);
 			}
 		}
 

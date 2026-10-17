@@ -337,6 +337,10 @@ SCREENS["gameplay"] = {
          [("OFF", "false"), ("ON", "true")],
          "On: after a campaign level's difficulty, a screen\nsets how that level's enemies and weapons change.",
          None),
+        ("SKULLS:", "game.skulls",
+         [("OFF", "false"), ("ON", "true")],
+         "On: after a campaign level's difficulty, a screen\nturns the Master Chief Collection's skulls on.",
+         None),
     ],
 }
 
@@ -389,7 +393,7 @@ STRING_OVERRIDES = {
         "Internet play, updates and the\\nmultiplayer HUD.\\n\\nProfile:",
         "Change the current profile's\\nfree-for-all multiplayer color.\\n\\nProfile:",
         "Halo: Combat Evolved, the Xbox\\ngame, on this computer.\\n\\nProfile:",
-        "How players and the AI fall, and\\nthe campaign randomizer.\\n\\nProfile:",
+        "How players and the AI fall,\\nthe randomizer and skulls.\\n\\nProfile:",
     ],
 }
 
@@ -761,6 +765,81 @@ def _randomizer_screen() -> list:
     return lines
 
 
+# the skulls, in port/linux/game/skulls.c's order (halo_skulls.h's enum
+# skull): each one's key in game.skulls_active and its name on the screen.
+# Their helps and score multipliers are skulls.c's, which the screen shows
+SKULLS = [
+    ("acrophobia", "ACROPHOBIA"), ("anger", "ANGER"), ("bandanna", "BANDANNA"), ("black_eye", "BLACK EYE"),
+    ("blind", "BLIND"), ("boom", "BOOM"), ("catch", "CATCH"), ("eye_patch", "EYE PATCH"), ("famine", "FAMINE"),
+    ("fog", "FOG"), ("foreign", "FOREIGN"), ("ghost", "GHOST"), ("grunt_birthday_party", "BIRTHDAY PARTY"),
+    ("grunt_funeral", "GRUNT FUNERAL"), ("iron", "IRON"), ("malfunction", "MALFUNCTION"), ("mythic", "MYTHIC"),
+    ("pinata", "PINATA"), ("recession", "RECESSION"), ("sputnik", "SPUTNIK"), ("thats_just_wrong", "JUST... WRONG"),
+    ("thunderstorm", "THUNDERSTORM"), ("tough_luck", "TOUGH LUCK"),
+]
+SKULL_COLUMNS = 2
+
+
+def _skulls_screen() -> list:
+    """the screen difficulty opens (after the randomizer's) when the skulls
+    are on: the skulls in two columns, A one to turn it on or off
+    (menu_functions.c's "skull toggle", which "skulls screen update" ticks,
+    with the chosen one's help), and the buttons: All Off, OK, which starts
+    the level"""
+    base = "main_menu/difficulty_select/skulls"
+    lines = _widget(f"{base}/skulls_screen",
+                    [("width", 640), ("height", 480), ("flags", "pass_unhandled_to_focused_child pause_game"),
+                     ("bitmap", "bitmaps/gradient")],
+                    ['<on event="b" back="true"/>', '<on event="back" back="true"/>',
+                     f'<child widget="{base}/header_skulls"/>',
+                     f'<child widget="{base}/options_menu"/>'])
+    lines += _widget(f"{base}/header_skulls",
+                     [("controller", 1), ("left", 35), ("top", 11), ("width", 605), ("height", 59),
+                      ("bitmap", f"{base}/header_skulls")], [])
+    lines += _widget(f"{base}/help",
+                     [("type", "text"), ("controller", 1), ("left", 68), ("top", 388), ("width", 482), ("height", 24),
+                      ("font", "ui\\small_ui"), ("color", "#FFFFFFFF")], [])
+    children = ['<data input="skulls screen update"/>']
+    extra = []
+    rows = [SKULLS[index:index + SKULL_COLUMNS] for index in range(0, len(SKULLS), SKULL_COLUMNS)]
+    for number, row in enumerate(rows):
+        children.append(f'<child{attributes([("widget", f"{base}/row_{number}"), ("x", 54), ("y", 70 + number * 26)])}/>')
+        items = []
+        # (no text of their own: menu_functions.c sets each its name, ticked
+        # or not, which a string list's text would overwrite)
+        for column, (key, _) in enumerate(row):
+            items.append(f'<child{attributes([("widget", f"{base}/skull_{key}"), ("x", column * 262)])}/>')
+            extra += _widget(f"{base}/skull_{key}",
+                             [("type", "text"), ("width", 256), ("height", 28), ("bitmap", "bitmaps/option_bkds_sm"),
+                              ("font", "ui\\large_ui"), ("color", "#FF2896FF"), ("text_x", 13), ("text_y", 4)],
+                             ['<on event="a" run="skull toggle"/>', '<on event="start" run="skull toggle"/>',
+                              '<on event="left_mouse" run="mouse emit accept event"/>'])
+        lines += _widget(f"{base}/row_{number}",
+                         [("type", "column_list"), ("width", 518), ("height", 28),
+                          ("flags", "pass_unhandled_to_focused_child left_right_tabs_items")], items)
+    children.append(f'<child{attributes([("widget", f"{base}/button_bar"), ("y", 414)])}/>')
+    lines += _widget(f"{base}/options_menu",
+                     [("type", "column_list"), ("width", 640), ("height", 480),
+                      ("flags", "pass_unhandled_to_focused_child up_down_tabs_children"),
+                      ("description", f"{base}/help")], children)
+    lines += _widget(f"{base}/button_bar",
+                     [("type", "column_list"), ("width", 640), ("height", 28),
+                      ("flags", "pass_unhandled_to_focused_child left_right_tabs_items")],
+                     [f'<child{attributes([("widget", f"{base}/button_all_off"), ("y", 1)])}/>',
+                      f'<child{attributes([("widget", f"{base}/button_ok"), ("x", 380), ("y", 1)])}/>',
+                      '<child widget="common_button_cancel" x="510" y="1"/>'])
+    lines += extra
+    lines += _widget(f"{base}/button_all_off",
+                     [("type", "text"), ("width", 128), ("height", 24), ("bitmap", "bitmaps/text_button_background"),
+                      ("text", "ALL OFF"), ("font", "ui\\small_ui"), ("color", "#FFFFFFFF"), ("align", "center"),
+                      ("text_y", 2)],
+                     ['<on event="a" run="skulls all off"/>',
+                      '<on event="start" run="skulls all off"/>',
+                      '<on event="left_mouse" run="mouse emit accept event"/>'])
+    lines += _button(f"{base}/button_ok", 1, ['<on event="a" run="skulls start"/>',
+                                              '<on event="start" run="skulls start"/>'])
+    return lines
+
+
 def _randomizer_profiles_screen(base: str) -> list:
     """Load's screen: the setups saved, A one to use it, and back"""
     lines = _widget(f"{base}/profiles_screen",
@@ -809,6 +888,7 @@ def settings_files() -> dict:
         files[f"{PE}/{folder}".replace("/", ".") + ".xml"] = lines
     files[f"{PE}/controls_setup".replace("/", ".") + ".xml"] = _controls_screen()
     files["main_menu.difficulty_select.randomizer.xml"] = _randomizer_screen()
+    files["main_menu.difficulty_select.skulls.xml"] = _skulls_screen()
     return {name: ['<?xml version="1.0" encoding="UTF-8"?>',
                    "<!-- The port's settings screen, in the PC version's style (tools/port_settings.py) -->",
                    "<menus>", *lines, "</menus>", ""] for name, lines in files.items()}
@@ -1033,6 +1113,7 @@ TITLES = {
     f"{MT}/lobby/header_add_player": "ADD PLAYER",
     f"{PE}/gameplay/header_gameplay": "GAMEPLAY",
     "main_menu/difficulty_select/randomizer/header_randomizer": "RANDOMIZER",
+    "main_menu/difficulty_select/skulls/header_skulls": "SKULLS",
 }
 
 

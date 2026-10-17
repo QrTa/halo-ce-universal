@@ -5472,6 +5472,9 @@ boolean game_engine_hud_draw_motion_sensor(
 {
 	boolean draw_motion_sensor = TRUE;
 
+	/* port: skull: Fog, no motion sensor (port/linux/game/skulls.c) */
+	if (skull_active(_skull_fog))
+		return FALSE;
 	if (game_engine)
 	{
 		boolean default_draw_motion_sensor;

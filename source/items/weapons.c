@@ -2633,7 +2633,12 @@ static void weapon_trigger_fire(
 				!(TEST_FLAG(weapon_definition->weapon.flags, _weapon_cannot_fire_at_maximum_age_bit) && weapon->weapon.age>=1.0f) &&
 				(magazine->rounds_loaded>=trigger_definition->minimum_rounds_loaded_per_shot || !TEST_FLAG(trigger->flags, _weapon_trigger_released_since_last_shot_bit)))
 			{
-				if (!cheat.bottomless_clip && (magazine->rounds_loaded-= trigger_definition->rounds_per_shot)<=0)
+				/* port: skull: Bandanna's player weapons fire without rounds,
+				Recession's take twice the rounds (port/linux/game/skulls.c) */
+				if (!cheat.bottomless_clip &&
+					!(skull_active(_skull_bandanna) && TEST_FLAG(weapon->item.flags, _item_belongs_to_player_bit)) &&
+					(magazine->rounds_loaded-= trigger_definition->rounds_per_shot*
+						(skull_active(_skull_recession) && TEST_FLAG(weapon->item.flags, _item_belongs_to_player_bit) ? 2 : 1))<=0)
 				{
 					magazine->rounds_loaded= 0;
 				}
@@ -2776,7 +2781,9 @@ static void weapon_trigger_fire(
 			trigger->illumination= 1.0f;
 		}
 
-		if (!cheat.bottomless_clip)
+		/* port: skull: Bandanna's player weapons do not heat */
+		if (!cheat.bottomless_clip &&
+			!(skull_active(_skull_bandanna) && TEST_FLAG(weapon->item.flags, _item_belongs_to_player_bit)))
 		{
 			weapon->weapon.heat+= trigger_definition->heat_generated_per_round;
 		}
@@ -2790,9 +2797,12 @@ static void weapon_trigger_fire(
 			weapon->weapon.heat= 1.0f;
 		}
 
-		if (TEST_FLAG(weapon->item.flags, _item_belongs_to_player_bit) && !cheat.infinite_ammo)
+		/* port: skull: Bandanna's player weapons keep their charge,
+		Recession's lose twice as much */
+		if (TEST_FLAG(weapon->item.flags, _item_belongs_to_player_bit) && !cheat.infinite_ammo &&
+			!skull_active(_skull_bandanna))
 		{
-			weapon->weapon.age+= trigger_definition->age_generated_per_round;
+			weapon->weapon.age+= trigger_definition->age_generated_per_round*(skull_active(_skull_recession) ? 2.0f : 1.0f);
 			if (weapon->weapon.age>1.0f)
 			{
 				weapon->weapon.age= 1.0f;

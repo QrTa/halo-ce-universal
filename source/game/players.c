@@ -4283,7 +4283,10 @@ static void player_examine_nearby_item(
 
 		weapon_item_index = item_index;
 		weapon = weapon_try_and_get(weapon_item_index);
-		if (!weapon || !unit_can_use_weapon(player->unit_index, weapon_item_index))
+		/* port: skull: Foreign, the players cannot take Covenant weapons
+		(port/linux/game/skulls.c) */
+		if (!weapon || !unit_can_use_weapon(player->unit_index, weapon_item_index) ||
+			(skull_active(_skull_foreign) && skulls_weapon_is_covenant(weapon->definition_index)))
 		{
 			return;
 		}

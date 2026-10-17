@@ -153,6 +153,9 @@
 	<bitmap name="main_menu/difficulty_select/randomizer/header_randomizer">
 		<frame png="ce/port/main_menu/difficulty_select/randomizer/header_randomizer.png" width="512" height="64"/>
 	</bitmap>
+	<bitmap name="main_menu/difficulty_select/skulls/header_skulls">
+		<frame png="ce/port/main_menu/difficulty_select/skulls/header_skulls.png" width="512" height="64"/>
+	</bitmap>
 	<bitmap name="main_menu/gametype_select/header_select_gametype">
 		<frame png="ce/shell/main_menu/gametype_select/header_select_gametype__0.png" width="512" height="64"/>
 	</bitmap>

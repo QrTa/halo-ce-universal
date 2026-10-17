@@ -21,6 +21,11 @@ long randomizer_actor_variant(long original, long encounter_index, long squad_in
 long randomizer_weapon_definition(long definition_index, void *scenario_object);
 long randomizer_enemy_weapon(long weapon_definition, long unit_index, long attempt);
 
+/* by a tag's name: a Covenant weapon of the campaign's, and a grunt's unit
+(the skulls': skulls.c) */
+int randomizer_weapon_is_covenant(char const *tag_name);
+int randomizer_unit_is_grunt(char const *tag_name);
+
 /* the advertisement's reserved bytes: the randomizer flag and the setup,
 when this game is a randomized campaign */
 void randomizer_advertisement(unsigned char *reserved);

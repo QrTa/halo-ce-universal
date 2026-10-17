@@ -3145,6 +3145,18 @@ long randomizer_enemy_weapon(long weapon_definition, long unit_index, long attem
 	return pool_pick(held, held_count, seed);
 }
 
+int randomizer_weapon_is_covenant(char const *tag_name)
+{
+	int kind = weapon_kind(tag_name);
+
+	return kind != WEAPON_NONE && weapon_kinds[kind].covenant;
+}
+
+int randomizer_unit_is_grunt(char const *tag_name)
+{
+	return classify(tag_name) == TYPE_GRUNT;
+}
+
 void randomizer_advertisement(unsigned char *reserved)
 {
 	struct network_game *game = network_game_get_game();

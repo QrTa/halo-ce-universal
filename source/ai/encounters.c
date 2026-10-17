@@ -3225,6 +3225,13 @@ static boolean encounter_place_actor(
 					ai_get_major_upgrade_chance(squad_definition->major_upgrade, &upgrade_major, &random, &chance);
 					if (random)
 						upgrade_major = ai_consider_major_upgrade(encounter_index, squad_index, chance);
+					/* port: skull: Thunderstorm, an enemy with a higher rank is
+					placed as it (port/linux/game/skulls.c) */
+					if (skull_active(_skull_thunderstorm) &&
+						skulls_team_is_enemy(encounter_get(encounter_index)->team_index))
+					{
+						upgrade_major = TRUE;
+					}
 				}
 
 				placed = actor_place(actor_palette_entry->index, encounter_index, squad_index, starting_location, upgrade_major, initial_variant) != NONE;

@@ -2059,26 +2059,35 @@ void hud_render_weapon_interface(
 		hud_index = definition->weapon.interface_definition.hud_interface.index;
 		if (hud_index != NONE)
 		{
-			crosshairs_draw(
-				player,
-				weapon_index,
-				hud_index,
-				&weapon_state);
-			render_weapon_hud(
-				hud_index,
-				player->local_player_index,
-				definition,
-				&weapon_state,
-				NULL,
-				NULL,
-				NULL);
+			/* port: skull: Malfunction, the element this body broke is not
+			drawn (port/linux/game/skulls.c) */
+			if (!skulls_hud_broken(player->local_player_index, player->unit_index, _skull_malfunction_crosshair))
+			{
+				crosshairs_draw(
+					player,
+					weapon_index,
+					hud_index,
+					&weapon_state);
+			}
+			if (!skulls_hud_broken(player->local_player_index, player->unit_index, _skull_malfunction_weapon))
+			{
+				render_weapon_hud(
+					hud_index,
+					player->local_player_index,
+					definition,
+					&weapon_state,
+					NULL,
+					NULL,
+					NULL);
+			}
 			play_weapon_hud_sounds(
 				player->local_player_index,
 				hud_index,
 				&weapon_state);
 		}
 	}
-	else if (!seat_disallows_hud && !unit_get_weapon_count(player->unit_index))
+	else if (!seat_disallows_hud && !unit_get_weapon_count(player->unit_index) &&
+		!skulls_hud_broken(player->local_player_index, player->unit_index, _skull_malfunction_crosshair))
 	{
 		struct weapon_interface_state weapon_state = { 0 };
 
@@ -2089,9 +2098,12 @@ void hud_render_weapon_interface(
 			&weapon_state);
 	}
 
-	render_grenade_hud(
-		player->local_player_index,
-		player->unit_index);
+	if (!skulls_hud_broken(player->local_player_index, player->unit_index, _skull_malfunction_grenades))
+	{
+		render_grenade_hud(
+			player->local_player_index,
+			player->unit_index);
+	}
 	if (player->local_player_index != NONE)
 	{
 		get_hud_state(player->local_player_index)->last_weapon_index = weapon_index;

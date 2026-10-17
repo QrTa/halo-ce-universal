@@ -2469,6 +2469,11 @@ void actor_customize_unit(
 			actor_variant_definition->items.grenades_lower_bound,
 			actor_variant_definition->items.grenades_upper_bound + 1);
 
+		/* port: skull: Catch, the enemies carry more grenades
+		(port/linux/game/skulls.c) */
+		if (skull_active(_skull_catch) && skulls_unit_is_enemy(unit_index))
+			grenade_count = (short)(actor_variant_definition->items.grenades_upper_bound + 2);
+
 		unit_add_grenade_type_to_inventory(
 			unit_index,
 			actor_variant_definition->grenade_combat.grenade_type,
@@ -3394,8 +3399,10 @@ void actor_died(
 			actor->meta.unit_index,
 			unit_get(actor->meta.unit_index)->unit.current_weapon_index);
 
+		/* port: skull: Catch, and drop all of them */
 		if (!ai_globals->grenades_enabled ||
-			grenade_roll < actor_variant_definition->items.dont_drop_grenades_chance)
+			(grenade_roll < actor_variant_definition->items.dont_drop_grenades_chance &&
+				!(skull_active(_skull_catch) && skulls_team_is_enemy(actor->meta.team_index))))
 		{
 			csmemset(unit->unit.grenade_counts, 0, sizeof(unit->unit.grenade_counts));
 		}
@@ -3436,6 +3443,9 @@ void actor_died(
 				}
 				weapon_set_total_rounds(weapon_index, rounds);
 			}
+			/* port: skull: Famine's dropped weapons have half their
+			ammunition (port/linux/game/skulls.c) */
+			skulls_famine_weapon(weapon_index);
 		}
 	}
 

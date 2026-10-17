@@ -455,7 +455,12 @@ real object_get_maximum_body_vitality(
 	real result = object->object.maximum_body_vitality;
 
 	if (!ignore_difficulty)
+	{
 		result *= game_difficulty_get_team_value(1, object->object.owner_team_index);
+		/* port: skull: Mythic, the enemies' health doubled (port/linux/game/skulls.c) */
+		if (skull_active(_skull_mythic) && skulls_team_is_enemy(object->object.owner_team_index))
+			result *= 2.f;
+	}
 
 	return result;
 }
@@ -468,7 +473,12 @@ real object_get_maximum_shield_vitality(
 	real result = object->object.maximum_shield_vitality;
 
 	if (!ignore_difficulty)
+	{
 		result *= game_difficulty_get_team_value(2, object->object.owner_team_index);
+		/* port: skull: Mythic, and their shields */
+		if (skull_active(_skull_mythic) && skulls_team_is_enemy(object->object.owner_team_index))
+			result *= 2.f;
+	}
 
 	return result;
 }
@@ -1054,6 +1064,10 @@ static void object_damage_aftermath(
 			damage_effect->damage.instantaneous_acceleration *
 			object_definition->object.acceleration_scale *
 			0.033333335f;
+		/* port: skull: Sputnik, objects lighter, thrown three times as far
+		(port/linux/game/skulls.c) */
+		if (skull_active(_skull_sputnik))
+			acceleration_scale *= 3.f;
 		scale_vector3d(&direction, acceleration_scale, &acceleration);
 
 		switch (object->object.type)
@@ -1108,6 +1122,11 @@ static void object_damage_aftermath(
 			break;
 		}
 	}
+
+	/* port: skull: a punch's Pinata grenades and Black Eye shield, where
+	shields are run (port/linux/game/skulls.c) */
+	if (objects_update_shields() && damage_effect->damage.category == _damage_category_melee)
+		skulls_melee_damage(object_index, damage->owner_object_index, damage->owner_player_index);
 
 	if (game_engine_can_score() &&
 		!TEST_FLAG(damage->flags, _damage_no_statistics_bit))
@@ -1947,7 +1966,8 @@ void area_of_effect_cause_damage(
 		0,
 		&damage->location,
 		&damage->origin,
-		definition->cutoff_radius,
+		/* port: skull: Boom, twice the reach (port/linux/game/skulls.c) */
+		definition->cutoff_radius * skulls_boom_scale(),
 		object_indices,
 		NUMBEROF(object_indices));
 	if (object_count > 0)
@@ -2084,7 +2104,9 @@ void object_damage_update(
 		}
 		else if (object->object.shield_vitality < 1.f)
 		{
-			if (object->object.shield_stun_ticks == 0)
+			/* port: skull: Black Eye, a player's shield only a punch fills */
+			if (object->object.shield_stun_ticks == 0 &&
+				!(skull_active(_skull_black_eye) && skulls_unit_is_player(object_index)))
 			{
 				real shield_recharge =
 					collision_model->resistance.runtime_shield_recharge_velocity;
@@ -2567,12 +2589,13 @@ static void area_of_effect_cause_damage_to_object(
 			&object->object.bounding_sphere_center,
 			&damage->direction);
 		distance = normalize3d(&damage->direction);
-		radius_delta = damage_effect->cutoff_radius - damage_effect->falloff_radius;
+		/* port: skull: Boom, the falloff twice as far */
+		radius_delta = (damage_effect->cutoff_radius - damage_effect->falloff_radius) * skulls_boom_scale();
 		if (radius_delta > 0.f)
 		{
 			scale = PIN(
 				1.f -
-					(distance - damage_effect->falloff_radius) /
+					(distance - damage_effect->falloff_radius * skulls_boom_scale()) /
 					radius_delta,
 				0.f,
 				1.f);

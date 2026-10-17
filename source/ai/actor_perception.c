@@ -1360,6 +1360,10 @@ void actor_get_vision_distances(
 	real full_distance;
 	real partial_distance;
 
+	/* port: skull: That's Just... Wrong, the enemies see twice as far
+	(port/linux/game/skulls.c) */
+	if (skull_active(_skull_thats_just_wrong) && skulls_team_is_enemy(actor->meta.team_index))
+		perception_factor *= 2.0f;
 	if (horizontal_angle > definition->peripheral_distance)
 	{
 		partial_distance = 0.0f;
@@ -2636,6 +2640,9 @@ short actor_audibility_at_point(
 		{
 			maximum_distance *= 0.8f;
 		}
+		/* port: skull: That's Just... Wrong, and hear twice as far */
+		if (skull_active(_skull_thats_just_wrong) && skulls_team_is_enemy(actor->meta.team_index))
+			maximum_distance *= 2.0f;
 
 		if (actor_perception_audibility_combat_status(actor) == 2)
 		{
@@ -6254,6 +6261,11 @@ void actor_perception_update(
 						actor->danger_zone.allow_dive_evasion =
 							real_seed_random(get_global_random_seed_address()) <
 								definition->moving.grenade_dive_chance;
+						/* port: skull: Tough Luck, the enemies always dive
+						(port/linux/game/skulls.c; after the roll, which the
+						game's seed keeps) */
+						if (skull_active(_skull_tough_luck) && skulls_team_is_enemy(actor->meta.team_index))
+							actor->danger_zone.allow_dive_evasion = TRUE;
 					}
 
 					actor_stimulus_noticed_danger_zone(

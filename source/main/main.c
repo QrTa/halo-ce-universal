@@ -2179,9 +2179,17 @@ static void main_lost_map_private(
 		they were at the last checkpoint, without a revert. A mission the
 		scripts failed (game_lost, with players still alive: d40's timer,
 		a50's Keyes) does revert, or its failure cutscene would never end. */
+		/* port: skull: Iron, a solo death restarts the level, and everyone
+		dead in network co-op reverts to the checkpoint
+		(port/linux/game/skulls.c) */
 		if (game_connection() != _game_connection_network_server)
-			game_state_revert();
-		else if (players_are_all_dead() || !main_coop_host_revert())
+		{
+			if (skull_active(_skull_iron) && local_player_count() < 2 && players_are_all_dead())
+				main_reset_map();
+			else
+				game_state_revert();
+		}
+		else if ((players_are_all_dead() && !skull_active(_skull_iron)) || !main_coop_host_revert())
 			players_respawn_at_checkpoint();
 	}
 	return;
@@ -2190,6 +2198,22 @@ static void main_lost_map_private(
 static void main_respawn_private(
 	void)
 {
+	/* port: skull: Iron, a co-op player's death reverts everyone to the
+	checkpoint, once the death has been seen (port/linux/game/skulls.c);
+	a host with none saved respawns as ever */
+	if (skull_active(_skull_iron) && game_connection() != _game_connection_network_client &&
+		(!main_coop_host() || game_state_port_saved_game_valid()))
+	{
+		if (main_death_timer_expired(
+			&main_globals.respawn_timer, &main_respawn_last_tick,
+			!game_time_get_paused() && !cinematic_in_progress()))
+		{
+			main_globals.respawn = FALSE;
+			main_globals.respawn_timer = 0;
+			main_revert_map();
+		}
+		return;
+	}
 	if (main_death_timer_expired(
 		&main_globals.respawn_timer, &main_respawn_last_tick,
 		!game_time_get_paused() && !cinematic_in_progress()) &&

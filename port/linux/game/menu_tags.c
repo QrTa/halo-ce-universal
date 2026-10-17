@@ -389,6 +389,8 @@ static char const *const port_function_names[] =
 	"new campaign decision",
 	/* (the campaign randomizer's screen, after a campaign level's difficulty) */
 	"randomizer profile save", "randomizer profile load", "randomizer start", "randomizer profile delete",
+	/* (the skulls screen, after a campaign level's difficulty) */
+	"skull toggle", "skulls all off", "skulls start",
 };
 
 /* the PC version's game data functions that the Xbox's have not, from
@@ -414,6 +416,8 @@ static char const *const port_game_data_input_names[] =
 	"port renderer textbox",
 	/* (the campaign randomizer's saved profiles, and its screen's rows) */
 	"randomizer profiles update", "randomizer screen update",
+	/* (the skulls screen's ticks and help) */
+	"skulls screen update",
 };
 
 static struct

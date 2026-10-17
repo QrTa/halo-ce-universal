@@ -1839,7 +1839,7 @@ static boolean distributed_report_valid(
 	definition = damage_effect_definition_get(report->damage.definition_index);
 	reach = target->object.bounding_sphere_radius + REPORT_IMPACT_TOLERANCE;
 	if (area)
-		reach += definition->cutoff_radius;
+		reach += definition->cutoff_radius * skulls_boom_scale();
 	if (!(distributed_distance_squared(&report->damage.origin, &report->target_position) <= reach * reach))
 		return FALSE;
 	/* what only a grenade of theirs deals, from one the host saw them throw
@@ -1930,9 +1930,11 @@ static boolean distributed_report_valid(
 		distance = normalize3d(&damage->direction);
 		if (!TEST_FLAG(definition->flags, _damage_effect_dont_scale_damage_by_distance_bit))
 		{
-			real radius_delta = definition->cutoff_radius - definition->falloff_radius;
+			/* (Boom's skull: twice the radii, as damage.c has them) */
+			real radius_delta = (definition->cutoff_radius - definition->falloff_radius) * skulls_boom_scale();
 			real scale = radius_delta > 0.0f ?
-				PIN(1.0f - (distance - definition->falloff_radius) / radius_delta, 0.0f, 1.0f) : 1.0f;
+				PIN(1.0f - (distance - definition->falloff_radius * skulls_boom_scale()) / radius_delta, 0.0f, 1.0f) :
+				1.0f;
 
 			damage->scale = MIN(damage->scale, scale);
 		}

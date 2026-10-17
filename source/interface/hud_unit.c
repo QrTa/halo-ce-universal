@@ -915,10 +915,13 @@ void hud_render_unit_interface(
 						NONE);
 				}
 
+				/* port: skull: Malfunction, the element this body broke is
+				not drawn (port/linux/game/skulls.c) */
 				if (game_engine_has_shield(player_index) &&
 					!TEST_FLAG(
 						unit_hud_globals->script_flags,
-						_hud_panel_shield_dont_show_bit))
+						_hud_panel_shield_dont_show_bit) &&
+					!skulls_hud_broken(local_player_index, player->unit_index, _skull_malfunction_shield))
 				{
 					short draw_flags =
 						hud_unit->object.shield_vitality < 0.25f ||
@@ -1037,7 +1040,8 @@ void hud_render_unit_interface(
 
 				if (!TEST_FLAG(
 					unit_hud_globals->script_flags,
-					_hud_panel_health_dont_show_bit))
+					_hud_panel_health_dont_show_bit) &&
+					!skulls_hud_broken(local_player_index, player->unit_index, _skull_malfunction_health))
 				{
 					short draw_flags =
 						TEST_FLAG(
@@ -1130,6 +1134,7 @@ void hud_render_unit_interface(
 					!TEST_FLAG(
 						unit_hud_globals->script_flags,
 						_hud_panel_motion_sensor_dont_show_bit) &&
+					!skulls_hud_broken(local_player_index, player->unit_index, _skull_malfunction_motion_sensor) &&
 					game_engine_hud_draw_motion_sensor(player_index))
 				{
 					struct hud_absolute_placement_definition absolute_placement;

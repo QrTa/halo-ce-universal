@@ -608,6 +608,9 @@ static void actor_start_pause(
 	{
 		burst_separation *= firing_pattern->burst_separation_modifier;
 	}
+	/* port: skull: Anger, and more often (port/linux/game/skulls.c) */
+	if (skull_active(_skull_anger) && skulls_team_is_enemy(actor->meta.team_index))
+		burst_separation *= 0.5f;
 
 	if (actor->external_orders.playfighting)
 	{
@@ -2390,6 +2393,10 @@ void actor_combat_update(
 					rate_of_fire *= game_difficulty_get_team_value(
 						_game_difficulty_value_rate_of_fire,
 						actor->meta.team_index);
+					/* port: skull: Anger, the enemies fire faster
+					(port/linux/game/skulls.c) */
+					if (skull_active(_skull_anger) && skulls_team_is_enemy(actor->meta.team_index))
+						rate_of_fire *= 1.5f;
 					actor_combat_get_firing_parameters(
 						actor_index,
 						firing_variant_definition,
