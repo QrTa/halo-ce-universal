@@ -374,6 +374,62 @@ static const struct config_setting config_settings[] =
 	{ "game.randomizer_type", _config_string, "\"grunt\"", "HALO_RANDOMIZER_TYPE", _environment_value, _platform_all,
 		"The randomizer screen, when the pool is \"one\": \"grunt\", \"elite\",\n"
 		"\"jackal\", \"hunter\", \"flood_combat\", \"flood_carrier\" or \"marine\"." },
+	{ "game.randomizer_grunt_rank", _config_string, "\"any\"", "HALO_RANDOMIZER_GRUNT_RANK", _environment_value, _platform_all,
+		"The randomizer screen, when the one type is \"grunt\": \"any\", \"minor\",\n"
+		"\"major\" or \"specops\"." },
+	{ "game.randomizer_elite_rank", _config_string, "\"any\"", "HALO_RANDOMIZER_ELITE_RANK", _environment_value, _platform_all,
+		"The randomizer screen, when the one type is \"elite\": \"any\", \"minor\",\n"
+		"\"major\", \"specops\", \"zealot\" (the gold commanders) or \"stealth\"." },
+	{ "game.randomizer_jackal_rank", _config_string, "\"any\"", "HALO_RANDOMIZER_JACKAL_RANK", _environment_value, _platform_all,
+		"The randomizer screen, when the one type is \"jackal\": \"any\", \"minor\" or\n"
+		"\"major\"." },
+	{ "game.randomizer_hunter_rank", _config_string, "\"any\"", "HALO_RANDOMIZER_HUNTER_RANK", _environment_value, _platform_all,
+		"The randomizer screen, when the one type is \"hunter\": \"any\", \"minor\" or\n"
+		"\"major\"." },
+	{ "game.randomizer_flood_combat_rank", _config_string, "\"any\"", "HALO_RANDOMIZER_FLOOD_COMBAT_RANK", _environment_value,
+		_platform_all,
+		"The randomizer screen, when the one type is \"flood_combat\": \"any\",\n"
+		"\"human\" or \"elite\"." },
+	{ "game.randomizer_pickup_pool", _config_string, "\"any\"", "HALO_RANDOMIZER_PICKUP_POOL", _environment_value, _platform_all,
+		"The randomizer screen, with game.randomizer_pickups. Which weapons a\n"
+		"weapon lying in the level may become: \"any\", \"covenant\", \"human\",\n"
+		"\"precision\" (pistol, sniper rifle), \"automatic\" (assault rifle, plasma\n"
+		"rifle, needler), \"power\" (shotgun, sniper rifle, rocket launcher,\n"
+		"flamethrower) or \"one\" (game.randomizer_pickup_type). A weapon the level\n"
+		"has not got is taken from another campaign level." },
+	{ "game.randomizer_pickup_type", _config_string, "\"pistol\"", "HALO_RANDOMIZER_PICKUP_TYPE", _environment_value,
+		_platform_all,
+		"The randomizer screen, when the pickup pool is \"one\": \"pistol\",\n"
+		"\"assault_rifle\", \"shotgun\", \"sniper_rifle\", \"rocket_launcher\",\n"
+		"\"flamethrower\", \"plasma_pistol\", \"plasma_rifle\" or \"needler\"." },
+	{ "game.randomizer_weapon_pool", _config_string, "\"any\"", "HALO_RANDOMIZER_WEAPON_POOL", _environment_value, _platform_all,
+		"The randomizer screen, with game.randomizer_enemy_weapons. Which weapons\n"
+		"an actor may be given, among those it has the animations to hold: the\n"
+		"choices of game.randomizer_pickup_pool, \"power\" adding the fuel rod and\n"
+		"the energy sword, or \"one\" (game.randomizer_weapon_type). An actor that\n"
+		"can hold none of them keeps its own." },
+	{ "game.randomizer_weapon_type", _config_string, "\"plasma_rifle\"", "HALO_RANDOMIZER_WEAPON_TYPE", _environment_value,
+		_platform_all,
+		"The randomizer screen, when the enemy weapon pool is \"one\": a choice\n"
+		"of game.randomizer_pickup_type, \"fuel_rod\" or \"energy_sword\"." },
+	{ "game.randomizer_profile_1", _config_string, "\"\"", "HALO_RANDOMIZER_PROFILE_1", _environment_value, _platform_all,
+		"The randomizer screen's saved setups (Save, then Load), one a setting:\n"
+		"a name, then the screen's settings, separated by semicolons. Written by\n"
+		"the screen." },
+	{ "game.randomizer_profile_2", _config_string, "\"\"", "HALO_RANDOMIZER_PROFILE_2", _environment_value, _platform_all,
+		"A saved setup of the randomizer screen (game.randomizer_profile_1)." },
+	{ "game.randomizer_profile_3", _config_string, "\"\"", "HALO_RANDOMIZER_PROFILE_3", _environment_value, _platform_all,
+		"A saved setup of the randomizer screen (game.randomizer_profile_1)." },
+	{ "game.randomizer_profile_4", _config_string, "\"\"", "HALO_RANDOMIZER_PROFILE_4", _environment_value, _platform_all,
+		"A saved setup of the randomizer screen (game.randomizer_profile_1)." },
+	{ "game.randomizer_profile_5", _config_string, "\"\"", "HALO_RANDOMIZER_PROFILE_5", _environment_value, _platform_all,
+		"A saved setup of the randomizer screen (game.randomizer_profile_1)." },
+	{ "game.randomizer_profile_6", _config_string, "\"\"", "HALO_RANDOMIZER_PROFILE_6", _environment_value, _platform_all,
+		"A saved setup of the randomizer screen (game.randomizer_profile_1)." },
+	{ "game.randomizer_profile_7", _config_string, "\"\"", "HALO_RANDOMIZER_PROFILE_7", _environment_value, _platform_all,
+		"A saved setup of the randomizer screen (game.randomizer_profile_1)." },
+	{ "game.randomizer_profile_8", _config_string, "\"\"", "HALO_RANDOMIZER_PROFILE_8", _environment_value, _platform_all,
+		"A saved setup of the randomizer screen (game.randomizer_profile_1)." },
 	{ "game.custom_edition", _config_boolean, "true", "HALO_CUSTOM_EDITION", _environment_value, _platform_all,
 		"Load and run Halo Custom Edition maps (not those that need OpenSauce):\n"
 		"put them and Custom Edition's bitmaps.map, sounds.map and loc.map in\n"

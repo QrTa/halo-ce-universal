@@ -92,6 +92,73 @@ enum
 	TYPE_NONE = -1
 };
 
+/* a variant's rank, within its type (the tags' names: characters\elite\elite
+major\..., stealth elite major, elite commander is the zealot, a flood
+combat form a human's or an elite's) */
+enum
+{
+	RANK_ANY = 0,
+	RANK_MINOR,
+	RANK_MAJOR,
+	RANK_SPECOPS,
+	RANK_ZEALOT,
+	RANK_STEALTH,
+	RANK_HUMAN,
+	RANK_ELITE,
+	RANK_COUNT
+};
+
+/* the weapons a pool is made of: the campaign's hand weapons. The fuel rod
+and the energy sword are only the actors' */
+enum
+{
+	WEAPON_PISTOL = 0,
+	WEAPON_ASSAULT_RIFLE,
+	WEAPON_SHOTGUN,
+	WEAPON_SNIPER_RIFLE,
+	WEAPON_ROCKET_LAUNCHER,
+	WEAPON_FLAMETHROWER,
+	WEAPON_PLASMA_PISTOL,
+	WEAPON_PLASMA_RIFLE,
+	WEAPON_NEEDLER,
+	WEAPON_FUEL_ROD,
+	WEAPON_ENERGY_SWORD,
+	WEAPON_KIND_COUNT,
+	WEAPON_NONE = -1,
+	WEAPON_POOL_ANY = 0,
+	WEAPON_POOL_COVENANT,
+	WEAPON_POOL_HUMAN,
+	WEAPON_POOL_PRECISION,
+	WEAPON_POOL_AUTOMATIC,
+	WEAPON_POOL_POWER,
+	WEAPON_POOL_ONE,
+	WEAPON_POOL_COUNT
+};
+
+static struct
+{
+	char const *tag;
+	char const *setting;
+	int covenant;
+	int precision;
+	int automatic;
+	int power;
+	int actors_only;
+} const weapon_kinds[WEAPON_KIND_COUNT] =
+{
+	{ "weapons\\pistol\\pistol", "pistol", 0, 1, 0, 0, 0 },
+	{ "weapons\\assault rifle\\assault rifle", "assault_rifle", 0, 0, 1, 0, 0 },
+	{ "weapons\\shotgun\\shotgun", "shotgun", 0, 0, 0, 1, 0 },
+	{ "weapons\\sniper rifle\\sniper rifle", "sniper_rifle", 0, 1, 0, 1, 0 },
+	{ "weapons\\rocket launcher\\rocket launcher", "rocket_launcher", 0, 0, 0, 1, 0 },
+	{ "weapons\\flamethrower\\flamethrower", "flamethrower", 0, 0, 0, 1, 0 },
+	{ "weapons\\plasma pistol\\plasma pistol", "plasma_pistol", 1, 0, 0, 0, 0 },
+	{ "weapons\\plasma rifle\\plasma rifle", "plasma_rifle", 1, 0, 1, 0, 0 },
+	{ "weapons\\needler\\needler", "needler", 1, 0, 1, 0, 0 },
+	{ "weapons\\fuel rod gun\\fuel rod", "fuel_rod", 1, 0, 0, 1, 1 },
+	{ "weapons\\energy sword\\energy sword", "energy_sword", 1, 0, 0, 1, 1 },
+};
+
 /* a conversation's participant, as tag_schema_scenario.c has it: the name
 at 0x24 is the squad the conversation keeps */
 struct randomizer_participant
@@ -189,8 +256,22 @@ struct wanted
 {
 	short donor;
 	long absolute;
+	long group;
 	char name[256];
 };
+
+/* a tag another map's copy of which is wanted already: it is that copy */
+struct wanted_alias
+{
+	short donor;
+	long absolute;
+	short target_donor;
+	long target_absolute;
+};
+
+/* the wanted tags by group and name, so each is copied from one map. Twice
+WANTED_MAX, a power of two; a slot holds an index into wanted, plus one */
+#define WANTED_SLOTS 16384
 
 struct copied_tag
 {
@@ -213,6 +294,12 @@ struct setup
 	int weapons;
 	int pool;
 	int type;
+	/* the one type's rank (RANK_ANY for a type that has none) */
+	int rank;
+	int pickup_pool;
+	int pickup_type;
+	int weapon_pool;
+	int weapon_type;
 };
 
 extern boolean tag_index_is_group(long tag_index, long group_tag);
@@ -250,6 +337,12 @@ static struct held_block *held;
 static unsigned long held_bytes;
 static int import_stopped;
 static long walk_steps;
+static long *wanted_slots;
+static struct wanted_alias *aliases;
+static long alias_count;
+/* a root (a palette's actor, a pool's weapon) and what it needs did not fit:
+none of it was taken, and no root after it is */
+static int wanted_full;
 static int import_progress_open;
 static struct cache_file_tag_instance *saved_instances;
 static long saved_count;
@@ -273,16 +366,21 @@ static int donor_saw_sound;
 static unsigned char donor_noted[IMPORT_MAX];
 static long variant_pool[POOL_MAX];
 static long variant_count;
-static long weapon_pool[WEAPON_MAX];
-static long weapon_count;
 static char protected_names[PROTECTED_MAX][32];
 static int protected_count;
 static struct setup current;
 static int loaded;
 static char map_name_leaf[32];
 static int remote_on;
-/* three setup bytes, then the host's placement roll (little endian) */
-static unsigned char remote_setup[7];
+/* the setup as the host advertises it (halo_port_limits.h): which swaps,
+the pool, the type, the placement roll (little endian), the rank, the
+pickups' pool and type, the actors' weapons' pool and type */
+static unsigned char remote_setup[HALO_PORT_ADVERTISED_RANDOMIZER_SETUP_SIZE];
+static struct weapon_choice
+{
+	long definitions[WEAPON_MAX];
+	long count;
+} pickup_choice, actor_weapon_choice;
 static unsigned long placement_roll;
 static int placement_roll_ready;
 static void *map_widget;
@@ -372,6 +470,65 @@ static int type_id(char const *text)
 	return TYPE_GRUNT;
 }
 
+static int name_index(char const *text, char const *const *names, int count, int otherwise)
+{
+	int index;
+
+	for (index = 0; text && index < count; index++)
+	{
+		if (!_stricmp(text, names[index]))
+			return index;
+	}
+
+	return otherwise;
+}
+
+static int rank_id(char const *text)
+{
+	static char const *const names[RANK_COUNT] = {
+		"any", "minor", "major", "specops", "zealot", "stealth", "human", "elite"
+	};
+
+	return name_index(text, names, RANK_COUNT, RANK_ANY);
+}
+
+static int weapon_pool_id(char const *text)
+{
+	static char const *const names[WEAPON_POOL_COUNT] = {
+		"any", "covenant", "human", "precision", "automatic", "power", "one"
+	};
+
+	return name_index(text, names, WEAPON_POOL_COUNT, WEAPON_POOL_ANY);
+}
+
+static int weapon_kind_id(char const *text, int otherwise)
+{
+	int index;
+
+	for (index = 0; text && index < WEAPON_KIND_COUNT; index++)
+	{
+		if (!_stricmp(text, weapon_kinds[index].setting))
+			return index;
+	}
+
+	return otherwise;
+}
+
+/* the setting of the one type's rank, for a type that has ranks */
+static char const *rank_setting(int type)
+{
+	switch (type)
+	{
+	case TYPE_GRUNT: return "game.randomizer_grunt_rank";
+	case TYPE_ELITE: return "game.randomizer_elite_rank";
+	case TYPE_JACKAL: return "game.randomizer_jackal_rank";
+	case TYPE_HUNTER: return "game.randomizer_hunter_rank";
+	case TYPE_FLOOD_COMBAT: return "game.randomizer_flood_combat_rank";
+	}
+
+	return NULL;
+}
+
 static void setup_from_config(struct setup *setup)
 {
 	setup->enemies = config_boolean("game.randomizer_enemies");
@@ -380,6 +537,14 @@ static void setup_from_config(struct setup *setup)
 	setup->weapons = config_boolean("game.randomizer_enemy_weapons");
 	setup->pool = pool_id(config_string("game.randomizer_pool"));
 	setup->type = type_id(config_string("game.randomizer_type"));
+	setup->rank = rank_setting(setup->type) ? rank_id(config_string(rank_setting(setup->type))) : RANK_ANY;
+	setup->pickup_pool = weapon_pool_id(config_string("game.randomizer_pickup_pool"));
+	setup->pickup_type = weapon_kind_id(config_string("game.randomizer_pickup_type"), WEAPON_PISTOL);
+	/* (the actors' weapons are not the player's to pick up) */
+	if (weapon_kinds[setup->pickup_type].actors_only)
+		setup->pickup_type = WEAPON_PISTOL;
+	setup->weapon_pool = weapon_pool_id(config_string("game.randomizer_weapon_pool"));
+	setup->weapon_type = weapon_kind_id(config_string("game.randomizer_weapon_type"), WEAPON_PLASMA_RIFLE);
 }
 
 static void setup_from_remote(struct setup *setup)
@@ -390,6 +555,12 @@ static void setup_from_remote(struct setup *setup)
 	setup->allies = (remote_setup[0] & 8) != 0;
 	setup->pool = remote_setup[1] <= POOL_ONE ? remote_setup[1] : POOL_ANY;
 	setup->type = remote_setup[2] <= TYPE_MARINE ? remote_setup[2] : TYPE_GRUNT;
+	setup->rank = remote_setup[7] < RANK_COUNT ? remote_setup[7] : RANK_ANY;
+	setup->pickup_pool = remote_setup[8] < WEAPON_POOL_COUNT ? remote_setup[8] : WEAPON_POOL_ANY;
+	setup->pickup_type = remote_setup[9] < WEAPON_KIND_COUNT && !weapon_kinds[remote_setup[9]].actors_only ?
+		remote_setup[9] : WEAPON_PISTOL;
+	setup->weapon_pool = remote_setup[10] < WEAPON_POOL_COUNT ? remote_setup[10] : WEAPON_POOL_ANY;
+	setup->weapon_type = remote_setup[11] < WEAPON_KIND_COUNT ? remote_setup[11] : WEAPON_PLASMA_RIFLE;
 }
 
 static int setup_swaps(struct setup const *setup)
@@ -452,6 +623,95 @@ static int classify(char const *name)
 		return TYPE_ENGINEER;
 
 	return TYPE_NONE;
+}
+
+static void lower_copy(char *lower, unsigned int size, char const *name)
+{
+	unsigned int index;
+
+	for (index = 0; name && name[index] && index + 1 < size; index++)
+	{
+		char character = name[index];
+
+		if (character >= 'A' && character <= 'Z')
+			character = (char)(character - 'A' + 'a');
+		lower[index] = character;
+	}
+	lower[index] = 0;
+}
+
+/* a variant's rank, by its tag's name, among its type's */
+static int variant_rank(int kind, char const *variant_name)
+{
+	char lower[256];
+
+	lower_copy(lower, sizeof(lower), variant_name);
+	if (kind == TYPE_FLOOD_COMBAT)
+		return strstr(lower, "floodcombat_human") ? RANK_HUMAN : RANK_ELITE;
+	if (strstr(lower, "stealth"))
+		return RANK_STEALTH;
+	if (strstr(lower, "commander"))
+		return RANK_ZEALOT;
+	if (strstr(lower, "specops"))
+		return RANK_SPECOPS;
+	if (strstr(lower, "major"))
+		return RANK_MAJOR;
+
+	return RANK_MINOR;
+}
+
+/* which of the campaign's hand weapons a weapon tag is, by its name */
+static int weapon_kind(char const *name)
+{
+	int index;
+
+	for (index = 0; name && index < WEAPON_KIND_COUNT; index++)
+	{
+		if (!_stricmp(name, weapon_kinds[index].tag))
+			return index;
+	}
+
+	return WEAPON_NONE;
+}
+
+static int weapon_pool_allows(int pool, int type, int kind, int for_pickups)
+{
+	if (kind == WEAPON_NONE || (for_pickups && weapon_kinds[kind].actors_only))
+		return 0;
+	switch (pool)
+	{
+	case WEAPON_POOL_COVENANT: return weapon_kinds[kind].covenant;
+	case WEAPON_POOL_HUMAN: return !weapon_kinds[kind].covenant;
+	case WEAPON_POOL_PRECISION: return weapon_kinds[kind].precision;
+	case WEAPON_POOL_AUTOMATIC: return weapon_kinds[kind].automatic;
+	case WEAPON_POOL_POWER: return weapon_kinds[kind].power;
+	case WEAPON_POOL_ONE: return kind == type;
+	}
+
+	return 1;
+}
+
+/* a weapon to copy from the other maps: one a pool the setup chose names.
+"any" is the level's own weapons and those its actors carry, as it was */
+static int weapon_wanted(char const *name)
+{
+	int kind = weapon_kind(name);
+
+	return (current.pickups && current.pickup_pool != WEAPON_POOL_ANY &&
+			weapon_pool_allows(current.pickup_pool, current.pickup_type, kind, 1)) ||
+		(current.weapons && current.weapon_pool != WEAPON_POOL_ANY &&
+			weapon_pool_allows(current.weapon_pool, current.weapon_type, kind, 0));
+}
+
+static int pool_allows(int kind);
+
+/* the one type's rank, when the pool is one type with ranks */
+static int rank_allows(int kind, char const *variant_name)
+{
+	if (current.pool != POOL_ONE || current.rank == RANK_ANY || kind != current.type)
+		return 1;
+
+	return variant_rank(kind, variant_name) == current.rank;
 }
 
 static int pool_allows(int kind)
@@ -633,7 +893,9 @@ static void walk_want(struct donor *donor, void *element, struct tag_schema_defi
 {
 	struct tag_schema_field const *field;
 
-	if (walk_steps > 400000 || import_stopped)
+	if (walk_steps > 400000)
+		wanted_full = 1;
+	if (wanted_full || import_stopped)
 		return;
 	if (depth >= WALK_DEPTH || !element || !schema || schema->size <= 0 ||
 		!range_in(donor, element, (unsigned long)schema->size))
@@ -678,9 +940,61 @@ static void walk_want(struct donor *donor, void *element, struct tag_schema_defi
 	}
 }
 
+static unsigned long wanted_hash(long group, char const *name)
+{
+	unsigned long hash = (unsigned long)group * 0x9E3779B1UL;
+
+	for (; *name; name++)
+	{
+		char character = *name;
+
+		if (character >= 'A' && character <= 'Z')
+			character = (char)(character - 'A' + 'a');
+		hash = (hash ^ (unsigned char)character) * 0x01000193UL;
+	}
+
+	return hash & (WANTED_SLOTS - 1);
+}
+
+/* the wanted tag of this group and name, or NONE; with insert, the slot it
+goes in is taken by `index` when there is none */
+static long wanted_find(long group, char const *name, long insert)
+{
+	unsigned long slot = wanted_hash(group, name);
+
+	for (;;)
+	{
+		long held = wanted_slots[slot];
+
+		if (!held)
+		{
+			if (insert != NONE)
+				wanted_slots[slot] = insert + 1;
+			return NONE;
+		}
+		if (wanted[held - 1].group == group && !_stricmp(wanted[held - 1].name, name))
+			return held - 1;
+		slot = (slot + 1) & (WANTED_SLOTS - 1);
+	}
+}
+
+static long wanted_find(long group, char const *name, long insert);
+
+/* the table again, of the wanted_count entries: the one time a root does
+not fit, and what it added goes */
+static void wanted_slots_rebuild(void)
+{
+	long index;
+
+	memset(wanted_slots, 0, WANTED_SLOTS * sizeof(*wanted_slots));
+	for (index = 0; index < wanted_count; index++)
+		wanted_find(wanted[index].group, wanted[index].name, index);
+}
+
 static void want(struct donor *donor, long datum)
 {
 	long absolute = datum & 0xFFFF;
+	long other;
 	struct randomizer_tag_instance *instance;
 	char const *name;
 	long existing;
@@ -701,15 +1015,64 @@ static void want(struct donor *donor, long datum)
 		donor->datum_of[absolute] = existing;
 		return;
 	}
-	if (!name || wanted_count >= WANTED_MAX)
+	if (!name || wanted_count >= WANTED_MAX || alias_count >= WANTED_MAX)
 	{
-		import_stopped = 1;
+		wanted_full = 1;
+		return;
+	}
+	/* (the same tag from another map: the copy of it already wanted, which
+	brings what it needs from its own map) */
+	other = wanted_find(instance->group_tag, name, wanted_count);
+	if (other != NONE)
+	{
+		aliases[alias_count].donor = (short)(donor - donors);
+		aliases[alias_count].absolute = absolute;
+		aliases[alias_count].target_donor = wanted[other].donor;
+		aliases[alias_count].target_absolute = wanted[other].absolute;
+		alias_count++;
 		return;
 	}
 	snprintf(wanted[wanted_count].name, sizeof(wanted[wanted_count].name), "%s", name);
 	wanted[wanted_count].donor = (short)(donor - donors);
 	wanted[wanted_count].absolute = absolute;
+	wanted[wanted_count].group = instance->group_tag;
 	wanted_count++;
+}
+
+/* a root and every tag it needs, or none of them: a model taken without its
+shaders is drawn with a shader that is not there, and the game stops */
+static int want_root(struct donor *donor, long absolute)
+{
+	long start = wanted_count;
+	long start_aliases = alias_count;
+	long queued = wanted_count;
+
+	if (wanted_full)
+		return 0;
+	want(donor, absolute);
+	while (queued < wanted_count && !wanted_full)
+	{
+		struct wanted *entry = wanted + queued;
+		struct donor *owner = donors + entry->donor;
+		struct randomizer_tag_instance *instance = owner->instances + entry->absolute;
+		struct tag_schema_definition const *schema = schema_of((unsigned long)instance->group_tag);
+
+		queued++;
+		if (schema)
+			walk_want(owner, donor_address(owner, instance->base_address), schema, 0);
+	}
+	if (!wanted_full && wanted_count <= IMPORT_MAX)
+		return 1;
+	/* (what this root added goes; seen stays set, which no later root asks
+	about, there being none) */
+	wanted_count = start;
+	alias_count = start_aliases;
+	wanted_slots_rebuild();
+	wanted_full = 1;
+	error(_error_silent, "randomizer: %s.map's next tags do not fit; the level takes the %ld before them",
+		donor->leaf, wanted_count);
+
+	return 0;
 }
 
 static int wanted_less(void const *left, void const *right)
@@ -1528,7 +1891,8 @@ static int variant_in_pool(struct donor *donor, long datum)
 			return 0;
 	}
 
-	return pool_allows(classify(unit_name));
+	return pool_allows(classify(unit_name)) &&
+		rank_allows(classify(unit_name), instance_name(donor, instance));
 }
 
 static void seed_donor(struct donor *donor)
@@ -1548,30 +1912,38 @@ static void seed_donor(struct donor *donor)
 	scenario = donor_address(donor, donor->instances[scenario_absolute].base_address);
 	if (!scenario || !range_in(donor, scenario, sizeof(*scenario)))
 		return;
-	palette = donor_address(donor, scenario->ai_actor_palette.address);
-	if (!palette || scenario->ai_actor_palette.count <= 0 || scenario->ai_actor_palette.count > 256 ||
-		!range_in(donor, palette, (unsigned long)scenario->ai_actor_palette.count * sizeof(*palette)))
-		return;
 	queued = wanted_count;
-	for (index = 0; index < scenario->ai_actor_palette.count; index++)
+	/* the weapons a pool has that this level has not, once each */
+	for (index = 0; index < donor->count; index++)
 	{
-		if (variant_in_pool(donor, palette[index].index))
-			want(donor, palette[index].index);
-	}
-	error(_error_silent, "randomizer: %s queued %ld of %ld palette tags (pool %d)",
-		donor->leaf, wanted_count - queued, scenario->ai_actor_palette.count, current.pool);
-	while (queued < wanted_count && !import_stopped)
-	{
-		struct wanted *entry = wanted + queued;
-		struct donor *owner = donors + entry->donor;
-		struct randomizer_tag_instance *instance = owner->instances + entry->absolute;
-		struct tag_schema_definition const *schema = schema_of((unsigned long)instance->group_tag);
+		struct randomizer_tag_instance *instance = donor->instances + index;
+		char const *name;
 
-		queued++;
-		if (schema)
-			walk_want(owner, donor_address(owner, instance->base_address), schema, 0);
+		if (instance->group_tag != WEAPON_DEFINITION_TAG)
+			continue;
+		name = instance_name(donor, instance);
+		if (!name || !weapon_wanted(name) || tag_loaded(WEAPON_DEFINITION_TAG, name) != NONE)
+			continue;
+		want_root(donor, index);
 	}
-	error(_error_silent, "randomizer: seeded %s (%ld wanted)", donor->leaf, wanted_count);
+	if (wanted_count > queued)
+		error(_error_silent, "randomizer: %s queued %ld weapons", donor->leaf, wanted_count - queued);
+	palette = donor_address(donor, scenario->ai_actor_palette.address);
+	if (current.enemies && palette && scenario->ai_actor_palette.count > 0 && scenario->ai_actor_palette.count <= 256 &&
+		range_in(donor, palette, (unsigned long)scenario->ai_actor_palette.count * sizeof(*palette)))
+	{
+		long actors = wanted_count;
+
+		for (index = 0; index < scenario->ai_actor_palette.count; index++)
+		{
+			if (variant_in_pool(donor, palette[index].index))
+				want_root(donor, palette[index].index & 0xFFFF);
+		}
+		error(_error_silent, "randomizer: %s queued %ld of %ld palette tags (pool %d)",
+			donor->leaf, wanted_count - actors, scenario->ai_actor_palette.count, current.pool);
+	}
+	error(_error_silent, "randomizer: seeded %s (%ld wanted, %ld the same as another map's)",
+		donor->leaf, wanted_count, alias_count);
 }
 
 /* a model's draw buffers are addresses in the donor map. The part is drawn
@@ -1900,8 +2272,13 @@ static void import_wanted(void)
 	resource_logged = 0;
 	if (!instances || wanted_count <= 0)
 		return;
+	/* (want_root keeps it to IMPORT_MAX: a list cut short here would copy
+	tags without some of those they name) */
 	if (wanted_count > IMPORT_MAX)
-		wanted_count = IMPORT_MAX;
+	{
+		error(_error_silent, "randomizer: %ld tags wanted, past %d; none copied", wanted_count, IMPORT_MAX);
+		return;
+	}
 	qsort(wanted, (unsigned long)wanted_count, sizeof(*wanted), wanted_less);
 	grown_instances = malloc((unsigned long)(existing + wanted_count) * sizeof(*grown_instances));
 	if (!grown_instances)
@@ -2015,12 +2392,37 @@ static void import_wanted(void)
 		resource_checked, resource_uncovered, resource_empty);
 	for (index = 0; index < donor_count; index++)
 		release_donor_blob(donors + index);
+	if (import_stopped)
+	{
+		/* (out of room part way: tags copied without some they name would
+		be drawn with what is not there. The level keeps only its own) */
+		error(_error_silent, "randomizer: ran out of room after %ld tags; none are kept", copied_count);
+		cache_files_set_tag_instances(saved_instances, saved_count);
+		free(grown_instances);
+		grown_instances = NULL;
+		saved_instances = NULL;
+		saved_count = 0;
+		grown_count = 0;
+		bound_release();
+		held_free();
+		copied_count = 0;
+		import_count = 0;
+		return;
+	}
+	/* a tag wanted from one map and found in another is that map's copy */
+	for (index = 0; index < alias_count; index++)
+	{
+		struct wanted_alias *alias = aliases + index;
+
+		if (alias->donor >= 0 && alias->donor < donor_count && donors[alias->donor].datum_of &&
+			alias->target_donor >= 0 && alias->target_donor < donor_count && donors[alias->target_donor].datum_of)
+			donors[alias->donor].datum_of[alias->absolute] =
+				donors[alias->target_donor].datum_of[alias->target_absolute];
+	}
 	for (index = 0; index < copied_count; index++)
 		retarget_fields(donors + copied[index].donor, copied[index].root, copied[index].schema, 0);
-	if (import_stopped)
-		platform_log("randomizer: stopped importing; the level keeps what was copied");
-	else if (copied_count)
-		platform_log("randomizer: imported %ld tags", copied_count);
+	if (copied_count)
+		error(_error_silent, "randomizer: imported %ld tags", copied_count);
 }
 
 static void add_variant(long datum)
@@ -2034,23 +2436,25 @@ static void add_variant(long datum)
 	if (!variant)
 		return;
 	unit_name = variant->unit_reference.index == NONE ? NULL : tag_get_name(variant->unit_reference.index);
-	if (!pool_allows(classify(unit_name)))
+	if (!pool_allows(classify(unit_name)) || !rank_allows(classify(unit_name), tag_get_name(datum)))
 		return;
 	variant_pool[variant_count++] = datum;
 }
 
-static void add_weapon(long datum)
+/* a weapon a choice may give, when its pool has it */
+static void add_weapon(struct weapon_choice *choice, long datum, int pool, int type, int for_pickups)
 {
 	long index;
 
-	if (weapon_count >= WEAPON_MAX || datum == NONE || !tag_index_is_group(datum, WEAPON_DEFINITION_TAG))
+	if (choice->count >= WEAPON_MAX || datum == NONE || !tag_index_is_group(datum, WEAPON_DEFINITION_TAG) ||
+		!weapon_pool_allows(pool, type, weapon_kind(tag_get_name(datum)), for_pickups))
 		return;
-	for (index = 0; index < weapon_count; index++)
+	for (index = 0; index < choice->count; index++)
 	{
-		if (weapon_pool[index] == datum)
+		if (choice->definitions[index] == datum)
 			return;
 	}
-	weapon_pool[weapon_count++] = datum;
+	choice->definitions[choice->count++] = datum;
 }
 
 /* a block definition still at the address the map was linked with is not a
@@ -2093,7 +2497,8 @@ static void build_pools(void)
 	long index;
 
 	variant_count = 0;
-	weapon_count = 0;
+	pickup_choice.count = 0;
+	actor_weapon_choice.count = 0;
 	if (!current.enemies && !current.pickups && !current.weapons)
 		return;
 	for (index = 0; instances && index < count; index++)
@@ -2101,24 +2506,37 @@ static void build_pools(void)
 		if (instances[index].group_tag == ACTOR_VARIANT_DEFINITION_TAG)
 			add_variant(instances[index].tag_index);
 	}
-	if (scenario && scenario->weapon_palette.count > 0 && scenario->weapon_palette.count <= 256)
+	/* a pool of its own: each of its weapons the level has, or was given */
+	for (index = 0; instances && index < count; index++)
 	{
-		clear_linked_definition(&scenario->weapon_palette);
-		for (index = 0; index < scenario->weapon_palette.count; index++)
-		{
-			struct scenario_object_palette_entry *entry = tag_block_get_element_with_size(
-				&scenario->weapon_palette, index, sizeof(*entry));
-
-			if (entry)
-				add_weapon(entry->reference.index);
-		}
+		if (instances[index].group_tag != WEAPON_DEFINITION_TAG)
+			continue;
+		if (current.pickup_pool != WEAPON_POOL_ANY)
+			add_weapon(&pickup_choice, instances[index].tag_index, current.pickup_pool, current.pickup_type, 1);
+		add_weapon(&actor_weapon_choice, instances[index].tag_index, current.weapon_pool, current.weapon_type, 0);
 	}
-	for (index = 0; index < variant_count; index++)
+	/* "any": the level's own lying about, and those its actors carry */
+	if (current.pickup_pool == WEAPON_POOL_ANY)
 	{
-		struct actor_variant_definition *variant = actor_variant_definition_get(variant_pool[index]);
+		if (scenario && scenario->weapon_palette.count > 0 && scenario->weapon_palette.count <= 256)
+		{
+			clear_linked_definition(&scenario->weapon_palette);
+			for (index = 0; index < scenario->weapon_palette.count; index++)
+			{
+				struct scenario_object_palette_entry *entry = tag_block_get_element_with_size(
+					&scenario->weapon_palette, index, sizeof(*entry));
 
-		if (variant)
-			add_weapon(variant->ranged_combat.reference.index);
+				if (entry)
+					add_weapon(&pickup_choice, entry->reference.index, WEAPON_POOL_ANY, 0, 1);
+			}
+		}
+		for (index = 0; index < variant_count; index++)
+		{
+			struct actor_variant_definition *variant = actor_variant_definition_get(variant_pool[index]);
+
+			if (variant)
+				add_weapon(&pickup_choice, variant->ranged_combat.reference.index, WEAPON_POOL_ANY, 0, 1);
+		}
 	}
 }
 
@@ -2229,21 +2647,42 @@ static long pool_pick(long const *pool, long count, unsigned long seed)
 	return pool[seed % (unsigned long)count];
 }
 
+static void wanted_free(void)
+{
+	if (wanted)
+		free(wanted);
+	if (wanted_slots)
+		free(wanted_slots);
+	if (aliases)
+		free(aliases);
+	wanted = NULL;
+	wanted_slots = NULL;
+	aliases = NULL;
+	alias_count = 0;
+}
+
 static void import_campaign(char const *leaf)
 {
 	int level;
 
-	if (!current.enemies)
+	/* (a pool of weapons other than the level's needs them copied too) */
+	if (!current.enemies && !(current.pickups && current.pickup_pool != WEAPON_POOL_ANY) &&
+		!(current.weapons && current.weapon_pool != WEAPON_POOL_ANY))
 		return;
-	error(_error_silent, "randomizer: reading actors from the other campaign maps");
+	error(_error_silent, "randomizer: reading actors and weapons from the other campaign maps");
 	walk_steps = 0;
+	wanted_full = 0;
+	alias_count = 0;
 	wanted = malloc(WANTED_MAX * sizeof(*wanted));
-	if (!wanted)
+	wanted_slots = malloc(WANTED_SLOTS * sizeof(*wanted_slots));
+	aliases = malloc(WANTED_MAX * sizeof(*aliases));
+	if (!wanted || !wanted_slots || !aliases)
 	{
-		platform_log("randomizer: no room to gather tags");
+		error(_error_silent, "randomizer: no room to gather tags");
 		return;
 	}
 	memset(wanted, 0, WANTED_MAX * sizeof(*wanted));
+	memset(wanted_slots, 0, WANTED_SLOTS * sizeof(*wanted_slots));
 	for (level = 0; level < 10 && donor_count < DONOR_COUNT; level++)
 	{
 		char const *path = main_get_solo_level_name(level);
@@ -2312,11 +2751,9 @@ void randomizer_tags_loaded(char const *scenario_name)
 	for (index = 0; index < donor_count; index++)
 		error(_error_silent, "randomizer: %s.map keeps %ld pack ranges",
 			donors[index].leaf, donors[index].from_pack ? donors[index].span_count : 0);
-	if (wanted)
-		free(wanted);
-	wanted = NULL;
+	wanted_free();
 	error(_error_silent, "randomizer: %s, %ld actors, %ld weapons, %ld model parts in %lu vertex bytes",
-		leaf, variant_count, weapon_count, bound_part_count, bound_vertex_bytes);
+		leaf, variant_count, pickup_choice.count + actor_weapon_choice.count, bound_part_count, bound_vertex_bytes);
 }
 
 void randomizer_tags_unloaded(void)
@@ -2337,15 +2774,14 @@ void randomizer_tags_unloaded(void)
 	saved_instances = NULL;
 	saved_count = 0;
 	grown_count = 0;
-	if (wanted)
-		free(wanted);
-	wanted = NULL;
+	wanted_free();
 	wanted_count = 0;
 	copied_count = 0;
 	import_count = 0;
 	import_stopped = 0;
 	variant_count = 0;
-	weapon_count = 0;
+	pickup_choice.count = 0;
+	actor_weapon_choice.count = 0;
 	protected_count = 0;
 	loaded = 0;
 	map_widget = NULL;
@@ -2569,77 +3005,55 @@ long randomizer_weapon_definition(long definition_index, void *scenario_object)
 	unsigned long seed;
 	long picked;
 
-	if (!loaded || !current.pickups || definition_index == NONE || weapon_count <= 0 || !object)
+	if (!loaded || !current.pickups || definition_index == NONE || pickup_choice.count <= 0 || !object)
 		return definition_index;
 	if (object->name_index != NONE || !tag_index_is_group(definition_index, WEAPON_DEFINITION_TAG))
 		return definition_index;
 	seed = placement_seed(object->palette_entry_index, object->name_index, 0, &object->position.x);
-	picked = pool_pick(weapon_pool, weapon_count, seed);
+	picked = pool_pick(pickup_choice.definitions, pickup_choice.count, seed);
 
 	return picked == NONE ? definition_index : picked;
 }
 
-/* weapons some actor variant of this unit actually carries. A flood combat
-form then cannot be handed a flamethrower it has no firing for */
-static long carried_weapons(long unit_definition, long *weapons, long capacity)
+extern boolean unit_can_hold_weapon_definition(long unit_index, long weapon_definition_index);
+
+/* the pool's weapons this unit has the animations to hold */
+static long held_weapons(long unit_index, long *weapons, long capacity)
 {
-	long tags = 0;
-	struct cache_file_tag_instance *instances;
 	long index;
-	long count;
+	long count = 0;
 
-	count = 0;
-	if (unit_definition == NONE || !weapons || capacity <= 0)
-		return 0;
-	instances = cache_files_tag_instances(&tags);
-	for (index = 0; instances && index < tags && count < capacity; index++)
+	for (index = 0; index < actor_weapon_choice.count && count < capacity; index++)
 	{
-		struct actor_variant_definition *variant;
-		long weapon;
-		long seen;
-
-		if (instances[index].group_tag != ACTOR_VARIANT_DEFINITION_TAG)
-			continue;
-		variant = actor_variant_definition_get(instances[index].tag_index);
-		if (!variant || variant->unit_reference.index != unit_definition)
-			continue;
-		weapon = variant->ranged_combat.reference.index;
-		if (weapon == NONE || !tag_index_is_group(weapon, WEAPON_DEFINITION_TAG))
-			continue;
-		for (seen = 0; seen < count; seen++)
-		{
-			if (weapons[seen] == weapon)
-				break;
-		}
-		if (seen == count)
-			weapons[count++] = weapon;
+		if (unit_can_hold_weapon_definition(unit_index, actor_weapon_choice.definitions[index]))
+			weapons[count++] = actor_weapon_choice.definitions[index];
 	}
 
 	return count;
 }
 
+/* the first attempt the pool's choice, the next the actor's own weapon (one
+the unit refused leaves it unarmed otherwise), then none */
 long randomizer_enemy_weapon(long weapon_definition, long unit_index, long attempt)
 {
 	struct unit_datum *unit;
-	long carried[WEAPON_MAX];
-	long carried_count;
+	long held[WEAPON_MAX];
+	long held_count;
 	unsigned long seed;
 
-	if (!loaded || !current.weapons || weapon_count <= 0)
-		return attempt == 0 ? weapon_definition : NONE;
-	if (attempt < 0 || attempt >= 8)
-		return NONE;
+	if (!loaded || !current.weapons || actor_weapon_choice.count <= 0 || attempt > 0)
+		return attempt == 0 || (attempt == 1 && loaded && current.weapons) ? weapon_definition : NONE;
 	unit = unit_try_and_get(unit_index);
 	if (!unit)
-		return attempt == 0 ? weapon_definition : NONE;
-	carried_count = carried_weapons(unit->definition_index, carried, WEAPON_MAX);
-	if (carried_count <= 0)
-		return attempt == 0 ? weapon_definition : NONE;
+		return weapon_definition;
+	held_count = held_weapons(unit_index, held, WEAPON_MAX);
+	if (held_count <= 0)
+		return weapon_definition;
 	/* the place it spawned, not the unit's index: a checkpoint's unit is a
 	new one, and the weapon has to be the one it had */
 	seed = placement_seed(weapon_definition, 0, attempt, &unit->object.position.x);
 
-	return pool_pick(carried, carried_count, seed);
+	return pool_pick(held, held_count, seed);
 }
 
 void randomizer_advertisement(unsigned char *reserved)
@@ -2668,6 +3082,11 @@ void randomizer_advertisement(unsigned char *reserved)
 	reserved[HALO_PORT_ADVERTISED_RANDOMIZER_ROLL_OFFSET + 1] = (unsigned char)(placement_roll >> 8);
 	reserved[HALO_PORT_ADVERTISED_RANDOMIZER_ROLL_OFFSET + 2] = (unsigned char)(placement_roll >> 16);
 	reserved[HALO_PORT_ADVERTISED_RANDOMIZER_ROLL_OFFSET + 3] = (unsigned char)(placement_roll >> 24);
+	reserved[HALO_PORT_ADVERTISED_RANDOMIZER_WEAPONS_OFFSET] = (unsigned char)setup.rank;
+	reserved[HALO_PORT_ADVERTISED_RANDOMIZER_WEAPONS_OFFSET + 1] = (unsigned char)setup.pickup_pool;
+	reserved[HALO_PORT_ADVERTISED_RANDOMIZER_WEAPONS_OFFSET + 2] = (unsigned char)setup.pickup_type;
+	reserved[HALO_PORT_ADVERTISED_RANDOMIZER_WEAPONS_OFFSET + 3] = (unsigned char)setup.weapon_pool;
+	reserved[HALO_PORT_ADVERTISED_RANDOMIZER_WEAPONS_OFFSET + 4] = (unsigned char)setup.weapon_type;
 }
 
 void randomizer_set_remote(int on, unsigned char const *setup)

@@ -1564,22 +1564,33 @@ static void text_field_begin(struct widget_instance *row, char const *text, shor
 static void text_field_show(struct widget_instance *value, char const *text, boolean editing);
 static short campaign_level_of(char const *map_name);
 
-/* the campaign randomizer's named setups, beside config.toml
-(randomizer_profiles.txt: a name, then the settings below, tab-separated).
-Eight, the oldest first; a new name past eight drops the oldest. A line
-saved before the allies' setting was added has five, and loads with it off */
+/* the campaign randomizer's named setups, in config.toml as the other
+settings are (game.randomizer_profile_1 to _8, which the Switch's card keeps
+as it keeps them: a file of their own beside it could not be made there):
+a name, then the settings below, separated by semicolons. Eight, the
+oldest first; a new name past eight drops the oldest. A setting added at
+the end is its default in a setup saved before it */
 #define RANDOMIZER_PROFILE_MAX 8
 #define RANDOMIZER_PROFILE_NAME 24
-#define RANDOMIZER_KEY_COUNT 6
+#define RANDOMIZER_KEY_COUNT 15
 
 static char const *const randomizer_keys[RANDOMIZER_KEY_COUNT] =
 {
 	"game.randomizer_enemies",
-	"game.randomizer_pickups",
-	"game.randomizer_enemy_weapons",
+	"game.randomizer_allies",
 	"game.randomizer_pool",
 	"game.randomizer_type",
-	"game.randomizer_allies",
+	"game.randomizer_grunt_rank",
+	"game.randomizer_elite_rank",
+	"game.randomizer_jackal_rank",
+	"game.randomizer_hunter_rank",
+	"game.randomizer_flood_combat_rank",
+	"game.randomizer_pickups",
+	"game.randomizer_pickup_pool",
+	"game.randomizer_pickup_type",
+	"game.randomizer_enemy_weapons",
+	"game.randomizer_weapon_pool",
+	"game.randomizer_weapon_type",
 };
 
 static struct
@@ -1587,14 +1598,15 @@ static struct
 	struct
 	{
 		char name[RANDOMIZER_PROFILE_NAME + 1];
-		char value[RANDOMIZER_KEY_COUNT][16];
+		char value[RANDOMIZER_KEY_COUNT][24];
 	} profiles[RANDOMIZER_PROFILE_MAX];
 	short count;
-	short chosen;
 	short controller;
 	short difficulty;
 	boolean naming;
 	wchar_t name[RANDOMIZER_PROFILE_NAME + 1];
+	/* each setup loaded: the randomizer screen shows it when it next draws */
+	long applied;
 } randomizer_menu;
 
 extern boolean virtual_keyboard_launch(wchar_t *text_buffer, word buffer_size, short caption_index);
@@ -1602,125 +1614,85 @@ extern void virtual_keyboard_allow_any_name(void);
 extern boolean virtual_keyboard_active(void);
 extern boolean virtual_keyboard_last_exit_saved_text(void);
 
-static int randomizer_profile_path(char *path, unsigned int size)
+static void randomizer_profile_setting(char *name, unsigned int size, short slot)
 {
-	char directory[1024];
-
-	config_directory(directory, sizeof(directory));
-	if (!directory[0] || strlen(directory) + strlen("randomizer_profiles.txt") >= size)
-		return 0;
-	snprintf(path, size, "%srandomizer_profiles.txt", directory);
-	return 1;
-}
-
-static void randomizer_field_trim(char *field)
-{
-	char *end;
-
-	if (!field)
-		return;
-	end = field + strlen(field);
-	while (end > field && (end[-1] == '\n' || end[-1] == '\r' || end[-1] == ' ' || end[-1] == '\t'))
-		*--end = 0;
-}
-
-static int randomizer_split(char *line, char **fields, int count)
-{
-	int found = 1;
-
-	fields[0] = line;
-	for (; *line && found < count; line++)
-	{
-		if (*line == '\t')
-		{
-			*line = 0;
-			fields[found++] = line + 1;
-		}
-		else if (*line == '\n' || *line == '\r')
-			*line = 0;
-	}
-	if (*line == '\n' || *line == '\r')
-		*line = 0;
-	return found;
+	snprintf(name, size, "game.randomizer_profile_%d", slot + 1);
 }
 
 static void randomizer_profiles_read(void)
 {
-	char path[1100];
-	FILE *file;
-	char line[160];
+	short slot;
 
 	randomizer_menu.count = 0;
-	if (!randomizer_profile_path(path, sizeof(path)))
-		return;
-	file = fopen(path, "r");
-	if (!file)
-		return;
-	while (randomizer_menu.count < RANDOMIZER_PROFILE_MAX && fgets(line, sizeof(line), file))
+	for (slot = 0; slot < RANDOMIZER_PROFILE_MAX; slot++)
 	{
-		char *fields[RANDOMIZER_KEY_COUNT + 1];
-		short index;
-		short field;
-		int found;
+		char setting[40];
+		char text[300];
+		char *field;
+		char *next;
+		short index = randomizer_menu.count;
+		short key;
 
-		found = randomizer_split(line, fields, RANDOMIZER_KEY_COUNT + 1);
-		if (found < RANDOMIZER_KEY_COUNT || !fields[0][0])
+		randomizer_profile_setting(setting, sizeof(setting), slot);
+		if (!config_text(setting, text, sizeof(text)) || !text[0])
 			continue;
-		for (field = 0; field < found; field++)
-			randomizer_field_trim(fields[field]);
-		if (!fields[0][0])
+		next = strchr(text, ';');
+		if (next)
+			*next++ = 0;
+		if (!text[0])
 			continue;
-		index = randomizer_menu.count;
-		snprintf(randomizer_menu.profiles[index].name, sizeof(randomizer_menu.profiles[index].name),
-			"%s", fields[0]);
-		for (field = 0; field < RANDOMIZER_KEY_COUNT; field++)
-			snprintf(randomizer_menu.profiles[index].value[field],
-				sizeof(randomizer_menu.profiles[index].value[field]), "%s",
-				field + 1 < found ? fields[field + 1] : "false");
+		snprintf(randomizer_menu.profiles[index].name, sizeof(randomizer_menu.profiles[index].name), "%s", text);
+		for (key = 0; key < RANDOMIZER_KEY_COUNT; key++)
+		{
+			field = next;
+			next = field ? strchr(field, ';') : NULL;
+			if (next)
+				*next++ = 0;
+			if (!field || !field[0])
+				config_default(randomizer_keys[key], randomizer_menu.profiles[index].value[key],
+					sizeof(randomizer_menu.profiles[index].value[key]));
+			else
+				snprintf(randomizer_menu.profiles[index].value[key],
+					sizeof(randomizer_menu.profiles[index].value[key]), "%s", field);
+		}
 		randomizer_menu.count++;
 	}
-	fclose(file);
 }
 
-static void randomizer_profiles_write(void)
+/* the setups, in order, into the slots (an emptied slot written empty) */
+static boolean randomizer_profiles_write(void)
 {
-	char path[1100];
-	FILE *file;
-	short index;
+	short slot;
+	boolean written = TRUE;
 
-	if (!randomizer_profile_path(path, sizeof(path)))
+	for (slot = 0; slot < RANDOMIZER_PROFILE_MAX; slot++)
 	{
-		error(_error_silent, "randomizer: no folder for randomizer_profiles.txt");
-		return;
-	}
-	file = fopen(path, "w");
-	if (!file)
-	{
-		error(_error_silent, "randomizer: could not write %s", path);
-		return;
-	}
-	for (index = 0; index < randomizer_menu.count; index++)
-	{
-		short field;
+		char setting[40];
+		char text[300] = "";
+		char current[300] = "";
 
-		fprintf(file, "%s", randomizer_menu.profiles[index].name);
-		for (field = 0; field < RANDOMIZER_KEY_COUNT; field++)
-			fprintf(file, "\t%s", randomizer_menu.profiles[index].value[field]);
-		fprintf(file, "\n");
-	}
-	fflush(file);
-#ifdef HALO_SWITCH
-	/* as config.toml: _exit does not flush the card (port_config.c) */
-	fsync(fileno(file));
-#endif
-	fclose(file);
-#ifdef HALO_SWITCH
-	{
-		extern void host_storage_commit(void);
+		randomizer_profile_setting(setting, sizeof(setting), slot);
+		if (slot < randomizer_menu.count)
+		{
+			short key;
+			unsigned int length;
 
-		host_storage_commit();
+			length = (unsigned int)snprintf(text, sizeof(text), "%s", randomizer_menu.profiles[slot].name);
+			for (key = 0; key < RANDOMIZER_KEY_COUNT && length < sizeof(text); key++)
+				length += (unsigned int)snprintf(text + length, sizeof(text) - length, ";%s",
+					randomizer_menu.profiles[slot].value[key]);
+		}
+		/* (a slot unchanged is not written again: each write is the card's) */
+		if (config_text(setting, current, sizeof(current)) && !strcmp(current, text))
+			continue;
+		if (!config_write(setting, text))
+		{
+			error(_error_silent, "randomizer: could not write %s to config.toml", setting);
+			written = FALSE;
+		}
 	}
-#endif
+
+	return written;
 }
 
 static int randomizer_name_clean(char *name)
@@ -1747,7 +1719,7 @@ static int randomizer_name_clean(char *name)
 static void randomizer_profile_saved(char const *text)
 {
 	char name[RANDOMIZER_PROFILE_NAME + 1];
-	char value[RANDOMIZER_KEY_COUNT][16];
+	char value[RANDOMIZER_KEY_COUNT][24];
 	short field;
 	short index;
 
@@ -1786,8 +1758,8 @@ static void randomizer_profile_saved(char const *text)
 	for (field = 0; field < RANDOMIZER_KEY_COUNT; field++)
 		snprintf(randomizer_menu.profiles[index].value[field],
 			sizeof(randomizer_menu.profiles[index].value[field]), "%s", value[field]);
-	randomizer_profiles_write();
-	error(_error_silent, "randomizer: saved profile %s", name);
+	if (randomizer_profiles_write())
+		error(_error_silent, "randomizer: saved profile %s (slot %d)", name, index + 1);
 }
 
 static boolean setting_show_saved(struct widget_instance *spinner, struct pc_menu_setting *setting)
@@ -1832,7 +1804,7 @@ static short randomizer_focused_profile(struct widget_instance *widget)
 	return NONE;
 }
 
-static boolean randomizer_profile_apply(short index, struct widget_instance *widget)
+static boolean randomizer_profile_apply(short index)
 {
 	short field;
 
@@ -1840,13 +1812,18 @@ static boolean randomizer_profile_apply(short index, struct widget_instance *wid
 		return campaign_fail();
 	for (field = 0; field < RANDOMIZER_KEY_COUNT; field++)
 	{
+		char current[40];
+
+		if (setting_text(randomizer_keys[field], current, sizeof(current), FALSE) &&
+			!strcmp(current, randomizer_menu.profiles[index].value[field]))
+			continue;
 		if (!config_write(randomizer_keys[field], randomizer_menu.profiles[index].value[field]))
 		{
 			error(_error_silent, "randomizer: could not write %s", randomizer_keys[field]);
 			return campaign_fail();
 		}
 	}
-	settings_each(screen_of(widget), setting_show_saved);
+	randomizer_menu.applied++;
 	return TRUE;
 }
 
@@ -1869,22 +1846,21 @@ static boolean randomizer_profile_save_event(struct widget_instance *widget)
 	return TRUE;
 }
 
-/* "randomizer profile load": the profile chosen, into the setup shown */
+/* "randomizer profile load" (a row of Load's screen): that setup, which
+the randomizer screen shows on going back to it */
 static boolean randomizer_profile_load_event(struct widget_instance *widget)
 {
 	short index = randomizer_focused_profile(widget);
 
 	randomizer_profiles_read();
-	if (index == NONE)
-		index = randomizer_menu.chosen;
-	if (index < 0 || index >= randomizer_menu.count)
+	if (index == NONE || index >= randomizer_menu.count)
 	{
 		error(_error_silent, "randomizer: no profile to load (%d saved)", randomizer_menu.count);
 		return campaign_fail();
 	}
 	error(_error_silent, "randomizer: loaded profile %s", randomizer_menu.profiles[index].name);
 
-	return randomizer_profile_apply(index, widget);
+	return randomizer_profile_apply(index);
 }
 
 /* "randomizer start": the setup shown, then the level */
@@ -1917,15 +1893,13 @@ void randomizer_profiles_poll(void)
 	randomizer_profile_saved(name);
 }
 
-/* "randomizer profiles update": the names saved, and a name being typed */
+/* "randomizer profiles update" (Load's screen): the names saved, or that
+there are none */
 static void randomizer_profiles_update(struct widget_instance *list)
 {
 	short index;
 
-	randomizer_profiles_poll();
 	randomizer_profiles_read();
-	if (randomizer_profile_index(list->focused_child) != NONE)
-		randomizer_menu.chosen = randomizer_profile_index(list->focused_child);
 	for (index = 0; index < RANDOMIZER_PROFILE_MAX; index++)
 	{
 		char name[16];
@@ -1937,14 +1911,82 @@ static void randomizer_profiles_update(struct widget_instance *list)
 		row = named(list, name, 0);
 		if (!row)
 			continue;
-		row->visible = index < randomizer_menu.count;
+		row->visible = index < randomizer_menu.count || index == 0;
 		row->disabled = index >= randomizer_menu.count;
 		if (index >= randomizer_menu.count)
+		{
+			if (index == 0)
+				text_set(row, L"NO SETUP SAVED");
 			continue;
+		}
 		for (character = 0; randomizer_menu.profiles[index].name[character]; character++)
 			text[character] = (wchar_t)(unsigned char)randomizer_menu.profiles[index].name[character];
 		text[character] = 0;
 		text_set(row, text);
+	}
+}
+
+/* whether the spinner of this name (in the list) shows this value */
+static boolean randomizer_spinner_is(struct widget_instance *list, char const *spinner, char const *value)
+{
+	struct widget_instance *widget = named(list, spinner, 0);
+	struct pc_menu_setting *setting = widget ? pc_menu_setting_get(widget->definition_tag_index) : NULL;
+	short index = widget ? widget->parameters.list.selected_index : NONE;
+
+	return setting && index >= 0 && index < setting->value_count && !strcmp(setting->values[index], value);
+}
+
+/* "randomizer screen update": the rows that mean something with what the
+spinners above them show (tools/port_settings.py's RANDOMIZER_ROWS), one
+under the other; a hidden row takes no focus. And a setup loaded on Load's
+screen, shown */
+static void randomizer_screen_update(struct widget_instance *list)
+{
+	static long shown_applied;
+	boolean enemies = randomizer_spinner_is(list, "enemies_spinner", "true");
+	boolean one_type = enemies && randomizer_spinner_is(list, "pool_spinner", "one");
+	boolean pickups = randomizer_spinner_is(list, "pickups_spinner", "true");
+	boolean weapons = randomizer_spinner_is(list, "enemy_weapons_spinner", "true");
+	struct
+	{
+		char const *row;
+		boolean shown;
+	} rows[RANDOMIZER_KEY_COUNT];
+	short index;
+	short shown = 0;
+
+	if (shown_applied != randomizer_menu.applied)
+	{
+		shown_applied = randomizer_menu.applied;
+		settings_each(screen_of(list), setting_show_saved);
+	}
+	rows[0].row = "op_enemies", rows[0].shown = TRUE;
+	rows[1].row = "op_allies", rows[1].shown = enemies;
+	rows[2].row = "op_pool", rows[2].shown = enemies;
+	rows[3].row = "op_type", rows[3].shown = one_type;
+	rows[4].row = "op_grunt_rank", rows[4].shown = one_type && randomizer_spinner_is(list, "type_spinner", "grunt");
+	rows[5].row = "op_elite_rank", rows[5].shown = one_type && randomizer_spinner_is(list, "type_spinner", "elite");
+	rows[6].row = "op_jackal_rank", rows[6].shown = one_type && randomizer_spinner_is(list, "type_spinner", "jackal");
+	rows[7].row = "op_hunter_rank", rows[7].shown = one_type && randomizer_spinner_is(list, "type_spinner", "hunter");
+	rows[8].row = "op_flood_combat_rank";
+	rows[8].shown = one_type && randomizer_spinner_is(list, "type_spinner", "flood_combat");
+	rows[9].row = "op_pickups", rows[9].shown = TRUE;
+	rows[10].row = "op_pickup_pool", rows[10].shown = pickups;
+	rows[11].row = "op_pickup_type", rows[11].shown = pickups && randomizer_spinner_is(list, "pickup_pool_spinner", "one");
+	rows[12].row = "op_enemy_weapons", rows[12].shown = TRUE;
+	rows[13].row = "op_weapon_pool", rows[13].shown = weapons;
+	rows[14].row = "op_weapon_type", rows[14].shown = weapons && randomizer_spinner_is(list, "weapon_pool_spinner", "one");
+	for (index = 0; index < RANDOMIZER_KEY_COUNT; index++)
+	{
+		struct widget_instance *row = named(list, rows[index].row, 0);
+
+		if (!row)
+			continue;
+		row->visible = rows[index].shown;
+		if (!rows[index].shown)
+			continue;
+		row->vertical_offset = (short)(70 + shown * 26);
+		shown++;
 	}
 }
 
@@ -6720,4 +6762,6 @@ void pc_menu_game_data_function_invoke(
 		renderer_text_update(widget);
 	else if (!strcmp(name, "randomizer profiles update"))
 		randomizer_profiles_update(widget);
+	else if (!strcmp(name, "randomizer screen update"))
+		randomizer_screen_update(widget);
 }

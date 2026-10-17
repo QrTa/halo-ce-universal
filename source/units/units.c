@@ -2416,6 +2416,23 @@ boolean unit_can_use_weapon(
 	return can_use_weapon;
 }
 
+/* port: whether the unit has the animations to hold a weapon of this
+definition, as unit_can_use_weapon asks of a weapon that exists: the
+campaign randomizer chooses an actor's weapon before making it
+(port/linux/game/randomizer.c) */
+boolean unit_can_hold_weapon_definition(
+	long unit_index,
+	long weapon_definition_index)
+{
+	struct weapon_definition *weapon_definition = weapon_definition_get(weapon_definition_index);
+
+	return weapon_definition && unit_set_or_test_seat_and_weapon_label(
+		unit_index,
+		unit_get_seat_label(unit_index),
+		weapon_definition->weapon.label,
+		FALSE);
+}
+
 boolean unit_overcharged(
 	long unit_index)
 {

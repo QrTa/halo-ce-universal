@@ -806,9 +806,10 @@ static struct
 {
 	word version;
 	byte flags;
-	/* port: the three setup bytes and the four-byte placement roll
+	/* port: the randomizer's setup: the swaps, the actors' pool and type,
+	the four-byte placement roll, the rank and the weapons' pools
 	(port/linux/game/randomizer.c) */
-	byte setup[7];
+	byte setup[HALO_PORT_ADVERTISED_RANDOMIZER_SETUP_SIZE];
 } network_game_client_advertised_versions[MAXIMUM_NETWORK_ADVERTISED_GAMES];
 /* the advertised game this machine is joining, so a later advertisement
 can replace the setup it was given */

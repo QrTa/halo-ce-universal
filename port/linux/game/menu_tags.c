@@ -412,8 +412,8 @@ static char const *const port_game_data_input_names[] =
 	"port gamepad layout preview",
 	/* (the main menu's line under the version number: the renderer, and its driver) */
 	"port renderer textbox",
-	/* (the campaign randomizer's saved profiles) */
-	"randomizer profiles update",
+	/* (the campaign randomizer's saved profiles, and its screen's rows) */
+	"randomizer profiles update", "randomizer screen update",
 };
 
 static struct

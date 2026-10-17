@@ -88,6 +88,14 @@ only for this game */
 #define HALO_PORT_ADVERTISED_RANDOMIZER_FLAG 0x04
 #define HALO_PORT_ADVERTISED_RANDOMIZER_SETUP_OFFSET 3
 #define HALO_PORT_ADVERTISED_RANDOMIZER_ROLL_OFFSET 6
+/* ... then five bytes: the one type's rank (randomizer.c's RANK_), the
+weapon pickups' pool (0 any, 1 covenant, 2 human, 3 precision, 4 automatic,
+5 power, 6 one type) and that type (randomizer.c's WEAPON_), and the same
+two for the weapons the actors are given. A client copies the same tags as
+the host only with all of them */
+#define HALO_PORT_ADVERTISED_RANDOMIZER_WEAPONS_OFFSET 10
+/* the bytes from the setup's to the last of these */
+#define HALO_PORT_ADVERTISED_RANDOMIZER_SETUP_SIZE 12
 
 /* a message header's 12-bit length allows messages of up to 0xFFF bytes,
 header included; the per-tick update of 128 players is 3,857 */
