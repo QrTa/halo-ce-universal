@@ -1,4 +1,5 @@
 """The campaign randomizer's menus, as tools/port_settings.py writes them."""
+import re
 import sys
 from pathlib import Path
 
@@ -33,6 +34,7 @@ def test_randomizer_menus():
         "game.randomizer_pickup_type",
         "game.randomizer_weapon_pool",
         "game.randomizer_weapon_type",
+        "game.randomizer_crazy",
     ):
         assert f'setting="{setting}"' in screen
     assert 'values="any|covenant|flood|human|one"' in screen
@@ -43,6 +45,9 @@ def test_randomizer_menus():
     assert 'run="randomizer start"' in screen
     assert 'input="randomizer screen update"' in screen
     assert 'input="randomizer profiles update"' in screen
+    assert 'run="randomizer profile delete"' in screen
+    # every spinner's arrows in the same place
+    assert len(set(re.findall(r'footer_bounds="([^"]*)"', screen))) == 1
     for index in range(8):
         assert f'name="main_menu/difficulty_select/randomizer/profile_{index}"' in screen
 

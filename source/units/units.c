@@ -8266,6 +8266,31 @@ static boolean unit_set_or_test_seat_and_weapon_label(
 		}
 	}
 
+	/* port: an actor's unit with no animations for the weapon holds it with
+	another weapon's, the campaign randomizer's borrowed animations
+	(game.randomizer_crazy: port/linux/game/randomizer.c). Once: a borrowed
+	label is not borrowed for in turn */
+	if (!result && weapon_label && strcmp(weapon_label, "unarmed"))
+	{
+		extern char const *randomizer_borrowed_weapon_label(long unit_index, char const *label, int nth);
+		static boolean borrowing;
+		int nth;
+
+		if (!borrowing)
+		{
+			borrowing = TRUE;
+			for (nth = 0; !result; nth++)
+			{
+				char const *borrowed = randomizer_borrowed_weapon_label(object_index, weapon_label, nth);
+
+				if (!borrowed)
+					break;
+				result = unit_set_or_test_seat_and_weapon_label(object_index, seat_label, borrowed, change_flag);
+			}
+			borrowing = FALSE;
+		}
+	}
+
 	return result;
 }
 

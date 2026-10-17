@@ -1572,7 +1572,7 @@ oldest first; a new name past eight drops the oldest. A setting added at
 the end is its default in a setup saved before it */
 #define RANDOMIZER_PROFILE_MAX 8
 #define RANDOMIZER_PROFILE_NAME 24
-#define RANDOMIZER_KEY_COUNT 15
+#define RANDOMIZER_KEY_COUNT 16
 
 static char const *const randomizer_keys[RANDOMIZER_KEY_COUNT] =
 {
@@ -1591,6 +1591,7 @@ static char const *const randomizer_keys[RANDOMIZER_KEY_COUNT] =
 	"game.randomizer_enemy_weapons",
 	"game.randomizer_weapon_pool",
 	"game.randomizer_weapon_type",
+	"game.randomizer_crazy",
 };
 
 static struct
@@ -1607,7 +1608,9 @@ static struct
 	wchar_t name[RANDOMIZER_PROFILE_NAME + 1];
 	/* each setup loaded: the randomizer screen shows it when it next draws */
 	long applied;
-} randomizer_menu;
+	/* the row X was pressed on once, which a second X deletes (NONE) */
+	short deleting;
+} randomizer_menu = { { { { 0 } } }, 0, 0, 0, FALSE, { 0 }, 0, NONE };
 
 extern boolean virtual_keyboard_launch(wchar_t *text_buffer, word buffer_size, short caption_index);
 extern void virtual_keyboard_allow_any_name(void);
@@ -1863,6 +1866,29 @@ static boolean randomizer_profile_load_event(struct widget_instance *widget)
 	return randomizer_profile_apply(index);
 }
 
+/* "randomizer profile delete" (X on a row of Load's screen): the first marks
+the setup, the second deletes it */
+static boolean randomizer_profile_delete_event(struct widget_instance *widget)
+{
+	short index = randomizer_focused_profile(widget);
+
+	randomizer_profiles_read();
+	if (index == NONE || index >= randomizer_menu.count)
+		return campaign_fail();
+	if (randomizer_menu.deleting != index)
+	{
+		randomizer_menu.deleting = index;
+		return TRUE;
+	}
+	randomizer_menu.deleting = NONE;
+	error(_error_silent, "randomizer: deleted profile %s", randomizer_menu.profiles[index].name);
+	memmove(&randomizer_menu.profiles[index], &randomizer_menu.profiles[index + 1],
+		sizeof(randomizer_menu.profiles[0]) * (unsigned long)(randomizer_menu.count - index - 1));
+	randomizer_menu.count--;
+
+	return randomizer_profiles_write();
+}
+
 /* "randomizer start": the setup shown, then the level */
 static boolean randomizer_ok(struct widget_instance *widget)
 {
@@ -1898,13 +1924,18 @@ there are none */
 static void randomizer_profiles_update(struct widget_instance *list)
 {
 	short index;
+	static wchar_t const delete_note[] = L"  - X AGAIN TO DELETE";
 
 	randomizer_profiles_read();
+	/* (the mark goes with the focus) */
+	if (randomizer_menu.deleting != NONE &&
+		randomizer_profile_index(list->focused_child) != randomizer_menu.deleting)
+		randomizer_menu.deleting = NONE;
 	for (index = 0; index < RANDOMIZER_PROFILE_MAX; index++)
 	{
 		char name[16];
 		struct widget_instance *row;
-		wchar_t text[RANDOMIZER_PROFILE_NAME + 1];
+		wchar_t text[RANDOMIZER_PROFILE_NAME + NUMBEROF(delete_note) + 1];
 		short character;
 
 		snprintf(name, sizeof(name), "profile_%d", index);
@@ -1921,6 +1952,13 @@ static void randomizer_profiles_update(struct widget_instance *list)
 		}
 		for (character = 0; randomizer_menu.profiles[index].name[character]; character++)
 			text[character] = (wchar_t)(unsigned char)randomizer_menu.profiles[index].name[character];
+		if (index == randomizer_menu.deleting)
+		{
+			short note;
+
+			for (note = 0; delete_note[note]; note++)
+				text[character++] = delete_note[note];
+		}
 		text[character] = 0;
 		text_set(row, text);
 	}
@@ -1976,6 +2014,7 @@ static void randomizer_screen_update(struct widget_instance *list)
 	rows[12].row = "op_enemy_weapons", rows[12].shown = TRUE;
 	rows[13].row = "op_weapon_pool", rows[13].shown = weapons;
 	rows[14].row = "op_weapon_type", rows[14].shown = weapons && randomizer_spinner_is(list, "weapon_pool_spinner", "one");
+	rows[15].row = "op_crazy", rows[15].shown = TRUE;
 	for (index = 0; index < RANDOMIZER_KEY_COUNT; index++)
 	{
 		struct widget_instance *row = named(list, rows[index].row, 0);
@@ -6694,6 +6733,10 @@ boolean pc_menu_event_function_invoke(
 		else if (!strcmp(name, "randomizer start"))
 		{
 			return randomizer_ok(widget);
+		}
+		else if (!strcmp(name, "randomizer profile delete"))
+		{
+			return randomizer_profile_delete_event(widget);
 		}
 		else if (!strcmp(name, "controls back handler") || !strcmp(name, "gamespy back handler") ||
 			!strcmp(name, "gamespy dismiss error") || !strcmp(name, "gamespy dismiss filters"))

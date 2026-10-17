@@ -89,6 +89,8 @@ enum
 	TYPE_MARINE,
 	TYPE_FLOOD_INFECTION,
 	TYPE_ENGINEER,
+	TYPE_SENTINEL,
+	TYPE_COUNT,
 	TYPE_NONE = -1
 };
 
@@ -290,6 +292,10 @@ struct setup
 	int enemies;
 	/* the player's allies are swapped with the enemies */
 	int allies;
+	/* game.randomizer_crazy: the flamethrower in the mixed pools, the
+	engineers and sentinels, and actors holding weapons with another's
+	animations */
+	int crazy;
 	int pickups;
 	int weapons;
 	int pool;
@@ -452,22 +458,49 @@ static int pool_id(char const *text)
 	return POOL_ANY;
 }
 
+/* game.randomizer_type's values (the flood's infection forms are not one) */
+static struct
+{
+	char const *name;
+	int type;
+} const type_names[] =
+{
+	{ "grunt", TYPE_GRUNT },
+	{ "elite", TYPE_ELITE },
+	{ "jackal", TYPE_JACKAL },
+	{ "hunter", TYPE_HUNTER },
+	{ "flood_combat", TYPE_FLOOD_COMBAT },
+	{ "flood_carrier", TYPE_FLOOD_CARRIER },
+	{ "marine", TYPE_MARINE },
+	{ "engineer", TYPE_ENGINEER },
+	{ "sentinel", TYPE_SENTINEL },
+};
+
 static int type_id(char const *text)
 {
-	static char const *const names[] = {
-		"grunt", "elite", "jackal", "hunter", "flood_combat", "flood_carrier", "marine"
-	};
 	int index;
 
-	if (!text)
-		return TYPE_GRUNT;
-	for (index = 0; index < (int)NUMBEROF(names); index++)
+	for (index = 0; text && index < (int)NUMBEROF(type_names); index++)
 	{
-		if (!_stricmp(text, names[index]))
-			return index;
+		if (!_stricmp(text, type_names[index].name))
+			return type_names[index].type;
 	}
 
 	return TYPE_GRUNT;
+}
+
+/* a type an advertisement may name */
+static int type_known(int type)
+{
+	int index;
+
+	for (index = 0; index < (int)NUMBEROF(type_names); index++)
+	{
+		if (type_names[index].type == type)
+			return 1;
+	}
+
+	return 0;
 }
 
 static int name_index(char const *text, char const *const *names, int count, int otherwise)
@@ -533,6 +566,7 @@ static void setup_from_config(struct setup *setup)
 {
 	setup->enemies = config_boolean("game.randomizer_enemies");
 	setup->allies = config_boolean("game.randomizer_allies");
+	setup->crazy = config_boolean("game.randomizer_crazy");
 	setup->pickups = config_boolean("game.randomizer_pickups");
 	setup->weapons = config_boolean("game.randomizer_enemy_weapons");
 	setup->pool = pool_id(config_string("game.randomizer_pool"));
@@ -553,8 +587,9 @@ static void setup_from_remote(struct setup *setup)
 	setup->pickups = (remote_setup[0] & 2) != 0;
 	setup->weapons = (remote_setup[0] & 4) != 0;
 	setup->allies = (remote_setup[0] & 8) != 0;
+	setup->crazy = (remote_setup[0] & 16) != 0;
 	setup->pool = remote_setup[1] <= POOL_ONE ? remote_setup[1] : POOL_ANY;
-	setup->type = remote_setup[2] <= TYPE_MARINE ? remote_setup[2] : TYPE_GRUNT;
+	setup->type = type_known(remote_setup[2]) ? remote_setup[2] : TYPE_GRUNT;
 	setup->rank = remote_setup[7] < RANK_COUNT ? remote_setup[7] : RANK_ANY;
 	setup->pickup_pool = remote_setup[8] < WEAPON_POOL_COUNT ? remote_setup[8] : WEAPON_POOL_ANY;
 	setup->pickup_type = remote_setup[9] < WEAPON_KIND_COUNT && !weapon_kinds[remote_setup[9]].actors_only ?
@@ -617,6 +652,8 @@ static int classify(char const *name)
 		return TYPE_HUNTER;
 	if (strstr(lower, "elite"))
 		return TYPE_ELITE;
+	if (strstr(lower, "sentinel"))
+		return TYPE_SENTINEL;
 	if (strstr(lower, "marine") || strstr(lower, "crew"))
 		return TYPE_MARINE;
 	if (strstr(lower, "bugger") || strstr(lower, "engineer"))
@@ -678,6 +715,10 @@ static int weapon_pool_allows(int pool, int type, int kind, int for_pickups)
 {
 	if (kind == WEAPON_NONE || (for_pickups && weapon_kinds[kind].actors_only))
 		return 0;
+	/* (the flamethrower, the campaign's for its last levels, in a pool of
+	several with game.randomizer_crazy only; chosen alone it is the one) */
+	if (kind == WEAPON_FLAMETHROWER && pool != WEAPON_POOL_ONE && !current.crazy)
+		return 0;
 	switch (pool)
 	{
 	case WEAPON_POOL_COVENANT: return weapon_kinds[kind].covenant;
@@ -718,6 +759,12 @@ static int pool_allows(int kind)
 {
 	if (kind == TYPE_NONE)
 		return 0;
+	if (current.pool == POOL_ONE)
+		return kind == current.type;
+	/* (the engineers, which the campaign hardly uses, and the sentinels,
+	which are not the covenant's: with game.randomizer_crazy only) */
+	if ((kind == TYPE_ENGINEER || kind == TYPE_SENTINEL) && !current.crazy)
+		return 0;
 	if (current.pool == POOL_ANY)
 		return 1;
 	if (current.pool == POOL_COVENANT)
@@ -727,8 +774,6 @@ static int pool_allows(int kind)
 		return kind == TYPE_FLOOD_COMBAT || kind == TYPE_FLOOD_CARRIER || kind == TYPE_FLOOD_INFECTION;
 	if (current.pool == POOL_HUMAN)
 		return kind == TYPE_MARINE;
-	if (current.pool == POOL_ONE)
-		return kind == current.type;
 
 	return 0;
 }
@@ -3017,6 +3062,50 @@ long randomizer_weapon_definition(long definition_index, void *scenario_object)
 
 extern boolean unit_can_hold_weapon_definition(long unit_index, long weapon_definition_index);
 
+/* the weapon types (their animation labels, weapon_definition.label) whose
+animations an actor's unit holds a weapon with when it has none of its own
+for it, nearest first: game.randomizer_crazy's borrowed animations */
+static struct
+{
+	char const *label;
+	char const *borrowed[4];
+} const borrowed_labels[] =
+{
+	{ "hp", { "pp", "ne", "pr", NULL } },
+	{ "pp", { "hp", "ne", "pr", NULL } },
+	{ "ne", { "pr", "pp", "hp", NULL } },
+	{ "pr", { "ne", "ar", "pp", NULL } },
+	{ "ar", { "pr", "sr", "sg", NULL } },
+	{ "sg", { "ar", "pr", "rl", NULL } },
+	{ "sr", { "ar", "pr", "sg", NULL } },
+	{ "rl", { "fr", "ar", "pr", NULL } },
+	{ "ft", { "ar", "pr", "sg", NULL } },
+	{ "fr", { "rl", "pr", "ne", NULL } },
+	{ "fb", { "pr", "ne", "ar", NULL } },
+};
+
+/* units.c's: the nth label to try a weapon's animations under in place of
+its own, or NULL. Only actors' units (not a player's), in a level the
+randomizer swaps the actors' weapons in with game.randomizer_crazy */
+char const *randomizer_borrowed_weapon_label(long unit_index, char const *label, int nth)
+{
+	struct unit_datum *unit;
+	int index;
+
+	if (!loaded || !current.crazy || !current.weapons || !label || nth < 0 || nth >= 3)
+		return NULL;
+	unit = unit_try_and_get(unit_index);
+	if (!unit || unit->unit.player_index != NONE)
+		return NULL;
+	for (index = 0; index < (int)NUMBEROF(borrowed_labels); index++)
+	{
+		if (!_stricmp(label, borrowed_labels[index].label))
+			return borrowed_labels[index].borrowed[nth];
+	}
+
+	return NULL;
+}
+
 /* the pool's weapons this unit has the animations to hold */
 static long held_weapons(long unit_index, long *weapons, long capacity)
 {
@@ -3075,7 +3164,7 @@ void randomizer_advertisement(unsigned char *reserved)
 		(unsigned char)(reserved[HALO_PORT_ADVERTISED_FLAGS_OFFSET] | HALO_PORT_ADVERTISED_RANDOMIZER_FLAG);
 	reserved[HALO_PORT_ADVERTISED_RANDOMIZER_SETUP_OFFSET] =
 		(unsigned char)((setup.enemies ? 1 : 0) | (setup.pickups ? 2 : 0) | (setup.weapons ? 4 : 0) |
-			(setup.allies ? 8 : 0));
+			(setup.allies ? 8 : 0) | (setup.crazy ? 16 : 0));
 	reserved[HALO_PORT_ADVERTISED_RANDOMIZER_SETUP_OFFSET + 1] = (unsigned char)setup.pool;
 	reserved[HALO_PORT_ADVERTISED_RANDOMIZER_SETUP_OFFSET + 2] = (unsigned char)setup.type;
 	reserved[HALO_PORT_ADVERTISED_RANDOMIZER_ROLL_OFFSET] = (unsigned char)placement_roll;

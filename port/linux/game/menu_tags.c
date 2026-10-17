@@ -388,7 +388,7 @@ static char const *const port_function_names[] =
 	Xbox's leaves to its own screens) */
 	"new campaign decision",
 	/* (the campaign randomizer's screen, after a campaign level's difficulty) */
-	"randomizer profile save", "randomizer profile load", "randomizer start",
+	"randomizer profile save", "randomizer profile load", "randomizer start", "randomizer profile delete",
 };
 
 /* the PC version's game data functions that the Xbox's have not, from

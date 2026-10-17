@@ -619,12 +619,12 @@ def _gameplay_profile_item() -> list:
                     '<on event="left_mouse" run="mouse emit accept event"/>'])
 
 
-def _randomizer_spinner(base: str, key: str, index: int, setting: str, choices: list, size: str) -> list:
-    """one row of the randomizer screen: its label and the setting it shows
-    (size: "narrow" for OFF/ON, "wide" for the pools, "wider" for the weapons)"""
-    width, x, text_y = {"narrow": (147, 320, 1), "wide": (206, 286, 4), "wider": (236, 256, 4)}[size]
-    bounds = ("7 -6 19 0", f"7 {width + 3} 19 {width + 9}") if size == "narrow" else \
-        ("7 -13 19 -7", f"7 {width + 2} 19 {width + 8}")
+def _randomizer_spinner(base: str, key: str, index: int, setting: str, choices: list) -> list:
+    """one row of the randomizer screen: its label and the setting it shows.
+    Every row's spinner is as wide as the widest choice needs, so the arrows
+    of all of them line up, OFF/ON's too"""
+    width, x, text_y = 236, 256, 4
+    bounds = ("7 -13 19 -7", f"7 {width + 2} 19 {width + 8}")
     return _widget(f"{base}/op_{key}", [("width", 512), ("height", 28), ("flags", "pass_unhandled_to_focused_child"),
                                         ("bitmap", "bitmaps/option_bkds"), ("color", "#FF2896FF")],
                    [f'<child widget="{base}/{key}_label"/>',
@@ -656,43 +656,46 @@ RANDOMIZER_WEAPON_POOLS = [("ANY", "any"), ("COVENANT", "covenant"), ("HUMAN", "
 # randomizer_rows_show shows a row only while what it depends on is chosen
 # (a pool's type with ONE TYPE, a rank with its type) and closes the gaps
 RANDOMIZER_ROWS = [
-    ("enemies", "ENEMIES:", "game.randomizer_enemies", OFF_ON, "narrow",
+    ("enemies", "ENEMIES:", "game.randomizer_enemies", OFF_ON,
      "On: a squad's actors are taken from the pool."),
-    ("allies", "ALLIES TOO:", "game.randomizer_allies", OFF_ON, "narrow",
+    ("allies", "ALLIES TOO:", "game.randomizer_allies", OFF_ON,
      "On: the marines beside you are swapped too.\\nA scene may then lose them. Off: they stay."),
     ("pool", "ENEMY POOL:", "game.randomizer_pool",
      [("ANY", "any"), ("COVENANT", "covenant"), ("FLOOD", "flood"), ("HUMAN", "human"), ("ONE TYPE", "one")],
-     "wide", "Which actors a squad may become."),
+     "Which actors a squad may become."),
     ("type", "ENEMY TYPE:", "game.randomizer_type",
      [("GRUNT", "grunt"), ("ELITE", "elite"), ("JACKAL", "jackal"), ("HUNTER", "hunter"),
-      ("COMBAT FORM", "flood_combat"), ("CARRIER FORM", "flood_carrier"), ("MARINE", "marine")],
-     "wider", "The only actor a squad may become."),
+      ("COMBAT FORM", "flood_combat"), ("CARRIER FORM", "flood_carrier"), ("MARINE", "marine"),
+      ("ENGINEER", "engineer"), ("SENTINEL", "sentinel")],
+     "The only actor a squad may become."),
     ("grunt_rank", "RANK:", "game.randomizer_grunt_rank",
      [("ANY", "any"), ("MINOR", "minor"), ("MAJOR", "major"), ("SPEC OPS", "specops")],
-     "wide", "Which grunts."),
+     "Which grunts."),
     ("elite_rank", "RANK:", "game.randomizer_elite_rank",
      [("ANY", "any"), ("MINOR", "minor"), ("MAJOR", "major"), ("SPEC OPS", "specops"), ("ZEALOT", "zealot"),
       ("STEALTH", "stealth")],
-     "wide", "Which elites. Zealots are the gold commanders."),
+     "Which elites. Zealots are the gold commanders."),
     ("jackal_rank", "RANK:", "game.randomizer_jackal_rank",
-     [("ANY", "any"), ("MINOR", "minor"), ("MAJOR", "major")], "wide", "Which jackals."),
+     [("ANY", "any"), ("MINOR", "minor"), ("MAJOR", "major")], "Which jackals."),
     ("hunter_rank", "RANK:", "game.randomizer_hunter_rank",
-     [("ANY", "any"), ("MINOR", "minor"), ("MAJOR", "major")], "wide", "Which hunters."),
+     [("ANY", "any"), ("MINOR", "minor"), ("MAJOR", "major")], "Which hunters."),
     ("flood_combat_rank", "FORM OF:", "game.randomizer_flood_combat_rank",
-     [("ANY", "any"), ("HUMAN", "human"), ("ELITE", "elite")], "wide", "Which combat forms."),
-    ("pickups", "WEAPON PICKUPS:", "game.randomizer_pickups", OFF_ON, "narrow",
+     [("ANY", "any"), ("HUMAN", "human"), ("ELITE", "elite")], "Which combat forms."),
+    ("pickups", "WEAPON PICKUPS:", "game.randomizer_pickups", OFF_ON,
      "On: a weapon lying in the level is swapped.\\nOne a script names stays."),
-    ("pickup_pool", "PICKUP POOL:", "game.randomizer_pickup_pool", RANDOMIZER_WEAPON_POOLS, "wide",
+    ("pickup_pool", "PICKUP POOL:", "game.randomizer_pickup_pool", RANDOMIZER_WEAPON_POOLS,
      "Which weapons a pickup may become. A weapon\\nthe level lacks comes from another level."),
-    ("pickup_type", "PICKUP TYPE:", "game.randomizer_pickup_type", RANDOMIZER_WEAPONS, "wider",
+    ("pickup_type", "PICKUP TYPE:", "game.randomizer_pickup_type", RANDOMIZER_WEAPONS,
      "The only weapon a pickup may become."),
-    ("enemy_weapons", "ENEMY WEAPONS:", "game.randomizer_enemy_weapons", OFF_ON, "narrow",
-     "On: the weapon an actor carries is swapped\\nfor another it can hold."),
-    ("weapon_pool", "WEAPON POOL:", "game.randomizer_weapon_pool", RANDOMIZER_WEAPON_POOLS, "wide",
-     "Which weapons an actor may be given. Power\\nadds the fuel rod and the energy sword."),
+    ("enemy_weapons", "ENEMY WEAPONS:", "game.randomizer_enemy_weapons", OFF_ON,
+     "On: an actor's weapon is swapped for one it\\ncan hold; one that can hold none keeps its own."),
+    ("weapon_pool", "WEAPON POOL:", "game.randomizer_weapon_pool", RANDOMIZER_WEAPON_POOLS,
+     "Which weapons an actor may be given. An actor\\nthat can hold none of them keeps its own."),
     ("weapon_type", "WEAPON TYPE:", "game.randomizer_weapon_type",
-     RANDOMIZER_WEAPONS + [("FUEL ROD", "fuel_rod"), ("ENERGY SWORD", "energy_sword")], "wider",
-     "The only weapon an actor may be given, when\\nit can hold it; one that cannot keeps its own."),
+     RANDOMIZER_WEAPONS + [("FUEL ROD", "fuel_rod"), ("ENERGY SWORD", "energy_sword")],
+     "Only enemies that can hold it get it; others\\nkeep theirs (Go Crazy lends them the hands)."),
+    ("crazy", "GO CRAZY:", "game.randomizer_crazy", OFF_ON,
+     "On: flamethrowers, engineers and sentinels join\\nthe pools; enemies hold any weapon they get."),
 ]
 
 
@@ -716,10 +719,10 @@ def _randomizer_screen() -> list:
     children = ['<data input="port settings help"/>', '<data input="randomizer screen update"/>']
     extra = []
     labels = []
-    for index, (key, label, setting, choices, size, _) in enumerate(RANDOMIZER_ROWS):
+    for index, (key, label, setting, choices, _) in enumerate(RANDOMIZER_ROWS):
         # (each where it is with every row shown; the screen moves them up)
         children.append(f'<child{attributes([("widget", f"{base}/op_{key}"), ("x", 54), ("y", 70 + index * 26)])}/>')
-        extra += _randomizer_spinner(base, key, index, setting, choices, size)
+        extra += _randomizer_spinner(base, key, index, setting, choices)
         labels.append(label)
     children.append(f'<child{attributes([("widget", f"{base}/button_bar"), ("y", 414)])}/>')
     lines += _widget(f"{base}/options_menu",
@@ -779,6 +782,7 @@ def _randomizer_profiles_screen(base: str) -> list:
                           ("font", "ui\\large_ui"), ("color", "#FF2896FF"), ("text_x", 13), ("text_y", 4)],
                          ['<on event="a" run="randomizer profile load" back="true"/>',
                           '<on event="start" run="randomizer profile load" back="true"/>',
+                          '<on event="x" run="randomizer profile delete"/>',
                           '<on event="left_mouse" run="mouse emit accept event"/>'])
     children.append(f'<child{attributes([("widget", f"{base}/profiles_button_bar"), ("y", 414)])}/>')
     lines += _widget(f"{base}/profiles_menu",
@@ -791,7 +795,7 @@ def _randomizer_profiles_screen(base: str) -> list:
                      ['<child widget="common_button_cancel" x="510" y="1"/>'])
     lines += extra
     lines += _strings(f"{base}/profiles_help_strings",
-                      ["A uses the setup chosen. No setup is saved\\nuntil Save names one."])
+                      ["A uses the setup chosen. X twice deletes it.\\nNo setup is saved until Save names one."])
     return lines
 
 
