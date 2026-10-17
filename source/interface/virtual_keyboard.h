@@ -28,6 +28,10 @@ boolean virtual_keyboard_launch(
 	wchar_t *text_buffer,
 	word buffer_size,
 	short caption_index);
+/* port: the next launch keeps a name that is not a player profile
+(the campaign randomizer's). One launch, then it is a profile's again */
+void virtual_keyboard_allow_any_name(
+	void);
 boolean virtual_keyboard_active(
 	void);
 void virtual_keyboard_close(

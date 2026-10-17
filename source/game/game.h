@@ -134,6 +134,9 @@ void game_initialize(
 void game_dispose(void);
 void game_precache_new_map(char *map_name, boolean blocking);
 boolean game_map_loading_in_progress(real *progress);
+/* port: opens the precache loading screen again and sets its fill
+(port/linux/game/randomizer.c) */
+void game_loading_progress_show(boolean show, real progress);
 void game_unload(
 	void);
 void game_dispose_from_old_map(void);

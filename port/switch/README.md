@@ -106,7 +106,8 @@ sdmc:/switch/halo/maps/
 ```
 
 The game checks for `sdmc:/switch/halo/maps/ui.map` and, with no image
-either, refuses to start and says so. Saves go in `sdmc:/switch/halo/save/`,
+either, refuses to start and says so. A campaign randomizer pack, built by
+`tools/randomizer_pack.py`, goes in that same folder as `randomizer.pack`. Saves go in `sdmc:/switch/halo/save/`,
 and the settings file `config.toml` goes in `sdmc:/switch/halo/`.
 
 Custom Edition maps go in `sdmc:/switch/halo/custom_maps/`, with

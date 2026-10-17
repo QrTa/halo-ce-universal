@@ -73,6 +73,7 @@ their handlers open opens.
 */
 
 #include "cseries.h"
+#include "cseries/errors.h"
 #include "input/input.h"
 #include "interface/event_manager.h"
 #include "interface/player_ui.h"
@@ -1585,7 +1586,14 @@ static struct
 	short chosen;
 	short controller;
 	short difficulty;
+	boolean naming;
+	wchar_t name[RANDOMIZER_PROFILE_NAME + 1];
 } randomizer_menu;
+
+extern boolean virtual_keyboard_launch(wchar_t *text_buffer, word buffer_size, short caption_index);
+extern void virtual_keyboard_allow_any_name(void);
+extern boolean virtual_keyboard_active(void);
+extern boolean virtual_keyboard_last_exit_saved_text(void);
 
 static int randomizer_profile_path(char *path, unsigned int size)
 {
@@ -1596,6 +1604,17 @@ static int randomizer_profile_path(char *path, unsigned int size)
 		return 0;
 	snprintf(path, size, "%srandomizer_profiles.txt", directory);
 	return 1;
+}
+
+static void randomizer_field_trim(char *field)
+{
+	char *end;
+
+	if (!field)
+		return;
+	end = field + strlen(field);
+	while (end > field && (end[-1] == '\n' || end[-1] == '\r' || end[-1] == ' ' || end[-1] == '\t'))
+		*--end = 0;
 }
 
 static int randomizer_split(char *line, char **fields, int count)
@@ -1638,6 +1657,10 @@ static void randomizer_profiles_read(void)
 
 		if (randomizer_split(line, fields, 6) < 6 || !fields[0][0])
 			continue;
+		for (field = 0; field < 6; field++)
+			randomizer_field_trim(fields[field]);
+		if (!fields[0][0])
+			continue;
 		index = randomizer_menu.count;
 		snprintf(randomizer_menu.profiles[index].name, sizeof(randomizer_menu.profiles[index].name),
 			"%s", fields[0]);
@@ -1660,7 +1683,7 @@ static void randomizer_profiles_write(void)
 	file = fopen(path, "w");
 	if (!file)
 	{
-		platform_log("menus: could not write %s", path);
+		error(_error_silent, "randomizer: could not write %s", path);
 		return;
 	}
 	for (index = 0; index < randomizer_menu.count; index++)
@@ -1668,7 +1691,19 @@ static void randomizer_profiles_write(void)
 			randomizer_menu.profiles[index].value[0], randomizer_menu.profiles[index].value[1],
 			randomizer_menu.profiles[index].value[2], randomizer_menu.profiles[index].value[3],
 			randomizer_menu.profiles[index].value[4]);
+	fflush(file);
+#ifdef HALO_SWITCH
+	/* as config.toml: _exit does not flush the card (port_config.c) */
+	fsync(fileno(file));
+#endif
 	fclose(file);
+#ifdef HALO_SWITCH
+	{
+		extern void host_storage_commit(void);
+
+		host_storage_commit();
+	}
+#endif
 }
 
 static int randomizer_name_clean(char *name)
@@ -1732,6 +1767,7 @@ static void randomizer_profile_saved(char const *text)
 		snprintf(randomizer_menu.profiles[index].value[field],
 			sizeof(randomizer_menu.profiles[index].value[field]), "%s", value[field]);
 	randomizer_profiles_write();
+	error(_error_silent, "randomizer: saved profile %s", name);
 }
 
 static boolean setting_show_saved(struct widget_instance *spinner, struct pc_menu_setting *setting)
@@ -1743,9 +1779,37 @@ static boolean setting_show_saved(struct widget_instance *spinner, struct pc_men
 
 static short randomizer_profile_index(struct widget_instance *widget)
 {
-	if (!widget || strncmp(widget->name, "profile_", 8))
+	char const *leaf;
+
+	if (!widget || !widget->name)
 		return NONE;
-	return (short)atoi(widget->name + 8);
+	leaf = strrchr(widget->name, '/');
+	if (!leaf)
+		leaf = strrchr(widget->name, '\\');
+	leaf = leaf ? leaf + 1 : widget->name;
+	if (strncmp(leaf, "profile_", 8))
+		return NONE;
+
+	return (short)atoi(leaf + 8);
+}
+
+/* the profile row with the focus, walking from the screen down to it */
+static short randomizer_focused_profile(struct widget_instance *widget)
+{
+	struct widget_instance *cursor = screen_of(widget);
+	short index = randomizer_profile_index(widget);
+
+	if (index != NONE)
+		return index;
+	while (cursor)
+	{
+		index = randomizer_profile_index(cursor->focused_child);
+		if (index != NONE)
+			return index;
+		cursor = cursor->focused_child;
+	}
+
+	return NONE;
 }
 
 static boolean randomizer_profile_apply(short index, struct widget_instance *widget)
@@ -1757,33 +1821,45 @@ static boolean randomizer_profile_apply(short index, struct widget_instance *wid
 	for (field = 0; field < 5; field++)
 	{
 		if (!config_write(randomizer_keys[field], randomizer_menu.profiles[index].value[field]))
+		{
+			error(_error_silent, "randomizer: could not write %s", randomizer_keys[field]);
 			return campaign_fail();
+		}
 	}
 	settings_each(screen_of(widget), setting_show_saved);
 	return TRUE;
 }
 
-/* "randomizer profile save": the setup shown, under the name typed */
+/* "randomizer profile save": the setup shown, under the name typed on the
+on-screen keyboard (a controller has no text field) */
 static boolean randomizer_profile_save_event(struct widget_instance *widget)
 {
-	if (text_field_editing(widget))
-	{
-		text_field_end(TRUE);
+	if (randomizer_menu.naming)
 		return TRUE;
-	}
 	settings_each(screen_of(widget), setting_changed_save);
-	text_field_begin(widget, "", RANDOMIZER_PROFILE_NAME, randomizer_profile_saved);
+	csmemset(randomizer_menu.name, 0, sizeof(randomizer_menu.name));
+	virtual_keyboard_allow_any_name();
+	if (!virtual_keyboard_launch(randomizer_menu.name, (word)sizeof(randomizer_menu.name), 8))
+		return campaign_fail();
+	randomizer_menu.naming = TRUE;
 	return TRUE;
 }
 
 /* "randomizer profile load": the profile chosen, into the setup shown */
 static boolean randomizer_profile_load_event(struct widget_instance *widget)
 {
-	short index = randomizer_profile_index(widget);
+	short index = randomizer_focused_profile(widget);
 
 	randomizer_profiles_read();
 	if (index == NONE)
 		index = randomizer_menu.chosen;
+	if (index < 0 || index >= randomizer_menu.count)
+	{
+		error(_error_silent, "randomizer: no profile to load (%d saved)", randomizer_menu.count);
+		return campaign_fail();
+	}
+	error(_error_silent, "randomizer: loaded profile %s", randomizer_menu.profiles[index].name);
+
 	return randomizer_profile_apply(index, widget);
 }
 
@@ -1798,9 +1874,22 @@ static boolean randomizer_ok(struct widget_instance *widget)
 /* "randomizer profiles update": the names saved, and a name being typed */
 static void randomizer_profiles_update(struct widget_instance *list)
 {
-	struct widget_instance *save = named(list, "button_save", 0);
 	short index;
 
+	if (randomizer_menu.naming && !virtual_keyboard_active())
+	{
+		char name[RANDOMIZER_PROFILE_NAME + 1];
+		short character;
+
+		randomizer_menu.naming = FALSE;
+		if (virtual_keyboard_last_exit_saved_text())
+		{
+			for (character = 0; randomizer_menu.name[character] && character < RANDOMIZER_PROFILE_NAME; character++)
+				name[character] = (char)randomizer_menu.name[character];
+			name[character] = 0;
+			randomizer_profile_saved(name);
+		}
+	}
 	randomizer_profiles_read();
 	if (randomizer_profile_index(list->focused_child) != NONE)
 		randomizer_menu.chosen = randomizer_profile_index(list->focused_child);
@@ -1824,10 +1913,6 @@ static void randomizer_profiles_update(struct widget_instance *list)
 		text[character] = 0;
 		text_set(row, text);
 	}
-	if (save && text_field_editing(save))
-		text_field_show(save, "", TRUE);
-	else if (save)
-		text_set(save, L"SAVE");
 }
 
 /* the difficulty menu: "difficulty item select" starts the game at the

@@ -346,6 +346,8 @@ static rectangle2d keyboard_rect[NUMBER_OF_VIRTUAL_KEYS] =
 };
 
 static struct virtual_keyboard_globals virtual_keyboard_globals= {0};
+/* port: Done of the next launch keeps a name that is not a player profile */
+static boolean virtual_keyboard_free_name;
 
 /* port: the computer's keyboard types into the keyboard while it is up
 (port/linux/src/xinput_sdl.c), set as it opens and closes: it is processed
@@ -477,6 +479,13 @@ boolean virtual_keyboard_launch(
 	return result;
 }
 
+/* port: the campaign randomizer's profile name (menu_functions.c) */
+void virtual_keyboard_allow_any_name(
+	void)
+{
+	virtual_keyboard_free_name = TRUE;
+}
+
 boolean virtual_keyboard_active(
 	void)
 {
@@ -578,6 +587,7 @@ static boolean virtual_keyboard_cancel(
 	virtual_keyboard_globals.text_buffer = NULL;
 	virtual_keyboard_globals.saved_text[0] = L'\0';
 	virtual_keyboard_globals.last_exit_saved_text = FALSE;
+	virtual_keyboard_free_name = FALSE;
 	ui_play_audio_feedback_sound(_ui_audio_feedback_back);
 
 	return TRUE;
@@ -996,9 +1006,12 @@ static boolean virtual_keyboard_select(
 		{
 			if (virtual_keyboard_globals.text_buffer[0])
 			{
-				if (saved_game_file_name_unique(virtual_keyboard_globals.text_buffer))
+				/* port: a randomizer profile is not a player profile */
+				if (virtual_keyboard_free_name ||
+					saved_game_file_name_unique(virtual_keyboard_globals.text_buffer))
 				{
 					virtual_keyboard_globals.last_exit_saved_text = TRUE;
+					virtual_keyboard_free_name = FALSE;
 				}
 				else
 				{

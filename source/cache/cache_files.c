@@ -752,6 +752,8 @@ long tag_loaded(
 	long absolute_index;
 	long result = NONE;
 
+	if (!name)
+		return NONE;
 	if (cache_file_globals.tags_loaded)
 	{
 		match_assert(
@@ -763,8 +765,14 @@ long tag_loaded(
 			absolute_index < global_tag_count;
 			absolute_index++)
 		{
+			/* port: a tag with no name is not a match. Looking one up used to
+			read that pointer anyway, which faulted when the name sought was
+			not in the map and the scan reached the nameless tag */
+			char const *loaded_name = global_tag_instances[absolute_index].name;
+
 			if (group_tag == global_tag_instances[absolute_index].group_tag &&
-				!_stricmp(name, global_tag_instances[absolute_index].name))
+				loaded_name &&
+				!_stricmp(name, loaded_name))
 			{
 				result = global_tag_instances[absolute_index].tag_index;
 				break;

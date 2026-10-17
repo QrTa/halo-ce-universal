@@ -5,8 +5,10 @@ A campaign level can swap its actors and the weapons they carry, and the
 weapons lying in it, without changing the map file. The actors are taken
 from a pool (any of them, one faction, or one type). A tag the level does
 not have is copied from another campaign map, dependencies included, and
-appended to the tag table in the same order on every machine. A bitmap's
-pixels and a sound's samples stay in that map's file and are read from it.
+appended to the tag table in map order, then by name, the same on every
+machine. A bitmap's pixels and a sound's samples are read from
+maps/randomizer.pack when that file is there (tools/randomizer_pack.py);
+otherwise from the other map.
 
 The choice is a hash of the map, the setup and the placement, so a
 checkpoint reloads the same level. A starting location with a command list,
@@ -23,14 +25,19 @@ setup the host advertised, not its own.
 #include <string.h>
 
 #include "cseries.h"
+#include "cseries/errors.h"
 #include "ai/actor_definitions.h"
 #include "ai/ai_scenario_definitions.h"
 #include "cache/cache_files.h"
+#include "game/game.h"
+#include "interface/progress_bar.h"
 #include "items/weapon_definitions.h"
 #include "main/main.h"
+#include "models/model_definitions.h"
 #include "networking/network_game_globals.h"
 #include "networking/network_game_manager.h"
 #include "objects/objects.h"
+#include "rasterizer/rasterizer_geometry.h"
 #include "scenario/scenario.h"
 #include "scenario/scenario_definitions.h"
 #include "tag_files/tag_files.h"
@@ -41,6 +48,11 @@ setup the host advertised, not its own.
 #include "platform.h"
 #include "randomizer.h"
 #include "tag_schema.h"
+
+#include <xtl.h>
+/* the port's zlib, the same one that unpacks a map while precaching it
+(source/cache/cache_files_decompress_windows.c) */
+#include "../../third_party/zlib/zlib_prefixed.h"
 
 /* the addresses a map file gives its tag pointers, wherever this process
 keeps the tag cache (halo_port_window.h) */
@@ -53,6 +65,7 @@ keeps the tag cache (halo_port_window.h) */
 #define WEAPON_MAX 128
 #define PROTECTED_MAX 128
 #define COPY_BUDGET (32UL * 1024UL * 1024UL)
+#define WALK_DEPTH 32
 
 enum
 {
@@ -119,12 +132,45 @@ struct randomizer_tag_header
 typedef char randomizer_tag_instance_size[sizeof(struct randomizer_tag_instance) == 0x20 ? 1 : -1];
 typedef char randomizer_tag_count_offset[offsetof(struct randomizer_tag_header, tag_count) == 0xC ? 1 : -1];
 
+/* one bitmap or sound range in randomizer.pack. file_offset is the
+uncompressed map offset the game asks for; data_at is where those bytes
+sit in the pack. Twelve bytes, little endian, matching tools/randomizer_pack.py */
+struct pack_span
+{
+	long file_offset;
+	long size;
+	long data_at;
+};
+
+typedef char pack_span_size[sizeof(struct pack_span) == 12 ? 1 : -1];
+
+struct pack_entry
+{
+	char name[8];
+	long file_length;
+	long tag_offset;
+	long tag_size;
+	long tags_at;
+	long resource_count;
+	long resources_at;
+};
+
 struct donor
 {
-	FILE *file;
+	/* CreateFileA, not fopen: the Switch keeps map files in memory, and a
+	d:\maps path is only translated by the file calls the game uses */
+	HANDLE file;
+	/* the tag section only. The disc file is a header plus a zlib stream;
+	this is the inflated tag bytes, not the whole map */
 	unsigned char *bytes;
 	unsigned long size;
 	long file_length;
+	long tag_offset;
+	int compressed;
+	/* pixels and samples come from randomizer.pack, not this map file */
+	int from_pack;
+	struct pack_span *spans;
+	long span_count;
 	long count;
 	struct randomizer_tag_instance *instances;
 	unsigned char *seen;
@@ -137,6 +183,7 @@ struct wanted
 {
 	short donor;
 	long absolute;
+	char name[256];
 };
 
 struct copied_tag
@@ -183,6 +230,10 @@ typedef char randomizer_tag_table_size[
 
 static struct donor donors[DONOR_COUNT];
 static int donor_count;
+static HANDLE pack_file;
+static struct pack_entry pack_entries[DONOR_COUNT];
+static int pack_entry_count;
+static int pack_state;
 static struct wanted *wanted;
 static long wanted_count;
 static struct copied_tag copied[IMPORT_MAX];
@@ -190,6 +241,8 @@ static long copied_count;
 static struct held_block *held;
 static unsigned long held_bytes;
 static int import_stopped;
+static long walk_steps;
+static int import_progress_open;
 static struct cache_file_tag_instance *saved_instances;
 static long saved_count;
 static struct cache_file_tag_instance *grown_instances;
@@ -494,16 +547,78 @@ static int leave_group(long group)
 
 static void want(struct donor *donor, long datum);
 
-static void walk_want(struct donor *donor, void *element, struct tag_schema_definition const *schema)
+/* a field whose declared bytes run past the element is skipped: the schema
+can name an offset the donor tag does not have */
+/* whether a walk of this schema can reach a tag reference. Geometry,
+collision nodes and animation frames cannot, and walking every one of them
+is what made a donor's tags fault or never return */
+static int schema_has_tags(struct tag_schema_definition const *schema, int depth)
+{
+	struct tag_schema_field const *field;
+	static struct tag_schema_definition const *visiting[16];
+	int visit;
+	int has;
+
+	if (!schema || !schema->fields || depth > 8)
+		return 0;
+	for (visit = 0; visit < depth && visit < 16; visit++)
+	{
+		if (visiting[visit] == schema)
+			return 0;
+	}
+	if (depth < 16)
+		visiting[depth] = schema;
+	has = 0;
+	for (field = schema->fields; field->type != _tag_schema_terminator; field++)
+	{
+		if (field->type == _tag_schema_reference || field->type == _tag_schema_tag_index)
+		{
+			has = 1;
+			break;
+		}
+		if ((field->type == _tag_schema_struct || field->type == _tag_schema_block) &&
+			schema_has_tags(field->definition, depth + 1))
+		{
+			has = 1;
+			break;
+		}
+	}
+
+	return has;
+}
+
+static int field_inside(struct tag_schema_definition const *schema, struct tag_schema_field const *field)
+{
+	unsigned long end;
+
+	if (!schema || !field || schema->size <= 0 || field->count <= 0 || field->size <= 0 || field->offset < 0)
+		return 0;
+	if ((unsigned long)field->offset >= (unsigned long)schema->size)
+		return 0;
+	if ((unsigned long)field->size >
+		((unsigned long)schema->size - (unsigned long)field->offset) / (unsigned long)field->count)
+		return 0;
+	end = (unsigned long)field->offset + (unsigned long)field->count * (unsigned long)field->size;
+
+	return end <= (unsigned long)schema->size;
+}
+
+static void walk_want(struct donor *donor, void *element, struct tag_schema_definition const *schema, int depth)
 {
 	struct tag_schema_field const *field;
 
-	if (!element || !schema || !range_in(donor, element, (unsigned long)schema->size))
+	if (walk_steps > 400000 || import_stopped)
 		return;
-	for (field = schema->fields; field->type != _tag_schema_terminator; field++)
+	if (depth >= WALK_DEPTH || !element || !schema || schema->size <= 0 ||
+		!range_in(donor, element, (unsigned long)schema->size))
+		return;
+	walk_steps++;
+	for (field = schema->fields; field && field->type != _tag_schema_terminator; field++)
 	{
 		long item;
 
+		if (!field_inside(schema, field))
+			continue;
 		for (item = 0; item < field->count; item++)
 		{
 			void *place = (char *)element + field->offset + item * field->size;
@@ -513,7 +628,10 @@ static void walk_want(struct donor *donor, void *element, struct tag_schema_defi
 			else if (field->type == _tag_schema_tag_index)
 				want(donor, *(long *)place);
 			else if (field->type == _tag_schema_struct)
-				walk_want(donor, place, field->definition);
+			{
+				if (schema_has_tags(field->definition, 0))
+					walk_want(donor, place, field->definition, depth + 1);
+			}
 			else if (field->type == _tag_schema_block)
 			{
 				struct tag_block *block = place;
@@ -522,12 +640,13 @@ static void walk_want(struct donor *donor, void *element, struct tag_schema_defi
 				long index;
 				long count = block->count;
 
-				if (!child || count <= 0 || !elements || child->size <= 0 || count > 100000 ||
+				if (!child || count <= 0 || !elements || child->size <= 0 || count > 4096 ||
+					!schema_has_tags(child, 0) ||
 					(unsigned long)count > 0x1000000UL / (unsigned long)child->size ||
 					!range_in(donor, elements, (unsigned long)count * (unsigned long)child->size))
 					continue;
 				for (index = 0; index < count; index++)
-					walk_want(donor, (char *)elements + index * (unsigned long)child->size, child);
+					walk_want(donor, (char *)elements + index * (unsigned long)child->size, child, depth + 1);
 			}
 		}
 	}
@@ -561,6 +680,7 @@ static void want(struct donor *donor, long datum)
 		import_stopped = 1;
 		return;
 	}
+	snprintf(wanted[wanted_count].name, sizeof(wanted[wanted_count].name), "%s", name);
 	wanted[wanted_count].donor = (short)(donor - donors);
 	wanted[wanted_count].absolute = absolute;
 	wanted_count++;
@@ -570,32 +690,33 @@ static int wanted_less(void const *left, void const *right)
 {
 	struct wanted const *a = left;
 	struct wanted const *b = right;
-	struct donor *da = donors + a->donor;
-	struct donor *db = donors + b->donor;
-	char const *an = instance_name(da, da->instances + a->absolute);
-	char const *bn = instance_name(db, db->instances + b->absolute);
-	int order = _stricmp(an ? an : "", bn ? bn : "");
+	int order;
 
-	if (order)
-		return order;
+	/* map first, so the copy reads each map's tags once. The name then
+	keeps two machines appending the same tag at the same index */
 	if (a->donor != b->donor)
 		return a->donor - b->donor;
+	order = _stricmp(a->name, b->name);
+	if (order)
+		return order;
 
 	return a->absolute < b->absolute ? -1 : a->absolute > b->absolute;
 }
 
-static void copy_fields(struct donor *donor, void *element, struct tag_schema_definition const *schema);
+static void copy_fields(struct donor *donor, void *element, struct tag_schema_definition const *schema, int depth);
 
-static void copy_fields(struct donor *donor, void *element, struct tag_schema_definition const *schema)
+static void copy_fields(struct donor *donor, void *element, struct tag_schema_definition const *schema, int depth)
 {
 	struct tag_schema_field const *field;
 
-	if (!element || !schema)
+	if (depth >= WALK_DEPTH || !element || !schema || schema->size <= 0)
 		return;
 	for (field = schema->fields; field->type != _tag_schema_terminator; field++)
 	{
 		long item;
 
+		if (!field_inside(schema, field))
+			continue;
 		for (item = 0; item < field->count; item++)
 		{
 			void *place = (char *)element + field->offset + item * field->size;
@@ -672,7 +793,7 @@ static void copy_fields(struct donor *donor, void *element, struct tag_schema_de
 				}
 			}
 			else if (field->type == _tag_schema_struct)
-				copy_fields(donor, place, field->definition);
+				copy_fields(donor, place, field->definition, depth + 1);
 			else if (field->type == _tag_schema_block)
 			{
 				struct tag_block *block = place;
@@ -700,7 +821,7 @@ static void copy_fields(struct donor *donor, void *element, struct tag_schema_de
 				memcpy(elements, source, (unsigned long)count * (unsigned long)child->size);
 				block->address = elements;
 				for (index = 0; index < count; index++)
-					copy_fields(donor, (char *)elements + index * (unsigned long)child->size, child);
+					copy_fields(donor, (char *)elements + index * (unsigned long)child->size, child, depth + 1);
 			}
 		}
 	}
@@ -716,16 +837,18 @@ static long retarget_datum(struct donor *donor, long datum)
 	return donor->datum_of[absolute];
 }
 
-static void retarget_fields(struct donor *donor, void *element, struct tag_schema_definition const *schema)
+static void retarget_fields(struct donor *donor, void *element, struct tag_schema_definition const *schema, int depth)
 {
 	struct tag_schema_field const *field;
 
-	if (!element || !schema)
+	if (depth >= WALK_DEPTH || !element || !schema || schema->size <= 0)
 		return;
 	for (field = schema->fields; field->type != _tag_schema_terminator; field++)
 	{
 		long item;
 
+		if (!field_inside(schema, field))
+			continue;
 		for (item = 0; item < field->count; item++)
 		{
 			void *place = (char *)element + field->offset + item * field->size;
@@ -756,7 +879,7 @@ static void retarget_fields(struct donor *donor, void *element, struct tag_schem
 			else if (field->type == _tag_schema_tag_index)
 				*(long *)place = retarget_datum(donor, *(long *)place);
 			else if (field->type == _tag_schema_struct)
-				retarget_fields(donor, place, field->definition);
+				retarget_fields(donor, place, field->definition, depth + 1);
 			else if (field->type == _tag_schema_block)
 			{
 				struct tag_block *block = place;
@@ -766,13 +889,317 @@ static void retarget_fields(struct donor *donor, void *element, struct tag_schem
 				if (!child || !block->address || block->count <= 0)
 					continue;
 				for (index = 0; index < block->count; index++)
-					retarget_fields(donor, (char *)block->address + index * (unsigned long)child->size, child);
+					retarget_fields(donor, (char *)block->address + index * (unsigned long)child->size, child, depth + 1);
 			}
 		}
 	}
 }
 
-static int open_donor(struct donor *donor, char const *leaf)
+static int donor_file_at(HANDLE file, long offset)
+{
+	DWORD result = SetFilePointer(file, offset, NULL, FILE_BEGIN);
+
+	return result != INVALID_SET_FILE_POINTER || GetLastError() == 0;
+}
+
+static int donor_file_read(HANDLE file, void *buffer, unsigned long size)
+{
+	unsigned long done = 0;
+
+	while (done < size)
+	{
+		DWORD chunk = (DWORD)(size - done);
+		DWORD got = 0;
+
+		if (chunk > 0x40000)
+			chunk = 0x40000;
+		if (!ReadFile(file, (char *)buffer + done, chunk, &got, NULL) || got == 0)
+			return 0;
+		done += got;
+	}
+
+	return 1;
+}
+
+static void donor_bytes_free(struct donor *donor)
+{
+	if (donor->bytes)
+		free(donor->bytes);
+	donor->bytes = NULL;
+}
+
+/* `start` and `size` are offsets in the inflated file. The disc file's
+header is plain; everything from 0x800 on is the zlib stream precaching
+inflates. Output before `start` is discarded, so the whole map is never
+held */
+static int inflate_span(HANDLE file, long start, long size, unsigned char *destination)
+{
+	z_stream stream;
+	unsigned char input[0x2000];
+	unsigned char discard[0x2000];
+	long produced;
+	long end;
+	int result;
+	unsigned int asked;
+	long filled;
+	DWORD got;
+
+	if (!destination || start < 0x800 || size <= 0)
+		return 0;
+	if (!donor_file_at(file, 0x800))
+		return 0;
+	memset(&stream, 0, sizeof(stream));
+	if (inflateInit(&stream) != Z_OK)
+		return 0;
+	produced = 0x800;
+	end = start + size;
+	result = Z_OK;
+	while (produced < end && result != Z_STREAM_END)
+	{
+		if (stream.avail_in == 0)
+		{
+			got = 0;
+			if (!ReadFile(file, input, (DWORD)sizeof(input), &got, NULL) || got == 0)
+				break;
+			stream.next_in = (Bytef *)input;
+			stream.avail_in = got;
+		}
+		if (produced < start)
+		{
+			long skip = start - produced;
+
+			if (skip > (long)sizeof(discard))
+				skip = (long)sizeof(discard);
+			stream.next_out = (Bytef *)discard;
+			asked = (unsigned int)skip;
+		}
+		else
+		{
+			long want = end - produced;
+
+			if (want > 0x4000)
+				want = 0x4000;
+			stream.next_out = (Bytef *)(destination + (produced - start));
+			asked = (unsigned int)want;
+		}
+		stream.avail_out = asked;
+		result = inflate(&stream, Z_NO_FLUSH);
+		if (result != Z_OK && result != Z_STREAM_END && result != Z_BUF_ERROR)
+			break;
+		filled = (long)(asked - stream.avail_out);
+		if (filled <= 0)
+			break;
+		produced += filled;
+		if (result == Z_BUF_ERROR)
+			result = Z_OK;
+	}
+	inflateEnd(&stream);
+
+	return produced >= end;
+}
+
+static int pack_read_u32(long at, unsigned long *value)
+{
+	unsigned char bytes[4];
+	DWORD got = 0;
+
+	if (!donor_file_at(pack_file, at) || !ReadFile(pack_file, bytes, 4, &got, NULL) || got != 4)
+		return 0;
+	memcpy(value, bytes, 4);
+
+	return 1;
+}
+
+static void pack_close(void)
+{
+	if (pack_file && pack_file != INVALID_HANDLE_VALUE)
+		CloseHandle(pack_file);
+	pack_file = NULL;
+	pack_entry_count = 0;
+	pack_state = 0;
+}
+
+/* maps/randomizer.pack: 'rpak', version 1, then one 32-byte record per map
+(8-byte name, file length, tag offset, tag size, where the tag bytes are,
+how many resource spans, where that table is). Absent or unusable once, and
+the maps are read instead */
+static int pack_open(void)
+{
+	char path[512];
+	unsigned long magic = 0;
+	unsigned long version = 0;
+	unsigned long count = 0;
+	unsigned long index;
+	DWORD open_error;
+
+	if (pack_state == 1)
+		return 1;
+	if (pack_state < 0)
+		return 0;
+	snprintf(path, sizeof(path), "%srandomizer.pack", cache_files_map_directory());
+	pack_file = CreateFileA(path, GENERIC_READ, 0, NULL, OPEN_EXISTING, 0, NULL);
+	if (pack_file == INVALID_HANDLE_VALUE)
+	{
+		open_error = GetLastError();
+		error(_error_silent, "randomizer: no %s (error %lu), reading maps", path, (unsigned long)open_error);
+		pack_file = NULL;
+		pack_state = -1;
+		return 0;
+	}
+	if (!pack_read_u32(0, &magic) || !pack_read_u32(4, &version) || !pack_read_u32(8, &count) ||
+		magic != 'rpak' || version != 1 || count > (unsigned long)DONOR_COUNT)
+	{
+		error(_error_silent, "randomizer: %s is not a randomizer pack", path);
+		pack_close();
+		pack_state = -1;
+		return 0;
+	}
+	for (index = 0; index < count; index++)
+	{
+		unsigned char record[32];
+		struct pack_entry *entry = pack_entries + index;
+		long at = 12 + (long)index * 32;
+
+		if (!donor_file_at(pack_file, at) || !donor_file_read(pack_file, record, sizeof(record)))
+		{
+			error(_error_silent, "randomizer: %s directory is short", path);
+			pack_close();
+			pack_state = -1;
+			return 0;
+		}
+		memset(entry, 0, sizeof(*entry));
+		memcpy(entry->name, record, 7);
+		memcpy(&entry->file_length, record + 8, 4);
+		memcpy(&entry->tag_offset, record + 12, 4);
+		memcpy(&entry->tag_size, record + 16, 4);
+		memcpy(&entry->tags_at, record + 20, 4);
+		memcpy(&entry->resource_count, record + 24, 4);
+		memcpy(&entry->resources_at, record + 28, 4);
+	}
+	pack_entry_count = (int)count;
+	pack_state = 1;
+	error(_error_silent, "randomizer: using %s (%d maps)", path, pack_entry_count);
+
+	return 1;
+}
+
+static struct pack_entry *pack_find(char const *leaf)
+{
+	int index;
+
+	if (!pack_open())
+		return NULL;
+	for (index = 0; index < pack_entry_count; index++)
+	{
+		if (!_stricmp(pack_entries[index].name, leaf))
+			return pack_entries + index;
+	}
+
+	return NULL;
+}
+
+static int pack_read_tags(struct donor *donor, struct pack_entry *entry)
+{
+	unsigned long span_bytes;
+
+	donor->file_length = entry->file_length;
+	donor->tag_offset = entry->tag_offset;
+	donor->compressed = 0;
+	if (!donor->from_pack)
+	{
+		if (entry->resource_count < 0 || entry->resource_count > 100000 ||
+			entry->tag_size <= 0 || entry->tag_size > (long)HALO_PORT_TAG_CACHE_SIZE ||
+			entry->tags_at < 0 || entry->resources_at < 0)
+		{
+			error(_error_silent, "randomizer: %s.map in the pack is not usable", donor->leaf);
+			return 0;
+		}
+		if (entry->resource_count > 0)
+		{
+			span_bytes = (unsigned long)entry->resource_count * sizeof(*donor->spans);
+			donor->spans = malloc(span_bytes);
+			if (!donor->spans)
+			{
+				error(_error_silent, "randomizer: no room for %s.map's pack ranges", donor->leaf);
+				return 0;
+			}
+			if (!donor_file_at(pack_file, entry->resources_at) ||
+				!donor_file_read(pack_file, donor->spans, span_bytes))
+			{
+				error(_error_silent, "randomizer: could not read %s.map's pack ranges", donor->leaf);
+				free(donor->spans);
+				donor->spans = NULL;
+				return 0;
+			}
+			donor->span_count = entry->resource_count;
+		}
+		donor->from_pack = 1;
+	}
+	donor->bytes = malloc((unsigned long)entry->tag_size);
+	donor->size = (unsigned long)entry->tag_size;
+	if (!donor->bytes)
+	{
+		error(_error_silent, "randomizer: no room for %s.map's packed tags (%ld bytes)", donor->leaf, entry->tag_size);
+		return 0;
+	}
+	if (!donor_file_at(pack_file, entry->tags_at) ||
+		!donor_file_read(pack_file, donor->bytes, (unsigned long)entry->tag_size))
+	{
+		error(_error_silent, "randomizer: could not read %s.map's packed tags", donor->leaf);
+		donor_bytes_free(donor);
+		return 0;
+	}
+	error(_error_silent, "randomizer: %s.map from randomizer.pack (%ld byte tags)", donor->leaf, entry->tag_size);
+
+	return 1;
+}
+
+static void pack_copy(struct donor *donor, long offset, long size, void *buffer)
+{
+	unsigned char *out = buffer;
+
+	if (!donor->spans || donor->span_count <= 0 || !pack_file || pack_file == INVALID_HANDLE_VALUE)
+		return;
+	while (size > 0)
+	{
+		long low = 0;
+		long high = donor->span_count;
+		struct pack_span *span;
+		long into;
+		long have;
+
+		while (low < high)
+		{
+			long mid = low + (high - low) / 2;
+
+			if (donor->spans[mid].file_offset <= offset)
+				low = mid + 1;
+			else
+				high = mid;
+		}
+		if (low == 0)
+			return;
+		span = donor->spans + (low - 1);
+		if (span->size <= 0 || offset < span->file_offset || offset >= span->file_offset + span->size)
+			return;
+		into = offset - span->file_offset;
+		have = span->size - into;
+		if (have > size)
+			have = size;
+		if (span->data_at < 0 || into < 0)
+			return;
+		if (!donor_file_at(pack_file, span->data_at + into) ||
+			!donor_file_read(pack_file, out, (unsigned long)have))
+			return;
+		offset += have;
+		size -= have;
+		out += have;
+	}
+}
+
+/* the tag bytes only. datum_of stays, so a tag found while the file was open
+still retargets after the bytes are gone */
+static int load_donor_bytes(struct donor *donor)
 {
 	char path[512];
 	unsigned char header[0x800];
@@ -781,73 +1208,170 @@ static int open_donor(struct donor *donor, char const *leaf)
 	long tag_offset;
 	long tag_size;
 	unsigned long signature;
+	DWORD open_error;
+	DWORD physical;
 	struct randomizer_tag_header *tags;
-	size_t read;
+	struct pack_entry *packed;
 
-	memset(donor, 0, sizeof(*donor));
-	snprintf(donor->leaf, sizeof(donor->leaf), "%s", leaf);
-	snprintf(path, sizeof(path), "%s%s.map", cache_files_map_directory(), leaf);
-	donor->file = fopen(path, "rb");
-	if (!donor->file)
+	if (donor->bytes)
+		return 1;
+	packed = pack_find(donor->leaf);
+	if (packed)
+	{
+		snprintf(path, sizeof(path), "%srandomizer.pack", cache_files_map_directory());
+		if (!pack_read_tags(donor, packed))
+			return 0;
+	}
+	else
+	{
+	snprintf(path, sizeof(path), "%s%s.map", cache_files_map_directory(), donor->leaf);
+	if (!donor->file || donor->file == INVALID_HANDLE_VALUE)
+	{
+		donor->file = CreateFileA(path, GENERIC_READ, 0, NULL, OPEN_EXISTING, 0, NULL);
+		if (donor->file == INVALID_HANDLE_VALUE)
+		{
+			open_error = GetLastError();
+			error(_error_silent, "randomizer: could not open %s (error %lu)", path, (unsigned long)open_error);
+			donor->file = NULL;
+			return 0;
+		}
+	}
+	if (!donor_file_at(donor->file, 0) || !donor_file_read(donor->file, header, sizeof(header)))
+	{
+		error(_error_silent, "randomizer: could not read the header of %s", path);
 		return 0;
-	read = fread(header, 1, sizeof(header), donor->file);
-	if (read != sizeof(header))
-		return 0;
+	}
 	memcpy(&signature, header, 4);
 	memcpy(&version, header + 4, 4);
 	memcpy(&file_length, header + 8, 4);
 	memcpy(&tag_offset, header + 0x10, 4);
 	memcpy(&tag_size, header + 0x14, 4);
-	if (signature != 'head' || version != 5 || file_length < (long)sizeof(header) || tag_offset < 0 ||
-		tag_size < (long)sizeof(struct randomizer_tag_header) || tag_offset > file_length - tag_size)
+	if (signature != 'head' || version != 5 || file_length < (long)sizeof(header) ||
+		file_length > 0x11600000 || tag_offset < 0 || tag_size < (long)sizeof(struct randomizer_tag_header) ||
+		tag_size > (long)HALO_PORT_TAG_CACHE_SIZE || tag_size > file_length || tag_offset > file_length - tag_size)
+	{
+		error(_error_silent,
+			"randomizer: %s is not an Xbox map (signature %08lx, version %ld, %ld bytes, tags %ld at %ld)",
+			path, signature, version, file_length, tag_size, tag_offset);
 		return 0;
+	}
 	donor->file_length = file_length;
+	donor->tag_offset = tag_offset;
+	physical = GetFileSize(donor->file, NULL);
+	donor->compressed = physical == INVALID_FILE_SIZE || (long)physical < file_length;
+	error(_error_silent, "randomizer: unpacking %s (%ld byte map, file is %lu, tags %ld at %ld)",
+		path, file_length, (unsigned long)physical, tag_size, tag_offset);
 	donor->bytes = malloc((unsigned long)tag_size);
 	donor->size = (unsigned long)tag_size;
 	if (!donor->bytes)
+	{
+		error(_error_silent, "randomizer: no room for %s tags (%ld bytes)", path, tag_size);
 		return 0;
-	if (fseek(donor->file, tag_offset, SEEK_SET) != 0 ||
-		fread(donor->bytes, 1, (unsigned long)tag_size, donor->file) != (unsigned long)tag_size)
+	}
+	if (donor->compressed)
+	{
+		if (tag_offset < 0x800 || !inflate_span(donor->file, tag_offset, tag_size, donor->bytes))
+		{
+			error(_error_silent, "randomizer: could not decompress %s", path);
+			donor_bytes_free(donor);
+			return 0;
+		}
+	}
+	else if (!donor_file_at(donor->file, tag_offset) ||
+		!donor_file_read(donor->file, donor->bytes, (unsigned long)tag_size))
+	{
+		error(_error_silent, "randomizer: could not read %ld bytes of tags from %s", tag_size, path);
+		donor_bytes_free(donor);
 		return 0;
+	}
+	}
 	tags = (struct randomizer_tag_header *)donor->bytes;
 	if (tags->signature != 'tags' || tags->tag_count <= 0 || tags->tag_count > 100000)
+	{
+		error(_error_silent, "randomizer: %s tags are not a tag section (signature %08lx, count %ld)",
+			path, tags->signature, tags->tag_count);
+		donor_bytes_free(donor);
 		return 0;
+	}
 	donor->count = tags->tag_count;
 	donor->instances = donor_address(donor, tags->tag_instances);
 	if (!donor->instances ||
 		!range_in(donor, donor->instances, (unsigned long)donor->count * sizeof(*donor->instances)))
+	{
+		error(_error_silent, "randomizer: %s tag table is not in its tag section (%ld tags at %08lx)",
+			path, tags->tag_count, (unsigned long)tags->tag_instances);
+		donor_bytes_free(donor);
+		donor->instances = NULL;
 		return 0;
-	donor->seen = calloc((unsigned long)donor->count, 1);
+	}
+
+	return 1;
+}
+
+static void release_donor_blob(struct donor *donor)
+{
+	donor_bytes_free(donor);
+	donor->instances = NULL;
+	if (donor->seen)
+		free(donor->seen);
+	donor->seen = NULL;
+	if (!donor->keep && donor->file && donor->file != INVALID_HANDLE_VALUE)
+	{
+		CloseHandle(donor->file);
+		donor->file = NULL;
+	}
+}
+
+static int open_donor(struct donor *donor, char const *leaf)
+{
+	long index;
+
+	memset(donor, 0, sizeof(*donor));
+	snprintf(donor->leaf, sizeof(donor->leaf), "%s", leaf);
+	if (!load_donor_bytes(donor))
+		return 0;
+	/* malloc, not calloc: free() is the debug allocator, and a block it did
+	not hand out faults when released */
+	donor->seen = malloc((unsigned long)donor->count);
 	donor->datum_of = malloc((unsigned long)donor->count * sizeof(*donor->datum_of));
 	if (!donor->seen || !donor->datum_of)
-		return 0;
 	{
-		long index;
-
-		for (index = 0; index < donor->count; index++)
-			donor->datum_of[index] = NONE;
+		error(_error_silent, "randomizer: no room for %s.map's tag list (%ld tags)", donor->leaf, donor->count);
+		return 0;
 	}
+	memset(donor->seen, 0, (unsigned long)donor->count);
+	for (index = 0; index < donor->count; index++)
+		donor->datum_of[index] = NONE;
 
 	return 1;
 }
 
 static void close_donor_bytes(struct donor *donor)
 {
-	if (donor->bytes)
-		free(donor->bytes);
-	donor->bytes = NULL;
-	if (donor->seen)
-		free(donor->seen);
-	donor->seen = NULL;
+	release_donor_blob(donor);
+	if (donor->spans)
+		free(donor->spans);
+	donor->spans = NULL;
+	donor->span_count = 0;
+	donor->from_pack = 0;
 	if (donor->datum_of)
 		free(donor->datum_of);
 	donor->datum_of = NULL;
-	donor->instances = NULL;
-	if (!donor->keep && donor->file)
+}
+
+static int donor_bytes(struct donor *donor)
+{
+	int index;
+
+	if (donor->bytes && donor->instances)
+		return 1;
+	for (index = 0; index < donor_count; index++)
 	{
-		fclose(donor->file);
-		donor->file = NULL;
+		if (donors + index != donor)
+			release_donor_blob(donors + index);
 	}
+
+	return load_donor_bytes(donor);
 }
 
 static void donors_close(void)
@@ -857,13 +1381,14 @@ static void donors_close(void)
 	for (index = 0; index < donor_count; index++)
 	{
 		close_donor_bytes(donors + index);
-		if (donors[index].file)
+		if (donors[index].file && donors[index].file != INVALID_HANDLE_VALUE)
 		{
-			fclose(donors[index].file);
+			CloseHandle(donors[index].file);
 			donors[index].file = NULL;
 		}
 	}
 	donor_count = 0;
+	pack_close();
 }
 
 static void remember_import(long absolute, short donor_index)
@@ -891,8 +1416,15 @@ static int variant_in_pool(struct donor *donor, long datum)
 	if (!variant || !range_in(donor, variant, sizeof(*variant)))
 		return 0;
 	unit_name = donor_address(donor, variant->unit_reference.name);
-	if (!unit_name || !range_in(donor, unit_name, 1) || !memchr(unit_name, 0, 256))
+	if (!unit_name || !range_in(donor, unit_name, 1))
 		return 0;
+	{
+		unsigned long room = (unsigned long)(donor->bytes + donor->size - (unsigned char const *)unit_name);
+		if (room > 256)
+			room = 256;
+		if (!memchr(unit_name, 0, room))
+			return 0;
+	}
 
 	return pool_allows(classify(unit_name));
 }
@@ -906,6 +1438,7 @@ static void seed_donor(struct donor *donor)
 	long index;
 	long queued;
 
+	error(_error_silent, "randomizer: seeding %s", donor->leaf);
 	tags = (struct randomizer_tag_header *)donor->bytes;
 	scenario_absolute = tags->scenario_tag_index & 0xFFFF;
 	if (scenario_absolute < 0 || scenario_absolute >= donor->count)
@@ -923,7 +1456,9 @@ static void seed_donor(struct donor *donor)
 		if (variant_in_pool(donor, palette[index].index))
 			want(donor, palette[index].index);
 	}
-	while (queued < wanted_count)
+	error(_error_silent, "randomizer: %s queued %ld of %ld palette tags (pool %d)",
+		donor->leaf, wanted_count - queued, scenario->ai_actor_palette.count, current.pool);
+	while (queued < wanted_count && !import_stopped)
 	{
 		struct wanted *entry = wanted + queued;
 		struct donor *owner = donors + entry->donor;
@@ -932,8 +1467,162 @@ static void seed_donor(struct donor *donor)
 
 		queued++;
 		if (schema)
-			walk_want(owner, donor_address(owner, instance->base_address), schema);
+			walk_want(owner, donor_address(owner, instance->base_address), schema, 0);
 	}
+	error(_error_silent, "randomizer: seeded %s (%ld wanted)", donor->leaf, wanted_count);
+}
+
+/* a model's draw buffers are addresses in the donor map. The part is drawn
+from a vertex buffer made here; one that cannot be made is not drawn */
+struct randomizer_model_geometry
+{
+	byte reserved[0x24];
+	struct tag_block parts;
+};
+
+struct randomizer_model_part
+{
+	unsigned long flags;
+	short shader_index;
+	char previous_part_index;
+	char next_part_index;
+	short centroid_primary_node_index;
+	short centroid_secondary_node_index;
+	real centroid_primary_node_weight;
+	real centroid_secondary_node_weight;
+	real_point3d centroid;
+	struct tag_block uncompressed_vertices;
+	struct tag_block compressed_vertices;
+	struct tag_block triangles;
+	struct triangle_buffer triangle_buffer;
+	struct vertex_buffer vertex_buffer;
+};
+
+typedef char randomizer_model_part_size[sizeof(struct randomizer_model_part) == 0x68 ? 1 : -1];
+
+static void *buffer_record_data(struct donor *donor, void *hardware_format, unsigned long bytes)
+{
+	unsigned char *record = donor_address(donor, hardware_format);
+	void *data;
+
+	if (!record || !range_in(donor, record, 12) || !bytes)
+		return NULL;
+	data = donor_address(donor, *(void **)(record + 4));
+	if (!data || !range_in(donor, data, bytes))
+		return NULL;
+
+	return data;
+}
+
+static void bind_part(struct donor *donor, struct vertex_buffer *vertex, struct triangle_buffer *triangle)
+{
+	void *format;
+	void *vertices;
+	void *indices;
+	long vertex_size;
+	long index_bytes;
+	long count;
+	short type;
+	short triangle_type;
+	long triangle_count;
+
+	format = vertex->hardware_format;
+	count = vertex->count;
+	type = vertex->type;
+	triangle_type = triangle->type;
+	triangle_count = triangle->count;
+	vertex_size = rasterizer_geometry_get_vertex_size(type);
+	if (!format || count <= 0 || vertex_size <= 0 || count > 65535 ||
+		(unsigned long)count > 0x1000000UL / (unsigned long)vertex_size)
+	{
+		csmemset(vertex, 0, sizeof(*vertex));
+		csmemset(triangle, 0, sizeof(*triangle));
+		return;
+	}
+	vertices = buffer_record_data(donor, format, (unsigned long)count * (unsigned long)vertex_size);
+	if (triangle_type == 0)
+		index_bytes = triangle_count > 0 ? triangle_count * 6 : 0;
+	else if (triangle_type == 1)
+		index_bytes = triangle_count > 0 ? triangle_count * 2 + 4 : 0;
+	else
+		index_bytes = 0;
+	indices = index_bytes > 0 ? buffer_record_data(donor, triangle->hardware_format, (unsigned long)index_bytes) : NULL;
+	if (!vertices || !indices)
+	{
+		csmemset(vertex, 0, sizeof(*vertex));
+		csmemset(triangle, 0, sizeof(*triangle));
+		return;
+	}
+	if (!rasterizer_vertex_buffer_new(vertex, type, count, vertices, count * vertex_size))
+	{
+		csmemset(vertex, 0, sizeof(*vertex));
+		csmemset(triangle, 0, sizeof(*triangle));
+		return;
+	}
+	if (!rasterizer_triangle_buffer_new(triangle, triangle_type, triangle_count, indices))
+	{
+		rasterizer_vertex_buffer_delete(vertex);
+		csmemset(vertex, 0, sizeof(*vertex));
+		csmemset(triangle, 0, sizeof(*triangle));
+	}
+}
+
+static void bind_model(struct donor *donor, struct model *model)
+{
+	long geometry_index;
+
+	if (!model)
+		return;
+	for (geometry_index = 0; geometry_index < model->geometries.count; geometry_index++)
+	{
+		struct randomizer_model_geometry *geometry = tag_block_get_element_with_size(
+			&model->geometries, geometry_index, sizeof(*geometry));
+		long part_index;
+
+		if (!geometry)
+			continue;
+		for (part_index = 0; part_index < geometry->parts.count; part_index++)
+		{
+			struct randomizer_model_part *part = tag_block_get_element_with_size(
+				&geometry->parts, part_index, sizeof(*part));
+
+			if (part)
+				bind_part(donor, &part->vertex_buffer, &part->triangle_buffer);
+		}
+	}
+}
+
+/* the precache screen has already closed. Open it again and fill it as
+the tags are copied, so a stop is a bar that stops moving */
+static void import_progress(long done, long total)
+{
+	real fraction;
+
+	if (total <= 0)
+		return;
+	fraction = (real)done / (real)total;
+	if (fraction < 0.001f)
+		fraction = 0.001f;
+	if (fraction > 1.0f)
+		fraction = 1.0f;
+	error(_error_silent, "randomizer: copying tag %ld of %ld", done, total);
+	if (!import_progress_open)
+	{
+		progress_bar_begin(TRUE);
+		import_progress_open = 1;
+	}
+	game_loading_progress_show(TRUE, fraction);
+	main_pregame_render();
+	main_present_frame();
+}
+
+static void import_progress_end(void)
+{
+	if (!import_progress_open)
+		return;
+	progress_bar_end();
+	game_loading_progress_show(FALSE, 1.0f);
+	import_progress_open = 0;
 }
 
 static void import_wanted(void)
@@ -942,7 +1631,11 @@ static void import_wanted(void)
 	struct cache_file_tag_instance *instances = cache_files_tag_instances(&existing);
 	long salt = 0;
 	long index;
+	short copying;
+	short failed;
 
+	copying = -1;
+	failed = -1;
 	if (!instances || wanted_count <= 0)
 		return;
 	if (wanted_count > IMPORT_MAX)
@@ -967,23 +1660,46 @@ static void import_wanted(void)
 	grown_count = existing;
 	cache_files_set_tag_instances(grown_instances, grown_count);
 	salt++;
+	import_progress(0, wanted_count);
 	for (index = 0; index < wanted_count && !import_stopped; index++)
 	{
 		struct wanted *entry = wanted + index;
-		struct donor *donor = donors + entry->donor;
-		struct randomizer_tag_instance *source = donor->instances + entry->absolute;
-		struct tag_schema_definition const *schema = schema_of((unsigned long)source->group_tag);
-		char const *name = instance_name(donor, source);
+		struct donor *donor;
+		struct randomizer_tag_instance *source;
+		struct tag_schema_definition const *schema;
+		char const *name;
 		void *root_source;
 		void *root;
 		char *name_copy;
 		long datum;
 		struct cache_file_tag_instance *dest;
 
-		if (!schema || !name)
+		if (entry->donor < 0 || entry->donor >= donor_count || !entry->name[0])
+			continue;
+		donor = donors + entry->donor;
+		if ((index & 15) == 0)
+			import_progress(index, wanted_count);
+		if (entry->donor != copying)
 		{
-			if (!schema)
-				platform_log("randomizer: left out %s, which has no schema", name ? name : donor->leaf);
+			copying = entry->donor;
+			error(_error_silent, "randomizer: copying %s.map", donor->leaf);
+		}
+		if (!donor_bytes(donor) || !donor->datum_of || !donor->instances ||
+			entry->absolute < 0 || entry->absolute >= donor->count)
+		{
+			if (failed != entry->donor)
+			{
+				failed = entry->donor;
+				error(_error_silent, "randomizer: could not read %s.map again", donor->leaf);
+			}
+			continue;
+		}
+		source = donor->instances + entry->absolute;
+		schema = schema_of((unsigned long)source->group_tag);
+		name = entry->name;
+		if (!schema)
+		{
+			platform_log("randomizer: left out %s, which has no schema", name);
 			continue;
 		}
 		if (tag_loaded(source->group_tag, name) != NONE)
@@ -1005,7 +1721,9 @@ static void import_wanted(void)
 			break;
 		memcpy(root, root_source, (unsigned long)schema->size);
 		strcpy(name_copy, name);
-		copy_fields(donor, root, schema);
+		copy_fields(donor, root, schema, 0);
+		if (source->group_tag == 'mode')
+			bind_model(donor, root);
 		datum = (salt << 16) | grown_count;
 		dest = grown_instances + grown_count;
 		memset(dest, 0, sizeof(*dest));
@@ -1025,8 +1743,12 @@ static void import_wanted(void)
 		grown_count++;
 		cache_files_set_tag_instances(grown_instances, grown_count);
 	}
+	import_progress(wanted_count, wanted_count);
+	import_progress_end();
+	for (index = 0; index < donor_count; index++)
+		release_donor_blob(donors + index);
 	for (index = 0; index < copied_count; index++)
-		retarget_fields(donors + copied[index].donor, copied[index].root, copied[index].schema);
+		retarget_fields(donors + copied[index].donor, copied[index].root, copied[index].schema, 0);
 	if (import_stopped)
 		platform_log("randomizer: stopped importing; the level keeps what was copied");
 	else if (copied_count)
@@ -1063,9 +1785,41 @@ static void add_weapon(long datum)
 	weapon_pool[weapon_count++] = datum;
 }
 
+/* a block definition still at the address the map was linked with is not a
+pointer on this machine. The tag walk clears the ones it visits */
+static void clear_linked_definition(struct tag_block *block)
+{
+	unsigned long address;
+
+	if (!block || !block->definition)
+		return;
+	address = (unsigned long)block->definition;
+	if (address >= 0x80000000UL && address < 0x88000000UL)
+		block->definition = NULL;
+}
+
+/* scenario_tags_load calls us before scenario_load stores global_scenario.
+The scenario tag is already in the table. */
+static struct scenario *loaded_scenario(void)
+{
+	long count = 0;
+	struct cache_file_tag_instance *instances = cache_files_tag_instances(&count);
+	long index;
+
+	if (!instances)
+		return NULL;
+	for (index = 0; index < count; index++)
+	{
+		if (instances[index].group_tag == SCENARIO_TAG && instances[index].base_address)
+			return scenario_definition_get(instances[index].tag_index);
+	}
+
+	return NULL;
+}
+
 static void build_pools(void)
 {
-	struct scenario *scenario = global_scenario_get();
+	struct scenario *scenario = loaded_scenario();
 	long count = 0;
 	struct cache_file_tag_instance *instances = cache_files_tag_instances(&count);
 	long index;
@@ -1079,8 +1833,9 @@ static void build_pools(void)
 		if (instances[index].group_tag == ACTOR_VARIANT_DEFINITION_TAG)
 			add_variant(instances[index].tag_index);
 	}
-	if (scenario)
+	if (scenario && scenario->weapon_palette.count > 0 && scenario->weapon_palette.count <= 256)
 	{
+		clear_linked_definition(&scenario->weapon_palette);
 		for (index = 0; index < scenario->weapon_palette.count; index++)
 		{
 			struct scenario_object_palette_entry *entry = tag_block_get_element_with_size(
@@ -1109,20 +1864,22 @@ static void remember_protected(char const *name)
 
 static void build_protected(void)
 {
-	struct scenario *scenario = global_scenario_get();
+	struct scenario *scenario = loaded_scenario();
 	long conversation_index;
 
 	protected_count = 0;
-	if (!scenario)
+	if (!scenario || scenario->ai_conversations.count <= 0 || scenario->ai_conversations.count > 256)
 		return;
+	clear_linked_definition(&scenario->ai_conversations);
 	for (conversation_index = 0; conversation_index < scenario->ai_conversations.count; conversation_index++)
 	{
 		struct ai_conversation *conversation = tag_block_get_element_with_size(
 			&scenario->ai_conversations, conversation_index, sizeof(*conversation));
 		long participant_index;
 
-		if (!conversation)
+		if (!conversation || conversation->participants.count <= 0 || conversation->participants.count > 64)
 			continue;
+		clear_linked_definition(&conversation->participants);
 		for (participant_index = 0; participant_index < conversation->participants.count; participant_index++)
 		{
 			struct randomizer_participant *participant = tag_block_get_element_with_size(
@@ -1185,12 +1942,15 @@ static void import_campaign(char const *leaf)
 
 	if (!current.enemies)
 		return;
-	wanted = calloc(WANTED_MAX, sizeof(*wanted));
+	error(_error_silent, "randomizer: reading actors from the other campaign maps");
+	walk_steps = 0;
+	wanted = malloc(WANTED_MAX * sizeof(*wanted));
 	if (!wanted)
 	{
 		platform_log("randomizer: no room to gather tags");
 		return;
 	}
+	memset(wanted, 0, WANTED_MAX * sizeof(*wanted));
 	for (level = 0; level < 10 && donor_count < DONOR_COUNT; level++)
 	{
 		char const *path = main_get_solo_level_name(level);
@@ -1199,16 +1959,19 @@ static void import_campaign(char const *leaf)
 
 		if (!_stricmp(other, leaf))
 			continue;
+		error(_error_silent, "randomizer: %s.map", other);
 		if (!open_donor(donor, other))
 		{
-			platform_log("randomizer: could not read %s.map", other);
 			close_donor_bytes(donor);
 			continue;
 		}
 		donor_count++;
+		error(_error_silent, "randomizer: read %s.map (%ld tags)", other, donor->count);
 		seed_donor(donor);
+		release_donor_blob(donor);
 	}
 	import_wanted();
+	error(_error_silent, "randomizer: copied %ld tags", copied_count);
 }
 
 void randomizer_tags_loaded(char const *scenario_name)
@@ -1237,6 +2000,7 @@ void randomizer_tags_loaded(char const *scenario_name)
 		return;
 	snprintf(map_name_leaf, sizeof(map_name_leaf), "%s", leaf);
 	import_campaign(leaf);
+	error(_error_silent, "randomizer: gathering actors already in %s", leaf);
 	build_pools();
 	build_protected();
 	loaded = 1;
@@ -1249,7 +2013,7 @@ void randomizer_tags_loaded(char const *scenario_name)
 	if (wanted)
 		free(wanted);
 	wanted = NULL;
-	platform_log("randomizer: %s, %ld actors, %ld weapons", leaf, variant_count, weapon_count);
+	error(_error_silent, "randomizer: %s, %ld actors, %ld weapons", leaf, variant_count, weapon_count);
 }
 
 void randomizer_tags_unloaded(void)
@@ -1283,7 +2047,6 @@ int randomizer_donor_read(long tag_index, long offset, long size, void *buffer)
 	long absolute;
 	long index;
 	struct donor *donor;
-	size_t read;
 
 	if (!loaded || tag_index == NONE || !buffer || offset < 0 || size < 0)
 		return 0;
@@ -1297,15 +2060,31 @@ int randomizer_donor_read(long tag_index, long offset, long size, void *buffer)
 		return 0;
 	donor = donors + import_donor[index];
 	memset(buffer, 0, (unsigned long)size);
-	if (!donor->file || offset >= donor->file_length)
+	if (offset >= donor->file_length)
 		return 1;
 	if (size > donor->file_length - offset)
 		size = donor->file_length - offset;
-	if (fseek(donor->file, offset, SEEK_SET) != 0)
+	if (donor->from_pack)
+	{
+		pack_copy(donor, offset, size, buffer);
 		return 1;
-	read = fread(buffer, 1, (unsigned long)size, donor->file);
-	if (read < (unsigned long)size)
-		memset((char *)buffer + read, 0, (unsigned long)size - read);
+	}
+	if (!donor->file || donor->file == INVALID_HANDLE_VALUE)
+		return 1;
+	if (!donor->compressed)
+	{
+		if (!donor_file_at(donor->file, offset))
+			return 1;
+		donor_file_read(donor->file, buffer, (unsigned long)size);
+		return 1;
+	}
+	if (offset >= 0x800)
+		inflate_span(donor->file, offset, size, buffer);
+	else if (offset + size <= 0x800)
+	{
+		if (donor_file_at(donor->file, offset))
+			donor_file_read(donor->file, buffer, (unsigned long)size);
+	}
 
 	return 1;
 }
