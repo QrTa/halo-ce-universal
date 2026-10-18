@@ -1,10 +1,11 @@
 # PS5 port: handoff
 
-What was found out about PS5 homebrew on 2026-10-16, before any work started on
-this branch (`ps5`, from `main` at Build 101, `d271f7b32`), and what the
-probes then answered on a console (Open questions). The projects' claims below
-are from their READMEs, not checked against their code. The plan for the host
-is at the end (Plan: the host).
+What was found out about PS5 homebrew on 2026-10-16, what the probes then
+answered on a console (Open questions), and the plan for the host (Plan: the
+host). The branch is `ps5-x32`, from `main` at Build 101 (`d271f7b32`), with
+upstream PR #359 (the x32 guest) merged in and the probes under
+`port/ps5/probe`. The projects' claims below are from their READMEs, not
+checked against their code; `PS5_FINDINGS.md` has the measurements in full.
 
 ## Graphics: Vulkan exists, from the community
 
@@ -54,10 +55,12 @@ a "PS5 OpenGL SDK 0.3.0", only as where its shader compiler comes from.
 
 ## Toolchain and console setup
 
-- [ps5-payload-dev SDK](https://github.com/Cryptogenic/sdk) (PS5_Vulkan pins
-  v0.42) with its own clang 18 and lld (`prospero-clang`). PS5_Vulkan's author
-  keeps a fork, PS5_PayloadSDK, for its shared platform layer, and builds Mesa
-  26.2.0 on an Arch/CachyOS host (`make doctor` checks the setup).
+- [ps5-payload-dev/sdk](https://github.com/ps5-payload-dev/sdk) (John
+  Törnblom's; PS5_Vulkan pins v0.42) with its own clang 18 and lld
+  (`prospero-clang`). PS5_Vulkan's author keeps a fork,
+  [mihawk-99/PS5_PayloadSDK](https://github.com/mihawk-99/PS5_PayloadSDK),
+  for its shared platform layer (used here at commit 95c08f2), and builds
+  Mesa 26.2.0 on an Arch/CachyOS host (`make doctor` checks the setup).
 - The console: jailbroken, with a homebrew environment (PS5_Vulkan was
   validated with etaHEN, ShadowMountPlus, ftpsrv on port 2121 and klogsrv on
   port 3232).
@@ -70,16 +73,23 @@ a "PS5 OpenGL SDK 0.3.0", only as where its shader compiler comes from.
   which ShadowMountPlus lists them on. VideoOut, AGC, the pad and audio are a
   title's. A title differs from a payload in what the memory probe found:
   - anonymous memory comes from a budget of flexible memory (448 MB on
-    PS5_PayloadSDK's console), and anything larger from direct memory
-    (12 GB, mapped with `sceKernelMapDirectMemory`);
-  - execute is refused at map time and given only by `sceKernelMprotect` on
-    direct memory (read, write and execute at once is granted);
-  - `sceKernelJitCreateSharedMemory` is refused; `access()` and `realpath()`
-    are refused for every path; a title starts with flush-to-zero and
-    denormals-are-zero set, which `ps5_fp_ieee()` clears;
+    PS5_PayloadSDK's console and on this one), and anything larger from
+    direct memory (12 GB, mapped with `sceKernelMapDirectMemory`);
+  - direct memory refuses execute at map time and gets it from
+    `sceKernelMprotect` (read, write and execute at once is granted); a
+    plain `mmap` below 4 GB works too, and one asked for with execute was
+    placed, though no code was run in it;
+  - `sceKernelJitCreateSharedMemory` is refused; a title starts with
+    flush-to-zero and denormals-are-zero set, which `ps5_fp_ieee()` clears;
+  - `access()` answered on this console's 13.59 (the smoke test found
+    `/app0`, its results file, and `ENOENT` for a missing file); PS5_Vulkan's
+    notes say it fails with `EPERM` for every path on 12.09, so don't lean on
+    it;
   - files the title creates need mode 0666 or 0777 for FTP's user to read
     them (the title runs as its own user).
-  (PS5_PayloadSDK's `platform/docs/PROBE.md` has the measurements.)
+  (PS5_PayloadSDK's `platform/docs/PROBE.md` and PS5_Vulkan's
+  `docs/PLATFORM_NOTES.md` have their measurements, taken on 12.09;
+  `PS5_FINDINGS.md` has this console's.)
 - Building a title: PS5_Vulkan's packaging (its C runtime, linker script,
   FSELF tool and libc.prx) over its SDK fork. `port/ps5/probe/title/build.sh`
   uses them from a PS5_Vulkan checkout (`~/projects/ps5-deps/PS5_Vulkan`, set
@@ -96,7 +106,7 @@ a "PS5 OpenGL SDK 0.3.0", only as where its shader compiler comes from.
 ## The CPU side is the bigger job
 
 The PS5 is x86-64 (Zen 2) running a FreeBSD-based system. The game is a 32-bit
-program, and the port runs it three ways today:
+program, and the port runs it three ways on `main`:
 
 - Windows and Linux: a plain 32-bit x86 program (`i686-pc-windows-msvc`,
   `tools/windows_build.py`; the Linux build likewise). On 64-bit Windows it
@@ -115,11 +125,11 @@ libraries. Not confirmed; it would take a test on a console.
 
 The workable route is the Switch's: x86's arm64_32 is the x32 ABI (64-bit x86
 instructions, 32-bit pointers), which runs in ordinary 64-bit mode and needs
-nothing from the kernel. Upstream's open PR #359 ("64-bit x86 Linux build as an
-x32 guest", `ninja linux_x86_64`, OpenCommunityEdition/OpenCE) builds exactly
-that guest. A PS5 host would do what the Switch's does: reserve the guest's
-memory below 4 GB, widen pointers, answer system calls, with the payload SDK in
-place of libnx.
+nothing from the kernel. Upstream PR #359 ("64-bit x86 Linux build as an x32
+guest", `ninja linux_x86_64`, OpenCommunityEdition/OpenCE; still open there,
+merged into this branch at `11eb35b8a`) builds exactly that guest. A PS5 host
+would do what the Switch's does: reserve the guest's memory below 4 GB, widen
+pointers, answer system calls, with the payload SDK in place of libnx.
 
 ## What to reuse
 
@@ -172,7 +182,8 @@ place of libnx.
    - the game loads, its header and 265 imports check, and it runs its C
      library's start, reserves its window and starts its allocator (14 host
      calls, 0.1 s), up to `host_sdl_get_base_path`, the first import the
-     probe does not answer. Titles start with MXCSR 0x9fc0 (FTZ and DAZ);
+     probe does not answer (run 3: with the window at 0x90000000, where
+     the probe placed it). Titles start with MXCSR 0x9fc0 (FTZ and DAZ);
      `ps5_fp_ieee()` makes it 0x1f80.
 3. How much of `port/switch/host` ports to the payload SDK's libc and FreeBSD
    system calls (threads, futex equivalent `_umtx_op`, mmap, sockets, files)?
@@ -198,6 +209,9 @@ place of libnx.
    kernel; titles report 0x13590001 from `sceKernelGetSystemSwVersion`.)
 
 ## Plan: the host
+
+Superseded by `port/ps5/PS5.md`, the phased plan worked the way the deko3d
+and Vulkan plans were; what follows is the first sketch, kept for the record.
 
 The Switch's way again: the guest is the x32 image of `ninja linux_x86_64`
 (with the movable window), and the host is the Android host library
@@ -234,7 +248,7 @@ New files, after the Switch's:
 | File | What it does on the PS5 |
 |---|---|
 | `host_main.c` | title start-up: `ps5_fp_ieee()`, the data folder, the environment, the user service |
-| `host_mman.c` | the image's range, the window, Custom Edition's range and a pool as direct memory (`sceKernelAllocateDirectMemory`, `sceKernelMapDirectMemory` fixed, `sceKernelMprotect` for execute), and the guest's `mmap`/`munmap`/`mprotect` served inside them, as the probe does. The window goes to the first free 256 MB from 0x80000000 |
+| `host_mman.c` | the image's range, the window, Custom Edition's range and a pool as direct memory (`sceKernelAllocateDirectMemory`, `sceKernelMapDirectMemory` fixed, `sceKernelMprotect` for execute), zeroed, and the guest's `mmap`/`munmap`/`mprotect` served inside them, as the probe does. The window (512 MB) goes to 0x80000000 if that is free, else to the next 256 MB boundary where it fits: 0x90000000 on this console |
 | `host_syscall.c` | the guest's Linux system calls on the PS5's FreeBSD libc, after the Switch's (which maps them onto newlib): files, `stat` layouts and open flags translated, clocks, `writev` to the log |
 | `host_futex.c` | futexes over `_umtx_op` (or a mutex and condition variable per address, as the Switch's) |
 
@@ -319,5 +333,6 @@ Ends with: the game on the TV.
 - https://github.com/mihawk-99/PS5_RetroArch
 - https://github.com/griches/PS5_Dusklight (RADV, Dawn WebGPU, SDL3)
 - https://github.com/leolobato/playden-ps5 (Windows games via DXVK/Zink on Vulkan)
-- https://github.com/Cryptogenic/sdk (ps5-payload SDK)
+- https://github.com/ps5-payload-dev/sdk (the payload SDK, v0.42)
+- https://github.com/mihawk-99/PS5_PayloadSDK (PS5_Vulkan's fork of it, with the platform layer titles use)
 - https://github.com/ymatrix1/PortPS5/wiki

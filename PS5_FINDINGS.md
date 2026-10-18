@@ -14,14 +14,19 @@ host. The raw reports are in `port/ps5/probe/results/`.
   - ftpsrv on port 2121;
   - an ELF loader on port 9021.
 - System software 13.590.001: `sceKernelGetSystemSwVersion` reports
-  0x13590001 in a title. The payload memory probe read 0x13600007, a
-  different value from the kernel, through the payload SDK.
+  0x13590001 in a title. The payload SDK's `kernel_get_fw_version`, which
+  the payload memory probe used, reads 0x13600007 from the kernel instead.
 - The FTP server decrypts SELF files when they are downloaded. A downloaded
   `eboot.bin` or `libc.prx` is the plain ELF, so it is larger than the
   uploaded file and its size matches the ELF from before signing. Compare
   ordinary files by size, and SELFs against the unsigned ELF.
 - A title's folder is writable by the title. Files it creates must be
   chmod 0666 for FTP to read them.
+- `access()` answers in a title on this firmware: the RADV smoke test found
+  `/app0` and its results file (read and write), and got `ENOENT` for a
+  missing file. PS5_Vulkan's `docs/PLATFORM_NOTES.md` says it fails with
+  `EPERM` for every path, measured on 12.09, so a host should not count on
+  it either way.
 - Users: `sceUserServiceGetInitialUser` returns 372994645 (0x163b7255), the
   only logged-in user. The other three slots of the login list are -1.
 
@@ -33,7 +38,7 @@ There are two ways to run homebrew, and the game has to be a title.
 |---|---|---|
 | how it runs | sent to the ELF loader (port 9021); runs inside the loader's process | `eboot.bin` (a fake-signed FSELF), `sce_sys/param.json`, `sce_module/libc.prx`, in `/data/homebrew/<ID>/`, started from the home screen |
 | GPU, VideoOut, pad, audio | not its own | its own |
-| memory below 4 GB | plain `mmap`, with execute at map time or later | direct memory, with execute only through `sceKernelMprotect` |
+| memory below 4 GB | plain `mmap`, with execute at map time or later | direct memory at fixed addresses, made executable afterwards by `sceKernelMprotect` (asking for execute at map time is refused, per PS5_PayloadSDK's `platform/docs/PROBE.md`); a plain `mmap` below 4 GB also works, and one asked for with execute was placed, though no code was run in it |
 | built with | ps5-payload-dev SDK v0.42 (`prospero-clang`) | PS5_Vulkan's packaging over its SDK fork |
 
 PS5_Vulkan's driver, PS5 RetroArch and vkQuake all run as titles.
@@ -65,8 +70,8 @@ PS5_Vulkan checkout (`~/projects/ps5-deps/PS5_Vulkan`, set up by its
 FTP (`curl --ftp-create-dirs -T`). It sends `eboot.bin` and `param.json`
 last, so the title never appears half uploaded.
 
-PS5_Vulkan's `build/ps5vkctl/ps5vkctl.elf` is a payload that stays resident
-on port 9111. It answers `ping`, `status`, `users`, `procs`, `launch <ID>`,
+PS5_Vulkan's `payload/ps5vkctl/ps5vkctl.elf` (built by its
+`tools/build-ps5vkctl.sh`) is a payload that stays resident on port 9111. It answers `ping`, `status`, `users`, `procs`, `launch <ID>`,
 `kill <ID>` and `restart <ID>`, which would let a run happen with nobody at
 the console. It hasn't been used yet.
 
@@ -165,17 +170,23 @@ The full reports are in `results/guest-run1.txt` and `guest-run2.txt`.
 - **Plain `mmap` in a title:**
   - `MAP_FIXED` read-write at 0xff000000 is placed exactly, written and
     read back;
-  - `MAP_FIXED` read-write-execute at 0xff000000 is also placed;
+  - `MAP_FIXED` read-write-execute at 0xff000000 is also placed (the probe
+    only checked the placement; it ran no code there);
   - with no address, it lands above 4 GB.
 - **Direct memory at fixed addresses.** Steps:
-  1. reserve the range exactly;
-  2. `sceKernelAllocateDirectMemory(0, size, length, 64 KB, CPU type)`;
+  1. reserve the range exactly (`sceKernelReserveVirtualRange`, then check
+     it was placed at the address asked);
+  2. `sceKernelAllocateDirectMemory(0, the direct memory's size, length,
+     64 KB alignment, CPU type)`;
   3. `sceKernelMapDirectMemory` with flag 0x10 (fixed), read-write;
-  4. `sceKernelMprotect(..., 7)` for read, write and execute.
+  4. `sceKernelMprotect(..., 7)` for read, write and execute, where code
+     has to run.
 
   This worked for:
   - the image: 64 MB at 0x70000000, rwx, in 1 ms;
-  - the Xbox window: 512 MB at 0x90000000, in 14 ms;
+  - the Xbox window: 512 MB at 0x90000000, in 14 ms (0x80000000 is
+    refused because of `libc.prx`; the probe steps up by 256 MB, the
+    window's alignment, until 512 MB map);
   - Custom Edition: 23 MB at 0x40440000;
   - a pool: 256 MB at 0x10000000, in 7 ms.
 
@@ -258,14 +269,26 @@ the first import the probe does not answer: host_sdl_get_base_path(0x728c87a0, 0
 That is 14 host calls in 0.1 s: musl's start-up, the thread pointer, the
 window's reservation, malloc's first pages, and then SDL.
 
-- The window reads 0xa0000000 rather than 0x90000000 because of a second
-  probe bug. Its placement loop stepped the address once more after the
-  mapping succeeded, so the probe told the game a base where nothing was
-  mapped. This is fixed in the probe; the fixed probe hasn't run yet.
+The window reads 0xa0000000 rather than 0x90000000 because of a second
+probe bug. Its placement loop stepped the address once more after the
+mapping succeeded, so the probe told the game a base where nothing was
+mapped.
+
+**Run 3** (`results/guest-run3.txt`, the placement fixed): the same 14
+calls, with the window where the probe mapped it. The game reserves
+`mmap(0x90000000, 512 MB, ...)`, which the probe answers with its own
+mapping, and prints "Xbox contiguous memory window: 512 MB at 0x90000000".
+It stops at the same place, `host_sdl_get_base_path`. Everything before
+SDL runs on the console.
+
+What the runs tell a host:
+
 - The game reserves its window with `MAP_FIXED_NOREPLACE` (0x100000) and
   no `MAP_FIXED`, so a host has to recognise that flag and hand back the
   range it already mapped.
 - Musl calls `brk` first and falls back to `mmap` when it gets 0.
+- Its first anonymous `mmap` asks for `PROT_NONE` and follows with
+  `mprotect` to read-write, so the pool has to serve `mprotect` too.
 
 ### The movable window
 
@@ -335,7 +358,7 @@ RetroArch's `input_ps5.cpp`.
 
   All of them were seen in the run.
 - Sticks rest near 127–130 / 121–123, so they need a dead zone. They reach
-  about 5 and 255. Triggers go from 0 to 255, and L2/R2's digital bits come on
+  0 and 255. Triggers go from 0 to 255, and L2/R2's digital bits come on
   at a small press.
 - Rumble: `scePadSetVibrationMode(handle, 2)`, then
   `scePadSetVibration(128, 128)` and `(0, 0)`, all return 0. The report
@@ -414,12 +437,14 @@ The guest probe answers these host calls:
 - `host_get_tp`, `host_set_tp`, `host_errno`, `host_log`;
 - `host_abort` and `host_exit`, which end the run;
 - system calls:
-  - `mmap`: anonymous only, from the pool; fixed or fixed-noreplace inside
-    the guest's ranges;
+  - `mmap`: anonymous only, from the pool (a file mapping gets `-ENOSYS`);
+    fixed or fixed-noreplace inside the guest's ranges, else `-ENOMEM` or
+    `-EEXIST`;
   - `munmap`, `mprotect`, `madvise`, signal masks and actions,
     `sigaltstack`, `sched_yield`: answered 0;
   - `brk`: answered 0;
-  - the ids: `gettid`, `getpid` and so on;
+  - the ids: `gettid`, `getpid` and `set_tid_address` answer 1, `getppid`
+    0, the user and group ids 1000;
   - `clock_gettime`, `clock_getres`;
   - futex wait (answered `-EAGAIN`);
   - `write` and `writev` to stdout and stderr;
