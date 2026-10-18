@@ -767,16 +767,21 @@ def _randomizer_screen() -> list:
 
 # the skulls, in port/linux/game/skulls.c's order (halo_skulls.h's enum
 # skull): each one's key in game.skulls_active and its name on the screen.
-# Their helps and score multipliers are skulls.c's, which the screen shows
+# Their helps are skulls.c's, which the screen shows
 SKULLS = [
-    ("acrophobia", "ACROPHOBIA"), ("anger", "ANGER"), ("bandanna", "BANDANNA"), ("black_eye", "BLACK EYE"),
-    ("blind", "BLIND"), ("boom", "BOOM"), ("catch", "CATCH"), ("eye_patch", "EYE PATCH"), ("famine", "FAMINE"),
-    ("fog", "FOG"), ("foreign", "FOREIGN"), ("ghost", "GHOST"), ("grunt_birthday_party", "BIRTHDAY PARTY"),
+    ("anger", "ANGER"), ("bandanna", "BANDANNA"), ("black_eye", "BLACK EYE"), ("blind", "BLIND"),
+    ("boom", "BOOM"), ("catch", "CATCH"), ("eye_patch", "EYE PATCH"), ("famine", "FAMINE"), ("fog", "FOG"),
+    ("foreign", "FOREIGN"), ("ghost", "GHOST"), ("grunt_birthday_party", "BIRTHDAY PARTY"),
     ("grunt_funeral", "GRUNT FUNERAL"), ("iron", "IRON"), ("malfunction", "MALFUNCTION"), ("mythic", "MYTHIC"),
     ("pinata", "PINATA"), ("recession", "RECESSION"), ("sputnik", "SPUTNIK"), ("thats_just_wrong", "JUST... WRONG"),
     ("thunderstorm", "THUNDERSTORM"), ("tough_luck", "TOUGH LUCK"),
 ]
 SKULL_COLUMNS = 2
+# the grid's moves, which menu_functions.c's "skulls up" (and so on) make:
+# the screen's list steps none itself
+SKULL_MOVES = [('up', 'skulls up'), ('stick_up', 'skulls up'), ('down', 'skulls down'),
+               ('stick_down', 'skulls down'), ('left', 'skulls left'), ('stick_left', 'skulls left'),
+               ('right', 'skulls right'), ('stick_right', 'skulls right')]
 
 
 def _skulls_screen() -> list:
@@ -784,8 +789,11 @@ def _skulls_screen() -> list:
     are on: the skulls in two columns, A one to turn it on or off
     (menu_functions.c's "skull toggle", which "skulls screen update" ticks,
     with the chosen one's help), and the buttons: All Off, OK, which starts
-    the level"""
+    the level, and Cancel. One list of them all, the skulls row by row and
+    then the buttons, which menu_functions.c moves the focus through as a
+    grid: a list of a row each would keep each row's item lit"""
     base = "main_menu/difficulty_select/skulls"
+    moves = [f'<on event="{event}" run="{function}"/>' for event, function in SKULL_MOVES]
     lines = _widget(f"{base}/skulls_screen",
                     [("width", 640), ("height", 480), ("flags", "pass_unhandled_to_focused_child pause_game"),
                      ("bitmap", "bitmaps/gradient")],
@@ -796,37 +804,25 @@ def _skulls_screen() -> list:
                      [("controller", 1), ("left", 35), ("top", 11), ("width", 605), ("height", 59),
                       ("bitmap", f"{base}/header_skulls")], [])
     lines += _widget(f"{base}/help",
-                     [("type", "text"), ("controller", 1), ("left", 68), ("top", 388), ("width", 482), ("height", 24),
+                     [("type", "text"), ("controller", 1), ("left", 68), ("top", 372), ("width", 504), ("height", 36),
                       ("font", "ui\\small_ui"), ("color", "#FFFFFFFF")], [])
     children = ['<data input="skulls screen update"/>']
     extra = []
-    rows = [SKULLS[index:index + SKULL_COLUMNS] for index in range(0, len(SKULLS), SKULL_COLUMNS)]
-    for number, row in enumerate(rows):
-        children.append(f'<child{attributes([("widget", f"{base}/row_{number}"), ("x", 54), ("y", 70 + number * 26)])}/>')
-        items = []
-        # (no text of their own: menu_functions.c sets each its name, ticked
-        # or not, which a string list's text would overwrite)
-        for column, (key, _) in enumerate(row):
-            items.append(f'<child{attributes([("widget", f"{base}/skull_{key}"), ("x", column * 262)])}/>')
-            extra += _widget(f"{base}/skull_{key}",
-                             [("type", "text"), ("width", 256), ("height", 28), ("bitmap", "bitmaps/option_bkds_sm"),
-                              ("font", "ui\\large_ui"), ("color", "#FF2896FF"), ("text_x", 13), ("text_y", 4)],
-                             ['<on event="a" run="skull toggle"/>', '<on event="start" run="skull toggle"/>',
-                              '<on event="left_mouse" run="mouse emit accept event"/>'])
-        lines += _widget(f"{base}/row_{number}",
-                         [("type", "column_list"), ("width", 518), ("height", 28),
-                          ("flags", "pass_unhandled_to_focused_child left_right_tabs_items")], items)
-    children.append(f'<child{attributes([("widget", f"{base}/button_bar"), ("y", 414)])}/>')
+    # (no text of their own: menu_functions.c sets each its name, ticked or
+    # not, which a string list's text would overwrite)
+    for index, (key, _) in enumerate(SKULLS):
+        row, column = divmod(index, SKULL_COLUMNS)
+        children.append(f'<child{attributes([("widget", f"{base}/skull_{key}"), ("x", 54 + column * 266), ("y", 70 + row * 26)])}/>')
+        extra += _widget(f"{base}/skull_{key}",
+                         [("type", "text"), ("width", 256), ("height", 28), ("bitmap", "bitmaps/option_bkds_sm"),
+                          ("font", "ui\\large_ui"), ("color", "#FF2896FF"), ("text_x", 13), ("text_y", 4)],
+                         ['<on event="a" run="skull toggle"/>', '<on event="start" run="skull toggle"/>',
+                          '<on event="left_mouse" run="mouse emit accept event"/>', *moves])
+    for name, x in (("button_all_off", 0), ("button_ok", 380), ("button_cancel", 510)):
+        children.append(f'<child{attributes([("widget", f"{base}/{name}"), ("x", x), ("y", 415)])}/>')
     lines += _widget(f"{base}/options_menu",
                      [("type", "column_list"), ("width", 640), ("height", 480),
-                      ("flags", "pass_unhandled_to_focused_child up_down_tabs_children"),
-                      ("description", f"{base}/help")], children)
-    lines += _widget(f"{base}/button_bar",
-                     [("type", "column_list"), ("width", 640), ("height", 28),
-                      ("flags", "pass_unhandled_to_focused_child left_right_tabs_items")],
-                     [f'<child{attributes([("widget", f"{base}/button_all_off"), ("y", 1)])}/>',
-                      f'<child{attributes([("widget", f"{base}/button_ok"), ("x", 380), ("y", 1)])}/>',
-                      '<child widget="common_button_cancel" x="510" y="1"/>'])
+                      ("flags", "pass_unhandled_to_focused_child"), ("description", f"{base}/help")], children)
     lines += extra
     lines += _widget(f"{base}/button_all_off",
                      [("type", "text"), ("width", 128), ("height", 24), ("bitmap", "bitmaps/text_button_background"),
@@ -834,9 +830,17 @@ def _skulls_screen() -> list:
                       ("text_y", 2)],
                      ['<on event="a" run="skulls all off"/>',
                       '<on event="start" run="skulls all off"/>',
-                      '<on event="left_mouse" run="mouse emit accept event"/>'])
+                      '<on event="left_mouse" run="mouse emit accept event"/>', *moves])
     lines += _button(f"{base}/button_ok", 1, ['<on event="a" run="skulls start"/>',
-                                              '<on event="start" run="skulls start"/>'])
+                                              '<on event="start" run="skulls start"/>', *moves])
+    # (Cancel as shell.xml's common_button_cancel, with the grid's moves)
+    lines += _widget(f"{base}/button_cancel",
+                     [("type", "text"), ("width", 128), ("height", 24), ("bitmap", "bitmaps/text_button_background"),
+                      ("string_list", "strings/common_button_captions"), ("string_index", 2),
+                      ("font", "ui\\small_ui"), ("color", "#FFFFFFFF"), ("align", "center"), ("text_y", 2)],
+                     ['<on event="a" run="mouse emit back event"/>',
+                      '<on event="start" run="mouse emit back event"/>',
+                      '<on event="left_mouse" run="mouse emit back event"/>', *moves])
     return lines
 
 

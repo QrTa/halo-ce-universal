@@ -46,32 +46,32 @@ makes the same.
 extern int config_boolean(char const *name);
 extern char const *config_string(char const *name);
 
-/* the words are Halopedia's of the Master Chief Collection's (MCC:Skulls) */
+/* the Master Chief Collection's skulls (Halopedia's MCC:Skulls), their help
+in two lines of the skulls screen's (42 characters at most) */
 struct skull_description const skull_descriptions[NUMBER_OF_SKULLS] =
 {
-	{ "acrophobia", "ACROPHOBIA", "Rifles AND wings: jump twice to fly, crouch to\ncome down. May break a level's scenes.", "0.00" },
-	{ "anger", "ANGER", "Enemies fire their weapons faster and more\nfrequently.", "1.10" },
-	{ "bandanna", "BANDANNA", "Infinite ammo.", "0.00" },
-	{ "black_eye", "BLACK EYE", "Your shields only recharge when you melee enemies.\nBash your way to better health!", "1.10" },
-	{ "blind", "BLIND", "HUD and weapon do not display onscreen.", "1.10" },
-	{ "boom", "BOOM", "Explosions have twice the damage radius.\nLight fuse, run away.", "1.00" },
-	{ "catch", "CATCH", "Enemies throw and drop more grenades.", "1.10" },
-	{ "eye_patch", "EYE PATCH", "Auto aim features disabled for all weapons.\nYou'll miss it when it's gone.", "1.10" },
-	{ "famine", "FAMINE", "Weapons dropped by AI have half the ammo they\nnormally would.", "1.10" },
-	{ "fog", "FOG", "The motion tracker is disabled. You'll miss\nthose eyes in the back of your head.", "1.10" },
-	{ "foreign", "FOREIGN", "Covenant weapons: how do they work? Players\ncannot pick up or use Covenant weapons.", "1.10" },
-	{ "ghost", "GHOST", "AI no longer flinch from attacks.", "1.00" },
-	{ "grunt_birthday_party", "BIRTHDAY PARTY", "Grunt headshots lead to glorious celebrations.", "1.00" },
-	{ "grunt_funeral", "GRUNT FUNERAL", "Grunts die in a blaze of glory. And plasma.", "1.00" },
-	{ "iron", "IRON", "Death carries a heavy price. Co-op: back to the\nlast checkpoint. Solo: the level restarts.", "1.30" },
-	{ "malfunction", "MALFUNCTION", "Every time you respawn, a random element of your\nHUD is disabled.", "1.00" },
-	{ "mythic", "MYTHIC", "Enemies have increased health.", "1.20" },
-	{ "pinata", "PINATA", "Punching enemies makes them drop grenades.\nBeat them 'til candy comes out!", "1.00" },
-	{ "recession", "RECESSION", "Every shot is worth twice the ammo.\nSave those bullets, player.", "1.20" },
-	{ "sputnik", "SPUTNIK", "Mass of objects is decreased, making them more\neasily displaced.", "1.00" },
-	{ "thats_just_wrong", "JUST... WRONG", "Increases enemy awareness of player.", "1.10" },
-	{ "thunderstorm", "THUNDERSTORM", "Upgrades the rank of most enemies.", "1.20" },
-	{ "tough_luck", "TOUGH LUCK", "Enemies always go berserk, always dive out of the\nway, never flee.", "1.10" },
+	{ "anger", "ANGER", "Enemies fire faster, with shorter pauses\nbetween their bursts." },
+	{ "bandanna", "BANDANNA", "Infinite ammo and grenades: never reload,\nnever overheat." },
+	{ "black_eye", "BLACK EYE", "Your shield only recharges when you punch\nan enemy. Bash your way to health!" },
+	{ "blind", "BLIND", "No HUD and no weapon on screen.\nYou're on your own." },
+	{ "boom", "BOOM", "Explosions reach twice as far.\nLight fuse, run away." },
+	{ "catch", "CATCH", "Enemies throw grenades far more often,\nand carry and drop more of them." },
+	{ "eye_patch", "EYE PATCH", "No aim assist: no magnetism, no red\nreticle, no bullets bending to the target." },
+	{ "famine", "FAMINE", "Weapons dropped by enemies have half\ntheir ammo. Pack an extra magazine." },
+	{ "fog", "FOG", "No motion tracker. You'll miss those\neyes in the back of your head." },
+	{ "foreign", "FOREIGN", "You can't pick up Covenant weapons:\nno plasma, no needler, no fuel rod." },
+	{ "ghost", "GHOST", "Enemies don't flinch when you hit them." },
+	{ "grunt_birthday_party", "BIRTHDAY PARTY", "A grunt killed by a headshot goes out\nwith a celebration." },
+	{ "grunt_funeral", "GRUNT FUNERAL", "Dying grunts blow up like plasma\ngrenades. Keep your distance." },
+	{ "iron", "IRON", "Solo: dying restarts the level.\nCo-op: a death reverts to the checkpoint." },
+	{ "malfunction", "MALFUNCTION", "Each time you spawn, one part of your\nHUD stops working." },
+	{ "mythic", "MYTHIC", "Enemies have twice the health and\nshields." },
+	{ "pinata", "PINATA", "Punching an enemy knocks a grenade loose.\nBeat them 'til candy comes out!" },
+	{ "recession", "RECESSION", "Every shot uses twice the ammo.\nSave those bullets." },
+	{ "sputnik", "SPUTNIK", "Hits and blasts throw bodies, vehicles\nand weapons three times as far." },
+	{ "thats_just_wrong", "JUST... WRONG", "Enemies see and hear you from twice\nas far away." },
+	{ "thunderstorm", "THUNDERSTORM", "Enemies are promoted: minors become\nmajors wherever the level has them." },
+	{ "tough_luck", "TOUGH LUCK", "Enemies always go berserk, always dive\nfrom grenades, and never flee." },
 };
 
 #define SKULLS_LOCAL_PLAYERS 4

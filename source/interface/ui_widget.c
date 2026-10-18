@@ -6538,6 +6538,26 @@ static void ui_mouse_give_focus(
 	return;
 }
 
+/* port: the focus moved to the widget, as the mouse moves it, by a list
+that steps its own d-pad (menu_functions.c's skulls grid) */
+void ui_widget_port_give_focus(
+	struct widget_instance *widget)
+{
+	struct widget_instance *ancestor;
+
+	if (!widget || ui_mouse_widget_has_focus(widget))
+		return;
+	widget_instance_give_focus_directly(widget_instance_get_topmost_parent(widget), widget);
+	for (ancestor = widget; ancestor->parent; ancestor = ancestor->parent)
+	{
+		if (ancestor->parent->type == _ui_widget_type_column_list)
+			ancestor->parent->parameters.list.selected_index = (short)ui_mouse_child_index(ancestor);
+	}
+	ui_play_audio_feedback_sound(_ui_audio_feedback_cursor);
+
+	return;
+}
+
 /* port: whether the pointer moved the menus' focus last, rather than the
 d-pad (menu_functions.c's lists) */
 boolean ui_widget_port_pointer_focused(

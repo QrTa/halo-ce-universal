@@ -9,199 +9,359 @@
 	</widget>
 	<widget name="main_menu/difficulty_select/skulls/header_skulls" controller="1" left="35" top="11" width="605" height="59" bitmap="main_menu/difficulty_select/skulls/header_skulls">
 	</widget>
-	<widget name="main_menu/difficulty_select/skulls/help" type="text" controller="1" left="68" top="388" width="482" height="24" font="ui\small_ui" color="#FFFFFFFF">
+	<widget name="main_menu/difficulty_select/skulls/help" type="text" controller="1" left="68" top="372" width="504" height="36" font="ui\small_ui" color="#FFFFFFFF">
 	</widget>
-	<widget name="main_menu/difficulty_select/skulls/row_0" type="column_list" width="518" height="28" flags="pass_unhandled_to_focused_child left_right_tabs_items">
-		<child widget="main_menu/difficulty_select/skulls/skull_acrophobia" x="0"/>
-		<child widget="main_menu/difficulty_select/skulls/skull_anger" x="262"/>
-	</widget>
-	<widget name="main_menu/difficulty_select/skulls/row_1" type="column_list" width="518" height="28" flags="pass_unhandled_to_focused_child left_right_tabs_items">
-		<child widget="main_menu/difficulty_select/skulls/skull_bandanna" x="0"/>
-		<child widget="main_menu/difficulty_select/skulls/skull_black_eye" x="262"/>
-	</widget>
-	<widget name="main_menu/difficulty_select/skulls/row_2" type="column_list" width="518" height="28" flags="pass_unhandled_to_focused_child left_right_tabs_items">
-		<child widget="main_menu/difficulty_select/skulls/skull_blind" x="0"/>
-		<child widget="main_menu/difficulty_select/skulls/skull_boom" x="262"/>
-	</widget>
-	<widget name="main_menu/difficulty_select/skulls/row_3" type="column_list" width="518" height="28" flags="pass_unhandled_to_focused_child left_right_tabs_items">
-		<child widget="main_menu/difficulty_select/skulls/skull_catch" x="0"/>
-		<child widget="main_menu/difficulty_select/skulls/skull_eye_patch" x="262"/>
-	</widget>
-	<widget name="main_menu/difficulty_select/skulls/row_4" type="column_list" width="518" height="28" flags="pass_unhandled_to_focused_child left_right_tabs_items">
-		<child widget="main_menu/difficulty_select/skulls/skull_famine" x="0"/>
-		<child widget="main_menu/difficulty_select/skulls/skull_fog" x="262"/>
-	</widget>
-	<widget name="main_menu/difficulty_select/skulls/row_5" type="column_list" width="518" height="28" flags="pass_unhandled_to_focused_child left_right_tabs_items">
-		<child widget="main_menu/difficulty_select/skulls/skull_foreign" x="0"/>
-		<child widget="main_menu/difficulty_select/skulls/skull_ghost" x="262"/>
-	</widget>
-	<widget name="main_menu/difficulty_select/skulls/row_6" type="column_list" width="518" height="28" flags="pass_unhandled_to_focused_child left_right_tabs_items">
-		<child widget="main_menu/difficulty_select/skulls/skull_grunt_birthday_party" x="0"/>
-		<child widget="main_menu/difficulty_select/skulls/skull_grunt_funeral" x="262"/>
-	</widget>
-	<widget name="main_menu/difficulty_select/skulls/row_7" type="column_list" width="518" height="28" flags="pass_unhandled_to_focused_child left_right_tabs_items">
-		<child widget="main_menu/difficulty_select/skulls/skull_iron" x="0"/>
-		<child widget="main_menu/difficulty_select/skulls/skull_malfunction" x="262"/>
-	</widget>
-	<widget name="main_menu/difficulty_select/skulls/row_8" type="column_list" width="518" height="28" flags="pass_unhandled_to_focused_child left_right_tabs_items">
-		<child widget="main_menu/difficulty_select/skulls/skull_mythic" x="0"/>
-		<child widget="main_menu/difficulty_select/skulls/skull_pinata" x="262"/>
-	</widget>
-	<widget name="main_menu/difficulty_select/skulls/row_9" type="column_list" width="518" height="28" flags="pass_unhandled_to_focused_child left_right_tabs_items">
-		<child widget="main_menu/difficulty_select/skulls/skull_recession" x="0"/>
-		<child widget="main_menu/difficulty_select/skulls/skull_sputnik" x="262"/>
-	</widget>
-	<widget name="main_menu/difficulty_select/skulls/row_10" type="column_list" width="518" height="28" flags="pass_unhandled_to_focused_child left_right_tabs_items">
-		<child widget="main_menu/difficulty_select/skulls/skull_thats_just_wrong" x="0"/>
-		<child widget="main_menu/difficulty_select/skulls/skull_thunderstorm" x="262"/>
-	</widget>
-	<widget name="main_menu/difficulty_select/skulls/row_11" type="column_list" width="518" height="28" flags="pass_unhandled_to_focused_child left_right_tabs_items">
-		<child widget="main_menu/difficulty_select/skulls/skull_tough_luck" x="0"/>
-	</widget>
-	<widget name="main_menu/difficulty_select/skulls/options_menu" type="column_list" width="640" height="480" flags="pass_unhandled_to_focused_child up_down_tabs_children" description="main_menu/difficulty_select/skulls/help">
+	<widget name="main_menu/difficulty_select/skulls/options_menu" type="column_list" width="640" height="480" flags="pass_unhandled_to_focused_child" description="main_menu/difficulty_select/skulls/help">
 		<data input="skulls screen update"/>
-		<child widget="main_menu/difficulty_select/skulls/row_0" x="54" y="70"/>
-		<child widget="main_menu/difficulty_select/skulls/row_1" x="54" y="96"/>
-		<child widget="main_menu/difficulty_select/skulls/row_2" x="54" y="122"/>
-		<child widget="main_menu/difficulty_select/skulls/row_3" x="54" y="148"/>
-		<child widget="main_menu/difficulty_select/skulls/row_4" x="54" y="174"/>
-		<child widget="main_menu/difficulty_select/skulls/row_5" x="54" y="200"/>
-		<child widget="main_menu/difficulty_select/skulls/row_6" x="54" y="226"/>
-		<child widget="main_menu/difficulty_select/skulls/row_7" x="54" y="252"/>
-		<child widget="main_menu/difficulty_select/skulls/row_8" x="54" y="278"/>
-		<child widget="main_menu/difficulty_select/skulls/row_9" x="54" y="304"/>
-		<child widget="main_menu/difficulty_select/skulls/row_10" x="54" y="330"/>
-		<child widget="main_menu/difficulty_select/skulls/row_11" x="54" y="356"/>
-		<child widget="main_menu/difficulty_select/skulls/button_bar" y="414"/>
-	</widget>
-	<widget name="main_menu/difficulty_select/skulls/button_bar" type="column_list" width="640" height="28" flags="pass_unhandled_to_focused_child left_right_tabs_items">
-		<child widget="main_menu/difficulty_select/skulls/button_all_off" y="1"/>
-		<child widget="main_menu/difficulty_select/skulls/button_ok" x="380" y="1"/>
-		<child widget="common_button_cancel" x="510" y="1"/>
-	</widget>
-	<widget name="main_menu/difficulty_select/skulls/skull_acrophobia" type="text" width="256" height="28" bitmap="bitmaps/option_bkds_sm" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
-		<on event="a" run="skull toggle"/>
-		<on event="start" run="skull toggle"/>
-		<on event="left_mouse" run="mouse emit accept event"/>
+		<child widget="main_menu/difficulty_select/skulls/skull_anger" x="54" y="70"/>
+		<child widget="main_menu/difficulty_select/skulls/skull_bandanna" x="320" y="70"/>
+		<child widget="main_menu/difficulty_select/skulls/skull_black_eye" x="54" y="96"/>
+		<child widget="main_menu/difficulty_select/skulls/skull_blind" x="320" y="96"/>
+		<child widget="main_menu/difficulty_select/skulls/skull_boom" x="54" y="122"/>
+		<child widget="main_menu/difficulty_select/skulls/skull_catch" x="320" y="122"/>
+		<child widget="main_menu/difficulty_select/skulls/skull_eye_patch" x="54" y="148"/>
+		<child widget="main_menu/difficulty_select/skulls/skull_famine" x="320" y="148"/>
+		<child widget="main_menu/difficulty_select/skulls/skull_fog" x="54" y="174"/>
+		<child widget="main_menu/difficulty_select/skulls/skull_foreign" x="320" y="174"/>
+		<child widget="main_menu/difficulty_select/skulls/skull_ghost" x="54" y="200"/>
+		<child widget="main_menu/difficulty_select/skulls/skull_grunt_birthday_party" x="320" y="200"/>
+		<child widget="main_menu/difficulty_select/skulls/skull_grunt_funeral" x="54" y="226"/>
+		<child widget="main_menu/difficulty_select/skulls/skull_iron" x="320" y="226"/>
+		<child widget="main_menu/difficulty_select/skulls/skull_malfunction" x="54" y="252"/>
+		<child widget="main_menu/difficulty_select/skulls/skull_mythic" x="320" y="252"/>
+		<child widget="main_menu/difficulty_select/skulls/skull_pinata" x="54" y="278"/>
+		<child widget="main_menu/difficulty_select/skulls/skull_recession" x="320" y="278"/>
+		<child widget="main_menu/difficulty_select/skulls/skull_sputnik" x="54" y="304"/>
+		<child widget="main_menu/difficulty_select/skulls/skull_thats_just_wrong" x="320" y="304"/>
+		<child widget="main_menu/difficulty_select/skulls/skull_thunderstorm" x="54" y="330"/>
+		<child widget="main_menu/difficulty_select/skulls/skull_tough_luck" x="320" y="330"/>
+		<child widget="main_menu/difficulty_select/skulls/button_all_off" x="0" y="415"/>
+		<child widget="main_menu/difficulty_select/skulls/button_ok" x="380" y="415"/>
+		<child widget="main_menu/difficulty_select/skulls/button_cancel" x="510" y="415"/>
 	</widget>
 	<widget name="main_menu/difficulty_select/skulls/skull_anger" type="text" width="256" height="28" bitmap="bitmaps/option_bkds_sm" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
 		<on event="a" run="skull toggle"/>
 		<on event="start" run="skull toggle"/>
 		<on event="left_mouse" run="mouse emit accept event"/>
+		<on event="up" run="skulls up"/>
+		<on event="stick_up" run="skulls up"/>
+		<on event="down" run="skulls down"/>
+		<on event="stick_down" run="skulls down"/>
+		<on event="left" run="skulls left"/>
+		<on event="stick_left" run="skulls left"/>
+		<on event="right" run="skulls right"/>
+		<on event="stick_right" run="skulls right"/>
 	</widget>
 	<widget name="main_menu/difficulty_select/skulls/skull_bandanna" type="text" width="256" height="28" bitmap="bitmaps/option_bkds_sm" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
 		<on event="a" run="skull toggle"/>
 		<on event="start" run="skull toggle"/>
 		<on event="left_mouse" run="mouse emit accept event"/>
+		<on event="up" run="skulls up"/>
+		<on event="stick_up" run="skulls up"/>
+		<on event="down" run="skulls down"/>
+		<on event="stick_down" run="skulls down"/>
+		<on event="left" run="skulls left"/>
+		<on event="stick_left" run="skulls left"/>
+		<on event="right" run="skulls right"/>
+		<on event="stick_right" run="skulls right"/>
 	</widget>
 	<widget name="main_menu/difficulty_select/skulls/skull_black_eye" type="text" width="256" height="28" bitmap="bitmaps/option_bkds_sm" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
 		<on event="a" run="skull toggle"/>
 		<on event="start" run="skull toggle"/>
 		<on event="left_mouse" run="mouse emit accept event"/>
+		<on event="up" run="skulls up"/>
+		<on event="stick_up" run="skulls up"/>
+		<on event="down" run="skulls down"/>
+		<on event="stick_down" run="skulls down"/>
+		<on event="left" run="skulls left"/>
+		<on event="stick_left" run="skulls left"/>
+		<on event="right" run="skulls right"/>
+		<on event="stick_right" run="skulls right"/>
 	</widget>
 	<widget name="main_menu/difficulty_select/skulls/skull_blind" type="text" width="256" height="28" bitmap="bitmaps/option_bkds_sm" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
 		<on event="a" run="skull toggle"/>
 		<on event="start" run="skull toggle"/>
 		<on event="left_mouse" run="mouse emit accept event"/>
+		<on event="up" run="skulls up"/>
+		<on event="stick_up" run="skulls up"/>
+		<on event="down" run="skulls down"/>
+		<on event="stick_down" run="skulls down"/>
+		<on event="left" run="skulls left"/>
+		<on event="stick_left" run="skulls left"/>
+		<on event="right" run="skulls right"/>
+		<on event="stick_right" run="skulls right"/>
 	</widget>
 	<widget name="main_menu/difficulty_select/skulls/skull_boom" type="text" width="256" height="28" bitmap="bitmaps/option_bkds_sm" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
 		<on event="a" run="skull toggle"/>
 		<on event="start" run="skull toggle"/>
 		<on event="left_mouse" run="mouse emit accept event"/>
+		<on event="up" run="skulls up"/>
+		<on event="stick_up" run="skulls up"/>
+		<on event="down" run="skulls down"/>
+		<on event="stick_down" run="skulls down"/>
+		<on event="left" run="skulls left"/>
+		<on event="stick_left" run="skulls left"/>
+		<on event="right" run="skulls right"/>
+		<on event="stick_right" run="skulls right"/>
 	</widget>
 	<widget name="main_menu/difficulty_select/skulls/skull_catch" type="text" width="256" height="28" bitmap="bitmaps/option_bkds_sm" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
 		<on event="a" run="skull toggle"/>
 		<on event="start" run="skull toggle"/>
 		<on event="left_mouse" run="mouse emit accept event"/>
+		<on event="up" run="skulls up"/>
+		<on event="stick_up" run="skulls up"/>
+		<on event="down" run="skulls down"/>
+		<on event="stick_down" run="skulls down"/>
+		<on event="left" run="skulls left"/>
+		<on event="stick_left" run="skulls left"/>
+		<on event="right" run="skulls right"/>
+		<on event="stick_right" run="skulls right"/>
 	</widget>
 	<widget name="main_menu/difficulty_select/skulls/skull_eye_patch" type="text" width="256" height="28" bitmap="bitmaps/option_bkds_sm" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
 		<on event="a" run="skull toggle"/>
 		<on event="start" run="skull toggle"/>
 		<on event="left_mouse" run="mouse emit accept event"/>
+		<on event="up" run="skulls up"/>
+		<on event="stick_up" run="skulls up"/>
+		<on event="down" run="skulls down"/>
+		<on event="stick_down" run="skulls down"/>
+		<on event="left" run="skulls left"/>
+		<on event="stick_left" run="skulls left"/>
+		<on event="right" run="skulls right"/>
+		<on event="stick_right" run="skulls right"/>
 	</widget>
 	<widget name="main_menu/difficulty_select/skulls/skull_famine" type="text" width="256" height="28" bitmap="bitmaps/option_bkds_sm" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
 		<on event="a" run="skull toggle"/>
 		<on event="start" run="skull toggle"/>
 		<on event="left_mouse" run="mouse emit accept event"/>
+		<on event="up" run="skulls up"/>
+		<on event="stick_up" run="skulls up"/>
+		<on event="down" run="skulls down"/>
+		<on event="stick_down" run="skulls down"/>
+		<on event="left" run="skulls left"/>
+		<on event="stick_left" run="skulls left"/>
+		<on event="right" run="skulls right"/>
+		<on event="stick_right" run="skulls right"/>
 	</widget>
 	<widget name="main_menu/difficulty_select/skulls/skull_fog" type="text" width="256" height="28" bitmap="bitmaps/option_bkds_sm" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
 		<on event="a" run="skull toggle"/>
 		<on event="start" run="skull toggle"/>
 		<on event="left_mouse" run="mouse emit accept event"/>
+		<on event="up" run="skulls up"/>
+		<on event="stick_up" run="skulls up"/>
+		<on event="down" run="skulls down"/>
+		<on event="stick_down" run="skulls down"/>
+		<on event="left" run="skulls left"/>
+		<on event="stick_left" run="skulls left"/>
+		<on event="right" run="skulls right"/>
+		<on event="stick_right" run="skulls right"/>
 	</widget>
 	<widget name="main_menu/difficulty_select/skulls/skull_foreign" type="text" width="256" height="28" bitmap="bitmaps/option_bkds_sm" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
 		<on event="a" run="skull toggle"/>
 		<on event="start" run="skull toggle"/>
 		<on event="left_mouse" run="mouse emit accept event"/>
+		<on event="up" run="skulls up"/>
+		<on event="stick_up" run="skulls up"/>
+		<on event="down" run="skulls down"/>
+		<on event="stick_down" run="skulls down"/>
+		<on event="left" run="skulls left"/>
+		<on event="stick_left" run="skulls left"/>
+		<on event="right" run="skulls right"/>
+		<on event="stick_right" run="skulls right"/>
 	</widget>
 	<widget name="main_menu/difficulty_select/skulls/skull_ghost" type="text" width="256" height="28" bitmap="bitmaps/option_bkds_sm" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
 		<on event="a" run="skull toggle"/>
 		<on event="start" run="skull toggle"/>
 		<on event="left_mouse" run="mouse emit accept event"/>
+		<on event="up" run="skulls up"/>
+		<on event="stick_up" run="skulls up"/>
+		<on event="down" run="skulls down"/>
+		<on event="stick_down" run="skulls down"/>
+		<on event="left" run="skulls left"/>
+		<on event="stick_left" run="skulls left"/>
+		<on event="right" run="skulls right"/>
+		<on event="stick_right" run="skulls right"/>
 	</widget>
 	<widget name="main_menu/difficulty_select/skulls/skull_grunt_birthday_party" type="text" width="256" height="28" bitmap="bitmaps/option_bkds_sm" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
 		<on event="a" run="skull toggle"/>
 		<on event="start" run="skull toggle"/>
 		<on event="left_mouse" run="mouse emit accept event"/>
+		<on event="up" run="skulls up"/>
+		<on event="stick_up" run="skulls up"/>
+		<on event="down" run="skulls down"/>
+		<on event="stick_down" run="skulls down"/>
+		<on event="left" run="skulls left"/>
+		<on event="stick_left" run="skulls left"/>
+		<on event="right" run="skulls right"/>
+		<on event="stick_right" run="skulls right"/>
 	</widget>
 	<widget name="main_menu/difficulty_select/skulls/skull_grunt_funeral" type="text" width="256" height="28" bitmap="bitmaps/option_bkds_sm" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
 		<on event="a" run="skull toggle"/>
 		<on event="start" run="skull toggle"/>
 		<on event="left_mouse" run="mouse emit accept event"/>
+		<on event="up" run="skulls up"/>
+		<on event="stick_up" run="skulls up"/>
+		<on event="down" run="skulls down"/>
+		<on event="stick_down" run="skulls down"/>
+		<on event="left" run="skulls left"/>
+		<on event="stick_left" run="skulls left"/>
+		<on event="right" run="skulls right"/>
+		<on event="stick_right" run="skulls right"/>
 	</widget>
 	<widget name="main_menu/difficulty_select/skulls/skull_iron" type="text" width="256" height="28" bitmap="bitmaps/option_bkds_sm" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
 		<on event="a" run="skull toggle"/>
 		<on event="start" run="skull toggle"/>
 		<on event="left_mouse" run="mouse emit accept event"/>
+		<on event="up" run="skulls up"/>
+		<on event="stick_up" run="skulls up"/>
+		<on event="down" run="skulls down"/>
+		<on event="stick_down" run="skulls down"/>
+		<on event="left" run="skulls left"/>
+		<on event="stick_left" run="skulls left"/>
+		<on event="right" run="skulls right"/>
+		<on event="stick_right" run="skulls right"/>
 	</widget>
 	<widget name="main_menu/difficulty_select/skulls/skull_malfunction" type="text" width="256" height="28" bitmap="bitmaps/option_bkds_sm" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
 		<on event="a" run="skull toggle"/>
 		<on event="start" run="skull toggle"/>
 		<on event="left_mouse" run="mouse emit accept event"/>
+		<on event="up" run="skulls up"/>
+		<on event="stick_up" run="skulls up"/>
+		<on event="down" run="skulls down"/>
+		<on event="stick_down" run="skulls down"/>
+		<on event="left" run="skulls left"/>
+		<on event="stick_left" run="skulls left"/>
+		<on event="right" run="skulls right"/>
+		<on event="stick_right" run="skulls right"/>
 	</widget>
 	<widget name="main_menu/difficulty_select/skulls/skull_mythic" type="text" width="256" height="28" bitmap="bitmaps/option_bkds_sm" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
 		<on event="a" run="skull toggle"/>
 		<on event="start" run="skull toggle"/>
 		<on event="left_mouse" run="mouse emit accept event"/>
+		<on event="up" run="skulls up"/>
+		<on event="stick_up" run="skulls up"/>
+		<on event="down" run="skulls down"/>
+		<on event="stick_down" run="skulls down"/>
+		<on event="left" run="skulls left"/>
+		<on event="stick_left" run="skulls left"/>
+		<on event="right" run="skulls right"/>
+		<on event="stick_right" run="skulls right"/>
 	</widget>
 	<widget name="main_menu/difficulty_select/skulls/skull_pinata" type="text" width="256" height="28" bitmap="bitmaps/option_bkds_sm" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
 		<on event="a" run="skull toggle"/>
 		<on event="start" run="skull toggle"/>
 		<on event="left_mouse" run="mouse emit accept event"/>
+		<on event="up" run="skulls up"/>
+		<on event="stick_up" run="skulls up"/>
+		<on event="down" run="skulls down"/>
+		<on event="stick_down" run="skulls down"/>
+		<on event="left" run="skulls left"/>
+		<on event="stick_left" run="skulls left"/>
+		<on event="right" run="skulls right"/>
+		<on event="stick_right" run="skulls right"/>
 	</widget>
 	<widget name="main_menu/difficulty_select/skulls/skull_recession" type="text" width="256" height="28" bitmap="bitmaps/option_bkds_sm" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
 		<on event="a" run="skull toggle"/>
 		<on event="start" run="skull toggle"/>
 		<on event="left_mouse" run="mouse emit accept event"/>
+		<on event="up" run="skulls up"/>
+		<on event="stick_up" run="skulls up"/>
+		<on event="down" run="skulls down"/>
+		<on event="stick_down" run="skulls down"/>
+		<on event="left" run="skulls left"/>
+		<on event="stick_left" run="skulls left"/>
+		<on event="right" run="skulls right"/>
+		<on event="stick_right" run="skulls right"/>
 	</widget>
 	<widget name="main_menu/difficulty_select/skulls/skull_sputnik" type="text" width="256" height="28" bitmap="bitmaps/option_bkds_sm" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
 		<on event="a" run="skull toggle"/>
 		<on event="start" run="skull toggle"/>
 		<on event="left_mouse" run="mouse emit accept event"/>
+		<on event="up" run="skulls up"/>
+		<on event="stick_up" run="skulls up"/>
+		<on event="down" run="skulls down"/>
+		<on event="stick_down" run="skulls down"/>
+		<on event="left" run="skulls left"/>
+		<on event="stick_left" run="skulls left"/>
+		<on event="right" run="skulls right"/>
+		<on event="stick_right" run="skulls right"/>
 	</widget>
 	<widget name="main_menu/difficulty_select/skulls/skull_thats_just_wrong" type="text" width="256" height="28" bitmap="bitmaps/option_bkds_sm" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
 		<on event="a" run="skull toggle"/>
 		<on event="start" run="skull toggle"/>
 		<on event="left_mouse" run="mouse emit accept event"/>
+		<on event="up" run="skulls up"/>
+		<on event="stick_up" run="skulls up"/>
+		<on event="down" run="skulls down"/>
+		<on event="stick_down" run="skulls down"/>
+		<on event="left" run="skulls left"/>
+		<on event="stick_left" run="skulls left"/>
+		<on event="right" run="skulls right"/>
+		<on event="stick_right" run="skulls right"/>
 	</widget>
 	<widget name="main_menu/difficulty_select/skulls/skull_thunderstorm" type="text" width="256" height="28" bitmap="bitmaps/option_bkds_sm" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
 		<on event="a" run="skull toggle"/>
 		<on event="start" run="skull toggle"/>
 		<on event="left_mouse" run="mouse emit accept event"/>
+		<on event="up" run="skulls up"/>
+		<on event="stick_up" run="skulls up"/>
+		<on event="down" run="skulls down"/>
+		<on event="stick_down" run="skulls down"/>
+		<on event="left" run="skulls left"/>
+		<on event="stick_left" run="skulls left"/>
+		<on event="right" run="skulls right"/>
+		<on event="stick_right" run="skulls right"/>
 	</widget>
 	<widget name="main_menu/difficulty_select/skulls/skull_tough_luck" type="text" width="256" height="28" bitmap="bitmaps/option_bkds_sm" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
 		<on event="a" run="skull toggle"/>
 		<on event="start" run="skull toggle"/>
 		<on event="left_mouse" run="mouse emit accept event"/>
+		<on event="up" run="skulls up"/>
+		<on event="stick_up" run="skulls up"/>
+		<on event="down" run="skulls down"/>
+		<on event="stick_down" run="skulls down"/>
+		<on event="left" run="skulls left"/>
+		<on event="stick_left" run="skulls left"/>
+		<on event="right" run="skulls right"/>
+		<on event="stick_right" run="skulls right"/>
 	</widget>
 	<widget name="main_menu/difficulty_select/skulls/button_all_off" type="text" width="128" height="24" bitmap="bitmaps/text_button_background" text="ALL OFF" font="ui\small_ui" color="#FFFFFFFF" align="center" text_y="2">
 		<on event="a" run="skulls all off"/>
 		<on event="start" run="skulls all off"/>
 		<on event="left_mouse" run="mouse emit accept event"/>
+		<on event="up" run="skulls up"/>
+		<on event="stick_up" run="skulls up"/>
+		<on event="down" run="skulls down"/>
+		<on event="stick_down" run="skulls down"/>
+		<on event="left" run="skulls left"/>
+		<on event="stick_left" run="skulls left"/>
+		<on event="right" run="skulls right"/>
+		<on event="stick_right" run="skulls right"/>
 	</widget>
 	<widget name="main_menu/difficulty_select/skulls/button_ok" type="text" width="128" height="24" bitmap="bitmaps/text_button_background" string_list="strings/common_button_captions" string_index="1" font="ui\small_ui" color="#FFFFFFFF" align="center" text_y="2">
 		<on event="a" run="skulls start"/>
 		<on event="start" run="skulls start"/>
+		<on event="up" run="skulls up"/>
+		<on event="stick_up" run="skulls up"/>
+		<on event="down" run="skulls down"/>
+		<on event="stick_down" run="skulls down"/>
+		<on event="left" run="skulls left"/>
+		<on event="stick_left" run="skulls left"/>
+		<on event="right" run="skulls right"/>
+		<on event="stick_right" run="skulls right"/>
 		<on event="left_mouse" run="mouse emit accept event"/>
+	</widget>
+	<widget name="main_menu/difficulty_select/skulls/button_cancel" type="text" width="128" height="24" bitmap="bitmaps/text_button_background" string_list="strings/common_button_captions" string_index="2" font="ui\small_ui" color="#FFFFFFFF" align="center" text_y="2">
+		<on event="a" run="mouse emit back event"/>
+		<on event="start" run="mouse emit back event"/>
+		<on event="left_mouse" run="mouse emit back event"/>
+		<on event="up" run="skulls up"/>
+		<on event="stick_up" run="skulls up"/>
+		<on event="down" run="skulls down"/>
+		<on event="stick_down" run="skulls down"/>
+		<on event="left" run="skulls left"/>
+		<on event="stick_left" run="skulls left"/>
+		<on event="right" run="skulls right"/>
+		<on event="stick_right" run="skulls right"/>
 	</widget>
 </menus>

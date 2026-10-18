@@ -446,8 +446,8 @@ static const struct config_setting config_settings[] =
 		"Collection's. They then apply to every campaign game, Continue and Load\n"
 		"Game too. A co-op client plays with the host's." },
 	{ "game.skulls_active", _config_string, "\"\"", "HALO_SKULLS_ACTIVE", _environment_value, _platform_all,
-		"The skulls turned on, with game.skulls, separated by commas: acrophobia,\n"
-		"anger, bandanna, black_eye, blind, boom, catch, eye_patch, famine, fog,\n"
+		"The skulls turned on, with game.skulls, separated by commas: anger,\n"
+		"bandanna, black_eye, blind, boom, catch, eye_patch, famine, fog,\n"
 		"foreign, ghost, grunt_birthday_party, grunt_funeral, iron, malfunction,\n"
 		"mythic, pinata, recession, sputnik, thats_just_wrong, thunderstorm,\n"
 		"tough_luck. Written by the skulls screen." },

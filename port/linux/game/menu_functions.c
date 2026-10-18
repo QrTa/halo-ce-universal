@@ -40,7 +40,8 @@ calls them from PC_MENU_FUNCTION_BASE on):
   difficulty (and the randomizer's screen) when game.skulls is on: "skull
   toggle" turns the skull of the item chosen on or off, "skulls all off" all
   of them, "skulls start" writes game.skulls_active and starts the level,
-  and "skulls screen update" ticks them and shows the chosen one's help;
+  "skulls up", "down", "left" and "right" move through its grid, and
+  "skulls screen update" ticks them and shows the chosen one's help;
 - Controls Setup's: the keyboard and mouse's controls, two bindings each,
   shown a group at a time ("controls update menu"); "controls begin
   binding" takes the next key or button pressed for the binding left and
@@ -2099,6 +2100,64 @@ static boolean skull_toggle(struct widget_instance *widget)
 	return TRUE;
 }
 
+/* the skulls screen's grid (tools/port_settings.py's _skulls_screen): its
+list has the skulls row by row, two to a row, then a row of its buttons
+(All Off, OK, Cancel). The list steps none itself: each of its items moves
+the focus here, so only the item focused is lit */
+#define SKULL_COLUMNS 2
+#define SKULL_BUTTONS 3
+
+void ui_widget_port_give_focus(struct widget_instance *widget);
+
+static boolean skulls_move(struct widget_instance *widget, short across, short down)
+{
+	struct widget_instance *list = widget ? widget->parent : NULL;
+	struct widget_instance *child;
+	short rows = (NUMBER_OF_SKULLS + SKULL_COLUMNS - 1) / SKULL_COLUMNS;
+	short index = 0;
+	short row, column, target;
+
+	if (!list)
+		return FALSE;
+	for (child = list->child; child && child != widget; child = child->next)
+		index++;
+	if (!child)
+		return FALSE;
+	if (index < NUMBER_OF_SKULLS)
+		row = index / SKULL_COLUMNS, column = index % SKULL_COLUMNS;
+	else
+		row = rows, column = index - NUMBER_OF_SKULLS;
+	if (across)
+	{
+		column += across;
+		if (column < 0 || column >= (row == rows ? SKULL_BUTTONS : SKULL_COLUMNS))
+			return TRUE;
+	}
+	else
+	{
+		boolean buttons_row = row == rows;
+
+		/* (wrapping round, the buttons' row below the last of the skulls) */
+		row = (short)((row + down + rows + 1) % (rows + 1));
+		/* (All Off under the first column, OK and Cancel under the second) */
+		if (buttons_row != (row == rows))
+			column = column == 0 ? 0 : 1;
+	}
+	if (row == rows)
+		target = (short)(NUMBER_OF_SKULLS + column);
+	else
+	{
+		target = (short)(row * SKULL_COLUMNS + column);
+		if (target >= NUMBER_OF_SKULLS)
+			target = (short)(row * SKULL_COLUMNS);
+	}
+	for (child = list->child; child && target > 0; child = child->next)
+		target--;
+	if (child && child != widget)
+		ui_widget_port_give_focus(child);
+	return TRUE;
+}
+
 /* "skulls start" (OK): the skulls shown written, then the level */
 static boolean skulls_start(void)
 {
@@ -2122,11 +2181,10 @@ static void text_widen(wchar_t *text, unsigned int length, char const *ascii)
 }
 
 /* "skulls screen update": each skull ticked or not, and the help line the
-focused skull's description and score multiplier (the Master Chief
-Collection's) */
+focused skull's description */
 static void skulls_screen_update(struct widget_instance *list)
 {
-	struct widget_instance *focused = list->focused_child ? list->focused_child->focused_child : NULL;
+	struct widget_instance *focused = list->focused_child;
 	int focused_skull = skull_of(focused);
 	struct widget_instance *help = list->parameters.list.extended_description;
 	char line[256];
@@ -2149,12 +2207,9 @@ static void skulls_screen_update(struct widget_instance *list)
 	if (!help)
 		return;
 	if (focused_skull != NONE)
-	{
-		snprintf(line, sizeof(line), "%s (x%s)", skull_descriptions[focused_skull].description,
-			skull_descriptions[focused_skull].multiplier);
-	}
+		snprintf(line, sizeof(line), "%s", skull_descriptions[focused_skull].description);
 	else
-		snprintf(line, sizeof(line), "A turns a skull on or off. They are kept for\nthe levels after this one.");
+		snprintf(line, sizeof(line), "A turns a skull on or off. The skulls stay\non for the levels after this one.");
 	text_widen(text, NUMBEROF(text), line);
 	text_set(help, text);
 }
@@ -6884,6 +6939,22 @@ boolean pc_menu_event_function_invoke(
 		else if (!strcmp(name, "skulls start"))
 		{
 			return skulls_start();
+		}
+		else if (!strcmp(name, "skulls up"))
+		{
+			return skulls_move(widget, 0, -1);
+		}
+		else if (!strcmp(name, "skulls down"))
+		{
+			return skulls_move(widget, 0, 1);
+		}
+		else if (!strcmp(name, "skulls left"))
+		{
+			return skulls_move(widget, -1, 0);
+		}
+		else if (!strcmp(name, "skulls right"))
+		{
+			return skulls_move(widget, 1, 0);
 		}
 		else if (!strcmp(name, "randomizer profile delete"))
 		{

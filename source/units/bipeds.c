@@ -2225,74 +2225,6 @@ static void biped_update_slipping(
 	return;
 }
 
-/* port: skull: Acrophobia, the players fly (port/linux/game/skulls.c):
-jump again in the air, and while jump is held the body climbs and goes
-where the stick points; crouch comes down. Landing ends the flight */
-#define ACROPHOBIA_BIPEDS 16
-#define ACROPHOBIA_CLIMB 0.08f
-#define ACROPHOBIA_SPEED 0.12f
-
-static struct
-{
-	long biped_index;
-	boolean released;
-	boolean flying;
-} biped_acrophobia[ACROPHOBIA_BIPEDS];
-
-static void biped_acrophobia_fly(
-	long biped_index)
-{
-	struct biped_datum *biped = biped_get(biped_index);
-	real_vector3d *velocity = &biped->object.translational_velocity;
-	boolean jump = TEST_FLAG(biped->unit.control_flags, _unit_control_jump_bit);
-	short slot;
-	short free_slot = NONE;
-
-	for (slot = 0; slot < ACROPHOBIA_BIPEDS; slot++)
-	{
-		if (biped_acrophobia[slot].biped_index == biped_index)
-			break;
-		if (free_slot == NONE && !biped_try_and_get(biped_acrophobia[slot].biped_index))
-		{
-			free_slot = slot;
-		}
-	}
-	if (slot == ACROPHOBIA_BIPEDS)
-	{
-		if (free_slot == NONE)
-			return;
-		slot = free_slot;
-		biped_acrophobia[slot].biped_index = biped_index;
-		biped_acrophobia[slot].released = FALSE;
-		biped_acrophobia[slot].flying = FALSE;
-	}
-	if (!TEST_FLAG(biped->biped.flags, _biped_airborne_bit))
-	{
-		biped_acrophobia[slot].released = FALSE;
-		biped_acrophobia[slot].flying = FALSE;
-		return;
-	}
-	if (!jump)
-		biped_acrophobia[slot].released = TRUE;
-	else if (biped_acrophobia[slot].released)
-		biped_acrophobia[slot].flying = TRUE;
-	if (!biped_acrophobia[slot].flying)
-		return;
-	/* (each tick, the velocity this flight wants, gravity's pull taken
-	back by the next tick's) */
-	/* (the throttle is the body's: forward, then left) */
-	velocity->i = (biped->object.forward.i * biped->unit.throttle.i - biped->object.forward.j * biped->unit.throttle.j) *
-		ACROPHOBIA_SPEED;
-	velocity->j = (biped->object.forward.j * biped->unit.throttle.i + biped->object.forward.i * biped->unit.throttle.j) *
-		ACROPHOBIA_SPEED;
-	if (jump)
-		velocity->k = ACROPHOBIA_CLIMB;
-	else if (TEST_FLAG(biped->unit.control_flags, _unit_control_crouch_modifier_bit))
-		velocity->k = -ACROPHOBIA_CLIMB;
-	else
-		velocity->k = 0.f;
-}
-
 static void biped_update_jumping(
 	long biped_index,
 	struct unit_animation_update_data *animation)
@@ -2312,9 +2244,6 @@ static void biped_update_jumping(
 			biped_jump(biped_index);
 		}
 	}
-
-	if (biped->unit.player_index != NONE && skull_active(_skull_acrophobia))
-		biped_acrophobia_fly(biped_index);
 
 	if (cheat.jetpack && biped->unit.player_index != NONE)
 	{

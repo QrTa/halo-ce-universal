@@ -12,8 +12,7 @@ the menus write game.skulls_active, and a co-op client takes the host's.
 /* in the order of the skulls screen (tools/port_settings.py's SKULLS) */
 enum skull
 {
-	_skull_acrophobia = 0,
-	_skull_anger,
+	_skull_anger = 0,
 	_skull_bandanna,
 	_skull_black_eye,
 	_skull_blind,
@@ -43,7 +42,6 @@ struct skull_description
 	char const *key;
 	char const *label;
 	char const *description;
-	char const *multiplier;
 };
 
 extern struct skull_description const skull_descriptions[NUMBER_OF_SKULLS];

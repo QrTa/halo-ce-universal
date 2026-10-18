@@ -390,7 +390,7 @@ static char const *const port_function_names[] =
 	/* (the campaign randomizer's screen, after a campaign level's difficulty) */
 	"randomizer profile save", "randomizer profile load", "randomizer start", "randomizer profile delete",
 	/* (the skulls screen, after a campaign level's difficulty) */
-	"skull toggle", "skulls all off", "skulls start",
+	"skull toggle", "skulls all off", "skulls start", "skulls up", "skulls down", "skulls left", "skulls right",
 };
 
 /* the PC version's game data functions that the Xbox's have not, from
