@@ -24,7 +24,8 @@ image, through the extraction, to the main menu's map at 59.94 frames a
 second ("Progress"). Phase 3's code is done and reviewed (the pad, the sound
 and the system's overlay over SDL2); its runs with a person at the console
 are moved to the end of phase 4, to be made with the picture. Phase 4 is
-next, to be written out. The probes are in `port/ps5/probe`.
+written out in detail and ready to be handed over. The probes are in
+`port/ps5/probe`.
 
 ---
 
@@ -126,9 +127,10 @@ rename):
 | `port/ps5/host/host_futex.c` | `port/switch/host/host_futex.c` | futexes over `_umtx_op`, or over a mutex and condition variable per address |
 | `port/ps5/host/host_sdl_ps5.c`, `host_sdl_ps5_input.c`, `host_sdl_ps5_audio.c` | `port/switch/host/host_sdl2.c`, `host_sdl3_events.c` | SDL3's 69 calls answered: `host_sdl_ps5.c` with SDL3's headers (the events written as SDL3's, the ticks, the stand-ins for the window, context, displays, 2D renderer and dialogs, and the checks of the SDL3 values the other two use); `_input.c` (start-up, the pad, its events, the system's overlay) and `_audio.c` (the device and the hand-off to a guest stack) with pacbrew's SDL2's, which cannot share a file with SDL3's (phase 3) |
 | `port/ps5/host/host_vk_driver_ps5.c` | `port/android/host/host_vk_driver.c` | RADV linked in: its ICD entry point `vk_icdGetInstanceProcAddr` called directly (the archive has no `vkGetInstanceProcAddr`), the driver's name for the log |
-| `port/ps5/host/host_vk_present_ps5.c` | `port/android/host/host_vk_present.c` | the surface through `VK_KHR_display` on VideoOut, the FIFO swapchain, the letterboxed blit, re-creation |
+| `port/android/host/host_vk_present.c` (a `HALO_PS5` branch, not a PS5 file: phase 4) | — | the surface through `VK_KHR_display` on VideoOut's one mode; the FIFO swapchain, the letterboxed blit and the re-creation are the shared code's |
+| `port/ps5/host/host_vk_screenshot_ps5.c` | — | the presented image written to `/data/halo/screenshots` on request, for the audit's eyes |
 | `port/ps5/host/host_update_none.c` | — | `host_update_*` unavailable |
-| `port/ps5/host/host_vk_null.c` | — | **until phase 4**: the renderer's nine imports answered so that every draw is dropped and nothing waits |
+| `port/ps5/host/host_vk_null.c` | — | **phases 2 and 3 only**: the renderer's nine imports answered so that every draw is dropped and nothing waits; deleted in phase 4 |
 | `port/ps5/host/host_gl_none.c` | — | no OpenGL on the console: every `hostgl_*` name resolved to one counting no-op, the nine `host_gl_*` imports as no-ops |
 | `port/ps5/host/host_debug_ps5.c` | `port/android/host/host_debug.c` | in its place: the thread id (`pthread_getthreadid_np`), each guest thread's floating point mode, the thread bookkeeping; the sampler and profiler answer "not on the PS5" (phase 2: the Linux ones are most of the file) |
 | `port/ps5/host/host_posix_none.c` | `port/linux/src/posix_net.c`, `posix_upnp.c`, `posix_dtls.c` | **until phase 6**: `posix.h`'s network, UPnP, DTLS and Discord helpers answering as a machine whose network is down; `posix_files.c` is compiled as it is |
@@ -1632,58 +1634,266 @@ its sound, the game's own log showing their inputs.
 
 ## Phase 4 — the Vulkan renderer on RADV
 
-The Android renderer's host half on the console, with two files replaced:
-`host_vk_driver_ps5.c` (RADV is linked in; its ICD entry point
-`vk_icdGetInstanceProcAddr` is called directly, as the host probe did; no
-adrenotools, no `dlopen`)
-and `host_vk_present_ps5.c` (`VK_KHR_display`: the display, its mode, a
-plane surface, a FIFO swapchain of the surface's count plus one, the
-letterboxed blit, the smoke test's sequence, which passed; re-creation when
-the swapchain is out of date). glslang as phase 0 decided, for
-`host_vk_shader_compile`; the SPIR-V and pipeline caches in the data
-folder (`host_vk_shaders.c` already keeps them as files); RADV's own
-shader cache pointed at the data folder too (it writes
-`/app0/radv-shader-cache` by default, the title's folder, which a
-reinstall wipes; PS5_Vulkan's `mesa-pin-disk-cache` change says how it is
-placed). The guest's `d3d8_vk.c` runs as it is; its two
-`HALO_ANDROID` branches (the screen mode) take the desktop path.
+Written to be picked up by an agent that has not seen the work so far. Read
+first, in this order: this plan's "Decisions" ("Shared code", "Shader
+compiler", "Display", "Where the guest's memory goes"), "Where the port
+lives" and "How this plan is worked"; phase 0 B's entry under "Progress"
+(RADV's smoke test, the display's one mode, `vk_icdGetInstanceProcAddr`,
+the memory figures, glslang's times), phase 2's (the null renderer, the
+`__wrap_mmap` counts, the GL names) and phase 3's (the overlay, the runs
+moved here); then `port/android/VULKAN.md`: "Decisions", "Where the
+renderer lives", phases 1, 2, 5 and 6 and their "Progress" entries (the
+renderer this phase brings up was built there, step by step, and its
+pitfalls are written there); then the code. The renderer's host half,
+`port/android/host/host_vk.h`, `host_vk_driver.h`, `host_vk.c`,
+`host_vk_render.c`, `host_vk_present.c`, `host_vk_shaders.c` whole, and
+`host_vk_data.c`, `host_vk_draw.c`, `host_vk_texture.c`,
+`host_vk_visibility.c`, `host_vk_post.c` as far as their header comments
+and what they ask of the platform; `host_vk_driver.c`'s header comment (the
+file the PS5 replaces) and `host_vk_probe.c`'s first lines (the file it
+does not compile); the guest's `port/android/guest/d3d8_vk.c`'s header and
+`vk_commands.h`, `vk_shaders.h`; the PS5's `port/ps5/host/host_main.c`,
+`host_vk_null.c` (what goes), `host_sdl_ps5.c` (the swap's pacing and
+`host_vk_presenting`), `host_memory.c` (`__wrap_mmap`) and
+`tools/ps5_build.py`; the phase 0 B host probe `port/ps5/probe/host/main.c`
+sections 4 and 5 (a working instance, device and display-plane swapchain
+on RADV, written from the specification: the sequence this phase's present
+branch follows); PS5_Mesa's `src/amd/vulkan/winsys/ps5/radv_ps5_platform.c`
+(what the driver does at start: its shader cache folder, AGC) and
+PS5_Vulkan's `README.md` sections on RADV, the shader cache and the known
+gaps, and `docs/HARDWARE_FINDINGS.md` where it names device loss. The work
+is reviewed against the acceptance list at the end of this phase.
 
-The order, each step on the console before the next, as the Vulkan plan's
-phases 2 to 6 were: the game's clears on the TV (`debug.vk_self_test`), the
-menus, a map (Blood Gulch; The Silent Cartographer), render targets and the
-mip composite (water), visibility tests (lens flares, against RADV's
-imprecise occlusion queries), the high-res HUD and text. The validation
-layer is not available on the console; the renderer's own diagnostics
-(draw counts, the two-second wait reports, the self-tests) are, and RADV's
-debug output through its environment.
+### What this phase is, and is not
 
-**Phase 3's runs, at the end** (moved here by the user on 2026-10-18, to be
-tried with the picture): once the menus and a map are on the TV, phase 3's
-"Testing on the console", runs 3 to 7, and the acceptance items they prove
-(3, 4 and 5, and 7's figures), with the user at the console and the TV's
-sound on, each run announced:
+- **It is** the Android renderer's host half compiled for the console and
+  run on RADV: the driver opened as the linked ICD, the swapchain on the
+  console's display plane, glslang linked in instead of loaded, the caches
+  in the data folder; the game's picture on the TV, from its clears to the
+  menus to a campaign level; and, at the end, phase 3's runs with a person
+  at the console. It also gives the audit eyes: a screenshot of what was
+  presented, written on request and fetched by the deploy.
+- **It is not** performance work, the PS button's handling, native 4K
+  rendering, split screen or the first start's picture (phase 5), nor the
+  network (phase 6). RADV's known gaps are seen and recorded, not worked
+  around, unless a one-line setting the renderer already has covers one.
+- **Shared code is used as it is.** The renderer's files are compiled from
+  `port/android/host`; what the PS5 needs of them goes behind `HALO_PS5`
+  in small branches (the list below, each argued under "Progress", none
+  near a third of its file), and the one file that is Android through and
+  through, `host_vk_driver.c`, is replaced by a PS5 file. The guest's
+  `d3d8_vk.c` is not touched. Android's and Linux's objects of the shared
+  files must not change (compare them, as phases 1 and 2 did). Nothing of
+  PS5_Vulkan's or PS5_Mesa's is copied in.
 
-- run 3, the menus driven by the pad and heard (cross, circle, the d-pad),
-  the host's per-minute `pad:` line showing the presses;
-- run 5, the pad switched off and on: `SDL: gamepad removed` and `added` in
-  the log, the game's `gamepads:` lines again, the menus answering after;
-- run 6, the PS button and the Quick Menu: the `overlay:` lines (the first
-  flag byte for the PS button's menu, the second for the Quick Menu), the
-  focus lost and gained, what the game did (seen on the TV), the pad's
-  state while the menu is up;
-- runs 2, 4 and 7 as far as there is no network: a campaign level started
-  from the menus and played (the movement, the turning, the shots, the
-  jump and the weapon change seen on the TV and in the `pad:` lines; the
-  rumble felt, `pad: rumble asked ... with the motors on` above 0), and
-  five minutes of it for the audio lines (0 late callbacks, the hand-off's
-  maximum under a period, no gaps heard). Run 2's own proof, the network
-  test's per-second player lines, waits for phase 6's network: the match it
-  hosts needs a socket.
+### Files
 
-**Ends with:** the game on the TV: the menus and the two maps as they are
-under Vulkan on Android, at 60 frames a second in the menus, with the
-frame times of the maps under "Progress"; what RADV's known gaps (precise
-occlusion queries, line lists) change, seen and recorded.
+| File | What |
+|---|---|
+| `port/ps5/host/host_vk_driver_ps5.c` | **new**, in place of `host_vk_driver.c`: `host_vk_driver_open` returns RADV's `vk_icdGetInstanceProcAddr` (the archive is linked; no library, no `dlopen`), after setting RADV's environment (below); `host_vk_driver_verify` says "RADV, linked" and returns 1; `host_vk_driver_close` does nothing. The description names the pins |
+| `port/ps5/host/host_vk_screenshot_ps5.c` | **new**: on request, the presented image written to a file (below) |
+| `port/ps5/host/host_vk_null.c` | **deleted** |
+| `port/ps5/host/host_main.c` | starts the renderer (below), reads the renderer's debugging switches from the environment, captures RADV's standard error into the kernel log |
+| `port/android/host/host_vk.h` | `HALO_PS5`: no `VK_USE_PLATFORM_ANDROID_KHR`; the instance function list without `vkCreateAndroidSurfaceKHR` and with the display's (`vkCreateDisplayPlaneSurfaceKHR`, `vkGetPhysicalDeviceDisplayPropertiesKHR`, `vkGetDisplayModePropertiesKHR`, `vkGetPhysicalDeviceDisplayPlanePropertiesKHR`, `vkGetDisplayPlaneCapabilitiesKHR`) |
+| `port/android/host/host_vk.c` | `HALO_PS5`: the instance extensions required and enabled are `VK_KHR_surface` and `VK_KHR_display` instead of `VK_KHR_android_surface` |
+| `port/android/host/host_vk_present.c` | `HALO_PS5`: `host_vk_surface_make` makes a display plane surface on the one display's one mode (below); `native_window` is NULL and the window checks are skipped; `surface_extent` has no window to ask; the screenshot hook called after the blit is recorded |
+| `port/android/host/host_vk_shaders.c` | `HALO_PS5`: `glslang_load` binds `G`'s fields to the linked glslang's functions instead of `dlopen`/`dlsym`; the cache root is `/data/halo/vk_cache`; no `SDL_AddEventWatch` (there is no background on a console; the title's end saves the cache) |
+| `port/android/host/host_common.c` | `host_exit` calls `host_vk_exit` under `defined(__ANDROID__) \|\| defined(HALO_PS5)`, so the pipeline cache is saved when the game ends |
+| `tools/ps5_build.py` | the host's sources gain the nine shared renderer files (not `host_vk_driver.c`, not `host_vk_probe.c`) and the two new PS5 files; `-DHOST_VK_GLSLANG_TAG` as Android passes it; `-I port/android/guest` if the renderer's headers need it |
+| `tools/ps5_deploy.py` | `fetch` also brings `/data/halo/screenshots/*.ppm`, converted to PNG beside the log with Pillow (the machine has it) and deleted from the console after |
+| `port/ps5/README.md` | the picture: what is on the TV, the caches, the debugging switches, the screenshot |
+
+### The renderer on the console
+
+**Start-up** (`host_main.c`, before the game's thread, after
+`host_memory_reserve_early`, as Android starts it after the image's range
+is reserved): `ps5_klog_capture_stderr("[radv] ")` first, so Mesa's
+messages reach the kernel log (the host probe did this); then
+`host_renderer_vulkan = host_vk_startup("", 0, line, sizeof line)` and the
+`renderer: ...` line logged. The console has no GL fallback: if it returns
+0 the title logs why and ends. The device, the queue, the frames and the
+swapchain are made at the first `host_vk_submit`, as on Android
+(`host_vk_backend_ensure`), on the game's thread.
+
+**The driver** (`host_vk_driver_ps5.c`): before returning the entry
+point, `setenv("MESA_SHADER_CACHE_DIR", "/data/halo/radv-shader-cache", 1)`
+and `mkdir` of that folder: PS5_Mesa's winsys sets the folder to
+`/app0/radv-shader-cache` only if nothing has (`setenv(..., 0)`), and the
+title's folder is wiped by every install. `MESA_DISK_CACHE_DATABASE` is
+left to the winsys. Whatever `RADV_DEBUG`, `MESA_VK_*` or `RADV_PERFTEST`
+the host's environment holds (from `environment.txt`) reaches the driver as
+it is, and the open logs the ones set.
+
+**The surface** (`host_vk_present.c`'s branch, the host probe's sequence):
+`vkGetPhysicalDeviceDisplayPropertiesKHR` (one display, "PS5 VideoOut"),
+`vkGetDisplayModePropertiesKHR` (one mode, 3840x2160 at 59,940 mHz),
+`vkGetPhysicalDeviceDisplayPlanePropertiesKHR` (one plane); a
+`VkDisplaySurfaceCreateInfoKHR` with that mode, plane 0, stack 0,
+`VK_DISPLAY_PLANE_ALPHA_OPAQUE_BIT_KHR`, identity transform and the mode's
+extent; `vkCreateDisplayPlaneSurfaceKHR`. The surface's capabilities say
+the rest and the shared code reads them: 2 to 5 images (the shared code
+asks for the minimum plus one), the current extent fixed at 3840x2160,
+`B8G8R8A8_UNORM` in the sRGB-nonlinear space (the first the shared code
+looks for), FIFO (the only mode), identity transform, opaque alpha. A
+surface lost or a swapchain out of date is handled by the shared code as
+it is (the plane surface is made again: there is no window to wait for);
+`extent_check` finds nothing to change. The game's back buffer (the
+window stand-in's 1920x1080) is blitted letterboxed into the 3840x2160
+image by the shared `host_vk_present_record`, linear filter: that is the
+scaling the "Display" row decided.
+
+**glslang** is the linked library: in `glslang_load`'s PS5 branch, each
+`G` field is set to the function of the same name (the C interface is in
+the link, phase 1), `G.library` marked loaded, nothing opened. The
+compile thread is a plain pthread (no guest calls; under the recipe's
+`pthread_create` wrap, as the host probe's threads were). The SPIR-V and
+the pipeline cache go under `/data/halo/vk_cache/` as the file lays them
+out, the folder named by `HOST_VK_GLSLANG_TAG` and the generator's version;
+the pipeline cache is saved on the file's own schedule and at the game's
+end through `host_vk_exit`.
+
+**What the host reads from its environment** (`environment.txt`, since
+the desktop guest's settings table marks `debug.vk_self_test`,
+`debug.vk_present_marker` and `debug.gpu_stats` as Android's and would not
+keep them in `config.toml`; phase 5 decides whether the table gets a PS5
+platform): `HALO_VK_SELF_TEST=1` sets `host_vk_self_test`,
+`HALO_VK_PRESENT_MARKER=1` sets `host_vk_present_marker`,
+`HALO_GPU_STATS=1` sets `host_gl_statistics` and whatever the renderer's
+counters line keys on; `HALO_PS5_SCREENSHOT=<seconds>` the screenshot
+(below). Each is logged when set.
+
+**The screenshot** (`host_vk_screenshot_ps5.c`): every N seconds after the
+first present, when asked, the swapchain image just blitted into (before
+it is presented; the surface's usage has transfer-source) is copied with
+`vkCmdCopyImageToBuffer` into a host-visible buffer of the frame's own,
+behind the frame's fence; when the fence has passed, a thread of the
+host's (not the game's) writes `/data/halo/screenshots/<frame number>.ppm`
+(binary P6, 3840x2160, the alpha dropped, BGRA to RGB), `chmod 0666`, and
+logs it. At most 20 files are kept (the oldest deleted). The hook is two
+lines in the present file's PS5 branch, after the blit's barrier; the
+copy's cost is logged once (it is the audit's, not the player's).
+
+**Memory.** RADV's allocations and the renderer's upload rings and images
+come from direct memory, in the one 12 GB budget with the guest's 855 MB
+and the host's heap (phase 0 B). The `__wrap_mmap` counts tell whether
+RADV ever maps below 4 GB (phase 2 saw none without it); the heap and
+direct memory figures in the heartbeat now include the renderer. Record
+both at the menu and in a map.
+
+**Device loss.** A GPU fault under RADV ends in `VK_ERROR_DEVICE_LOST`;
+the shared code reports it (`B.dead`, the device-lost report with the
+startup line) and records nothing more. On the console that means a
+black TV with the game running on; the host ends the title after the
+report (the log is the evidence). `MESA_VK_ABORT_ON_DEVICE_LOSS=1` in the
+environment makes RADV abort at the fault instead, with Mesa's own
+message in the kernel log: use it when hunting one.
+
+**What the game draws with lines**, for RADV's gap: `d3d8_vk.c` draws
+`D3DPT_LINELIST`, `LINESTRIP` and `LINELOOP`; find what the game draws
+with them (the debug geometry; whatever else the counters show) and
+record whether PS5_Vulkan's "line lists do not draw correctly" is seen.
+The lens flares and the sun's glow use the visibility tests; RADV reports
+`occlusionQueryPrecise` false and the renderer already asks for imprecise
+queries then (`host_vk_visibility.c`): record what the flares look like
+against Android's.
+
+### The order, each step on the console before the next
+
+As the Vulkan plan's phases 2 to 6 were tried, with the user at the TV
+from step 2 on (announce each run):
+
+1. **Clears and the present** (`HALO_VK_SELF_TEST=1 HALO_VK_PRESENT_MARKER=1
+   HALO_PS5_SCREENSHOT=5 HALO_EXIT_AFTER=40`): the `renderer:` line (RADV,
+   its Mesa version, Vulkan 1.4); the device and the swapchain lines
+   (3840x2160, the images, `B8G8R8A8_UNORM`, FIFO); `clears self-test: ok`
+   and `data self-test: ... ok`; `host_vk_presenting` turning the stand-in's
+   pacing off and the heartbeat still at 59.94 (the swapchain paces now);
+   the marker's red and green squares top left and top right, seen on the
+   TV and in the screenshots; the renderer's counters line every 60
+   frames. The shader compile thread's first lines: the menus' shaders
+   queued and compiled, their count and time.
+2. **The menus**: the main menu on the TV as under Vulkan on Android (the
+   title, the menu text in the high-res font, the background), draws
+   skipped only while their shaders compile, then none skipped; a
+   screenshot; the user's word and the Android port's picture side by
+   side. The pad drives the menus (phase 3's run 3, below).
+3. **A campaign level** from the menus: Campaign, the first level, Normal.
+   The Pillar of Autumn's opening: the cryo bay, the lights, the characters
+   (skinned models), the HUD, the decals. Screenshots every 10 s for the
+   first two minutes; the counters (draws made, skipped by shader, by
+   pipeline, by data; textures); the heartbeat; the heap and direct memory
+   figures. Then The Silent Cartographer (from the campaign menu, if the
+   save allows, else the level select): the beach, the sea (render targets,
+   the water's ripples, the mip composite), the sky and the sun (the lens
+   flare, the visibility tests), the Warthog (vehicle), the detail objects.
+4. **RADV's gaps**, looked for in step 3's scenes and recorded with
+   screenshots: the sun's flare and the lens flares (imprecise occlusion);
+   anything drawn with lines; anything that differs from Android's
+   picture of the same place.
+5. **Phase 3's runs** (moved here by the user, 2026-10-18), with the TV's
+   sound on:
+   - run 3, the menus driven by the pad and heard: cross, circle, the
+     d-pad, each heard and seen; the host's per-minute `pad:` line listing
+     the presses;
+   - run 5, the pad switched off and on at the menu: `SDL: gamepad removed`
+     and `added` in the log, the game's `gamepads:` lines again, the menus
+     answering after;
+   - run 6, the PS button and the Quick Menu in the level: the `overlay:`
+     lines (the first flag byte for the PS button's menu, the second for
+     the Quick Menu), the focus lost and gained, what the game did seen on
+     the TV (keeps playing, pauses), the pad's state while the menu is up;
+   - runs 2, 4 and 7, as there is no network: the level played for five
+     minutes (the movement, the turning, the shots, the jump, the weapon
+     change, seen on the TV and in the `pad:` lines), the rumble felt
+     (`pad: rumble asked ... with the motors on` above 0), and the audio
+     lines over the five minutes (0 late callbacks, the hand-off's maximum
+     under a period, no gaps heard). Run 2's own proof, the network test's
+     per-second lines, waits for phase 6.
+6. **Figures**: frames a second at the menu and in the level's opening
+   (the heartbeat), the renderer's counters line, the compile thread's
+   totals (shaders, pipelines, their times, the cache's files after the
+   run), a second start's shader warm-up (nothing compiled, the pipelines
+   from the cache), the heap's peak and direct memory's free block at the
+   menu and in the level, and the screenshot copy's cost.
+
+### Acceptance
+
+The review checks each of these:
+
+1. `ninja ps5` builds with `-Werror`; `ninja linux_x86_64` builds; the
+   Android and Linux objects of every shared file touched (`host_vk.h`'s
+   includers, `host_vk.c`, `host_vk_present.c`, `host_vk_shaders.c`,
+   `host_common.c`) are unchanged with debug information stripped; the
+   four test files pass; no weak host symbol stands; `host_vk_null.c` is
+   gone.
+2. Step 1's log: the renderer line, the swapchain line, both self-tests
+   `ok`, the marker in a screenshot (the PNG under the run's folder).
+3. Step 2: the main menu in a screenshot, as Android's; no draw skipped
+   once the shaders are compiled (the counters line).
+4. Step 3: The Pillar of Autumn's opening and The Silent Cartographer's
+   beach in screenshots, the counters with the draws made, the frames a
+   second in both, the figures under "Progress".
+5. Step 4: what RADV's gaps change, seen and recorded with screenshots,
+   or "not seen" with the scene that would show it.
+6. Phase 3's items: the menus heard and driven (3), the gamepad removed and
+   added (5), the focus events and what the game did (6), the five
+   minutes' audio figures with no late callback and the hand-off under a
+   period (7), the rumble felt (4), the level played (2 as far as it goes).
+7. "Progress" has: the `HALO_PS5` branches argued with their line counts,
+   the renderer line and the device's properties, the memory figures, the
+   compile thread's totals and the second start's warm-up, the `__wrap_mmap`
+   counts with RADV running, what the game draws with lines, the screenshot
+   copy's cost, and anything unexpected.
+8. Nothing changed outside `port/ps5/`, `tools/ps5_build.py`,
+   `tools/ps5_deploy.py` and the shared files' `HALO_PS5` branches; nothing
+   of PS5_Vulkan's or PS5_Mesa's copied in.
+
+Don't commit; the review does that. Record anything unexpected under
+"Progress", even if it was dealt with.
+
+**Ends with:** the game on the TV: the menus and a campaign level as they
+are under Vulkan on Android, driven by the pad and heard, with the frame
+rates and what RADV's known gaps change under "Progress".
 
 ## Phase 5 — playing on the console
 
