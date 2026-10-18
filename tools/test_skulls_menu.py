@@ -19,6 +19,10 @@ def test_skulls_menus():
 
     assert 'setting="game.skulls"' in gameplay
     assert "SKULLS:" in gameplay
+    # (ALL SKULLS, which menu_functions.c shows only once UNLOCK BY PLAYING was chosen)
+    assert 'setting="game.skulls_all_unlocked"' in gameplay
+    assert 'name="main_menu/settings_select/player_setup/player_profile_edit/gameplay/op_skulls_all_unlocked"' in gameplay
+    assert 'input="gameplay screen update"' in gameplay
     assert len(port_settings.SKULLS) == 22
     for key, _ in port_settings.SKULLS:
         assert f'name="main_menu/difficulty_select/skulls/skull_{key}"' in screen
@@ -77,6 +81,6 @@ def test_skull_handlers_are_registered():
     functions = (ROOT / "port/linux/game/menu_functions.c").read_text()
 
     for name in ("skull toggle", "skulls all off", "skulls start", "skulls up", "skulls down", "skulls left",
-                 "skulls right", "skulls unlock all", "skulls unlock play", "skulls screen update"):
+                 "skulls right", "skulls unlock all", "skulls unlock play", "skulls screen update", "gameplay screen update"):
         assert f'"{name}"' in tags
         assert f'!strcmp(name, "{name}")' in functions

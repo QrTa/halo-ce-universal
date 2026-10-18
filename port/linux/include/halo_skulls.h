@@ -59,6 +59,9 @@ enum
 };
 int skulls_unlock_mode(void);
 unsigned long skulls_unlocked_mask(void);
+/* whether the locked skulls are carried by enemies to be found: unlocking
+by playing, without Settings > Gameplay's ALL SKULLS */
+int skulls_drop(void);
 
 /* game.skulls_active's words, to a mask of the skulls and back */
 unsigned long skulls_mask_from_text(char const *text);

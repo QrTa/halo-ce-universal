@@ -205,11 +205,17 @@ unsigned long skulls_unlocked_mask(void)
 {
 	unsigned long everything = (1UL << NUMBER_OF_SKULLS) - 1;
 
-	if (skulls_unlock_mode() != _skulls_unlock_play)
+	/* (ALL SKULLS on: every one, those found kept for when it is off) */
+	if (skulls_unlock_mode() != _skulls_unlock_play || config_boolean("game.skulls_all_unlocked"))
 		return everything;
 	/* (Grunt Birthday Party the one had from the start) */
 	return (skulls_mask_from_text(config_string("game.skulls_unlocked")) | (1UL << _skull_grunt_birthday_party)) &
 		everything;
+}
+
+int skulls_drop(void)
+{
+	return skulls_unlock_mode() == _skulls_unlock_play && !config_boolean("game.skulls_all_unlocked");
 }
 
 /* the host's (or a game of one machine's) skulls, from its settings: those

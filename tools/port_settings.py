@@ -341,7 +341,14 @@ SCREENS["gameplay"] = {
          [("OFF", "false"), ("ON", "true")],
          "On: after a campaign level's difficulty, a screen\nturns the Master Chief Collection's skulls on.",
          None),
+        # (shown with SKULLS on, once UNLOCK BY PLAYING was chosen:
+        # menu_functions.c's gameplay_screen_update)
+        ("ALL SKULLS:", "game.skulls_all_unlocked",
+         [("OFF", "false"), ("ON", "true")],
+         "On: every skull can be picked, and none drop.\nOff: back to the skulls you found.",
+         None),
     ],
+    "inputs": ["gameplay screen update"],
 }
 
 # Controls Setup: the keyboard and mouse's actions, in groups (the order of
@@ -558,7 +565,7 @@ def _setting_screen(folder: str, spec: dict) -> list:
     extra += _strings(f"{base}/help_strings",
                       [""] + [help_text.replace("\n", "\\n") for _, _, _, help_text, *_ in spec["rows"]] +
                       [help_text.replace("\n", "\\n") for _, _, help_text, *_ in spec.get("categories", ())])
-    return _screen(folder, spec, rows, ["port settings help"], [], extra)
+    return _screen(folder, spec, rows, ["port settings help", *spec.get("inputs", ())], [], extra)
 
 
 def _controls_screen() -> list:

@@ -2245,6 +2245,19 @@ static void skulls_screen_update(struct widget_instance *list)
 	text_set(help, text);
 }
 
+/* "gameplay screen update" (Settings > Gameplay): ALL SKULLS only with the
+skulls on and UNLOCK BY PLAYING chosen; a hidden row takes no focus */
+static void gameplay_screen_update(struct widget_instance *list)
+{
+	struct widget_instance *row = named(list, "op_skulls_all_unlocked", 0);
+
+	if (row)
+	{
+		row->visible = randomizer_spinner_is(list, "skulls_spinner", "true") &&
+			skulls_unlock_mode() == _skulls_unlock_play;
+	}
+}
+
 /* the difficulty menu: "difficulty item select" starts the game at the
 item's; "set difficulty" (its OK button) at the one its description shows.
 With the randomizer on, one of the ten campaign levels opens its screen
@@ -7070,4 +7083,6 @@ void pc_menu_game_data_function_invoke(
 		randomizer_screen_update(widget);
 	else if (!strcmp(name, "skulls screen update"))
 		skulls_screen_update(widget);
+	else if (!strcmp(name, "gameplay screen update"))
+		gameplay_screen_update(widget);
 }

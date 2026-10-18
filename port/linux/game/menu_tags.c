@@ -417,8 +417,8 @@ static char const *const port_game_data_input_names[] =
 	"port renderer textbox",
 	/* (the campaign randomizer's saved profiles, and its screen's rows) */
 	"randomizer profiles update", "randomizer screen update",
-	/* (the skulls screen's ticks and help) */
-	"skulls screen update",
+	/* (the skulls screen's ticks and help; Gameplay's ALL SKULLS shown) */
+	"skulls screen update", "gameplay screen update",
 };
 
 static struct

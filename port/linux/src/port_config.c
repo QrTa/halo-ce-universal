@@ -461,6 +461,10 @@ static const struct config_setting config_settings[] =
 		"With game.skulls_unlock_mode \"play\", the skulls found and kept,\n"
 		"separated by commas (game.skulls_active's names). Grunt Birthday Party\n"
 		"is always had. Written as levels are finished." },
+	{ "game.skulls_all_unlocked", _config_boolean, "false", "HALO_SKULLS_ALL_UNLOCKED", _environment_value, _platform_all,
+		"Settings > Gameplay's ALL SKULLS, with game.skulls_unlock_mode \"play\".\n"
+		"true: every skull can be turned on, and none drop. false: those found\n"
+		"(game.skulls_unlocked), which this leaves as they are." },
 	{ "game.custom_edition", _config_boolean, "true", "HALO_CUSTOM_EDITION", _environment_value, _platform_all,
 		"Load and run Halo Custom Edition maps (not those that need OpenSauce):\n"
 		"put them and Custom Edition's bitmaps.map, sounds.map and loc.map in\n"
