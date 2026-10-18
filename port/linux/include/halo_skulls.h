@@ -54,9 +54,15 @@ unsigned long skulls_mask_from_text(char const *text);
 void skulls_text_from_mask(unsigned long mask, char *text, unsigned int size);
 
 /* a level loaded: the skulls it is played with, taken now (the host's for
-a client); the level gone */
-void skulls_level_loaded(void);
+a client), and Grunt Birthday Party's sound added to its tags; the level
+going (before the randomizer's tags go, which were added before it) */
+void skulls_level_loaded(long scenario_tag_index);
 void skulls_level_unloaded(void);
+
+/* the sound cache's samples of the birthday party's sound, from memory
+(xbox_sound_cache.c); FALSE for any other sound */
+struct sound_permutation;
+unsigned char skulls_sound_read(struct sound_permutation const *permutation, void *buffer);
 
 /* the advertisement's reserved bytes: the skulls flag and mask, when the
 host plays a campaign game with skulls; the client's copy of them */

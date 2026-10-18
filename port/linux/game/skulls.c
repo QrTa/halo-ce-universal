@@ -18,12 +18,14 @@ makes the same.
 */
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "cseries.h"
 #include "cseries/errors.h"
 #include "effects/effect_definitions.h"
 #include "effects/effects.h"
+#include "effects/particles.h"
 #include "game/game.h"
 #include "game/game_allegiance.h"
 #include "game/game_engine.h"
@@ -35,16 +37,21 @@ makes the same.
 #include "objects/objects.h"
 #include "scenario/scenario.h"
 #include "scenario/scenario_definitions.h"
+#include "sound/game_sound.h"
+#include "sound/sound_definitions.h"
 #include "tag_files/tag_files.h"
 #include "tag_files/tag_groups.h"
 #include "units/units.h"
 
 #include "halo_port_limits.h"
 #include "platform.h"
+#include "custom_edition_cache.h"
 #include "randomizer.h"
 
 extern int config_boolean(char const *name);
 extern char const *config_string(char const *name);
+/* cseries_windows.h's */
+unsigned long system_milliseconds(void);
 
 /* the Master Chief Collection's skulls (Halopedia's MCC:Skulls), their help
 in two lines of the skulls screen's (42 characters at most) */
@@ -80,22 +87,50 @@ static unsigned long level_mask;
 static int remote_on;
 static unsigned long remote_mask;
 
-/* Malfunction's broken element, for each local player's body */
+/* Malfunction's broken element, for each local player's body, and the
+game time it was last looked at: a checkpoint's revert, or the level
+started again, brings back the same body (the same unit index) at an
+earlier time, which rolls again too */
 static struct
 {
 	long unit_index;
+	long game_time;
 	int element;
-} malfunction[SKULLS_LOCAL_PLAYERS];
+} malfunction[SKULLS_LOCAL_PLAYERS] = { { NONE, NONE, NONE }, { NONE, NONE, NONE }, { NONE, NONE, NONE },
+	{ NONE, NONE, NONE } };
+static unsigned long malfunction_roll;
 
 static void malfunction_reset(void)
 {
 	int index;
 
+	/* (the element kept, so the next body's is another) */
 	for (index = 0; index < SKULLS_LOCAL_PLAYERS; index++)
 	{
 		malfunction[index].unit_index = NONE;
-		malfunction[index].element = NONE;
+		malfunction[index].game_time = NONE;
 	}
+}
+
+/* an element, not the one broken before, nor the motion sensor while Fog
+has it off already: from the clock, as the game's own local seed starts the
+same each time a level loads */
+static int malfunction_new_element(int previous)
+{
+	int choices[NUMBER_OF_SKULL_MALFUNCTIONS];
+	int count = 0;
+	int element;
+
+	for (element = 0; element < NUMBER_OF_SKULL_MALFUNCTIONS; element++)
+	{
+		if (element == _skull_malfunction_motion_sensor && skull_active(_skull_fog))
+			continue;
+		if (element == previous)
+			continue;
+		choices[count++] = element;
+	}
+	malfunction_roll = malfunction_roll * 1664525UL + 1013904223UL + system_milliseconds();
+	return choices[(malfunction_roll >> 16) % (unsigned long)count];
 }
 
 unsigned long skulls_mask_from_text(char const *text)
@@ -168,7 +203,10 @@ static unsigned long config_mask(void)
 	return skulls_mask_from_text(config_string("game.skulls_active"));
 }
 
-void skulls_level_loaded(void)
+static void party_sound_add(void);
+static void party_sound_remove(void);
+
+void skulls_level_loaded(long scenario_tag_index)
 {
 	malfunction_reset();
 	if (network_game_distributed_client())
@@ -182,10 +220,17 @@ void skulls_level_loaded(void)
 		skulls_text_from_mask(level_mask, text, sizeof(text));
 		error(_error_silent, "skulls: %s", text);
 	}
+	/* (Grunt Birthday Party's cheer, a tag of a campaign level's) */
+	if ((level_mask & (1UL << _skull_grunt_birthday_party)) && scenario_tag_index != NONE &&
+		scenario_definition_get(scenario_tag_index)->type == _scenario_type_solo)
+	{
+		party_sound_add();
+	}
 }
 
 void skulls_level_unloaded(void)
 {
+	party_sound_remove();
 	level_mask = 0;
 	malfunction_reset();
 }
@@ -255,13 +300,15 @@ int skulls_hud_broken(short local_player_index, long unit_index, int element)
 	if (local_player_index < 0 || local_player_index >= SKULLS_LOCAL_PLAYERS || unit_index == NONE ||
 		!skull_active(_skull_malfunction))
 		return 0;
-	/* (a new body: another element breaks. The local seed, as this is
-	only what this machine shows) */
-	if (malfunction[local_player_index].unit_index != unit_index)
+	/* (a new body, or the game gone back in time: another element breaks.
+	Only what this machine shows) */
+	if (malfunction[local_player_index].unit_index != unit_index ||
+		game_time_get() < malfunction[local_player_index].game_time)
 	{
 		malfunction[local_player_index].unit_index = unit_index;
-		malfunction[local_player_index].element = (int)(local_random() % NUMBER_OF_SKULL_MALFUNCTIONS);
+		malfunction[local_player_index].element = malfunction_new_element(malfunction[local_player_index].element);
 	}
+	malfunction[local_player_index].game_time = game_time_get();
 
 	return malfunction[local_player_index].element == element;
 }
@@ -326,17 +373,14 @@ float skulls_boom_scale(void)
 	return skull_active(_skull_boom) ? 2.0f : 1.0f;
 }
 
-/* an effect of the maps' (each campaign map has these two), where the unit
-stands; NONE when the map has neither */
-static void effect_at_unit(char const *name, char const *otherwise, long unit_index)
+/* an effect of the maps' (each campaign map has it), where the unit stands */
+static void effect_at_unit(char const *name, long unit_index)
 {
 	long definition_index = tag_loaded(EFFECT_DEFINITION_TAG, name);
 	char const *marker_names[1];
 	real_point3d marker_points[1];
 	real_vector3d marker_forwards[1];
 
-	if (definition_index == NONE && otherwise)
-		definition_index = tag_loaded(EFFECT_DEFINITION_TAG, otherwise);
 	if (definition_index == NONE || !object_try_and_get_and_verify_type(unit_index, _object_mask_unit))
 		return;
 	marker_names[0] = "";
@@ -346,14 +390,329 @@ static void effect_at_unit(char const *name, char const *otherwise, long unit_in
 		marker_forwards, 0.0f, 0.0f, NULL, NULL, TRUE);
 }
 
+/* ---------- Grunt Birthday Party */
+
+/* its cheer: a WAV of 16-bit PCM (port/assets/sounds, tools/embed_assets.py),
+made a sound tag of the level's while it plays with the skull: a grunt
+dialog sound of the map's copied, with one permutation of these samples,
+which the sound cache reads from memory (skulls_sound_read,
+xbox_sound_cache.c). Not of the dialog's class: a unit speaks one sound at
+a time, and the grunt's death cry, right after, would cut the cheer off;
+an explosion's class, as loud and as far heard, plays beside it */
+extern const unsigned int skulls_party_sound[];
+extern const unsigned long skulls_party_sound_size;
+extern void *cache_files_tag_instances(long *count);
+extern void cache_files_set_tag_instances(void *instances, long count);
+
+#define SOUND_COMPRESSION_NONE 0
+#define SOUND_COMPRESSION_XBOX_ADPCM 1
+#define PARTY_SOUND_RATE 22050
+#define PARTY_SOUND_NAME "sound\\port\\skulls\\grunt birthday party"
+/* sound_classes.c's projectile_detonation */
+#define PARTY_SOUND_CLASS 1
+/* full loudness this near, in world units, heard this far */
+#define PARTY_SOUND_MINIMUM_DISTANCE 2.0f
+#define PARTY_SOUND_MAXIMUM_DISTANCE 40.0f
+
+/* cache_files.c's */
+struct skulls_tag_instance
+{
+	long group_tag;
+	long parent_group_tags[2];
+	long tag_index;
+	char *name;
+	void *base_address;
+	unsigned long unused[2];
+};
+
+typedef char skulls_tag_instance_size[sizeof(struct skulls_tag_instance) == 0x20 ? 1 : -1];
+
+/* the dialog sounds the cheer is made from, the first the map has */
+static char const *const party_sound_templates[] =
+{
+	"sound\\dialog\\grunt\\conditional\\combat2\\postcombatactions\\celebration",
+	"sound\\dialog\\grunt\\conditional\\combat2\\killingpeople\\killed_enemy",
+	"sound\\dialog\\grunt\\conditional\\combat2\\friendsdying\\friend_killed_by_enemy_player",
+};
+
+static struct
+{
+	/* the samples, made Xbox ADPCM once (the game's allocator: kept) */
+	boolean encoded;
+	byte *samples;
+	unsigned long sample_bytes;
+	long milliseconds;
+	/* the level's tag, while it has one */
+	struct sound_definition definition;
+	struct sound_pitch_range range;
+	struct sound_permutation permutation;
+	struct skulls_tag_instance *grown_instances;
+	struct skulls_tag_instance *saved_instances;
+	long saved_count;
+	long tag_index;
+} party_sound = { FALSE, NULL, 0, 0 };
+
+static unsigned long read_le32(byte const *bytes)
+{
+	return (unsigned long)bytes[0] | ((unsigned long)bytes[1] << 8) | ((unsigned long)bytes[2] << 16) |
+		((unsigned long)bytes[3] << 24);
+}
+
+/* the WAV's samples, encoded; FALSE when it has none this build plays */
+static boolean party_sound_encode(void)
+{
+	byte const *file = (byte const *)skulls_party_sound;
+	unsigned long size = skulls_party_sound_size;
+	unsigned long offset = 12;
+	byte const *data = NULL;
+	unsigned long data_bytes = 0;
+	long channels = 0;
+	long rate = 0;
+	long bits = 0;
+
+	if (party_sound.encoded)
+		return party_sound.samples != NULL;
+	party_sound.encoded = TRUE;
+	if (size < 12 || memcmp(file, "RIFF", 4) || memcmp(file + 8, "WAVE", 4))
+	{
+		error(_error_silent, "skulls: the birthday party's sound is not a WAV");
+		return FALSE;
+	}
+	/* (its chunks: the format's and the samples') */
+	while (offset + 8 <= size)
+	{
+		unsigned long chunk = read_le32(file + offset + 4);
+
+		if (chunk > size - offset - 8)
+			break;
+		if (!memcmp(file + offset, "fmt ", 4) && chunk >= 16)
+		{
+			if (file[offset + 8] != 1 || file[offset + 9] != 0)
+				break;
+			channels = (long)(file[offset + 10] | (file[offset + 11] << 8));
+			rate = (long)read_le32(file + offset + 12);
+			bits = (long)(file[offset + 22] | (file[offset + 23] << 8));
+		}
+		else if (!memcmp(file + offset, "data", 4))
+		{
+			data = file + offset + 8;
+			data_bytes = chunk;
+		}
+		offset += 8 + chunk + (chunk & 1);
+	}
+	if (!data || bits != 16 || (channels != 1 && channels != 2) || (rate != 22050 && rate != 44100) ||
+		data_bytes < (unsigned long)(2 * channels))
+	{
+		error(_error_silent, "skulls: the birthday party's sound is not 16-bit PCM, mono or stereo, at 22 or 44 kHz");
+		return FALSE;
+	}
+	party_sound.samples = custom_edition_sounds_encode(data, (long)data_bytes, SOUND_COMPRESSION_NONE, FALSE,
+		channels, rate, PARTY_SOUND_RATE, &party_sound.sample_bytes);
+	if (!party_sound.samples || party_sound.sample_bytes > MAXIMUM_SOUND_DATA_SIZE)
+	{
+		error(_error_silent, "skulls: the birthday party's sound could not be encoded");
+		party_sound.samples = NULL;
+		return FALSE;
+	}
+	party_sound.milliseconds = (long)((data_bytes / (unsigned long)(2 * channels)) * 1000UL / (unsigned long)rate);
+	return TRUE;
+}
+
+/* the level's tag of the cheer, appended to its tags (after the randomizer's,
+which the level's unload restores after this) */
+static void party_sound_add(void)
+{
+	long existing = 0;
+	struct skulls_tag_instance *instances = (struct skulls_tag_instance *)cache_files_tag_instances(&existing);
+	struct skulls_tag_instance *template_instance;
+	long template_index = NONE;
+	long salt = 0;
+	long index;
+
+	party_sound.tag_index = NONE;
+	if (!instances || existing <= 0 || existing >= UNSIGNED_SHORT_MAX)
+		return;
+	for (index = 0; index < (long)NUMBEROF(party_sound_templates) && template_index == NONE; index++)
+		template_index = tag_loaded(SOUND_DEFINITION_TAG, party_sound_templates[index]);
+	if (template_index == NONE)
+	{
+		error(_error_silent, "skulls: no grunt dialog to make the birthday party's sound of");
+		return;
+	}
+	if (!party_sound_encode())
+		return;
+	party_sound.grown_instances = (struct skulls_tag_instance *)malloc((unsigned long)(existing + 1) *
+		sizeof(*party_sound.grown_instances));
+	if (!party_sound.grown_instances)
+		return;
+	memcpy(party_sound.grown_instances, instances, (unsigned long)existing * sizeof(*instances));
+	for (index = 0; index < existing; index++)
+	{
+		long instance_salt = (long)((unsigned long)instances[index].tag_index >> 16);
+
+		if (instance_salt > salt)
+			salt = instance_salt;
+	}
+	party_sound.tag_index = ((salt + 1) << 16) | existing;
+
+	/* the template's definition, its samples this one permutation */
+	party_sound.definition = *sound_definition_get(template_index);
+	party_sound.definition.sound_class = PARTY_SOUND_CLASS;
+	party_sound.definition.minimum_distance = PARTY_SOUND_MINIMUM_DISTANCE;
+	party_sound.definition.maximum_distance = PARTY_SOUND_MAXIMUM_DISTANCE;
+	party_sound.definition.gain_modifier = 1.0f;
+	party_sound.definition.zero_gain_modifier = 1.0f;
+	party_sound.definition.one_gain_modifier = 1.0f;
+	party_sound.definition.zero_pitch_modifier = 1.0f;
+	party_sound.definition.one_pitch_modifier = 1.0f;
+	party_sound.definition.zero_skip_fraction_modifier = 0.0f;
+	party_sound.definition.one_skip_fraction_modifier = 0.0f;
+	/* (heard the same all round) */
+	party_sound.definition.inner_cone_angle = 2.0f * _pi;
+	party_sound.definition.outer_cone_angle = 2.0f * _pi;
+	party_sound.definition.outer_cone_gain = 1.0f;
+	party_sound.definition.skip_fraction = 0.0f;
+	party_sound.definition.random_pitch_bounds.lower = 1.0f;
+	party_sound.definition.random_pitch_bounds.upper = 1.0f;
+	party_sound.definition.encoding = 0;
+	party_sound.definition.compression = SOUND_COMPRESSION_XBOX_ADPCM;
+	party_sound.definition.sample_rate = PARTY_SOUND_RATE == 44100 ? 1 : 0;
+	party_sound.definition.promotion_sound.index = NONE;
+	party_sound.definition.promotion_count = 0;
+	party_sound.definition.promotion_counter = 0;
+	party_sound.definition.promotion_time = 0;
+	party_sound.definition.scripting_time = 0;
+	party_sound.definition.scripting_sound_index = NONE;
+	party_sound.definition.longest_permutation_length = party_sound.milliseconds;
+	party_sound.definition.pitch_ranges.count = 1;
+	party_sound.definition.pitch_ranges.address = &party_sound.range;
+	party_sound.definition.pitch_ranges.definition = NULL;
+	csmemset(&party_sound.range, 0, sizeof(party_sound.range));
+	party_sound.range.natural_pitch = 1.0f;
+	party_sound.range.bend_bounds.lower = 1.0f;
+	party_sound.range.bend_bounds.upper = 1.0f;
+	party_sound.range.actual_permutation_count = 1;
+	party_sound.range.playback_rate = 1.0f;
+	party_sound.range.played_permutation_mask = 0xFFFFFFFF;
+	party_sound.range.previous_permutation_index = NONE;
+	party_sound.range.forced_permutation_index = NONE;
+	party_sound.range.permutations.count = 1;
+	party_sound.range.permutations.address = &party_sound.permutation;
+	party_sound.range.permutations.definition = NULL;
+	csmemset(&party_sound.permutation, 0, sizeof(party_sound.permutation));
+	party_sound.permutation.gain = 1.0f;
+	party_sound.permutation.compression = SOUND_COMPRESSION_XBOX_ADPCM;
+	party_sound.permutation.next_permutation_index = NONE;
+	party_sound.permutation.samples.size = (long)party_sound.sample_bytes;
+	party_sound.permutation.samples.address = party_sound.samples;
+	/* (the sound cache's: block, address, tag: xbox_sound_cache.c) */
+	party_sound.permutation.unknown0 = NONE;
+	party_sound.permutation.unknown2 = (unsigned long)party_sound.tag_index;
+	party_sound.permutation.unknown3 = (unsigned long)party_sound.tag_index;
+
+	template_instance = &instances[DATUM_INDEX_TO_ABSOLUTE_INDEX(template_index)];
+	party_sound.grown_instances[existing] = *template_instance;
+	party_sound.grown_instances[existing].tag_index = party_sound.tag_index;
+	party_sound.grown_instances[existing].name = PARTY_SOUND_NAME;
+	party_sound.grown_instances[existing].base_address = &party_sound.definition;
+	party_sound.saved_instances = instances;
+	party_sound.saved_count = existing;
+	cache_files_set_tag_instances(party_sound.grown_instances, existing + 1);
+	error(_error_silent, "skulls: the birthday party's sound is tag %08lx (%lu bytes, %ld ms), made of %s",
+		(unsigned long)party_sound.tag_index, party_sound.sample_bytes, party_sound.milliseconds,
+		tag_get_name(template_index));
+}
+
+static void party_sound_remove(void)
+{
+	if (party_sound.saved_instances)
+		cache_files_set_tag_instances(party_sound.saved_instances, party_sound.saved_count);
+	if (party_sound.grown_instances)
+		free(party_sound.grown_instances);
+	party_sound.grown_instances = NULL;
+	party_sound.saved_instances = NULL;
+	party_sound.saved_count = 0;
+	party_sound.tag_index = NONE;
+}
+
+unsigned char skulls_sound_read(struct sound_permutation const *permutation, void *buffer)
+{
+	if (permutation != &party_sound.permutation || !party_sound.samples)
+		return FALSE;
+	memcpy(buffer, party_sound.samples, (size_t)party_sound.sample_bytes);
+	return TRUE;
+}
+
+/* the confetti: the shirt scraps of the maps' cloth debris, and the sparks of
+their impacts, each a colour of the party's, thrown up from the grunt's head
+(the local seed: only what this machine shows) */
+#define CONFETTI_SCRAPS 40
+#define CONFETTI_SPARKS 16
+
+static real_rgb_color const confetti_colors[] =
+{
+	{ 1.0f, 0.15f, 0.2f }, { 1.0f, 0.8f, 0.1f }, { 0.2f, 0.9f, 0.3f },
+	{ 0.15f, 0.55f, 1.0f }, { 0.85f, 0.25f, 1.0f }, { 1.0f, 0.5f, 0.1f },
+};
+
+static void confetti_throw(long definition_index, short count, real_point3d const *center, real speed,
+	real radius_lower, real radius_upper)
+{
+	short piece;
+
+	if (definition_index == NONE)
+		return;
+	for (piece = 0; piece < count; piece++)
+	{
+		struct new_particle_data data;
+		real_vector3d direction;
+
+		csmemset(&data, 0, sizeof(data));
+		data.definition_index = definition_index;
+		data.object_index = NONE;
+		data.node_index = NONE;
+		data.local_player_index = NONE;
+		data.position = *center;
+		direction.i = real_local_random_range(-0.6f, 0.6f);
+		direction.j = real_local_random_range(-0.6f, 0.6f);
+		direction.k = real_local_random_range(0.7f, 1.2f);
+		normalize3d(&direction);
+		data.direction = direction;
+		scale_vector3d(&direction, speed * real_local_random_range(0.6f, 1.2f), &data.velocity);
+		data.rotation = real_local_random_range(0.0f, 2.0f * _pi);
+		data.angular_velocity = real_local_random_range(-8.0f, 8.0f);
+		data.radius = real_local_random_range(radius_lower, radius_upper);
+		data.color.alpha = 1.0f;
+		data.color.rgb = confetti_colors[local_random() % NUMBEROF(confetti_colors)];
+		particle_new(&data);
+	}
+}
+
+static void party_confetti(long unit_index)
+{
+	struct unit_datum *unit = (struct unit_datum *)object_try_and_get_and_verify_type(unit_index, _object_mask_unit);
+	real_point3d center;
+
+	if (!unit)
+		return;
+	center = unit->object.bounding_sphere_center;
+	center.z += unit->object.bounding_sphere_radius * 0.5f;
+	/* (each a share of its particle's own size: a whole scrap of shirt is
+	bigger than the grunt) */
+	confetti_throw(tag_loaded(PARTICLE_TAG, "effects\\particles\\solid\\debris shirt"), CONFETTI_SCRAPS, &center,
+		1.6f, 0.05f, 0.09f);
+	confetti_throw(tag_loaded(PARTICLE_TAG, "effects\\particles\\flash\\sparks impact"), CONFETTI_SPARKS, &center,
+		2.2f, 0.125f, 0.2f);
+}
+
 void skulls_unit_killed(long unit_index, int headshot)
 {
-	if (!skulls_unit_is_grunt(unit_index))
+	/* (the Master Chief Collection's confetti and cheer) */
+	if (!headshot || !skull_active(_skull_grunt_birthday_party) || !skulls_unit_is_grunt(unit_index))
 		return;
-	/* (the Master Chief Collection's confetti: the maps have none, so the
-	co-op teleport's sparkle, which does no harm) */
-	if (headshot && skull_active(_skull_grunt_birthday_party))
-		effect_at_unit("effects\\coop teleport", "weapons\\plasma grenade\\effects\\detonation start", unit_index);
+	party_confetti(unit_index);
+	if (party_sound.tag_index != NONE)
+		object_impulse_sound_new(unit_index, party_sound.tag_index, NONE, global_origin3d, global_forward3d, 1.0f);
 }
 
 void skulls_unit_died(long unit_index)
@@ -361,5 +720,5 @@ void skulls_unit_died(long unit_index)
 	/* (a plasma grenade's explosion: its damage the host's alone, as an
 	effect's damage is) */
 	if (skull_active(_skull_grunt_funeral) && skulls_unit_is_grunt(unit_index))
-		effect_at_unit("weapons\\plasma grenade\\effects\\explosion", NULL, unit_index);
+		effect_at_unit("weapons\\plasma grenade\\effects\\explosion", unit_index);
 }

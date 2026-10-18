@@ -4,8 +4,9 @@ tools/hud_assets.py), the menus' titles (port/assets/titles, made by
 tools/title_assets.py), their controller button icons (port/assets/buttons,
 made by tools/button_assets.py), the fonts the text is drawn with
 (port/assets/fonts), the menus' files (port/assets/menus, made by
-tools/ce_menus.py) and SMAA's shader and lookup textures
-(port/third_party/smaa) in the game as C data:
+tools/ce_menus.py), the game's own sounds (port/assets/sounds, WAV files of
+16-bit PCM) and SMAA's shader and lookup textures (port/third_party/smaa) in
+the game as C data:
 
     python tools/embed_assets.py OUTPUT.c
 
@@ -48,6 +49,11 @@ SMAA_FILES = (("SMAA.hlsl", "xgpu_smaa_shader"), ("area_tex.zlib", "xgpu_smaa_ar
               ("search_tex.zlib", "xgpu_smaa_search_texture"))
 # the desktop windows' icon (tools/app_icon.py; port/linux/src/sdl_platform.c)
 WINDOW_ICON = Path("port/assets/icon/opence-icon-256.png")
+# the game's own sounds, WAV files of 16-bit PCM (port/assets/sounds), and the
+# names their makers declare them by: Grunt Birthday Party's cheer
+# (port/linux/game/skulls.c)
+SOUND_ASSETS = Path("port/assets/sounds")
+SOUND_FILES = (("grunt_birthday_party.wav", "skulls_party_sound"),)
 PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 
 
@@ -90,7 +96,8 @@ def hud_asset_inputs() -> List[Path]:
     return [*inputs, *(folder / f"{asset['name']}.png" for folder, asset, _ in textures()),
             *(FONT_ASSETS / name for name in font_files()), *(MENU_ASSETS / name for name in menu_files()),
             *(SMAA_ASSETS / name for name, _ in smaa_files()),
-            *([WINDOW_ICON] if (ROOT / WINDOW_ICON).is_file() else [])]
+            *([WINDOW_ICON] if (ROOT / WINDOW_ICON).is_file() else []),
+            *(SOUND_ASSETS / name for name, _ in SOUND_FILES if (ROOT / SOUND_ASSETS / name).is_file())]
 
 
 def hud_configure_inputs() -> List[Path]:
@@ -104,6 +111,8 @@ def hud_configure_inputs() -> List[Path]:
             inputs += [folder, listing]
     if (ROOT / SMAA_ASSETS).is_dir():
         inputs.append(SMAA_ASSETS)
+    if (ROOT / SOUND_ASSETS).is_dir():
+        inputs.append(SOUND_ASSETS)
     return inputs
 
 
@@ -226,6 +235,17 @@ def main() -> None:
     # SMAA's shader, as text a GLSL compiler takes (ASCII, ending in a NUL),
     # and its lookup textures (xgpu_post.c); each of size 0 that the
     # checkout does not have. The OpenGL ES renderer has no SMAA.
+    # the sounds (each of size 0 that the checkout does not have), on every
+    # renderer
+    for name, symbol in SOUND_FILES:
+        path = ROOT / SOUND_ASSETS / name
+        data = path.read_bytes() if path.is_file() else b""
+        lines.append("")
+        lines.append(f"const unsigned int {symbol}[] = {{")
+        lines.extend(words(data) if data else ["\t0,"])
+        lines.append("};")
+        lines.append(f"const unsigned long {symbol}_size = {len(data)};")
+    lines.append("")
     lines.append("#ifndef HALO_GLES")
     present = dict(smaa_files())
     for name, symbol in SMAA_FILES:

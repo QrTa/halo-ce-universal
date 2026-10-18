@@ -664,6 +664,9 @@ void scenario_tags_unload(
 		loose_sounds_tags_unloaded();
 	}
 	texture_cache_close();
+	/* port: the level's skulls go, and the sound they added to the tags,
+	before the randomizer's tags (port/linux/game/skulls.c) */
+	skulls_level_unloaded();
 	/* port: the randomizer's tags go, and the table without them comes
 	back, before the menus restore the map's own (port/linux/game/randomizer.c) */
 	{
@@ -671,8 +674,6 @@ void scenario_tags_unload(
 
 		randomizer_tags_unloaded();
 	}
-	/* port: the level's skulls go (port/linux/game/skulls.c) */
-	skulls_level_unloaded();
 	/* port: the menus' tags go, and the map's own table comes back
 	(port/linux/game/menu_tags.c): after the texture cache, which writes to
 	the bitmaps it has loaded as it closes, theirs among them */
@@ -1420,8 +1421,9 @@ long scenario_tags_load(
 
 				randomizer_tags_loaded(scenario_name);
 			}
-			/* port: the skulls this level is played with (port/linux/game/skulls.c) */
-			skulls_level_loaded();
+			/* port: the skulls this level is played with, and their sound
+			(port/linux/game/skulls.c) */
+			skulls_level_loaded(cache_file_globals.tag_header->scenario_tag_index);
 			result = cache_file_globals.tag_header->scenario_tag_index;
 		}
 		/* port: a map refused is closed for the next to open */

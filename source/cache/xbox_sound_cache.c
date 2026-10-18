@@ -611,7 +611,8 @@ static void sound_cache_start_loading_sound(
 		{
 			extern boolean loose_sounds_read(struct sound_permutation const *permutation, void *buffer);
 
-			if (loose_sounds_read(sound, cache_address))
+			/* (or Grunt Birthday Party's: port/linux/game/skulls.c) */
+			if (loose_sounds_read(sound, cache_address) || skulls_sound_read(sound, cache_address))
 			{
 				cache_sound->loaded = TRUE;
 			}
