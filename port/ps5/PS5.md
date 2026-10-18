@@ -27,7 +27,7 @@ are moved to the end of phase 4, to be made with the picture. Phase 4 is
 done and reviewed: the game draws through the Android port's Vulkan
 renderer on RADV, the menus and campaign levels on the TV as on Android, at
 59.94 or 119.88 frames a second, with phase 3's runs made with the user at
-the console ("Progress"). Phase 5, the network (the phases were swapped), is done and reviewed: the console hosts and joins system link games and joins internet games through the brokers and the tunnel, and downloads shared maps. Phase 6 is done and reviewed: the console holds 119.88 frames a second in a match at 1080p and at native 4K and in split screen, the first start is seen on the TV, and the heap no longer grows; the campaign level, the PS button's pause in a level, rest mode and the long sessions were left out by the user's decision. Phase 7 is next, to be written out. The probes are
+the console ("Progress"). Phase 5, the network (the phases were swapped), is done and reviewed: the console hosts and joins system link games and joins internet games through the brokers and the tunnel, and downloads shared maps. Phase 6 is done and reviewed: the console holds 119.88 frames a second in a match at 1080p and at native 4K and in split screen, the first start is seen on the TV, and the heap no longer grows; the campaign level, the PS button's pause in a level, rest mode and the long sessions were left out by the user's decision. Phase 7, the console's own features (the PS5's menus, the resolution in play, gyro aiming, the microphone, the first start's screen, keyboard and mouse if the console allows), is written out and awaits its implementer; phase 8, for players, follows. The probes are
 in `port/ps5/probe`.
 
 ---
@@ -80,7 +80,7 @@ settles the ones it names.
 | Logs | **A file in the data folder** (`halo.log`, as the Switch) and the kernel log (`sceKernelDebugOutText`, read with klogsrv on port 3232); faults reported with their registers as the Linux host does. |
 | Self-updater | **None**: `host_update_*` answer "unavailable", as a build without it. |
 | Networking | **Phase 5**, before the rest of play (swapped with it on 2026-10-18: a match is the busiest case and the headless network test measures it unattended): FreeBSD sockets through the host's system calls, the Switch's `host_net.c` the model. |
-| Licensing | PS5_Vulkan and its SDK fork are GPL-3.0-or-later; RADV comes from PS5_Mesa, whose licence (Mesa's, and PS5_Vulkan's additions) phase 7 reads and names. **Nothing of theirs is copied into this repository**; they are a build dependency at pinned commits, and the PS5 build is a GPL work as a whole. Its source is this repository **and** those three at their pinned commits: a released binary ships with a notice naming each repository, its commit and where to get it, and the pins in `tools/ps5_build.py` are what the notice is generated from. |
+| Licensing | PS5_Vulkan and its SDK fork are GPL-3.0-or-later; RADV comes from PS5_Mesa, whose licence (Mesa's, and PS5_Vulkan's additions) phase 8 reads and names. **Nothing of theirs is copied into this repository**; they are a build dependency at pinned commits, and the PS5 build is a GPL work as a whole. Its source is this repository **and** those three at their pinned commits: a released binary ships with a notice naming each repository, its commit and where to get it, and the pins in `tools/ps5_build.py` are what the notice is generated from. |
 | Testing | **The user's console** (192.168.2.157, system software 13.59) is what every phase is accepted on. Runs are started through **`ps5vkctl`** (PS5_Vulkan's resident payload, port 9111), which the user approved on 2026-10-17 after phase 0 B's item 9 proved it. It is loaded once per console boot through the user's payload manager (itsPLK's, port 8084: `/manage:upload`, then `/loadpayload:`), since the console's ELF loader on 9021 only takes local connections. Phase 1's deploy uploads, then launches and kills through it. A run that needs the user's hands (the pad, the PS button) is still announced first, so the user is at the console. |
 
 ---
@@ -704,7 +704,7 @@ are absolute, as the Switch's are (its comment says why).
    copied from `port/ps5/sce_sys`, `sce_module/libc.prx` from PS5_Vulkan's
    `runtime/` after its sha256 check (built by its `tools/rebuild-libc.sh`
    if absent), `halo_guest.elf` (the Vulkan image), and `NOTICE.txt`, a
-   first version of phase 7's notice: the pins, the repositories and their
+   first version of phase 8's notice: the pins, the repositories and their
    URLs, written by `ps5_build.py` from its constants at configure time.
    The phony target `ps5` depends on all of them.
 
@@ -799,7 +799,7 @@ resolution monkeypatched, the build file names `halo_guest_vk.elf`, the
 host objects, the link, `eboot.bin`, `param.json`, `icon0.png`, `libc.prx`
 and `NOTICE.txt`; (4) a fake checkout whose `HEAD` differs from the pin
 prints the warning and still generates. Added to `AGENTS.md`'s testing list
-in phase 7, not now.
+in phase 8, not now.
 
 ### The compile survey, for phase 2
 
@@ -2402,7 +2402,296 @@ on the console, from a fresh install with only the disc image in
 figures, at 1080p and 4K, in a ten-minute match and over twenty, that says
 the port holds 60 frames a second.
 
-## Phase 7 — for players
+## Phase 7 — the console's own features
+
+(Added on 2026-10-18, after phase 6's review: the release phase became
+phase 8, and this phase gives the PS5 build what the Switch and Android
+ports have of their consoles' own, before it is released.)
+
+Written to be picked up by an agent that has not seen the work so far. Read
+first, in this order: this plan's "Decisions", "Where the port lives" and
+"How this plan is worked"; phase 6's audit under "Progress" (its open items
+are this phase's test runs); then the code. `port/ps5/host/host_sdl_ps5.c`
+whole (the stand-ins, the first start's file dialog answer and the 2D
+renderer that carries the extraction's progress text,
+`host_sdl_render_debug_text`), `host_sdl_ps5_input.c` (how a pad is opened
+and named, the overlay check, the `pad:` line), `host_sdl_ps5_audio.c`
+(`host_sdl_get_audio_devices`, `host_sdl_open_audio_stream`'s refusal of a
+recording stream), `host_main.c` (the once-a-second work, `renderer_start`,
+`read_display_resolution`), `host_net_ps5.c`'s head (how a console library's
+calls are declared by hand from OpenOrbis's headers, and the stub libraries
+the link takes: `tools/ps5_title.sh`); `port/switch/host/host_sdl2.c` from
+"gyroscope aiming" to `host_sdl_gamepad_gyro` (the model for the gyro:
+noise floor, gap limit, the sign of each axis), `host_microphone.c` and
+`host_mic_probe.c` whole (the model for the microphone), `host_ui.c` and
+`host_ui.h` whole (the screens before the game: drawn in software, shown
+through a framebuffer under `#ifndef HOST_UI_PREVIEW`), `host_ui_assets.S`;
+`port/linux/src/xinput_sdl.c` from `gyro_settings_read` to the end of
+`halo_linux_touch_look` (the Switch's gyro path the PS5 joins),
+`port/linux/src/voice_audio.c`'s head and `microphone_open` (what voice
+chat asks of a recording stream: 48 kHz, mono, float, frames of 960),
+`port/linux/src/menu_files.c` around `MENU_PLATFORM` and
+`for_this_platform` (how a menu row is kept for one platform),
+`port/assets/menus/ce/*video_settings.xml`, `*audio_settings.xml`,
+`*gamepad_setup.xml` and `*gamepad_setup.gyro.xml` (the rows and their
+`platform=` lists), `port/linux/src/port_config.c`'s `input.gyro_*` and
+`display.ps5_resolution` rows, `port/android/host/host_vk_present.c` (the
+PS5 branches: the display plane, `ensure_swapchain`, `host_vk_present_record`
+and `host_vk_present_queue`), `port/ps5/host/host_vk_screenshot_ps5.c` (a
+PS5 file working on the renderer's swapchain image: the model for showing
+a picture of the host's); `port/ps5/README.md` and `port/switch/README.md`
+("Gyro aiming", "Internet play" for the microphone).
+
+### What this phase is, and is not
+
+- **It is** the features a player of the Switch or Android build would
+  miss on the PS5, each tried on the console: the game's menus as the
+  PS5's (Video Setup with the console's resolution and nothing of a
+  desktop window's, Audio Setup without device rows, Gamepad Setup with
+  Gyro Aim), the resolution changing in play; aiming with the DualSense's
+  gyroscope as the Switch aims with its controllers'; voice chat's
+  microphone from the pad or a headset in it; the first start's screens on
+  the TV (the extraction's progress, the no-image message) instead of
+  notifications alone; and, if the probe allows it, a USB keyboard and
+  mouse, which the desktop guest already plays with. It also makes the
+  runs phase 6 left open, since each feature is tried in play: a campaign
+  level start to end with the PS button pressed in it, rest mode, and a pad
+  switched off and on.
+- **It is not** the DualSense's trigger effects, its speaker or its
+  touchpad as a pointer (the game has no use for them; the touchpad's
+  click is already a button), the light bar (the system colours it by
+  player), trophies, activities or anything of PSN (a homebrew title has
+  none), HDR, the display's safe area, a picture during the game's own
+  loads, performance work (phase 8 carries the compile thread's priority
+  and the long session), or internet hosting from behind the user's router
+  (phase 8's test).
+- **Shared code is used as it is.** The shared files that change, each
+  behind `HALO_PS5` and argued under "Progress" with the preprocessing
+  check of phases 4 to 6 (Android's, Linux's and the Switch's forms
+  unchanged): `menu_files.c` (the PS5 as a menu platform), `xinput_sdl.c`
+  (the PS5 joins the Switch's gyro path), `port_config.c` (the gyro rows
+  for the PS5; the resolution row's text), `host_vk_present.c` (a picture
+  of the host's presented through the renderer's swapchain), and the
+  Switch's `host_ui.c` (compiled into the PS5 title: the four places that
+  touch libnx's framebuffer take a PS5 branch). **One change is not behind
+  `HALO_PS5`:** `for_this_platform` must accept `ps5` in a `platform=`
+  list on every build, since the menu files are data every build reads;
+  it is one name added to a list and to an error message, and the menu
+  files' test on Linux proves the other builds still read them. The menu
+  XML files gain `ps5` in `platform=` lists and nothing else: a row's
+  match is by exact name, so the other platforms' screens are unchanged.
+
+### Files
+
+| File | What |
+|---|---|
+| `port/ps5/probe/pad/`, `audioin/`, `picture/`, `kbm/` | the four probes of part A, each a title in the shape of `probe/sdl2` (`main.c`, `param.json`, a build script), their results in `probe/results/` and under "Progress" |
+| `port/ps5/host/host_pad_ps5.c` | the DualSense's motion sensor: each SDL pad matched to its user (the joystick's name is the user's, `sceUserServiceGetLoginUserIdList` and `sceUserServiceGetUserName`), `scePadGetHandle` for the handle SDL opened, `scePadSetMotionSensorState`, `scePadReadState` read from the once-a-second thread's faster sibling or at each `host_sdl_gamepad_gyro` call (part A says which: the sampling rate decides); the turn integrated from the angular velocity and the timestamps as the Switch's `gyro_read` does, with its noise floor and gap limit; `host_sdl_gamepad_gyro` defined (it replaces the import stub) |
+| `port/ps5/host/host_microphone_ps5.c` | voice chat's microphone: `libSceAudioIn.sprx` loaded at run time (`sceKernelLoadStartModule`, `sceKernelDlsym`: the SDK has no stub for it) or linked if part A finds a stub; `sceAudioInOpen` for the signed-in user's voice input, a thread reading `sceAudioInInput` into a ring of 48 kHz mono floats (resampled if the input is 16 kHz), the Switch's `host_microphone.c` the model; `host_sdl_get_audio_devices` lists one recording device and `host_sdl_open_audio_stream` serves it; the game's mute button is the system's (muted, the input is zeros: dropped as the Switch drops them) |
+| `port/ps5/host/host_ui_ps5.c` | what the Switch's `host_ui.c` wants of the console on the PS5: `host_ui_screen_open`, `host_ui_screen_present(canvas, width, height)` and `host_ui_screen_close` over `host_vk_present_picture`; the first start's screens driven from `host_sdl_ps5.c`'s 2D renderer stand-in (the progress text already parsed for the notifications) and from the no-image case (a message held 10 s before the title ends); `host_ui_message` for the crash report's last words is not this phase's |
+| `port/switch/host/host_ui.c`, `host_ui.h`, `host_ui_assets.S` | compiled into the PS5 title (`tools/ps5_build.py`): under `HALO_PS5` the include of `<switch.h>` and `host.h` becomes `ps5_host.h`, and the four framebuffer sites (`present`, both `framebufferCreate` in `host_ui_open`, `framebufferClose` in `host_ui_close`) call `host_ui_screen_*`; the Switch's preprocessed form unchanged; the assets' `.incbin` paths are the repository's |
+| `port/android/host/host_vk_present.c` | `HALO_PS5`: `host_vk_present_picture(const uint32_t *rgba, uint32_t width, uint32_t height)`: `ensure_swapchain`, acquire, the picture uploaded through a staging buffer and blitted scaled to the swapchain image, presented, waited; usable before the game's first frame and never during one (the UI is closed before the game's device is made) |
+| `port/ps5/host/host_kbm_ps5.c` | **only if part A's probe 4 says the title gets them:** `libSceKeyboard.sprx` and `libSceMouse.sprx` loaded at run time, `sceKeyboardReadState` and `sceMouseRead` polled on the pad's thread, written as the guest's SDL3 key, text (ASCII, the US layout, said in the README), mouse motion, button and wheel events; the mouse relative (`host_sdl_set_relative_mouse` honoured) |
+| `port/ps5/host/host_sdl_ps5.c` | the window stand-in's size follows `display.ps5_resolution` in play: `config.toml`'s change seen (its modification time, in the once-a-second work), the size changed and the desktop's resize events written (`SDL_EVENT_WINDOW_RESIZED`, `SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED`) so the game remakes its device at the new size as it does when a desktop window is resized; the first start's screens (above), the notifications kept for the start and the end (they reach a player in the system's menus) |
+| `port/ps5/host/host_sdl_ps5_input.c` | the pad's user found at its opening (for the gyro and the microphone); the keyboard and mouse events if they come |
+| `port/ps5/host/host_main.c` | the once-a-second work gains the settings file's check and the pad reader's start; the modules loaded at start with their result logged; rest mode's events if part A finds a way to hear them, else nothing |
+| `port/linux/src/menu_files.c` | `MENU_PLATFORM "ps5"` under `HALO_PS5` (before the desktop's default); `for_this_platform` accepts `ps5` (every build) |
+| `port/assets/menus/ce/main_menu.settings_select.player_setup.player_profile_edit.video_settings.xml` | the PS5's rows: RESOLUTION (`display.ps5_resolution`, `1080P|2160P`, a new `op_ps5_resolution` row, `platform="ps5"`), then VSYNC, INTERPOLATION, GRAPHICS, FOV as the Switch's order, each row's `platform=` list gaining `ps5` where the Switch has it; the desktop's MODE, RESOLUTION, WINDOW SIZE, RESOLUTION SCALING, MAX FPS and DIRECT CAMERA stay `desktop` |
+| `...audio_settings.xml`, `...gamepad_setup.xml` | `ps5` added beside `android switch web` on the volume rows and beside `android switch` on the gyro row; the gyro screen itself has no platform list |
+| `port/linux/src/xinput_sdl.c` | `HALO_PS5` joins `HALO_SWITCH` where the controller's gyroscope is read (`halo_linux_touch_look`'s first branch) and where the phone's is not driven (`gyro_settings_read`'s `touch_input_gyro_mode`), and `halo_linux_gyro_zoom_only` answers as the Switch's build does |
+| `port/linux/src/port_config.c` | the five `input.gyro_*` rows gain `_platform_ps5`; `display.ps5_resolution`'s text says it changes at once (or at the next start, if step 2 settles on that) |
+| `tools/ps5_build.py` | the new host files, the Switch's UI files with their include paths (stb_truetype and nanosvg where the Switch build finds them), `host_sdl_gamepad_gyro` taken off the weak stubs |
+| `tools/test_ps5_host.py`, `port/ps5/tests/` | the gyro's integration (noise floor, gap, sign) and the microphone's resampling and zero-dropping tested on the PC with recorded samples |
+| `port/ps5/README.md`, `port/linux/README.md` | the menus, Gyro Aim, voice chat, the first start's screen, the keyboard and mouse (or why not), rest mode's result; the settings table's gyro rows for the PS5 |
+
+### The work, in order
+
+**Part A — the probes.** Four titles in `port/ps5/probe`, each run with the
+deploy's machinery (`tools/ps5_deploy.py` installs any title folder given
+its ID; the probes keep their own IDs as phase 0's did), their logs in
+`probe/results`, their answers under "Progress" before part B starts. The
+user starts each run ("Decisions": the console is theirs; say what the
+probe will do and wait).
+
+1. **The pad's motion sensor.** For each signed-in user
+   (`sceUserServiceGetLoginUserIdList`): `scePadGetHandle(user, 0, 0)`
+   while pacbrew's SDL2 has the pad open (the probe initialises SDL2's
+   joystick subsystem first, as the title does) and whether it returns
+   SDL's handle or an error; `scePadSetMotionSensorState(handle, 1)` and
+   whether the angular velocity is zeros without it; `scePadReadState` 250
+   times a second for 20 s while the user holds the pad still, then turns
+   it left, right, up and down on request (the kernel log says when): the
+   layout of `ScePadData` from OpenOrbis's `Pad.h` asserted by its size
+   and by `connected` and `timestamp` making sense; the sensor's rate (how
+   often the timestamp changes), the noise at rest (the largest magnitude
+   over 5 s), and which component moves, with which sign, for each turn.
+   Also `scePadGetControllerInformation` for the pad's type (a DualSense
+   or a DualShock 4). Two pads if the user has two.
+2. **The audio input.** `sceKernelLoadStartModule` of `libSceAudioIn.sprx`
+   (and `sceSysmoduleLoadModule` of its number, if the first fails), the
+   functions by `sceKernelDlsym`; `sceAudioInOpen` for the foreground user
+   with type voice (0) at 48 kHz, then 16 kHz, 256 samples, 16-bit mono,
+   and which is accepted; `sceAudioInInput` for 10 s: the cadence of its
+   returns, the samples' peak each second while the user speaks and while
+   silent, and what comes while the pad's mute button is lit; the
+   DualSense's own microphone first, then a headset in its jack if the
+   user has one. Whether a second open for a second user works.
+3. **A picture before the game.** The title brings up RADV and the display
+   plane as the host does (`host_vk_startup` is the host's; the probe
+   links the same way, as `probe/vk` did), fills a 1280x720 RGBA buffer
+   with a gradient and text-sized blocks, and presents it scaled to the
+   swapchain for 5 s through the steps `host_vk_present_picture` will
+   take; then destroys nothing and draws a clear colour through the
+   renderer's normal frame path for 5 s. Measures: the first picture's
+   time to the screen from the title's start, and that the hand-over to
+   the frame path leaves no error in the kernel log. The user says what
+   the TV showed.
+4. **The keyboard and the mouse.** `libSceKeyboard.sprx` and
+   `libSceMouse.sprx` loaded at run time; `sceKeyboardInit`,
+   `sceKeyboardOpen(user, 0, 0, NULL)`, `sceKeyboardReadState` for 20 s
+   with a USB keyboard in the console; `sceMouseInit`, `sceMouseOpen`,
+   `sceMouseRead` with a USB mouse: whether a title is given them at all
+   (the system may keep them), the key codes (HID usages, which SDL's
+   scancodes are) and the mouse's deltas, buttons and wheel. Without a
+   keyboard or mouse to hand, the probe reports the opens' results and
+   the step is left out, said plainly.
+
+**Part B — the work**, in this order, each step on the console before the
+next:
+
+1. **The menus as the PS5's.** `MENU_PLATFORM "ps5"`, the name accepted;
+   the three XML files as the Files table says, the PS5's RESOLUTION row
+   first. Prove it on the Linux build (`ninja linux_x86_64`'s menu files
+   are the same data: the reader's test and the desktop's screens
+   unchanged, a screenshot of Video Setup on Linux if in doubt) and on the
+   console: Video Setup shows RESOLUTION, VSYNC, INTERPOLATION, GRAPHICS,
+   FOV and nothing of a window's; Audio Setup starts at VOLUME; Gamepad
+   Setup shows GYRO AIM. Screenshots of each.
+
+2. **The resolution in play.** `display.ps5_resolution` set from the menu:
+   the host sees `config.toml` change within a second and writes the
+   resize events; the game remakes its device at 3840x2160 or 1920x1080
+   (the renderer's target size in the log) without a restart, in the
+   menus and in a level; the frame counter afterwards as phase 6's. If
+   the renderer's re-creation on the console fails in a way the desktop's
+   does not (record it), fall back to a note row ("changes when the game
+   restarts", as Android's) and the next start, and say so in the row's
+   text and the README.
+
+3. **Gyro aiming.** `host_pad_ps5.c` from probe 1's answers: the handle,
+   the sensor on, the turn per axis with the signs the probe found, the
+   noise floor from the probe's rest figure, the Switch's gap limit; the
+   guest's path joined in `xinput_sdl.c`. Settings: the five `input.gyro_*`
+   rows on the PS5 (`config.toml` keeps them), the GYRO AIM screen as the
+   Switch's (ON, OFF, ONLY ON ZOOM; the two sensitivities and inverts).
+   **Tried in play, by the user:** a campaign level start to end (phase
+   6's item 10, with the PS button pressed once in it: the pause screen,
+   phase 6's item 6), aiming with the gyro all the time and only on zoom,
+   with the sensitivity that felt right noted; a split-screen match where
+   each player's pad aims their own view. The log's `pad:` line gains the
+   gyro's samples a second and the largest turn in the minute.
+
+4. **The microphone.** `host_microphone_ps5.c` from probe 2's answers:
+   the module, the open, the thread, the ring, the resampling if needed,
+   the zeros dropped; the recording device listed and served; voice chat's
+   settings as on the desktop (the game's). **Tried:** a match with the
+   user's other machine, voice heard both ways (the Switch or the phone
+   on the other end), the pad's mute button silencing it, a headset in
+   the pad if there is one; the `audio:` line gains the microphone's
+   buffers a second and the seconds of zeros. If probe 2 found no way to
+   open the input, the step records why and the README says voice chat
+   listens only.
+
+5. **The first start's screens.** `host_ui.c` compiled in with its PS5
+   branch, `host_ui_ps5.c`, `host_vk_present_picture` from probe 3's
+   steps; the progress screen driven from the 2D renderer stand-in (each
+   file and every 4 MB, as the Switch), the no-image message held 10 s
+   before the title ends, the notifications kept for the start and the
+   end. **Tried from a fresh install** (the data folder emptied but for
+   the disc image, as phase 6's "Ends with" asked): the user sees the
+   panel and the bar move on the TV, then the game's own first frame; a
+   second start with no image sees the message. The screenshot path does
+   not cover the UI's frames (they are presented before the renderer's
+   frame path runs), so the user's eyes and a photograph if they wish.
+
+6. **Keyboard and mouse**, if probe 4 allows: `host_kbm_ps5.c`, the events
+   as the guest's SDL3 events, the mouse relative in play and absolute in
+   the menus as the desktop's `host_sdl_set_relative_mouse` asks; text
+   input for ASCII with the US layout. **Tried:** the menus steered with
+   the keyboard, a profile named by typing, a level played with mouse and
+   keyboard as on the desktop; the `pad:` line's sibling says the keys and
+   the mouse's travel in the minute. If probe 4 says the title is not
+   given them, the step is one paragraph under "Progress".
+
+7. **Rest mode and the pad, tried** (phase 6's items 7 and 8): the console
+   put to rest with the title at the menu and again in a level, woken
+   after a minute; what came back (the title running, its picture, the
+   log's lines around it; or the title gone and what survived: saves,
+   caches, `config.toml`). The pad switched off and on at the menu and in
+   a level, noticed by the game both times (the `gamepads:` lines). If
+   rest mode ends the title, the README says so and nothing more is
+   built for it this phase.
+
+8. **The READMEs and the settings table**, then the whole run once more:
+   `ninja ps5`, a fresh install, the first start's screen, the menus, a
+   level with the gyro, a match with voice, the resolution switched in
+   play, with the log and screenshots of each in one run folder.
+
+### Acceptance
+
+The review checks each of these:
+
+1. `ninja ps5` builds with `-Werror`; `ninja linux_x86_64` builds; the
+   preprocessed `menu_files.c`, `xinput_sdl.c` and `port_config.c` under
+   Android's, Linux's and the Switch's defines, `host_vk_present.c` under
+   Android's host, and `host_ui.c` under the Switch's host, are unchanged
+   but for `for_this_platform`'s one name (shown as a diff); the test
+   files pass, the new ones included; the menu files' test passes; no
+   weak host symbol stands.
+2. The four probes' results under "Progress" with their figures (the
+   sensor's rate and noise and each axis's sign; the input's accepted
+   rate and cadence and its mute behaviour; the picture's time to screen;
+   the keyboard's and mouse's opens), and in `probe/results`.
+3. The menus on the console: screenshots of Video Setup, Audio Setup and
+   Gamepad Setup showing the PS5's rows and none of a desktop's; the
+   Linux build's screens unchanged.
+4. The resolution switched in play both ways with the renderer's target
+   size in the log and a screenshot at each, or the fallback recorded
+   with its reason.
+5. Gyro aiming: the user's account of the level and the split-screen
+   match, the sensitivity used, the `pad:` lines' gyro figures; the
+   campaign level's loads and play and the PS button's pause screen in
+   it (the `overlay:` line quoted).
+6. The microphone: voice heard both ways in a match (the user's account
+   and both machines' lines), the mute button honoured, or the reason it
+   could not be opened.
+7. The first start's screen seen by the user from a fresh install, the
+   no-image message seen, the game's first frame following the UI's with
+   no error in the kernel log.
+8. Keyboard and mouse: a level played with them and a profile typed, or
+   the probe's refusal quoted.
+9. Rest mode's result both ways (menu and level) and the pad off and on
+   both ways, recorded.
+10. "Progress" has: each shared file's `HALO_PS5` branch argued with its
+    line count and the preprocessing check, `for_this_platform`'s change
+    argued, the module loads' results, and anything unexpected.
+11. Nothing changed outside `port/ps5/`, `port/switch/host/host_ui.c`'s
+    PS5 branches, the four shared files' `HALO_PS5` branches, the three
+    menu XML files' `platform=` lists, `tools/ps5_build.py`,
+    `tools/test_ps5_host.py` and `port/linux/README.md`'s settings table.
+
+Don't commit; the review does that. Record anything unexpected under
+"Progress", even if it was dealt with.
+
+**Ends with:** on the console, from a fresh install, the first start's
+screen on the TV; the menus the PS5's; a campaign level played start to
+end aiming with the DualSense's gyroscope, paused once with the PS button;
+a match with voice heard both ways; the resolution switched in play; and
+rest mode's and the pad's results recorded.
+
+---
+
+## Phase 8 — for players
 
 `port/ps5/README.md` complete (requirements: the jailbreak and homebrew
 environment the port was proved on; installing: the title folder over FTP,
@@ -2421,6 +2710,13 @@ and where to get it: this repository at the release's commit; PS5_Vulkan
 the build pinned, with its licence as its repository states it; and the
 payload SDK release (`ps5-payload-dev/sdk` v0.42) the fork is built on. A
 release that changes a pin changes the notice.
+
+It also takes what phases 6 and 7 leave for it: a long session (an hour
+at the menu, twenty minutes in a match) to confirm the heap holds; the
+compile thread's priority's effect, cold against cold; internet hosting
+and UPnP from behind the user's router; the console's chores (the tree's
+own build uploaded in place of the diagnostic one, `maps.phase6-aside`
+removed); and which firmware versions were proved.
 
 ---
 
@@ -2459,7 +2755,7 @@ As the deko3d and Vulkan plans were, on purpose:
 | Page-protection faults are not delivered to a title, or not with a context | Phase 0 B; `host_watch_hash.c` is the fallback |
 | RADV's gaps: imprecise occlusion queries (lens flares, the sun), line lists | Phase 4 sees them; the renderer copes as it does on drivers without `occlusionQueryPrecise` |
 | The one display mode is 4K at 59.94 Hz: the present's cost, and no 60.00 Hz | Phase 0 B asks for 1080p; phase 5 measures the present |
-| Firmware: proved on 13.59 here, 12.x by PS5_Vulkan; other versions unknown | Phase 7 says which were proved |
+| Firmware: proved on 13.59 here, 12.x by PS5_Vulkan; other versions unknown | Phase 8 says which were proved |
 | The toolchain is another project's, GPL, and moves | Pinned by commit in `tools/ps5_build.py`; nothing copied in |
 | Suspend and the PS button leave the title in a bad state | Phase 0 B: the title runs on under the system's menu, nothing breaks, two flags tell; phase 5 pauses on them and tries rest mode |
 | A title's `exit()` ends in `SIGSYS` | Phase 2: it leaves nothing behind (the log is written a line at a time); PS5_Vulkan's titles get it too; explained in the README |
@@ -2527,17 +2823,19 @@ and the entry's own table against the acceptance list is right.
 8. **The console's state:** it runs the diagnostic build (at 1), not the
    tree's; the next upload puts it right. `/data/halo/maps.phase6-aside`
    (1.8 GB, the old maps) is still there, since FTP cannot delete what the
-   title wrote; removing it is a chore for the host to offer (phase 7) or
+   title wrote; removing it is a chore for the host to offer (phase 8) or
    the user another way.
 
 Deviations accepted: the runs merged and cut at the user's word; the
 Switch as the other machine; Rat Race for split screen; a diagnostic file
 the phase did not name, for a leak the phase did not foresee.
 
-Carried into phase 7: the campaign level and the PS button's pause in it,
-rest mode, the pad test, a long session to confirm the heap holds beyond
-two minutes, the compile priority's effect, the console's two chores above,
-and whether SDL2 drops a pad switched off at all.
+Carried into phase 7 (the console's own features, added after this
+review): the campaign level and the PS button's pause in it, rest mode, the
+pad test and whether SDL2 drops a pad switched off at all, each made while
+a feature is tried in play. Carried into phase 8: a long session to confirm
+the heap holds beyond two minutes, the compile priority's effect, and the
+console's two chores above.
 
 ### Phase 6 — playing on the console (2026-10-18)
 
