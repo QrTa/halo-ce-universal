@@ -27,7 +27,7 @@ are moved to the end of phase 4, to be made with the picture. Phase 4 is
 done and reviewed: the game draws through the Android port's Vulkan
 renderer on RADV, the menus and campaign levels on the TV as on Android, at
 59.94 or 119.88 frames a second, with phase 3's runs made with the user at
-the console ("Progress"). Phase 5, now the network (the phases were swapped), is next, to be written out. The probes are
+the console ("Progress"). Phase 5, the network (the phases were swapped), is written out in detail and ready to be handed over. The probes are
 in `port/ps5/probe`.
 
 ---
@@ -136,7 +136,8 @@ rename):
 | `port/ps5/host/host_vk_null.c` | — | **phases 2 and 3 only**: the renderer's nine imports answered so that every draw is dropped and nothing waits; deleted in phase 4 |
 | `port/ps5/host/host_gl_none.c` | — | no OpenGL on the console: every `hostgl_*` name resolved to one counting no-op, the nine `host_gl_*` imports as no-ops |
 | `port/ps5/host/host_debug_ps5.c` | `port/android/host/host_debug.c` | in its place: the thread id (`pthread_getthreadid_np`), each guest thread's floating point mode, the thread bookkeeping; the sampler and profiler answer "not on the PS5" (phase 2: the Linux ones are most of the file) |
-| `port/ps5/host/host_posix_none.c` | `port/linux/src/posix_net.c`, `posix_upnp.c`, `posix_dtls.c` | **until phase 5**: `posix.h`'s network, UPnP, DTLS and Discord helpers answering as a machine whose network is down; `posix_files.c` is compiled as it is |
+| `port/ps5/host/host_posix_none.c` | `port/linux/src/posix_net.c`, `posix_upnp.c`, `posix_dtls.c` | **phases 2 to 4 only**: `posix.h`'s network, UPnP, DTLS and Discord helpers answering as a machine whose network is down; deleted in phase 5, which compiles the three files themselves |
+| `port/ps5/host/host_net_ps5.c`, `mbedtls_config_ps5.h` | — | phase 5: the console's network brought up, name lookups through its resolver (the platform layer refuses `getaddrinfo`), its address for the log, mbedTLS's entropy from `arc4random_buf`, and the sockets smoke test |
 | `port/ps5/host/host_local.map` | — | the link's version script: the wrapped names (`mmap`, `SDL_ShowSimpleMessageBox`) kept local, since the title converter refuses an export |
 | `port/ps5/tests/`, `tools/test_ps5_host.py` | `port/android/tests/`, `tools/test_host_units.py` | the PS5 host's pure parts tested on the PC |
 | `port/ps5/host/host_bootstrap.c`, `host_bootstrap.S` | the guest probe's section 6 | **temporary** (phase 1): the ranges, the loader, the thunks and the trivial answers that prove the build pipeline; phase 2 deletes them |
@@ -1905,17 +1906,269 @@ the game's busiest case and the headless network test gives performance
 figures without a person at the TV, so the network comes first and phase 6
 measures performance in multiplayer.)
 
+Written to be picked up by an agent that has not seen the work so far. Read
+first, in this order: this plan's "Decisions" ("Networking", "Shared code"),
+"Where the port lives" and "How this plan is worked"; phase 2's entry under
+"Progress" (what `host_posix_none.c` answers today, the `-ENOSYS` counts,
+the game starting with its network down) and phase 3's (the network test
+that could not host); then `port/linux/NETCODE.md` whole (the distributed
+netcode, "Transport" and "Testing": the network test modes and what each
+machine logs), `port/linux/README.md`'s system link, internet play, voice
+chat, server browser and map sharing sections; then the code.
+`port/linux/src/posix.h` (the host helpers the guest imports: sockets,
+UPnP, DTLS, the desktop's), `port/linux/src/posix_net.c` whole (the Linux
+host's sockets, local address and name lookup, and the desktop parts: the
+file this phase compiles for the PS5 with small branches),
+`posix_upnp.c` and `posix_dtls.c` (compiled as they are, with the vendored
+`port/third_party/miniupnpc` and `mbedtls`), `port/linux/src/xnet.c`'s
+header comment (how the game's Winsock reaches these; `network.address`
+and `network.broadcast`), `port/linux/src/p2p.c`'s header comment
+(internet play: the invite, the MQTT brokers, STUN, the UDP tunnel, UPnP,
+the virtual addresses) and `port/assets/network/brokers.txt`;
+`port/linux/game/network_test.c`'s header (the modes `host:<map>`, `join`,
+`browse`, and the per-second lines); the Switch's `port/switch/host/host_net.c`
+header comment (the same job on a system without `getifaddrs`: the local
+address from the route a UDP socket takes); the PS5's
+`port/ps5/host/host_posix_none.c` (what goes), `host_syscall.c` (the
+network system calls answering `-ENOSYS`), `host_main.c` and
+`tools/ps5_build.py` (how `tools/linux_guest_build.py` compiles `posix_upnp.c`
+with miniupnpc and `posix_dtls.c` with mbedTLS: `MINIUPNPC_DEFINES`,
+`miniupnpc_sources`, `MBEDTLS_DIR`); the SDK fork's
+`platform/include/ps5platform/libc.h` and `platform/src/libc.c` around
+`ps5_getaddrinfo` (it refuses every lookup: "as the callers expect"), and
+PS5_Vulkan's `src/diagnostics.cpp` `copy_local_ip` (the console's address
+from `sceNetCtlGetInfo`, loaded by name). The work is reviewed against the
+acceptance list at the end of this phase.
 
-FreeBSD sockets through `host_syscall.c` (`socket`, `bind`, `sendto`,
-`recvfrom`, `poll`, the options the netcode sets, the address structures'
-layouts) and whatever `libSceNet` needs first; the Switch's `host_net.c`
-is the model, `port/linux/src/posix_net.c` compiled into the host as the
-Linux host does. System link on the LAN first, then internet play (the
-brokers, DTLS with mbedTLS in the host, UPnP, the server browser) and map
-sharing. The network version is the same code and does not change.
+### What this phase is, and is not
+
+- **It is** the game's network on the console: the sockets the game's
+  Winsock layer asks the host for, over libkernel's BSD calls; the local
+  address and name lookups through what the console has; UPnP and DTLS
+  compiled from the vendored libraries; the guest's network system calls
+  answered; and system link, internet play, the server browser and map
+  sharing proved against a PC on the same network and across the internet.
+  It leaves the game able to host and join matches, which phase 6 measures.
+- **It is not** voice chat's microphone (the console has no SDL2 recording
+  device: phase 6, if at all; receiving voice works through the audio
+  path), the Discord client, the desktop's URL scheme or command line
+  (none on a console: they keep answering as they do), or any performance
+  work beyond recording the figures a match gives.
+- **Shared code is used as it is.** `posix_net.c`, `posix_upnp.c` and
+  `posix_dtls.c` are compiled from `port/linux/src`; what the console lacks
+  goes behind `HALO_PS5` in `posix_net.c` in small branches (below, each
+  argued under "Progress", none near a third of the file) and into a PS5
+  file for what the console has instead. The vendored libraries are not
+  edited: mbedTLS takes a user configuration header of the PS5's, through
+  its own `MBEDTLS_USER_CONFIG_FILE`. Android's, Linux's and the Switch's
+  builds must not change (compare the preprocessed `posix_net.c` under
+  their defines, as phase 4 did).
+
+### What the console has, and lacks
+
+Checked in the SDK's stub libraries (`nm -D` on `target/lib`) and the
+platform layer:
+
+- **libkernel exports** `socket`, `bind`, `connect`, `listen`, `accept`,
+  `send`, `recv`, `sendto`, `recvfrom`, `sendmsg`, `recvmsg`, `setsockopt`,
+  `getsockopt`, `getsockname`, `getpeername`, `poll`, `select`, `shutdown`,
+  `fcntl`, `ioctl`, `inet_pton`, `inet_ntop`: BSD sockets as FreeBSD's,
+  which PS5_Vulkan's own control payload uses (`socket`, `bind`,
+  `SO_REUSEADDR`). Whether a **title** may use them, and whether
+  `sceNetInit` must come first, is step 1's question.
+- **Not exported:** `accept4` (use `accept` and `fcntl`), `getifaddrs`
+  (the Switch's route probe instead: a UDP socket connected to a public
+  address, `getsockname`), `ppoll` (`poll` with a millisecond timeout).
+- **Name lookups:** the recipe binds `getaddrinfo` to the platform layer's
+  `ps5_getaddrinfo`, which answers `EAI_FAIL` to everything. The console's
+  resolver is libSceNet's (`sceNetInit`, `sceNetPoolCreate`,
+  `sceNetResolverCreate`, `sceNetResolverStartNtoa`, `sceNetResolverDestroy`,
+  `sceNetPoolDestroy`), declared by hand from a public source (OpenOrbis's
+  PS4 headers, as the probes declared the pad's and the user service's),
+  the SDK having no header for it. The brokers and the STUN servers are
+  names, so internet play needs it; system link does not.
+- **The console's own address:** `sceNetCtlInit` and `sceNetCtlGetInfo`
+  (libSceNetCtl; the IP address's code is the one `diagnostics.cpp` uses,
+  `kNetCtlInfoIpAddress`; read it there), as a cross-check of the route
+  probe's answer, logged. `libSceNet.so` and `libSceNetCtl.so` are among
+  the stubs the link already names `--as-needed`.
+- **Entropy:** mbedTLS's default entropy source opens `/dev/urandom`, which
+  a title may not have; the PS5 gives it `arc4random_buf` through
+  `MBEDTLS_ENTROPY_HARDWARE_ALT` (`mbedtls_hardware_poll`), as
+  `posix_random_bytes` already uses it (phase 2).
+
+### Files
+
+| File | What |
+|---|---|
+| `port/linux/src/posix_net.c` | compiled for the PS5, with `HALO_PS5` branches: `accept4` becomes `accept` and `fcntl(O_NONBLOCK)` where the flag asks (and `SOCK_CLOEXEC`, which FreeBSD has, stays); `interface_address`'s `getifaddrs` is skipped (the route probe that follows it is the answer, as the Switch's); `posix_resolve_ipv4`'s `getaddrinfo` calls `ps5_net_resolve_ipv4` instead; `posix_register_url_scheme`'s `posix_spawnp` is skipped (returns 0, "no such thing", as on Android). The desktop parts (`/proc/self/cmdline`, `XDG_RUNTIME_DIR`, Discord's socket) compile as they are and fail at run time as they should; say so once in the log if they are reached |
+| `port/ps5/host/host_net_ps5.c` | **new**: the console's network brought up once (`sceNetInit` if a title needs it, a pool, the resolver), `ps5_net_resolve_ipv4(name)` over `sceNetResolverStartNtoa` with a timeout, the console's address from `sceNetCtlGetInfo` for the log, `mbedtls_hardware_poll` over `arc4random_buf`, and the step 1 smoke test (below) behind `HALO_PS5_NET_TEST` |
+| `port/ps5/host/mbedtls_config_ps5.h` | **new**: `#define MBEDTLS_NO_PLATFORM_ENTROPY` and `#define MBEDTLS_ENTROPY_HARDWARE_ALT`, given to mbedTLS as `MBEDTLS_USER_CONFIG_FILE` in the PS5 build only (its `mbedtls_config.h` includes that file at its end) |
+| `port/ps5/host/host_posix_none.c` | **deleted**: `posix_net.c`, `posix_upnp.c` and `posix_dtls.c` answer everything it did |
+| `port/ps5/host/host_syscall.c` | `ppoll` over `poll` (the guest's `pollfd` is the host's; the timeout in milliseconds, rounded up; the signal mask ignored, as Android's does); `pselect6`, `epoll_pwait`, `sendmsg` and `recvmsg` stay `-ENOSYS`, counted (the guest's sockets never reach them: the game's go through the helpers) |
+| `tools/ps5_build.py` | the host's sources gain `posix_net.c`, `posix_upnp.c` with `miniupnpc_sources()` and `MINIUPNPC_DEFINES`, `posix_dtls.c` and mbedTLS's `library/*.c` with `-DMBEDTLS_USER_CONFIG_FILE=\"mbedtls_config_ps5.h\"` and `-I port/ps5/host`, with the flags `tools/linux_guest_build.py` gives them (`-w` for the third-party sources, the include paths); `host_posix_none.c` goes with the glob |
+| `port/ps5/README.md` | system link, internet play, the server browser, map sharing and voice on the console; what needs the user's router; the network settings that matter |
+
+### The network on the console
+
+**Step 1, before anything else: a smoke test of the console's sockets in
+a title** (`HALO_PS5_NET_TEST=1` in `environment.txt`; `host_net_ps5.c`,
+run from `host_main.c` before the game's thread, its lines prefixed
+`net test:`). In order, each result logged with its `errno`:
+
+1. `socket(AF_INET, SOCK_DGRAM)` without `sceNetInit`; if it fails, after
+   `sceNetInit` (so the answer says whether a title needs it).
+2. The route probe: the socket connected to 8.8.8.8:53, `getsockname`:
+   the console's address; `sceNetCtlInit`, `sceNetCtlGetInfo(ip)` beside it.
+3. `bind` to port 0, `SO_BROADCAST`, `sendto` 255.255.255.255 on a port of
+   the game's (system link's advertisement port: `xnet.c` says which), a
+   `recvfrom` with `poll` 200 ms (nothing answers; the send must succeed).
+4. `SO_REUSEADDR`, `IP_MULTICAST_IF` set, as miniupnpc's SSDP search sets
+   them.
+5. The resolver: `sceNetResolverStartNtoa` of the first broker's name
+   (`brokers.txt`) with a 5 s timeout: the address, and the time.
+6. A TCP socket, `O_NONBLOCK` by `fcntl`, `connect` to that address on
+   1883, `poll` for writable within 5 s, `getpeername`, `shutdown`, close.
+7. A TCP listener on port 0 and a loopback `connect` to it, `accept`,
+   one byte each way, `FIONREAD` by `ioctl`: what `accept` gives, and
+   whether loopback works in a title.
+8. `arc4random_buf` of 32 bytes (not all zero).
+
+Step 1 is worth reporting on its own before the rest: a title that cannot
+open a socket, or resolve a name, changes what follows (libSceNet's own
+`sceNetSocket` family would be the fallback for the sockets; a fixed
+address list in the settings, `network.brokers_file`, for the names).
+
+**The sockets** are `posix_net.c`'s as they are: BSD calls through
+libkernel, the Winsock error translation, `posix_socket_select` over
+`poll`, `TCP_NODELAY`, `FIONREAD`. The three branches above are the whole
+difference. Every call's failure goes through `posix_socket_last_error`
+as on Linux.
+
+**The local address** is the route probe's (`posix_local_ipv4_address`
+without `getifaddrs`: the UDP socket connected to a public address and
+`getsockname`; 0 when the console is offline), and the broadcast address
+255.255.255.255 with `SO_BROADCAST`, as the game's `xnet.c` sends it.
+`network.address` and `network.broadcast` work as on the desktop.
+
+**Name lookups** (`posix_resolve_ipv4`): a dotted quad is answered by
+`inet_pton` as now; a name goes to `ps5_net_resolve_ipv4`, which makes the
+resolver once (a pool of 16 KB is enough for a few lookups at a time; the
+names are the brokers' and STUN's) and asks `sceNetResolverStartNtoa` with
+a 5 s timeout and one retry, logging a failure's code once per name. The
+game calls it from its own threads, several at once (`p2p_signal.c` opens
+every broker together): one resolver per call, or a lock; say which.
+
+**UPnP**: `posix_upnp.c` with miniupnpc compiled as the Linux host compiles
+it (`MINIUPNPC_DEFINES`, `-w`); miniupnpc's SSDP search uses `select`,
+`setsockopt` and `getsockname`, all exported; its `getaddrinfo` calls, if
+any (look: `miniwget.c`, `connecthostport.c`), reach the platform layer's
+refusal, which only matters for a router named rather than addressed (the
+IGD is found by SSDP and addressed by IP). Record what the user's router
+answers.
+
+**DTLS** (browsers joining internet play): `posix_dtls.c` and mbedTLS
+compiled as the Linux host compiles them, with the PS5's user
+configuration (no platform entropy, the hardware poll over
+`arc4random_buf`), and `gmtime_r` already bound by the recipe. Proved by a
+browser joining (below), or, if no browser is at hand, by
+`posix_dtls_fingerprint` giving a certificate at start (logged).
+
+**The guest's system calls**: `ppoll` answered (musl's `poll` is `ppoll`
+on this architecture; nothing in the game polls through the guest today,
+but SDL3's bridge or a library might); the four others counted as before.
+
+### Testing
+
+The peer is a PC on the same local network running the OpenCE desktop
+build (the Windows build on the user's PC, or the Linux x86 build; **not a
+build inside this WSL2**, whose network is NAT'd from the LAN unless WSL's
+mirrored networking is on: check `ip addr` for a LAN address before using
+it). The user runs the PC side; announce each run and say what to start.
+The PS5 side goes through `tools/ps5_deploy.py --run` with `--env` for the
+test settings.
+
+1. **Step 1's smoke test** (`HALO_PS5_NET_TEST=1 HALO_EXIT_AFTER=20`): all
+   eight lines, before anything else is built on the sockets.
+2. **System link, the console hosting**: `HALO_NETWORK_TEST=host:bloodgulch`
+   on the PS5 with `debug.test_input`'s bot playing its controller
+   (`HALO_TEST_INPUT=look:1`, or the wandering bot), `HALO_NETWORK_TEST=join`
+   on the PC with its own bot: the PC finds the game by broadcast and
+   joins; both log every player's position, health, aim and shots every
+   second (`network test: player ...`); the two logs agree on the players
+   as `NETCODE.md`'s "Testing" compares them; five minutes; the PS5's
+   heartbeat and counters through it (the first figures of a match on the
+   console). Then the user plays on the PS5 against the PC's bot for two
+   minutes (the pad, the sound, the picture, all in a match).
+3. **System link, the console joining**: the PC hosts (`host:bloodgulch`),
+   the PS5 joins (`join`): the same comparison, two minutes.
+4. **Internet play**: the PS5 hosts a game from the menus (Multiplayer,
+   system link, a game on Blood Gulch): the invite link is logged
+   (`halo://join/...`); the PC joins by the link (the desktop's handler,
+   or pasted); the log shows the brokers reached (`p2p_signal.c`'s lines),
+   STUN's answers, the hole punching, UPnP's result with the user's
+   router, and the tunnel's packets; a match for two minutes. Then the
+   other way: the PC hosts, the PS5 joins by `network.join_from_clipboard`
+   (the host's `host_sdl_get_clipboard_text` stand-in answers a fixed
+   string: give it the link through `environment.txt`, `HALO_PS5_CLIPBOARD`,
+   a small addition to `host_sdl_ps5.c` for the test).
+5. **The server browser**: the PC hosts a public game
+   (`network.host_public`); the PS5's `HALO_NETWORK_TEST=browse` lists it
+   and joins; and the reverse, the PS5 hosting public, the PC's browser
+   listing it.
+6. **Map sharing**: the PC hosts a custom map the PS5 does not have; the PS5
+   joins and downloads it (`network.map_download`; the log's `map share:`
+   lines, the file under `/data/halo/custom_maps`); then plays it.
+7. **A browser**, if one is at hand on the LAN or beyond (the web build at
+   its public page, `port/web/README.md`): it joins the PS5's game through
+   its invite; DTLS's handshake in the log. Else the fingerprint line.
+8. **Voice**: the PC speaks (its microphone); the PS5 plays it (the user
+   hears it); the PS5's own voice is off, logged once (no microphone).
+9. **The unattended match for phase 6**: the PS5 hosting `host:bloodgulch`
+   with its bot, the PC joining with its bot, ten minutes; the heartbeat,
+   the renderer's counters, the heap and direct memory figures, and both
+   machines' per-second lines saved, as the figures phase 6 starts from.
+
+### Acceptance
+
+The review checks each of these:
+
+1. `ninja ps5` builds with `-Werror` (the third-party sources with `-w`,
+   as on Linux); `ninja linux_x86_64` builds; the preprocessed `posix_net.c`
+   under Linux's and Android's defines is unchanged; the four test files
+   pass; no weak host symbol stands; `host_posix_none.c` is gone.
+2. Step 1's eight answers under "Progress", with the `sceNetInit` question
+   answered.
+3. System link both ways: the PC's and the PS5's per-second lines agree on
+   a match of five minutes (quoted), the user played in it, and the
+   console found and was found by broadcast.
+4. Internet play both ways: the brokers reached, the tunnel up, a match
+   played; UPnP's result with the router recorded.
+5. The server browser listing both ways; a shared map downloaded and
+   played.
+6. DTLS: a browser joined, or the certificate's fingerprint logged and the
+   reason no browser was tried.
+7. The unattended ten-minute match's figures under "Progress": frames a
+   second, the longest frames, the counters, the heap's peak, the free
+   block, the per-second lines' agreement.
+8. "Progress" has: the `HALO_PS5` branches argued with their line counts
+   (and the preprocessing check), the resolver's times, the route probe's
+   address against `sceNetCtlGetInfo`'s, the `-ENOSYS` counts after the
+   matches, what the desktop parts did when reached, and anything
+   unexpected.
+9. Nothing changed outside `port/ps5/`, `tools/ps5_build.py`, and
+   `posix_net.c`'s `HALO_PS5` branches; the vendored libraries are
+   untouched; nothing of PS5_Vulkan's or the fork's copied in (their
+   headers and docs read; the console's calls declared by hand from a
+   public source, named in the comment).
+
+Don't commit; the review does that. Record anything unexpected under
+"Progress", even if it was dealt with.
 
 **Ends with:** a system link game with the PC build and an internet game
-through a broker, each played for ten minutes.
+through a broker, each played for minutes both ways; the server browser and
+map sharing working; and a ten-minute unattended match's figures for phase
+6 to start from.
 
 ## Phase 6 — playing on the console
 
