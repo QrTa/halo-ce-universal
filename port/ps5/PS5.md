@@ -21,8 +21,8 @@ installs and starts the title, and its log shows the game's start-up to the
 first SDL call. Phase 2 is done and
 reviewed: the game runs headless from a data folder holding only the disc
 image, through the extraction, to the main menu's map at 59.94 frames a
-second ("Progress"). Phase 3 is next, to be written out. The probes are in
-`port/ps5/probe`.
+second ("Progress"). Phase 3 is written out in detail and ready to be
+handed over. The probes are in `port/ps5/probe`.
 
 ---
 
@@ -1364,29 +1364,256 @@ left, and exits when told.
 
 ## Phase 3 — SDL: pad, audio, events
 
-The route phase 0 chose, pacbrew's SDL2 under the Switch's arrangement
-(`host_sdl2.c`, `host_sdl3_events.c` as the model), in `host_sdl_ps5.c`:
-SDL2 initialised for timers, events, game controllers and audio and **never
-for video** (its video driver calls into `libSceKeyboard`, which a title
-does not have, and crashes); the pad as an SDL game controller, chosen by
-its type and GUID and not by index (the console lists "PS5 Remote Control"
-beside it, and names the pad after the signed-in user), with the dead zone,
-rumble through `SDL_GameControllerRumble`, and the pad's `intercepted` bit
-(read through `scePad` beside SDL, or SDL's own events if it reports it) as
-a pause; events for the game's loop (button and axis events, quit); audio
-through an SDL2 audio device at 48 kHz float, 256 samples a callback
-(5.3 ms apart, as probed), the guest's stream being a callback stream (`dsound_sdl.c`): SDL2's device callback runs the guest's on a thread with a guest stack, in place of phase 2's clock thread, and `SDL_HINT_AUDIO_DEVICE_SAMPLE_FRAMES` (1024 frames, 21.3 ms) sets the device's period;
-ticks from `SDL_GetTicks64` or the monotonic clock; the clipboard and text
-input as a console has them; and
-the desktop's calls (display modes: one, 1920x1080; fullscreen: always;
-the 2D renderer and dialogs: accepted and invisible, logged once; message
-boxes: logged). Every SDL call the guest makes crosses as integers,
-strings and flat structures, as `host_sdl.c`'s do.
+Written to be picked up by an agent that has not seen the work so far. Read
+first, in this order: this plan's "Decisions" (the SDL row: pacbrew's SDL2,
+never its video), "Where the port lives" and "How this plan is worked";
+phase 0 B's SDL2 probe answers and phase 2's entry under "Progress" whole
+(what the stand-ins do today, the audio callback stream, the system's
+overlay flags, the two joysticks the console lists); then the code.
+`port/ps5/host/host_sdl_ps5.c` whole (the file this phase changes: its
+handle table, its stand-ins, its heartbeat and the clock thread that drives
+the mixer), `port/ps5/host/host_main.c` (where SDL would be initialised) and
+`ps5_host.h`; the Switch's `port/switch/host/host_sdl2.c` whole and
+`host_sdl3_events.c` (the model: SDL3's calls answered by SDL2, the event
+translation, the gamepad handles, and the audio callback handed from SDL's
+thread to one with a guest stack: `audio_binding`, `audio_callback`,
+`audio_thread`); Android's `port/android/host/host_sdl.c` (the same bridge
+over SDL3, and the audio hand-off there); the guest's side,
+`port/android/guest/runtime/guest_sdl.c` (every `host_sdl_*` call's
+arguments and what it expects back, the SDL3 layouts it copies),
+`port/linux/src/xinput_sdl.c` (how the game lists, opens and reads
+gamepads: `SDL_GetGamepads`, `SDL_GetGamepadFromID`, `SDL_GetGamepadAxis`,
+`SDL_GetGamepadButton`, `SDL_GetGamepadType`, `SDL_RumbleGamepad`, in two
+passes by type), `port/linux/src/dsound_sdl.c` (the audio: one callback
+stream, `SDL_HINT_AUDIO_DEVICE_SAMPLE_FRAMES` 1024 or 512, 48 kHz float
+stereo) and `port/linux/src/sdl_platform.c`'s event loop (the events the
+game reads: quit, focus lost and gained, gamepad added and removed; the
+rest are a keyboard's, a mouse's and a touch screen's, which the console
+has none of); the phase 0 B probe `port/ps5/probe/sdl2/main.c` (working
+SDL2 on the console: the init flags, the controller listing and mapping,
+the device open with a callback, the rumble); pacbrew's SDL2 headers under
+`~/projects/ps5-deps/PS5_Vulkan/.deps/pacbrew/v0.40.2/sysroot/user/homebrew/include/SDL2/`
+(`SDL_gamecontroller.h`, `SDL_audio.h`, `SDL_events.h`) and the SDL3
+headers under `build/ps5/third_party/SDL3/include` (the guest's values).
+The work is reviewed against the acceptance list at the end of this phase.
+
+### What this phase is, and is not
+
+- **It is** the pad, audio and events of `host_sdl_ps5.c` made real over
+  pacbrew's SDL2: the game's gamepads from SDL2's game controllers, its
+  sound through SDL2's audio device, its events from SDL2's and from the
+  console's overlay flag; and the proofs on the console, by ear and by the
+  game's own logs, since nothing is drawn yet.
+- **It is not** the picture (phase 4) or the PS button's handling beyond a
+  focus event (phase 5), split screen's several users (phase 5), the
+  microphone or any keyboard. The stand-ins for the window, the context,
+  the displays, the 2D renderer and the dialogs stay as they are; the swap's
+  pacing stays until phase 4's swapchain takes it over.
+- **SDL2's video is never initialised** (phase 0 B: it crashes in
+  `libSceKeyboard`). `SDL_Init` is asked for `SDL_INIT_TIMER | SDL_INIT_EVENTS
+  | SDL_INIT_GAMECONTROLLER | SDL_INIT_AUDIO` and nothing else, and the
+  code says why.
+- **Nothing changes** outside `port/ps5/host` (and `tools/ps5_build.py` if
+  a flag is needed); no shared file, no probe. SDL2's headers are pacbrew's
+  (read, linked against), SDL3's the guest's; nothing of either is copied.
+
+### Files
+
+| File | What |
+|---|---|
+| `port/ps5/host/host_sdl_ps5.c` | the pad, audio and event parts over SDL2 (below); the stand-ins kept. If the file passes about 1,500 lines, the pad and events may move to `host_sdl_ps5_input.c` and the audio to `host_sdl_ps5_audio.c`, with what they share in `ps5_host.h`; say so under "Progress" |
+| `port/ps5/host/host_main.c` | nothing, unless SDL2 has to be initialised before the game's thread (it does not: `host_sdl_init` is the game's first SDL call, on its thread) |
+| `port/ps5/README.md` | the pad and the sound: what works, the system's overlay, what the log says |
+
+### SDL2 under the bridge
+
+`host_sdl_init(flags)`: the guest asks for SDL3's init flags (`guest_sdl.c`
+passes them through); the host calls `SDL_Init` with SDL2's timer, events,
+game controller and audio flags, whatever the guest asked for, once (a
+second call adds nothing), logs `SDL_GetVersion` and the drivers
+(`SDL_GetCurrentAudioDriver`: "ps5"), and returns 1; on failure it logs
+`SDL_GetError` and returns 0, and the game says what it does without SDL.
+`host_sdl_get_error` returns `SDL_GetError`'s text. `host_sdl_set_hint`
+keeps `SDL_HINT_AUDIO_DEVICE_SAMPLE_FRAMES` for the device's period as
+today and passes the rest to `SDL_SetHint` (the names agree between the
+versions for the hints the game sets; log any SDL2 refuses).
+
+**The pad.** SDL2's game controller API, as the Switch's file uses it:
+
+- `host_sdl_get_gamepads`: the joysticks `SDL_IsGameController` lists,
+  **less the console's own "PS5 Remote Control"** (phase 0 B: the console
+  lists it beside the pad as a controller of type `SDL_CONTROLLER_TYPE_UNKNOWN`,
+  the pad as `SDL_CONTROLLER_TYPE_PS5`, 7): a controller whose type is
+  unknown and whose name is that is left out, logged once. Each one's
+  instance id (`SDL_JoystickGetDeviceInstanceID`) is the id the guest sees;
+  the game opens them in two passes by type (`xinput_sdl.c`), so the ids'
+  order does not matter.
+- `host_sdl_open_gamepad(id)`, `host_sdl_gamepad_from_id(id)`:
+  `SDL_GameControllerOpen` by the device index of that instance id (the
+  Switch's lookup), a handle in the table; `close_gamepad` closes it.
+- `host_sdl_gamepad_axis(handle, axis)`: `SDL_GameControllerGetAxis` with
+  SDL3's axis number, which is SDL2's (left x, left y, right x, right y,
+  left trigger, right trigger: 0 to 5 in both), the value as it is
+  (-32768 to 32767; the game applies its own dead zone).
+- `host_sdl_gamepad_button(handle, button)`: SDL3's button numbers are
+  SDL2's for the fifteen the game reads (south, east, west, north, back,
+  guide, start, the sticks, the shoulders, the d-pad: 0 to 14); the touch
+  pad click is SDL2's `TOUCHPAD` (15) and SDL3's `TOUCHPAD` (20): map that
+  one. The pad's mapping on the console (phase 0 B) has no back, guide or
+  misc button: they read 0.
+- `host_sdl_gamepad_type`: SDL2's type to SDL3's as the Switch's
+  `host_sdl3_gamepad_type` maps them (PS5 to `SDL_GAMEPAD_TYPE_PS5`,
+  unknown to unknown).
+- `host_sdl_rumble_gamepad(handle, low, high, ms)`:
+  `SDL_GameControllerRumble` (phase 0 B: the pad shook).
+- `host_sdl_gamepad_gyro` is not among the desktop guest's imports; nothing
+  to do.
+
+**Events.** `host_sdl_poll_event` polls SDL2 (`SDL_PollEvent`) and
+translates what the game reads into an SDL3 `SDL_Event` (128 bytes, the
+guest's layout; the Switch's `host_sdl3_events.c` is the model, written
+again here in the PS5's file with only the kinds the console produces):
+`SDL_CONTROLLERDEVICEADDED` and `REMOVED` to `SDL_EVENT_GAMEPAD_ADDED` and
+`REMOVED` with the instance id (the game then lists its pads again, so a
+pad switched off and on comes back); `SDL_QUIT` to `SDL_EVENT_QUIT` (SDL2
+sends none here; kept for form). Button and axis events are dropped: the
+game polls the pad's state each frame. The guest's own pushed events
+(`host_sdl_push_event`) keep their queue and are returned first.
+
+**The system's overlay** (phase 0 B: the title runs on under the PS button's
+menu, and only the pad's `intercepted` bit and `isSystemUiOverlaid` from
+`sceSystemServiceGetStatus` tell). Each `poll_event` asks
+`sceSystemServiceGetStatus` (declared as the host probe declared it, with
+its 16 KB buffer, the first byte read; a few microseconds) and, when the
+flag changes, returns `SDL_EVENT_WINDOW_FOCUS_LOST` or `FOCUS_GAINED` as
+the desktop's window would: the game then clears its held inputs
+(`sdl_platform.c`) and `input_state.focused` follows. What the game does
+beyond that while overlaid (keep playing, pause) is phase 5's; this phase
+only reports it. The pad's state while intercepted is whatever SDL2
+reports (the probe showed no buttons); log once what it was.
+
+**Audio.** The guest's stream is a callback stream (`dsound_sdl.c`: 48 kHz,
+float, stereo, a callback that mixes a period); the Switch's
+`host_sdl_open_audio_stream` and its `audio_binding` are the model:
+
+- `SDL_OpenAudioDevice(NULL, 0, &wanted, &obtained, 0)` with the guest's
+  format (SDL3's `SDL_AUDIO_F32` is SDL2's `AUDIO_F32SYS`, 0x8120: pass the
+  value), channels and rate, `samples` the period the guest set through
+  the hint (1024, or 512 for `audio.low_latency`), a callback of the
+  host's; the obtained spec logged (phase 0 B: SDL2 gives back exactly what
+  is asked, 48000 Hz, 2 channels, 256 samples when 256 were asked). A device
+  that will not open is logged and the stream fails (the game runs mute, as
+  the desktop does without a device).
+- **The callback runs on SDL2's audio thread, which has no guest stack**, so
+  it cannot call the guest. As the Switch and Android do: a thread of the
+  stream's own with a guest stack (`host_native_thread_create`, 256 KB)
+  waits on a condition; SDL's callback hands it the buffer and the length,
+  wakes it and waits for it to finish (the Switch's `requested` and `done`
+  conditions); the guest's callback (`host_call_guest(callback, userdata,
+  handle, length, length)`, as phase 2's clock thread calls it) fills the
+  buffer; the audio thread returns it to SDL. The hand-off's cost is
+  measured: the time from SDL's callback to the guest's return, min, median
+  and max over each minute, in the log.
+- `host_sdl_resume_audio_stream_device`: `SDL_PauseAudioDevice(device, 0)`
+  (the device starts paused, so no callback runs before the handle exists);
+  `destroy_audio_stream`: pause, stop the thread, `SDL_CloseAudioDevice`.
+- `put_audio_stream_data`, `get_audio_stream_available` and
+  `get_audio_stream_data`: the game uses a callback stream, so these are
+  not called on it; keep phase 2's answers for a stream without a callback
+  (phase 0 B's `SDL_QueueAudio` path is there if one appears; say under
+  "Progress" if the game called them).
+- **A stream without a callback is the microphone** (voice chat,
+  `voice_audio.c`: 48 kHz mono floats, read by the game). The console's
+  pad has one, through the system's voice services, not SDL2's recording
+  (pacbrew's SDL2 may not record: try `SDL_GetNumAudioDevices(1)` and say).
+  In this phase it returns 0 and voice chat is off, logged once; the row is
+  phase 5's.
+- The callback's cadence: the host counts SDL's callbacks and their gaps
+  (min, median, max) every minute, as phase 0 B's probe did; a gap over
+  twice the period is counted as a late callback. These lines are the
+  proof of sound where nobody is listening.
+
+**Timing.** `host_sdl_ticks` and `ticks_ns` stay on the monotonic clock
+(phase 0 B: `SDL_GetTicks64` runs 1 ms behind in 5 s; the game's own
+timing is the TSC's through the guest). `host_sdl_thread_id` stays.
+
+**What stays a stand-in**, unchanged: `create_window` and the window
+calls, the GL context, the displays, `gl_swap_window`'s pacing and
+heartbeat, the 2D renderer, the dialogs, the clipboard, text input, the
+scancode names (SDL2's table, already in use). `has_screen_keyboard_support`
+stays 0.
+
+### Testing on the console
+
+Nothing is drawn, so the pad is proved by what the game logs and the sound
+by what the user hears. The user is at the console with the TV's sound on
+for runs 2 to 5; announce each.
+
+1. **Start-up** (`--run`, `HALO_EXIT_AFTER=30`): `SDL_Init` and the drivers
+   logged; `gamepads: SDL lists 1` in the game's output (the remote control
+   left out, logged); the game opens the pad (its type PS5 in its log); the
+   audio device opened with the obtained spec and the callbacks counted at
+   the exit (about 47 a second at 1024 frames: 1400 in 30 s), no late
+   callbacks.
+2. **The pad, without a screen**: `HALO_NETWORK_TEST=host:bloodgulch`
+   (`port/linux/NETCODE.md`, "Testing": the game hosts a match with no
+   menus and logs every player's position, aim, movement, weapons and
+   shots every second). The user, told what to do by notification and by
+   the deploy's printout: hold the left stick forward for ten seconds, then
+   turn with the right stick, fire with the right trigger, jump with cross,
+   crouch with circle, switch weapons with triangle, melee with square,
+   throw a grenade with the left trigger. The game's per-second lines must
+   show the position moving while the stick is held, the facing turning,
+   the shots, the jump and the weapon change; the user hears the match's
+   sound (the ambience, the footsteps, the shots). Record the lines that
+   show each.
+3. **The menus, heard**: a plain start to the main menu; the user presses
+   cross and circle a few times and up and down on the d-pad; the menu's
+   sounds are heard on each (the user says). `debug.exit_after` ends it.
+4. **Rumble**: in run 2's match a melee or a shot rumbles the pad (the game
+   asks for it: `xinput_sdl.c`); the user says whether it did.
+5. **The pad switched off and on** during run 2: `SDL_EVENT_GAMEPAD_REMOVED`
+   and `ADDED` in the log, the game listing its pads again and the
+   movement resuming.
+6. **The PS button** during run 2: the focus events in the log when the
+   menu opens and closes, the game's `input_state.focused` following (its
+   log says what it did), the pad reading nothing meanwhile; then back to
+   the match.
+7. **Five minutes** of run 2's match with the user playing: the heartbeat
+   steady at 59.94, the callback gaps' max and the late count, the hand-off's
+   max, at the end.
+
+### Acceptance
+
+The review checks each of these:
+
+1. `ninja ps5` builds with `-Werror`; the four test files of phase 2 still
+   pass; nothing outside `port/ps5/host`, `port/ps5/README.md` and (if
+   needed) `tools/ps5_build.py` changed; SDL2's video is never initialised
+   (the init flags in the source, and no video driver in the log).
+2. Run 2's log shows the position moving, the facing turning, the shots
+   and the weapon change on the user's inputs, with the lines quoted under
+   "Progress"; the user heard the match.
+3. Run 3: the menu's sounds heard on the pad's presses.
+4. Runs 5 and 6: the gamepad removed and added events and the focus events
+   are in the log with what the game did.
+5. Audio: the device's obtained spec is the game's (48000 Hz, 2 channels,
+   float, the period asked); over run 7's five minutes the late callbacks
+   are 0 and the hand-off's maximum is under a period; the user heard no
+   gaps.
+6. The remote control is left out of the game's pads, logged.
+7. "Progress" has: the SDL2 init line and drivers, the controller listing
+   with types, the mapping of SDL3 to SDL2 values the file relies on (axes,
+   buttons, the touch pad, formats, types), the audio hand-off's figures,
+   the callback cadence, what the game did on focus loss, whether any
+   non-callback stream was asked for, and anything unexpected.
+
+Don't commit; the review does that. Record anything unexpected under
+"Progress", even if it was dealt with.
 
 **Ends with:** the menus driven by the pad and heard through the TV, with
-nothing drawn; a campaign level started blind from the menu by the pad
-and left running with its sound for a minute; the log's event counts and
-audio underruns (none) under "Progress".
+nothing drawn, and a match played blind by the user for five minutes with
+its sound, the game's own log showing their inputs.
 
 ## Phase 4 — the Vulkan renderer on RADV
 
