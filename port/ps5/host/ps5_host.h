@@ -50,6 +50,16 @@ gives memory back) and direct memory's largest free block, in MB, for the
 heartbeat (host_memory.c) */
 void ps5_memory_figures(double *heap_mb, double *heap_peak_mb, double *direct_free_mb);
 
+/* the network (host_net_ps5.c): a name's IPv4 address through the
+console's resolver (network byte order), or 0, for posix_net.c's
+posix_resolve_ipv4; and the step 1 smoke test of port/ps5/PS5.md, phase 5
+(HALO_PS5_NET_TEST), which host_main.c runs before the game's thread, as
+it runs ps5_net_start (brokers.txt beside config.toml, the addresses and
+the DTLS certificate logged) */
+uint32_t ps5_net_resolve_ipv4(const char *name);
+void ps5_net_start(void);
+void ps5_net_test(void);
+
 /* config.toml's debug.gpu_stats, read by host_main.c: the GL names are
 reported every 10 s, not only at the end (host_gl_none.c) */
 extern int host_gl_statistics;

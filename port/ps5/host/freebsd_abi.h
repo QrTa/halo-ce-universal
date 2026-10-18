@@ -181,6 +181,21 @@ phase 0 B proved (UMTX_OP_WAIT, 2, compares 64 bits and is never used) */
 #define FREEBSD_UMTX_OP_WAKE_PRIVATE 16
 #define FREEBSD_UMTX_ABSTIME 0x01
 
+/* ---------- poll's events (poll.h): the first eight bits are Linux's
+too; FreeBSD's POLLWRNORM is POLLOUT, and its POLLWRBAND Linux's
+POLLWRNORM's bit */
+
+#define FREEBSD_POLLIN 0x0001
+#define FREEBSD_POLLPRI 0x0002
+#define FREEBSD_POLLOUT 0x0004
+#define FREEBSD_POLLERR 0x0008
+#define FREEBSD_POLLHUP 0x0010
+#define FREEBSD_POLLNVAL 0x0020
+#define FREEBSD_POLLRDNORM 0x0040
+#define FREEBSD_POLLRDBAND 0x0080
+#define FREEBSD_POLLWRNORM 0x0004
+#define FREEBSD_POLLWRBAND 0x0100
+
 /* ---------- memory (sys/mman.h): the host's own mmap flags, which
 __wrap_mmap reads (host_memory.c) */
 

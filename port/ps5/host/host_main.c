@@ -19,6 +19,10 @@ In order, the title:
   link holds SDL2, RADV and glslang, and what the data folder holds;
 - sends the host library's log to the PS5's (host_log_set_sink), and needs
   /data/halo, the game's data folder (its saves in save/ there);
+- reads /app0/environment.txt, runs the network's smoke test if it asks
+  (HALO_PS5_NET_TEST), and brings the network up (ps5_net_start,
+  host_net_ps5.c: internet play's brokers.txt written beside config.toml,
+  this machine's address and the DTLS certificate logged);
 - claims the guest's three fixed ranges as direct memory
   (host_memory_reserve_early), installs the fault handlers and the signal
   stack;
@@ -55,7 +59,9 @@ Two files in the title's folder change a run, for the deploy's tests:
 killed from the PC; /app0/environment.txt, NAME=VALUE lines, sets the
 host's environment (HALO_ settings are passed on to the game: HALO_EXIT_AFTER
 ends it after that many seconds; HALO_PS5_CRASH_TEST makes the host fault on
-purpose once the image is loaded, to show the crash report). The renderer's
+purpose once the image is loaded, to show the crash report;
+HALO_PS5_NET_TEST runs the console's socket checks before the game,
+host_net_ps5.c). The renderer's
 switches are read from there too, since the desktop game's settings table
 keeps them for Android: HALO_VK_SELF_TEST=1 (the backend's and the game's
 self-tests), HALO_VK_PRESENT_MARKER=1 (a red and a green square at the
@@ -305,7 +311,7 @@ static void log_identity(void)
 {
 	struct ps5_kernel_sw_version version;
 
-	ps5_log("Halo: Combat Evolved for the PS5, build %s (phase 4: the Vulkan renderer on RADV)", HALO_PROBE_BUILD);
+	ps5_log("Halo: Combat Evolved for the PS5, build %s (phase 5: the network)", HALO_PROBE_BUILD);
 	memset(&version, 0, sizeof(version));
 	version.size = sizeof(version);
 	if (sceKernelGetSystemSwVersion(&version) == 0)
@@ -656,6 +662,9 @@ int main(void)
 	if (chdir(PS5_DATA_FOLDER) != 0)
 		ps5_log("chdir(" PS5_DATA_FOLDER "): %s", strerror(errno));
 	read_environment_file();
+	if (getenv("HALO_PS5_NET_TEST") && atoi(getenv("HALO_PS5_NET_TEST")) > 0)
+		ps5_net_test();
+	ps5_net_start();
 
 	host_memory_reserve_early();
 	if (host_memory_fixed_unavailable())

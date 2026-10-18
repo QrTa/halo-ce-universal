@@ -33,8 +33,11 @@ Per family:
 - identity and limits answered here: a Linux 5.15 on x86_64, user 1000,
   the direct memory as the RAM;
 - signals are the host's: the guest's handlers are accepted and never run;
-- what the guest cannot have here (processes, timers, signals to send,
-  networking until phase 6) answers -ENOSYS. Every -ENOSYS is counted by
+- ppoll over poll (musl's poll); the network's own calls (sendmsg,
+  recvmsg, epoll_pwait, pselect6) are not the game's way to its sockets,
+  which are the host's (posix_net.c), and answer -ENOSYS;
+- what the guest cannot have here (processes, timers, signals to send)
+  answers -ENOSYS. Every -ENOSYS is counted by
   number, and the counts are logged when the game ends
   (ps5_syscall_report), so the write-up says what the game asked for and
   did not get.
@@ -50,6 +53,7 @@ Per family:
 #include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <poll.h>
 #include <pthread.h>
 #include <stddef.h>
 #include <stdio.h>
@@ -78,6 +82,16 @@ FREEBSD(O_NOCTTY);
 FREEBSD(O_DIRECT);
 FREEBSD(O_DIRECTORY);
 FREEBSD(O_CLOEXEC);
+FREEBSD(POLLIN);
+FREEBSD(POLLPRI);
+FREEBSD(POLLOUT);
+FREEBSD(POLLERR);
+FREEBSD(POLLHUP);
+FREEBSD(POLLNVAL);
+FREEBSD(POLLRDNORM);
+FREEBSD(POLLRDBAND);
+FREEBSD(POLLWRNORM);
+FREEBSD(POLLWRBAND);
 FREEBSD(AT_FDCWD);
 FREEBSD(AT_SYMLINK_NOFOLLOW);
 FREEBSD(AT_REMOVEDIR);
@@ -390,6 +404,63 @@ static void timespec_out(uint64_t address, const struct timespec *value)
 		return;
 	result->seconds = (int32_t)value->tv_sec;
 	result->nanoseconds = (int32_t)value->tv_nsec;
+}
+
+/* ppoll: the guest's pollfd is the host's layout (a 32-bit descriptor, two
+16-bit masks), its events translated each way (host_syscall_tables.c);
+the timeout in milliseconds, rounded up (none, -1: no limit); the signal
+mask ignored, as no signal of the guest's is ever delivered */
+#define PPOLL_ON_STACK 64
+
+static long guest_ppoll(uint64_t descriptors, uint32_t count, uint64_t timeout_address)
+{
+	struct halo_guest_pollfd
+	{
+		int32_t fd;
+		int16_t events;
+		int16_t revents;
+	} *guest = GUEST(struct halo_guest_pollfd *, descriptors);
+	struct pollfd stack[PPOLL_ON_STACK];
+	struct pollfd *host = stack;
+	struct timespec timeout;
+	long long milliseconds = -1;
+	uint32_t index;
+	int result;
+
+	_Static_assert(sizeof(struct pollfd) == 8 && sizeof(struct halo_guest_pollfd) == 8, "pollfd's layout");
+	if (count && !descriptors)
+		return -GUEST_EFAULT;
+	if (count > PPOLL_ON_STACK)
+	{
+		host = malloc(sizeof(*host) * count);
+		if (!host)
+			return -GUEST_ENOMEM;
+	}
+	for (index = 0; index < count; index++)
+	{
+		host[index].fd = guest[index].fd;
+		host[index].events = (short)ps5_poll_events_in((uint16_t)guest[index].events);
+		host[index].revents = 0;
+	}
+	if (timespec_in(timeout_address, &timeout))
+	{
+		if (timeout.tv_sec < 0 || timeout.tv_nsec < 0 || timeout.tv_nsec >= 1000000000L)
+		{
+			if (host != stack)
+				free(host);
+			return -GUEST_EINVAL;
+		}
+		milliseconds = (long long)timeout.tv_sec * 1000 + (timeout.tv_nsec + 999999) / 1000000;
+		if (milliseconds > INT32_MAX)
+			milliseconds = INT32_MAX;
+	}
+	result = poll(host, (nfds_t)count, (int)milliseconds);
+	for (index = 0; result >= 0 && index < count; index++)
+		guest[index].revents = (int16_t)ps5_poll_events_out((uint16_t)host[index].revents,
+			(uint16_t)guest[index].events);
+	if (host != stack)
+		free(host);
+	return result_of(result);
 }
 
 static void kstat_out(const struct stat *value, uint64_t address)
@@ -1214,12 +1285,15 @@ static long long guest_call(long long number, long long a, long long b, long lon
 		rlimit_out((int)b, (uint64_t)d);
 		return 0;
 
-	/* ---------- networking: phase 6 of port/ps5/PS5.md */
+	/* ---------- waiting on descriptors, and the network (port/ps5/PS5.md,
+	phase 5): the game's sockets are the host's (posix_net.c's helpers), so
+	none of these is asked for by the game itself; musl's poll is ppoll */
 
+	case GUEST_SYS_ppoll:
+		return guest_ppoll((uint64_t)a, (uint32_t)b, (uint64_t)c);
 	case GUEST_SYS_sendmsg:
 	case GUEST_SYS_recvmsg:
 	case GUEST_SYS_epoll_pwait:
-	case GUEST_SYS_ppoll:
 	case GUEST_SYS_pselect6:
 		return -GUEST_ENOSYS;
 

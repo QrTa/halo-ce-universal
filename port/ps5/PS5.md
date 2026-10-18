@@ -27,7 +27,7 @@ are moved to the end of phase 4, to be made with the picture. Phase 4 is
 done and reviewed: the game draws through the Android port's Vulkan
 renderer on RADV, the menus and campaign levels on the TV as on Android, at
 59.94 or 119.88 frames a second, with phase 3's runs made with the user at
-the console ("Progress"). Phase 5, the network (the phases were swapped), is written out in detail and ready to be handed over. The probes are
+the console ("Progress"). Phase 5, the network (the phases were swapped), is done and reviewed: the console hosts and joins system link games and joins internet games through the brokers and the tunnel, and downloads shared maps. Phase 6 is next, to be written out. The probes are
 in `port/ps5/probe`.
 
 ---
@@ -2271,6 +2271,340 @@ As the deko3d and Vulkan plans were, on purpose:
 ---
 
 ## Progress
+
+### Phase 5 — audit (2026-10-18)
+
+Checked on the sources, the build, the tests, the kernel-log captures and
+the console's folders:
+
+1. **The builds and tests.** `ninja ps5` and `ninja linux_x86_64` are null
+   builds; the four test files pass; no weak `host_` or `posix_` symbol
+   stands; `host_posix_none.c` is gone; `port/third_party` is untouched
+   (miniupnpc's and mbedTLS's differences are command-line definitions and
+   a user configuration header). `posix_net.c` preprocessed with the Linux
+   host's own compile command, before and after, is identical (4,322
+   lines); the implementer's Android check agrees.
+2. **The code.** The six `HALO_PS5` branches are small and each has its
+   reason in the console's refusals (`accept4` absent, `fcntl`'s
+   `O_NONBLOCK` and `FIONBIO` refused, `getaddrinfo` refused, no desktop).
+   The address wraps convert the game's Winsock layout (a 16-bit family) to
+   FreeBSD's (a length byte, a family byte) on the way in and back on the
+   way out, for the seven calls that carry one, and leave `posix_net.c`'s
+   own BSD calls alone; the version script keeps the wraps local. The
+   console's calls are declared by hand after OpenOrbis's PS4 headers, named
+   in the file. The new file shares two one-line idioms with PS5_Vulkan's
+   sources (`htonl(INADDR_LOOPBACK)`, `htons(port)`), nothing more.
+3. **The memory fix** is right: `host_low_map` took whole 16 KB system
+   pages and `host_low_unmap` gave back the guest's 4 KB-rounded length, so
+   every map of a download piece left three pages taken for good. The fix
+   takes the guest's pages, still starting on a system page, so an unmap
+   returns all of them and the rest of a last system page is never handed
+   out (`pool_take` starts runs on system pages). The failure is in the
+   capture `20261018-182555/klog.txt` (7,206 "no room below 4 GB" lines);
+   the console's `custom_maps` holds the Switch's map complete (its four
+   files, 512 MB in all) and the internet peer's `xbox_imminent` map
+   (15,210,364 bytes), and the console's current log is the fixed build's
+   run with two internet hosts joined and one pool throughout.
+4. **Step 1's eight answers** are in `20261018-180629-2/halo.log` as
+   quoted; and the two the plan had wrong (`getifaddrs` is exported and
+   works; `fcntl` and `FIONBIO` are refused and `SO_NBIO` is the way) are
+   the kind of finding the smoke test was for.
+5. **System link both ways, by the user's Switch**: the console's hosted
+   match has the Switch's player in `20261018-182120` and `182554`'s logs
+   ("player 1 is named (NX)LNK3000"), and the join of the Switch's game
+   with the 512 MB download is in the `182555` capture. The per-second
+   lines of the two machines were not compared (the user's decision), and
+   the hosted match ran about 40 s with two players, not five minutes: item
+   3 is met by the user's play, not by the comparison.
+6. **Internet play, joining**: three public games joined from the server
+   browser and a map downloaded over the tunnel, in the console's log.
+   **Not made**, by the user's decisions and their network: the console
+   hosting an internet game (UPnP never asked), the browser listing the
+   console's game, voice, a browser joining (the certificate's hash stands
+   in, as the phase allowed), and the ten-minute unattended match. Items
+   4, 5 and 7 are therefore open; item 7's figures are phase 6's own first
+   task, which it starts with.
+7. **The run folders are confusing again**: the deploy's follower files a
+   later run's logs under an earlier folder (phase 4's note), the failed
+   download's own `halo.log` was never fetched (its lines survive in the
+   capture), and the fixed run's `halo.log` is only on the console. Phase
+   6 fixes the deploy before its long sessions.
+
+Deviations accepted: the Switch as the other machine instead of a PC (a
+peer of the same network version is what the test needs); `getifaddrs`
+kept, against the plan, because it works; `brokers.txt` carried in the
+title and written beside `config.toml` at every start, as Android's app
+does.
+
+Carried into phase 6: the ten-minute match and its figures (frames a
+second at 119.8 on the hosted run's windows, the longest frames 35 ms, the
+heap at 160 MB); the deploy's folder confusion; internet hosting and UPnP
+when a network allows; the console's clock 16 minutes ahead of the PC's
+(the game's own log times); `posix_user_secret` possibly writing a key
+file in `/data/halo`, not looked at.
+
+### Phase 5 — networking (2026-10-18)
+
+Implemented on 2026-10-18 and run on the user's console (13.590.001), with
+the user at its pad and their Switch as the other machine. **The result in
+one line:** the console's game plays system link and internet play: it
+hosted a system link game that the user's Switch found by broadcast and
+joined, joined the Switch's system link game found by its own search and
+downloaded the Switch's 512 MB Custom Edition map from it (map sharing)
+and loaded it, joined three public internet games through the brokers and
+the tunnel, which the user played, and downloaded a Custom Edition map
+from an internet game's peer. The download of the Switch's map ran the
+guest out of memory below 4 GB at 350 MB, a phase 2 bug in
+`host_memory.c`, fixed (below). Internet hosting, UPnP, the server
+browser's listing of the console's game, voice, a browser and the
+ten-minute unattended match were not made (below).
+
+**Files.** New: `port/ps5/host/host_net_ps5.c` (the network brought up,
+the resolver, the address wraps, miniupnpc's missing names, Mbed TLS's
+entropy, the smoke test) and `mbedtls_config_ps5.h`. Deleted:
+`host_posix_none.c`. Changed: `host_syscall.c` (`ppoll`),
+`host_syscall_tables.c` and `.h`, `freebsd_abi.h` and the test (poll's
+events), `host_main.c` (the smoke test, `ps5_net_start`, the phase in the
+identity line), `ps5_host.h`, `host_local.map` (the seven wraps), the
+README; `tools/ps5_build.py` (`posix_net.c`, `posix_upnp.c` with
+miniupnpc, `posix_dtls.c` with Mbed TLS, the wraps, `brokers.txt` in the
+title); and `port/linux/src/posix_net.c`'s `HALO_PS5` branches (below).
+Nothing else changed: `git status` names only these, and
+`port/third_party` is untouched.
+
+**Step 1's answers** (`HALO_PS5_NET_TEST=1`, `build/ps5/logs/20261018-180629-2`,
+then `-180728-2` and the run after it for the lines numbered 10):
+
+1. `socket(AF_INET, SOCK_DGRAM | SOCK_CLOEXEC)` without `sceNetInit`: 18.
+   **A title may open sockets, and `sceNetInit` is not needed first.** (The
+   resolver's pool calls it anyway: 0.)
+2. The route probe (UDP connected to 8.8.8.8:53, `getsockname`):
+   192.168.2.157. `sceNetCtlGetInfo(14)`: 192.168.2.157, the same.
+   `diagnostics.cpp`'s code 0 is refused, `0x80412106`: the IP address's
+   code is 14 (OpenOrbis's `ORBIS_NET_CTL_INFO_IP_ADDRESS`), not 0.
+3. `bind` to port 0: 0 (port 51566); `SO_BROADCAST`: 0; `sendto
+   255.255.255.255:5151` (the clients' port, `NETWORK_GAME_CLIENT_PORT`):
+   14 of 14 bytes; `poll` 200 ms: 0, nothing answers, as expected. (The
+   limited broadcast reaches the LAN: the Switch found the console's game.)
+4. `SO_REUSEADDR`: 0; `IP_MULTICAST_IF` 192.168.2.157: 0.
+5. **The resolver answers a name:** `sceNetResolverStartNtoa("opence.milenko.org")`
+   192.99.43.90 in **272.0 ms**; again, 0.1 ms (the library caches). Pool
+   3001, `sceNetInit` 0.
+6. **`fcntl(F_SETFL, O_NONBLOCK)` is refused: -1, `EACCES`** (`F_GETFL`
+   0x2). So `connect` to 192.99.43.90:1883 blocked and succeeded (0);
+   `poll` for writable 1 (`POLLOUT`) after 191 ms, `SO_ERROR` 0;
+   `getpeername` 192.99.43.90:1883; `shutdown` 0; `close` 0.
+7. Loopback works in a title: a listener on 127.0.0.1, `connect` 0,
+   `accept` 20 from 127.0.0.1 (address length 16, `O_NONBLOCK` not set),
+   one byte each way. **`ioctl(FIONREAD)` is refused: -1, `EACCES`**;
+   `recv(MSG_PEEK | MSG_DONTWAIT)` gives the byte.
+8. `arc4random_buf(32)`: 32 bytes, none zero.
+
+And two the plan did not ask, because of what it had wrong:
+
+9. **`getifaddrs` is exported** (the SDK's libc stub) **and works**: `eth0`
+   192.168.2.157 (flags `0x49108843`), `lo0` 127.0.0.1, 8 entries. The plan
+   said it was not exported.
+10. **Non-blocking:** `ioctl(FIONBIO, 1)` answers -1, `EACCES`, and yet
+    leaves `F_GETFL` saying `O_NONBLOCK` (0x6), with the socket still
+    blocking: the next `recv` hung the title, which was killed through
+    ps5vkctl. With `SO_RCVTIMEO` as a guard: `setsockopt(SOL_SOCKET,
+    0x1200)` (the console's `SO_NBIO`) **makes a socket non-blocking** (a
+    `recv` with nothing waiting: `EAGAIN` at once), as `sceNetSetsockopt`
+    with the same option does; 0x1100 is refused (-1; `0x8041012a` through
+    libSceNet). `recv` with `MSG_DONTWAIT` is non-blocking too.
+
+**The `HALO_PS5` branches of `posix_net.c`** (871 lines; 34 added, 2
+changed):
+
+| Where | Lines | Why |
+|---|---|---|
+| `ps5_net_resolve_ipv4`'s declaration | 6 | the resolver lives in a PS5 file |
+| `posix_socket_accept` | 6 | no `accept4` exported; close-on-exec means nothing for a title (`fcntl(F_SETFD)` is refused anyway, phase 2) |
+| `posix_socket_set_nonblocking` | 7 | `fcntl`'s `O_NONBLOCK` and `FIONBIO` are refused; `SO_NBIO` (0x1200) works (step 1, 10) |
+| `posix_random_bytes` | 5 | FreeBSD 11 has no `getrandom` (the SDK's `sys/random.h` declares none); `arc4random_buf`, as `host_posix_none.c` answered |
+| `posix_resolve_ipv4` | 7 | a dotted quad by `inet_pton`, a name by the console's resolver (the platform layer's `getaddrinfo` refuses everything) |
+| `run_program`'s `#if`, `posix_register_url_scheme`'s | 1 changed, 1 changed and a comment | no desktop; `readlink` is only `libkernel_sys`'s, which a title does not import |
+
+Not branched, against the plan: `interface_address`'s `getifaddrs` (it
+works, 9). The plan's "three branches are the whole difference" was wrong
+in two ways that are answered outside `posix_net.c` (below): the address
+layout and miniupnpc's lookups.
+
+**The preprocessing check.** `posix_net.c` preprocessed (`-E -P`) with
+`build/android`'s and `build/linux_x86_64`'s own commands (`ninja -t
+commands`), before the change and after: **identical**, 2599 and 4337
+lines. The i686 Linux game build's (`build/linux`, `-m32`) cannot be
+preprocessed on this machine before or after (no 32-bit glibc headers:
+`bits/wordsize.h`), so it was not compared; its flags define no
+`HALO_PS5`, and every branch is `HALO_PS5`'s alone. The Switch and the web
+build do not compile the file.
+
+**Unexpected, and what was done about it:**
+
+- **Map sharing's download used up the guest's memory below 4 GB** (run
+  182554): at 350,654,785 of the Switch's 512,118,866 bytes, every guest
+  `mmap` of 0x40014 bytes (a piece of 256 KiB and its header) failed, `-12`,
+  and the host logged `guest memory: no room below 4 GB for a pool of 256
+  MB` over 3000 times; the download stopped ("no player sent any of the map
+  for a minute"), and the game could no longer make a network client. Three
+  pools (`02a40000`, `12a40000`, `22a40000`) were full; a fourth has no room
+  below Custom Edition's range. The cause is phase 2's: `host_low_map`
+  rounded each mapping up to whole 16 KB system pages (0x44000, 68 guest
+  pages), and the guest's `munmap` gives back its own 4 KB-rounded length
+  (0x41000, 65 pages), so three pages of each piece stayed taken, and the
+  65 freed could never take the next piece (a run starts on a system page):
+  each piece took 272 KB of new address space for good. **Fixed** in
+  `port/ps5/host/host_memory.c` (one line, and its comment): a mapping
+  takes the guest's pages it needs, starting on a system page of its own as
+  before, so an unmap gives back all it took, and the rest of its last
+  system page is never handed out. The title was restarted (a session the
+  user started from the console, with the build before the fix) and took
+  up the download from its `.part` file: `downloaded
+  custom_maps\the_Cage... (512118866 bytes)` with 160,939,793 bytes more,
+  then `custom edition: loading 'd:\custom_maps\the_Cage...'` (3307 tags),
+  two players on two machines. With the fix (run 191339): an internet
+  game's peer sent `xbox_imminent_h1.5_rc_final`, 15,210,364 bytes in 24 s
+  over the tunnel (`the connection with 100.82.228.222 closed: done`), one
+  pool throughout and the host's heap at 160 MB. That download is 58 pieces,
+  which the old rounding would also have survived; a download of hundreds
+  of MB with the fix was not made (the user's Switch stopped working).
+- **The address layout.** The game's addresses are Winsock's (Linux's): a
+  16-bit family first; FreeBSD's begin with an 8-bit length and an 8-bit
+  family. Passed as they are, the console reads the family as 0: the first
+  game run (`20261018-181858`) said `Internet play: cannot open its socket`
+  and the game's `debug.txt` `winsock error #10047: WSAEAFNOSUPPORT`,
+  `failed to create the server connection`. The Switch met the same
+  (`port/switch/host/host_net.c`, `address_in`/`address_out`). The link
+  wraps `posix_net.c`'s seven calls that take or give an address
+  (`--wrap=posix_socket_bind`, `connect`, `accept`, `sendto`, `recvfrom`,
+  `getsockname`, `getpeername`; `ADDRESS_WRAPS` in `tools/ps5_build.py`,
+  local in `host_local.map`), and `host_net_ps5.c` turns each address round,
+  so `posix_net.c` needs no branch for it. Its own BSD calls
+  (`posix_local_ipv4_address`'s probe, `posix_socket_select`'s `SO_ERROR`)
+  use the host's own structures and are not wrapped. `posix.h`'s comment
+  ("Winsock and BSD share the sockaddr_in layout") holds for Linux only.
+- **miniupnpc looks up addresses with `getaddrinfo`**, which the console
+  refuses even for a dotted quad: the SSDP search's multicast address
+  (`minissdpc.c`) and the router (`connecthostport.c`), so UPnP would never
+  have sent a search. miniupnpc is compiled with its own `NO_GETADDRINFO`,
+  and the names that path and `MINIUPNPC_GET_SRC_ADDR` then call, which no
+  module a title loads exports (`gethostbyname` and `getnameinfo` are only
+  in `libScePosixForWebKit`; `herror`, `if_nametoindex`, `if_indextoname`
+  nowhere; `gai_strerror`), are given to `host_net_ps5.c` by `-D` on the
+  command line: `ps5_upnp_gethostbyname` (a dotted quad, else the
+  resolver), `ps5_upnp_getnameinfo` (numeric IPv4), and three that answer
+  nothing. miniupnpc is not edited.
+- **`FIONREAD` is refused** (`EACCES`): `posix_socket_bytes_available`
+  fails with Winsock's `WSAEACCES`. The game never asks (only `xnet.c`'s
+  `ioctlsocket` passes it on); nothing done.
+- **`brokers.txt`** is read beside `config.toml`, which on the console is
+  `/data/halo`, where nothing put it. The title carries it
+  (`tools/ps5_build.py`) and the host writes it there at every start, as
+  Android's app does (`ps5_net_start`).
+- **`ppoll`'s events:** Linux's `POLLWRNORM` (0x100) and `POLLWRBAND`
+  (0x200) are FreeBSD's `POLLOUT` and 0x100; translated both ways
+  (`ps5_poll_events_in`/`_out`, tested on the PC). Not called by the game
+  in any run.
+- **The DTLS certificate** is made at the start (`ps5_net_start` calls
+  `posix_dtls_fingerprint`), so the log proves Mbed TLS on the console's
+  random numbers: `network: DTLS certificate made in 0.6 ms, SHA-256
+  10820219b0531242...` (and `ae1639a8...` in the run before: a new one each
+  run).
+- **The resolver:** one resolver per lookup, in one pool of 16 KB made
+  once (with `sceNetInit`, under a lock), so the brokers' lookups, which
+  `p2p_signal.c` makes together, do not wait on each other's timeouts; 5 s
+  (`sceNetResolverStartNtoa`'s timeout taken in microseconds, as the
+  Vita's is documented) and one retry; a failure logged once per name. No
+  failure was logged in any run.
+- **The user's network**: both STUN servers answered (186.123.180.22, a
+  different port each: `this network's NAT gives each destination its own
+  port`), so the console can only reach hosts behind lenient NATs unless
+  UPnP forwards its port; the user's topology does not let a host forward
+  (the user, 2026-10-18), so internet hosting and UPnP were not tried.
+- **Map sharing's speed** is the host's upload limit, not the Switch's:
+  exactly 1,045,439 bytes a second (`network.map_share_upload`, 1024 KB/s),
+  a 512 MB map in about eight minutes.
+- **A frame rate of 119.78** in the hosted match (`heartbeat: 599 frames
+  in 5.00 s`, mean 8.35 ms, longest 35.29 and 35.42 ms) on a 120 Hz mode.
+- **The console's clock** in the game's `debug.txt` runs about 16 minutes
+  ahead of the PC's: the `WSAEAFNOSUPPORT` at its 18:34:56 is the run made
+  before the wraps.
+
+**The runs** (`build/ps5/logs/<time>`):
+
+- 180629, 180728 and the one after: step 1 (above).
+- 181858: hosting `host:bloodgulch` before the address wraps: the tunnel
+  and the game's server socket refused (`WSAEAFNOSUPPORT`).
+- 182119 (`HALO_NETWORK_TEST=host:bloodgulch`, `HALO_TEST_INPUT=look:1`,
+  `HALO_EXIT_AFTER=60`): **the console hosts system link**: `network:
+  this machine's address 192.168.2.157 (posix_local_ipv4_address); the
+  console's: 192.168.2.157 (sceNetCtlGetInfo(14) 0)`; the invite logged
+  (`halo://join/87cb794a...`); STUN's answers; `starting the game`; at tick
+  570 `player 1 is named (NX)LNK3000`: the user's Switch had found the
+  game by broadcast and joined, and played it to the end. The console's
+  last per-second line:
+
+  ```
+  tick 1230 player 0: (37.429 -68.109 0.261) h1.00/1.00 g0/0 w a-70/-85 f-76 l-70/-45 ... s0 k0 d0 f0 t0 m0
+            player 1: (42.497 -73.505 0.076) h1.00/1.00 g0/0 w a134/-2 f134 l134/-2 as139/120 st4 thr1.00 ... s0 k0 d0 f0 t1 m1
+            | items 35 (+65 -22 !0 x0) | playing to 15 | sent 1505 received 942 corrected 0 | hits 0 dealt 0 rejected 0 replayed 0
+  ```
+
+  The Switch's lines were not compared (the user's decision: they played
+  it and it worked), so acceptance item 3's agreement is not quoted, and
+  the match lasted about 40 s with two players, not five minutes. End:
+  `system calls answered -ENOSYS: mremap (216) 28`, nothing else; the
+  host's heap 160 MB (peak 160 MB), direct memory's largest free block
+  10746 MB; audio 2808 callbacks, 0 late.
+- 182554 (no test settings, the user at the pad): **the console joins an
+  internet game** from the menus: `joining 2a0f24992e6f's game`, `reaching
+  host 2a0f24992e6f`, `connected to host 2a0f24992e6f at
+  45.77.235.139:27019`, `the host's game is listed under Multiplayer,
+  System Link`; the user played it ("It's playing fine"). Then **the
+  console joins the Switch's system link game**, found by its own search
+  (`there is an open XBox net game with 1 players`, `attempting to connect
+  to game @ 192.168.2.173:5150`, `successfully joined a net game`), on a
+  Custom Edition map it lacked: `map sharing: asking the host for
+  custom_maps\the_Cage...`, `downloading ... 4 files, 512118866 bytes`,
+  then 1 MB a second from one connection, until the guest's memory ran out
+  at 350 MB (above).
+- (A session the user started from the console, before the fix's build was
+  installed): the download taken up from its `.part` file and finished, the
+  map loaded and played with the Switch.
+- 191339 (the fix; no test settings, the user at the pad): **three public
+  internet games joined from the server browser** (`connected to host
+  1a19bbe3ba04 at 109.147.112.123:39862`, `connected to host 56560816c682
+  at 198.46.215.3:2302`, and one more), and a Custom Edition map downloaded
+  from a peer over the tunnel (above). The user then stopped testing (their
+  Switch stopped working).
+
+**Not made, and why:**
+
+- **Internet play with the console hosting, and UPnP's result:** the
+  user's network topology does not let a host be reached through UPnP (the
+  user: "let's assume it's working"). miniupnpc's search was never asked
+  for, so its behaviour on the console is unseen.
+- **The server browser listing the console's public game**, and **voice**
+  (nobody spoke on another machine), not tried.
+- **A browser joining** (DTLS's handshake): not tried; the certificate's
+  hash is logged at every start instead.
+- **The unattended ten-minute match** (test 9 and acceptance item 7): the
+  user decided it is not needed. Its figures (frames a second, the longest
+  frames, the heap's peak over ten minutes) are not here; the hosted run's
+  are above.
+- **The desktop parts** (`/proc/self/cmdline`, the user secret, Discord's
+  socket): none reported anything in the runs. `posix_user_secret` may
+  succeed on the console (`HOME` is `/data/halo`), writing
+  `/data/halo/.halo-ce-universal.key`; not looked at.
+
+**Tests:** `ninja ps5` builds with `-Werror` (the vendored sources with
+`-w`); `ninja linux_x86_64` builds; `pytest -q tools/test_ps5_host.py
+tools/test_ps5_build.py tools/test_host_units.py tools/test_host_syscall.py`:
+15 passed, 1 skipped (the skip predates phase 2). `llvm-nm` on
+`eboot.elf`: no weak `host_` or `posix_` symbol. Every name the new
+objects import resolves to a module a title loads (libkernel, libc,
+libSceNet, libSceNetCtl) or to the platform layer's bindings.
 
 ### Phase 4 — audit (2026-10-18)
 

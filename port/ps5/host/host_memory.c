@@ -80,9 +80,15 @@ is the system's for a whole one. So the guest's pages are kept in 4 KB,
 with a protection each (page_protection), and each system page is given
 the union of its four (set_protection): a page made inaccessible next to
 one in use stays readable and writable (a guard page that does not
-guard), and nothing the guest uses is ever made inaccessible. What the
-host maps for itself (host_low_map) is whole system pages, so that its own
-protections (host_thread.c's guard pages) never reach a neighbour. */
+guard), and nothing the guest uses is ever made inaccessible. A mapping
+(host_low_map) starts on a system page of its own and takes the guest's
+pages it needs, so that its protections (host_thread.c's guard pages) never
+reach a neighbour; the rest of its last system page is never handed out
+(pool_take starts a run on a system page). It takes no more pages than an
+unmap of its length gives back: when it took whole system pages, each map
+of a piece (256 KB and a header) left three pages taken after its unmap,
+and the freed ones were too few for the next piece, so map sharing's
+download used up the pools (port/ps5/PS5.md, phase 5). */
 #define PAGE 0x1000ULL
 #define SYSTEM_PAGE 0x4000ULL
 #define PAGES_PER_SYSTEM_PAGE (SYSTEM_PAGE / PAGE)
@@ -549,7 +555,7 @@ static void *pool_take(struct pool *pool, uint64_t pages)
 
 void *host_low_map(size_t size, int protection)
 {
-	uint64_t pages = ((size + SYSTEM_PAGE - 1) & ~(SYSTEM_PAGE - 1)) / PAGE;
+	uint64_t pages = round_up(size) / PAGE;
 	void *address = NULL;
 	int index;
 

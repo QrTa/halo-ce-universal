@@ -46,6 +46,14 @@ long ps5_clock_in(int32_t guest);
 others as they are */
 long ps5_utime_nanoseconds_in(int32_t guest);
 
+/* poll's events (ppoll): FreeBSD's for the guest's, and the guest's for
+FreeBSD's revents, given the events the guest asked for. Linux's
+POLLRDNORM and POLLRDBAND are FreeBSD's; its POLLWRNORM is FreeBSD's
+POLLOUT, its POLLWRBAND FreeBSD's POLLWRBAND; bits Linux has and FreeBSD
+does not (POLLMSG, POLLREMOVE, POLLRDHUP) are dropped. */
+uint32_t ps5_poll_events_in(uint32_t guest);
+uint32_t ps5_poll_events_out(uint32_t host, uint32_t asked);
+
 /* a file's status, from whichever struct stat the system has */
 struct ps5_stat_fields
 {

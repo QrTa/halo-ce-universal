@@ -1,12 +1,13 @@
 # PS5
 
 `ninja ps5` builds the game for a jailbroken PlayStation 5, as a homebrew
-title. This is the port's fourth phase (`PS5.md`, the plan): the game is on
-the TV, drawn by the Android port's Vulkan renderer on RADV, with the pad
-and its sound. From a data folder holding only the game's disc image it
-extracts its maps (with nothing on the screen yet: phase 5), then plays the
-menus and the campaign at 60 frames a second, or 120 on a TV that takes it;
-the pad and the sound go through pacbrew's SDL2.
+title. This is the port's fifth phase (`PS5.md`, the plan): the game is on
+the TV, drawn by the Android port's Vulkan renderer on RADV, with the pad,
+its sound and the network. From a data folder holding only the game's disc
+image it extracts its maps (with nothing on the screen yet: phase 6), then
+plays the menus, the campaign and multiplayer at 60 frames a second, or 120
+on a TV that takes it, over system link and internet play with the other
+builds; the pad and the sound go through pacbrew's SDL2.
 
 The game is the x32 guest image of `ninja linux_x86_64`
 (`port/linux/README.md`, "64-bit x86"): the decompilation compiled as 32-bit
@@ -184,19 +185,70 @@ up, and "focus gained" after, as a desktop window would (`overlay:` lines).
 The system also sets the flag for about 6 s after the title is launched,
 so every run starts with the focus lost.
 
+## The network
+
+The console plays system link and internet play with the Linux, Windows,
+Android, Switch and web builds of the same network version, as
+`port/linux/README.md` sets them out ("System link", "Internet play"): the
+system link list finds the console's games and the console finds theirs
+by broadcast; it joins internet games by invite and from the server
+browser, and hosts them; it downloads a Custom Edition map it lacks from
+the game's players (map sharing). The settings are the desktop's
+(`network.*` in `config.toml`; `network.address` and `network.broadcast`
+work as there).
+
+- **Sockets** are the console's own (FreeBSD's, in libkernel), through the
+  Linux host's `posix_net.c`. A title is refused two things a socket
+  normally takes: `fcntl`'s `O_NONBLOCK` and `ioctl`'s `FIONBIO` and
+  `FIONREAD` answer `EACCES`, so a socket is made non-blocking with the
+  console's own option (`SO_NBIO`). The game's addresses are Winsock's
+  layout and the console's BSD's; the host turns each round.
+- **Names** (the brokers', STUN's) are looked up with the console's resolver
+  (libSceNet), since its C library refuses `getaddrinfo` to a title.
+- **This machine's address** is the one its default route leaves from; the
+  log's `network:` line gives it beside the console's own word on it
+  (`sceNetCtlGetInfo`).
+- **Internet play's brokers** are `brokers.txt`, which the title carries
+  and writes to `/data/halo` (beside `config.toml`) at every start, so an
+  update's list replaces it; name a list of your own in
+  `network.brokers_file`.
+- **UPnP** asks the router to forward internet play's port as on the
+  desktop (miniupnpc). Behind a router that will not, or a second NAT, the
+  console reaches hosts behind lenient NATs only: the game says so when it
+  starts (`this network's NAT gives each destination its own port`).
+- **Browsers** join the console's internet games through DTLS (Mbed TLS,
+  with the console's random numbers); the certificate is made at the start,
+  and the log gives its hash (`network: DTLS certificate made`).
+- **Voice chat** plays the other players' voices; the console's own
+  microphone is not used (SDL2 has no recording device here), so the
+  console never talks.
+- **Map sharing** downloads to `/data/halo/custom_maps` at the host's
+  upload limit (`network.map_share_upload`, 1024 KB/s by default: a 500 MB
+  map takes eight minutes).
+- Not on a console: Discord, the `halo://` link handler and the command
+  line, and a clipboard shared with other programs (the game's own holds
+  only what it put there, its invite). Join internet games from the server
+  browser.
+
+`HALO_PS5_NET_TEST=1` in `environment.txt` runs the console's socket
+checks before the game starts (`net test:` lines in the log): a socket,
+the route and the console's address, a broadcast, the options UPnP's
+search sets, the resolver, a connection to the first broker, a loopback
+connection, the random numbers, the interfaces, and the ways of making a
+socket non-blocking.
+
 ## What runs, and what does not yet
 
-- Runs: the game's start-up, the first start's extraction, the menus and
-  the campaign on the TV, paced to the display's 59.94 or 119.88 Hz;
-  settings, saves and the game's files in `/data/halo`; the pad, its rumble
-  and the sound through SDL2; the system's menus as focus events (the level
-  goes on under them).
+- Runs: the game's start-up, the first start's extraction, the menus,
+  the campaign and multiplayer on the TV, paced to the display's 59.94 or
+  119.88 Hz; settings, saves and the game's files in `/data/halo`; the pad,
+  its rumble and the sound through SDL2; the system's menus as focus events
+  (the level goes on under them); system link, internet play, the server
+  browser and map sharing (above).
 - Not yet: a picture during the first start's extraction, native 4K
-  drawing, pausing under the system's menu, the microphone and voice chat
-  (phase 5), the network (phase 6: the game starts with it down, so the
-  network test's matches cannot be hosted), and the desktop's self-updater,
-  which a console title does not have (it is updated by installing it
-  again).
+  drawing, pausing under the system's menu, the microphone (voice chat
+  only listens), and the desktop's self-updater, which a console title
+  does not have (it is updated by installing it again).
 
 For the deploy's tests, two files in the title's folder change a run:
 `hold.txt` (`--hold`) keeps the title for 120 s after the game ends, and

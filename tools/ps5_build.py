@@ -16,8 +16,10 @@ build/ps5:
   SDL2 in the link;
 - the title, title/PPSA99500: eboot.bin (the host, signed), sce_sys/
   (param.json and icon0.png, port/ps5/sce_sys), sce_module/libc.prx
-  (PS5_Vulkan's), halo_guest.elf and NOTICE.txt (what the build is made of,
-  and where to get it), which tools/ps5_deploy.py installs on the console.
+  (PS5_Vulkan's), halo_guest.elf, NOTICE.txt (what the build is made of,
+  and where to get it) and brokers.txt (internet play's, which the host
+  writes beside config.toml), which tools/ps5_deploy.py installs on the
+  console.
 
 None of PS5_Vulkan, its SDK fork, PS5_Mesa, pacbrew or glslang is copied
 into this repository: they are GPL (glslang is not, but is fetched all the
@@ -50,7 +52,7 @@ from typing import Any, Dict, List, Optional
 from .android_build import GLSLANG_DIR as ANDROID_GLSLANG_DIR
 from .android_build import GLSLANG_TAG, GLSLANG_URL, MUSL_VERSION, fetch_third_party, generate_guest_image
 from .guest_arch import X32
-from .linux_build import updater_defines
+from .linux_build import MBEDTLS_DIR, MINIUPNPC_DEFINES, MINIUPNPC_DIR, miniupnpc_sources, updater_defines
 from .ninja_syntax import Writer, escape
 
 # the pins: what phase 0 B of port/ps5/PS5.md built and ran on the console
@@ -83,7 +85,14 @@ SHARED_HOST_FILES = ("host_arch.c", "host_common.c", "host_loader.c", "host_thre
 # the probe, host_vk_probe.c
 SHARED_RENDERER_FILES = ("host_vk.c", "host_vk_data.c", "host_vk_draw.c", "host_vk_post.c", "host_vk_present.c",
                          "host_vk_render.c", "host_vk_shaders.c", "host_vk_texture.c", "host_vk_visibility.c")
-HOST_WRAPS = ("--wrap=mmap", "--wrap=SDL_ShowSimpleMessageBox")
+# posix.h's helpers (port/linux/src) the game imports, as the Linux host
+# compiles them (port/ps5/PS5.md, phases 2 and 5)
+POSIX_FILES = ("posix_files.c", "posix_net.c", "posix_upnp.c", "posix_dtls.c")
+# (and posix_net.c's calls that take or give an address, which
+# host_net_ps5.c turns round between Winsock's layout and BSD's: phase 5)
+ADDRESS_WRAPS = ("posix_socket_bind", "posix_socket_connect", "posix_socket_accept", "posix_socket_sendto",
+                 "posix_socket_recvfrom", "posix_socket_getsockname", "posix_socket_getpeername")
+HOST_WRAPS = ("--wrap=mmap", "--wrap=SDL_ShowSimpleMessageBox", *(f"--wrap={name}" for name in ADDRESS_WRAPS))
 BUILD = Path("build/ps5")
 THIRD_PARTY = BUILD / "third_party"
 GLSLANG_DIR = THIRD_PARTY / "glslang"
@@ -462,6 +471,13 @@ def _generate(n: Writer, sln: Any, config_path: Path) -> None:
         f"-isystem {mesa / 'include'}", *sdl2_flags, f"-isystem {root / THIRD_PARTY / 'SDL3' / 'include'}",
         f"-I{glslang_source}",
     ])
+    miniupnpc_cflags = " ".join([f"-I{root / MINIUPNPC_DIR / 'include'}", f"-I{root / MINIUPNPC_DIR / 'src'}",
+                                 *MINIUPNPC_DEFINES, "-DNO_GETADDRINFO", "-Dgethostbyname=ps5_upnp_gethostbyname",
+                                 "-Dherror=ps5_upnp_herror", "-Dif_nametoindex=ps5_upnp_if_nametoindex",
+                                 "-Dif_indextoname=ps5_upnp_if_indextoname", "-Dgetnameinfo=ps5_upnp_getnameinfo",
+                                 "-Dgai_strerror=ps5_upnp_gai_strerror"])
+    mbedtls_cflags = " ".join([f"-I{root / MBEDTLS_DIR / 'include'}", f"-I{root / PORT_DIR / 'host'}",
+                               shlex.quote('-DMBEDTLS_USER_CONFIG_FILE="mbedtls_config_ps5.h"')])
     cxxflags = "-std=c++20 -O2 -Wall -Wextra -fno-exceptions -fno-rtti -ffunction-sections -fdata-sections"
     # the C runtime first, as PS5_Vulkan's titles link it
     objects = [obj_dir / "app_crt.o", obj_dir / "app_cpp_runtime.o"]
@@ -470,11 +486,12 @@ def _generate(n: Writer, sln: Any, config_path: Path) -> None:
             variables={"cflags": cxxflags})
     # the PS5's own files, the Android host library's that are used as they
     # are (its host_debug.c is the PS5's host_debug_ps5.c), the desktop's
-    # file helpers (posix.h's, which the game imports), config.toml's
+    # helpers (posix.h's, which the game imports: its files, its sockets,
+    # internet play's UPnP and DTLS; port/ps5/PS5.md, phase 5), config.toml's
     # parser, the import table and the stubs
     host_sources = [*sorted((root / PORT_DIR / "host").glob("*.c")),
                     *(root / ANDROID_DIR / "host" / name for name in SHARED_HOST_FILES + SHARED_RENDERER_FILES),
-                    root / LINUX_DIR / "src" / "posix_files.c", root / TOMLC17_DIR / "tomlc17.c",
+                    *(root / LINUX_DIR / "src" / name for name in POSIX_FILES), root / TOMLC17_DIR / "tomlc17.c",
                     guest["host_table_c"], import_stubs]
     for source in host_sources:
         obj = obj_dir / (source.name + ".o")
@@ -497,8 +514,31 @@ def _generate(n: Writer, sln: Any, config_path: Path) -> None:
             # rectangles, before the rectangles it sends, which clang 22
             # names a GNU extension)
             cflags += " -Wno-missing-field-initializers -Wno-gnu-variable-sized-type-not-at-end"
+        if source.name == "posix_upnp.c":
+            cflags += " " + miniupnpc_cflags
+        if source.name == "posix_dtls.c":
+            cflags += " " + mbedtls_cflags
         n.build(outputs=obj, rule="ps5_host_cc", inputs=source, variables={"cflags": cflags},
                 implicit=[build_stamp])
+        objects.append(obj)
+    # the vendored libraries, as tools/linux_guest_build.py compiles them
+    # for the Linux host (-w: their warnings are not this repository's), with
+    # the PS5's differences given as definitions, the libraries unedited:
+    # miniupnpc without getaddrinfo, which the console refuses a title even
+    # for an address (its own NO_GETADDRINFO, the router found by SSDP and
+    # named by address), and the gethostbyname that it then calls, herror,
+    # if_nametoindex, if_indextoname, getnameinfo and gai_strerror, which no
+    # module a title loads exports, answered by host_net_ps5.c; Mbed TLS with the PS5's configuration added
+    # (mbedtls_config_ps5.h: the console's random numbers)
+    for source in miniupnpc_sources():
+        obj = obj_dir / "miniupnpc" / (source.name + ".o")
+        n.build(outputs=obj, rule="ps5_host_cc", inputs=root / source,
+                variables={"cflags": f"{host_cflags} {miniupnpc_cflags} -w"})
+        objects.append(obj)
+    for source in sorted((root / MBEDTLS_DIR / "library").glob("*.c")):
+        obj = obj_dir / "mbedtls" / (source.name + ".o")
+        n.build(outputs=obj, rule="ps5_host_cc", inputs=source,
+                variables={"cflags": f"{host_cflags} {mbedtls_cflags} -I{root / MBEDTLS_DIR / 'library'} -w"})
         objects.append(obj)
 
     # the link (tools/ps5_title.sh link): RADV's link recipe, glslang's two
@@ -562,7 +602,12 @@ def _generate(n: Writer, sln: Any, config_path: Path) -> None:
     n.rule(name="ps5_notice", command=f"{python} -m tools.ps5_build notice $out", description="PS5 NOTICE $out")
     n.build(outputs=notice, rule="ps5_notice", implicit=[root / "tools" / "ps5_build.py"])
 
-    n.build(outputs="ps5", rule="phony", inputs=[eboot, param, icon, libc, guest_image, notice])
+    # internet play's brokers, which the host writes beside config.toml at
+    # each start (port/ps5/host/host_net_ps5.c)
+    brokers = title / "brokers.txt"
+    n.build(outputs=brokers, rule="ps5_copy", inputs=root / "port" / "assets" / "network" / "brokers.txt")
+
+    n.build(outputs="ps5", rule="phony", inputs=[eboot, param, icon, libc, guest_image, notice, brokers])
     n.newline()
 
 

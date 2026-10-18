@@ -9,4 +9,11 @@ does for the names it binds.
     local:
         __wrap_mmap;
         __wrap_SDL_ShowSimpleMessageBox;
+        __wrap_posix_socket_bind;
+        __wrap_posix_socket_connect;
+        __wrap_posix_socket_accept;
+        __wrap_posix_socket_sendto;
+        __wrap_posix_socket_recvfrom;
+        __wrap_posix_socket_getsockname;
+        __wrap_posix_socket_getpeername;
 };

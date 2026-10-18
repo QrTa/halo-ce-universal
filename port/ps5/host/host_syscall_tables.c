@@ -237,6 +237,41 @@ long ps5_utime_nanoseconds_in(int32_t guest)
 	return guest;
 }
 
+/* ---------- poll's events */
+
+/* Linux's (asm-generic/poll.h): the first six are halo_guest_syscall.h's */
+#define LINUX_POLLRDNORM 0x0040
+#define LINUX_POLLRDBAND 0x0080
+#define LINUX_POLLWRNORM 0x0100
+#define LINUX_POLLWRBAND 0x0200
+
+uint32_t ps5_poll_events_in(uint32_t guest)
+{
+	uint32_t host = guest & (GUEST_POLLIN | GUEST_POLLPRI | GUEST_POLLOUT | GUEST_POLLERR | GUEST_POLLHUP |
+		GUEST_POLLNVAL | LINUX_POLLRDNORM | LINUX_POLLRDBAND);
+
+	if (guest & LINUX_POLLWRNORM)
+		host |= FREEBSD_POLLWRNORM;
+	if (guest & LINUX_POLLWRBAND)
+		host |= FREEBSD_POLLWRBAND;
+	return host;
+}
+
+uint32_t ps5_poll_events_out(uint32_t host, uint32_t asked)
+{
+	uint32_t guest = host & (FREEBSD_POLLIN | FREEBSD_POLLPRI | FREEBSD_POLLOUT | FREEBSD_POLLERR | FREEBSD_POLLHUP |
+		FREEBSD_POLLNVAL | FREEBSD_POLLRDNORM | FREEBSD_POLLRDBAND);
+
+	/* (FreeBSD's POLLWRNORM is POLLOUT: the guest is told the one it asked for) */
+	if (!(asked & GUEST_POLLOUT))
+		guest &= ~(uint32_t)FREEBSD_POLLOUT;
+	if ((host & FREEBSD_POLLWRNORM) && (asked & LINUX_POLLWRNORM))
+		guest |= LINUX_POLLWRNORM;
+	if (host & FREEBSD_POLLWRBAND)
+		guest |= LINUX_POLLWRBAND;
+	return guest;
+}
+
 /* ---------- layouts */
 
 void ps5_kstat_fill(struct halo_guest_kstat *out, const struct ps5_stat_fields *in)

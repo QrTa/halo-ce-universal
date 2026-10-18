@@ -5,7 +5,7 @@ The PS5 host's translations between the guest's Linux interface and the
 console's FreeBSD (port/ps5/host/host_syscall_tables.c), tested on the PC
 with its own compiler (tools/test_ps5_host.py): the open flags both ways
 and round trip, the *at flags, every FreeBSD errno value, the clocks,
-utimensat's special times, the guest's kernel stat filled from given
+utimensat's special times, poll's events both ways, the guest's kernel stat filled from given
 fields, and FreeBSD's directory records repacked as Linux's. The FreeBSD
 numbers are freebsd_abi.h's, which the console's build checks against the
 SDK's headers (host_syscall.c).
@@ -179,6 +179,30 @@ static void test_clocks(void)
 	CHECK(ps5_utime_nanoseconds_in(0) == 0);
 }
 
+/* ---------- poll's events */
+
+static void test_poll_events(void)
+{
+	/* the six of halo_guest_syscall.h are FreeBSD's */
+	CHECK(GUEST_POLLIN == FREEBSD_POLLIN && GUEST_POLLPRI == FREEBSD_POLLPRI && GUEST_POLLOUT == FREEBSD_POLLOUT);
+	CHECK(GUEST_POLLERR == FREEBSD_POLLERR && GUEST_POLLHUP == FREEBSD_POLLHUP && GUEST_POLLNVAL == FREEBSD_POLLNVAL);
+	CHECK(ps5_poll_events_in(GUEST_POLLIN | GUEST_POLLOUT) == (FREEBSD_POLLIN | FREEBSD_POLLOUT));
+	/* Linux's POLLRDNORM and POLLRDBAND, POLLWRNORM and POLLWRBAND */
+	CHECK(ps5_poll_events_in(0x40 | 0x80) == (FREEBSD_POLLRDNORM | FREEBSD_POLLRDBAND));
+	CHECK(ps5_poll_events_in(0x100) == FREEBSD_POLLWRNORM);
+	CHECK(ps5_poll_events_in(0x200) == FREEBSD_POLLWRBAND);
+	/* POLLMSG, POLLREMOVE and POLLRDHUP are dropped */
+	CHECK(ps5_poll_events_in(0x400 | 0x1000 | 0x2000) == 0);
+	CHECK(ps5_poll_events_out(FREEBSD_POLLIN | FREEBSD_POLLHUP, GUEST_POLLIN) == (GUEST_POLLIN | GUEST_POLLHUP));
+	CHECK(ps5_poll_events_out(FREEBSD_POLLOUT, GUEST_POLLOUT) == GUEST_POLLOUT);
+	/* writable, asked as POLLWRNORM alone: POLLWRNORM, not POLLOUT */
+	CHECK(ps5_poll_events_out(FREEBSD_POLLOUT, 0x100) == 0x100);
+	CHECK(ps5_poll_events_out(FREEBSD_POLLOUT, GUEST_POLLOUT | 0x100) == (GUEST_POLLOUT | 0x100));
+	CHECK(ps5_poll_events_out(FREEBSD_POLLWRBAND, 0x200) == 0x200);
+	CHECK(ps5_poll_events_out(FREEBSD_POLLNVAL, GUEST_POLLIN) == GUEST_POLLNVAL);
+	CHECK(ps5_poll_events_out(FREEBSD_POLLERR, 0) == GUEST_POLLERR);
+}
+
 /* ---------- the kernel stat */
 
 static void test_kstat(void)
@@ -336,6 +360,7 @@ int main(void)
 	test_at_flags();
 	test_errno();
 	test_clocks();
+	test_poll_events();
 	test_kstat();
 	test_dirents();
 	if (failures)
