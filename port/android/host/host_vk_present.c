@@ -42,12 +42,76 @@ static uint64_t now_ns(void)
 /* the window's ANativeWindow as it is now (a new one after the app was away), or NULL */
 static void *native_window(void)
 {
+#ifdef HALO_PS5
+	/* (the console has no window: the surface is VideoOut's display plane, below) */
+	return NULL;
+#else
 	if (!host_vk_window)
 		return NULL;
 	return SDL_GetPointerProperty(SDL_GetWindowProperties((SDL_Window *)host_vk_window),
 		SDL_PROP_WINDOW_ANDROID_WINDOW_POINTER, NULL);
+#endif
 }
 
+#ifdef HALO_PS5
+/* The PS5's surface (port/ps5/PS5.md, phase 4): a plane on VideoOut's one display, in its one mode (3840x2160 at
+59.94 Hz), as phase 0 B's host probe made it. Nothing here waits for a window, so a surface made again after a loss
+is made at once; a failure is said the first time, quiet or not, since there is no window to wait for. */
+static int plane_failed(VkResult result, const char *call)
+{
+	static int said;
+
+	if (!said++)
+		host_logf(HOST_LOG_ERROR, "vk: no display plane surface: %s returned %d", call, (int)result);
+	return 0;
+}
+
+int host_vk_surface_make(int quiet)
+{
+	VkDisplayPropertiesKHR display;
+	VkDisplayModePropertiesKHR mode;
+	VkDisplayPlanePropertiesKHR plane;
+	VkDisplayPlaneCapabilitiesKHR capabilities;
+	VkDisplaySurfaceCreateInfoKHR info = { VK_STRUCTURE_TYPE_DISPLAY_SURFACE_CREATE_INFO_KHR };
+	uint32_t count = 1;
+	VkResult result;
+
+	(void)quiet;
+	if (B.surface)
+		return 1;
+	result = host_vk.vkGetPhysicalDeviceDisplayPropertiesKHR(host_vk.physical, &count, &display);
+	if ((result != VK_SUCCESS && result != VK_INCOMPLETE) || !count)
+		return plane_failed(result, "vkGetPhysicalDeviceDisplayPropertiesKHR (or no display)");
+	count = 1;
+	result = host_vk.vkGetDisplayModePropertiesKHR(host_vk.physical, display.display, &count, &mode);
+	if ((result != VK_SUCCESS && result != VK_INCOMPLETE) || !count)
+		return plane_failed(result, "vkGetDisplayModePropertiesKHR (or no mode)");
+	count = 1;
+	result = host_vk.vkGetPhysicalDeviceDisplayPlanePropertiesKHR(host_vk.physical, &count, &plane);
+	if ((result != VK_SUCCESS && result != VK_INCOMPLETE) || !count)
+		return plane_failed(result, "vkGetPhysicalDeviceDisplayPlanePropertiesKHR (or no plane)");
+	memset(&capabilities, 0, sizeof(capabilities));
+	host_vk.vkGetDisplayPlaneCapabilitiesKHR(host_vk.physical, mode.displayMode, 0, &capabilities);
+	info.displayMode = mode.displayMode;
+	info.planeIndex = 0;
+	info.planeStackIndex = 0;
+	info.transform = VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR;
+	info.globalAlpha = 1.0f;
+	info.alphaMode = VK_DISPLAY_PLANE_ALPHA_OPAQUE_BIT_KHR;
+	info.imageExtent = mode.parameters.visibleRegion;
+	result = host_vk.vkCreateDisplayPlaneSurfaceKHR(host_vk.instance, &info, NULL, &B.surface);
+	if (result != VK_SUCCESS)
+	{
+		B.surface = VK_NULL_HANDLE;
+		return plane_failed(result, "vkCreateDisplayPlaneSurfaceKHR");
+	}
+	host_logf(HOST_LOG_INFO, "vk: surface: display \"%s\", %ux%u at %u mHz, plane 0 (on %s, stack 0, its alpha 0x%x)",
+		display.displayName ? display.displayName : "(no name)", mode.parameters.visibleRegion.width,
+		mode.parameters.visibleRegion.height, mode.parameters.refreshRate, plane.currentDisplay == display.display ?
+		"that display" : "no display yet", (unsigned)capabilities.supportedAlpha);
+	return 1;
+}
+#else
 int host_vk_surface_make(int quiet)
 {
 	VkAndroidSurfaceCreateInfoKHR info = { VK_STRUCTURE_TYPE_ANDROID_SURFACE_CREATE_INFO_KHR };
@@ -70,6 +134,7 @@ int host_vk_surface_make(int quiet)
 	B.native_window = native;
 	return 1;
 }
+#endif
 
 /* ---------- the swapchain */
 
@@ -106,6 +171,7 @@ it to the swapchain */
 static int surface_extent(const VkSurfaceCapabilitiesKHR *caps, VkExtent2D *extent)
 {
 	*extent = caps->currentExtent;
+#ifndef HALO_PS5
 	if (extent->width == 0xffffffffu)
 	{
 		int width = 0, height = 0;
@@ -115,6 +181,7 @@ static int surface_extent(const VkSurfaceCapabilitiesKHR *caps, VkExtent2D *exte
 		extent->width = (uint32_t)width;
 		extent->height = (uint32_t)height;
 	}
+#endif
 	return extent->width && extent->height;
 }
 
@@ -193,6 +260,11 @@ static int swapchain_create(struct host_vk_swapchain *chain, VkSwapchainKHR old,
 	info.imageExtent = extent;
 	info.imageArrayLayers = 1;
 	info.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+#ifdef HALO_PS5
+	/* (the screenshot copies the presented image: host_vk_screenshot_ps5.c) */
+	if (caps.supportedUsageFlags & VK_IMAGE_USAGE_TRANSFER_SRC_BIT)
+		info.imageUsage |= VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
+#endif
 	info.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
 	info.preTransform = (caps.supportedTransforms & VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR) ?
 		VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR : caps.currentTransform;
@@ -541,6 +613,10 @@ uint32_t host_vk_present_record(VkCommandBuffer command, struct host_vk_target *
 	{
 		barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
 	}
+#ifdef HALO_PS5
+	/* (the picture as it is presented, copied when a screenshot is due; the image is then in barrier.oldLayout) */
+	host_vk_screenshot_record(command, image, &barrier.oldLayout);
+#endif
 	barrier.srcAccessMask = VK_ACCESS_MEMORY_WRITE_BIT;
 	barrier.dstAccessMask = 0;
 	barrier.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;

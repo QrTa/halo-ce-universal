@@ -24,8 +24,11 @@ image, through the extraction, to the main menu's map at 59.94 frames a
 second ("Progress"). Phase 3's code is done and reviewed (the pad, the sound
 and the system's overlay over SDL2); its runs with a person at the console
 are moved to the end of phase 4, to be made with the picture. Phase 4 is
-written out in detail and ready to be handed over. The probes are in
-`port/ps5/probe`.
+done and reviewed: the game draws through the Android port's Vulkan
+renderer on RADV, the menus and campaign levels on the TV as on Android, at
+59.94 or 119.88 frames a second, with phase 3's runs made with the user at
+the console ("Progress"). Phase 5 is next, to be written out. The probes are
+in `port/ps5/probe`.
 
 ---
 
@@ -2007,6 +2010,401 @@ As the deko3d and Vulkan plans were, on purpose:
 ---
 
 ## Progress
+
+### Phase 4 — audit (2026-10-18)
+
+Checked on the sources, the build, the tests, the fetched logs and the
+screenshots:
+
+1. **The builds and tests.** `ninja ps5` and `ninja linux_x86_64` are null
+   builds; the four test files pass (15, the old skip); no weak host symbol
+   stands; `host_vk_null.c` is gone. **The shared files are unchanged for
+   Android by construction:** `host_vk.c`, `host_vk_present.c`,
+   `host_vk_shaders.c` and `host_common.c` preprocessed with Android's
+   defines before and after the change (`clang -E`, the new `host_vk.h` and
+   the old) give identical token streams, so no Android or Linux object can
+   differ beyond its debug information; the implementer's stripped-object
+   comparison agrees.
+2. **Step 1's log** (`20261018-164344-2`): the renderer line (RADV NAVI21,
+   Vulkan 1.4.354, Mesa 26.2.0), the display plane surface, the device
+   line, both self-tests `ok`, the swapchain. The marker's squares are in the
+   main menu's screenshot, which I looked at (`00000564.png`: the menu drawn
+   right, the markers at the top corners, "Vulkan" under the build number).
+3. **The menus and the levels, seen:** the main menu at 118 frames a second
+   by the game's own counter (`20261018-172908-2/00002332.png`), The Pillar
+   of Autumn's cryo bay with its technician and the "Self-Diagnostic
+   Software Enabled" text (`20261018-165239/00013609.png`), and a corridor
+   fight with the HUD, the motion tracker, the pistol and a grunt
+   (`20261018-164800/00019098.png`): all as the Android port draws them.
+   The counters show no draw skipped.
+4. **The Silent Cartographer's beach, the water and the flares have no
+   screenshot** (the user judged them on the TV and closed the phase), so
+   acceptance item 4 is met for The Pillar of Autumn and for Two Betrayals
+   by the user's word, not by a picture. Item 5: RADV reports precise
+   occlusion queries here, so the coarse-query gap does not apply; the
+   line-list gap is reachable only through a debug view and was not tried.
+5. **Phase 3's items**, now closed: the menus heard and driven (3), the
+   rumble felt (4), the PS button's overlay with the focus events and the
+   level playing on (6), five minutes of audio with no late callback and
+   the hand-off under a period (7), the level played (2 as far as the
+   network allows). **Item 5 is open in one respect:** the pad switched off
+   and on works for the player, but SDL2 reports neither a removal nor an
+   addition, so a game that needs to know (a second pad's arrival, phase
+   5's split screen) has nothing to go on.
+6. **"Progress"** has every figure asked for.
+
+Deviations accepted:
+
+- **A change to the game's source** (`source/render/render_objects.c`, 14
+  lines, marked `port:` as `AGENTS.md` asks), at the user's decision: the
+  shadow volume's radius was read uninitialised whenever the rasterizer did
+  not draw the shadow (its `_rasterizer_environment_shadow_begin` writes
+  the radius only inside its "primary target and shadows on" branch and
+  returns TRUE either way: read and confirmed), and a negative value halted
+  Two Betrayals. The fix starts the radius at 0 and casts no volume without
+  one, and the early return keeps the rasterizer's begin and end paired. It
+  is an original bug that every port could have hit; the level then played.
+  The halt's own `debug.txt` was not fetched into a run folder, so that
+  record is the implementer's reading of the console's file.
+- **120 Hz in `param.json`** (`attribute3` 0x80040), at the user's request:
+  harmless where the console's output is 60 Hz, and the game is not capped.
+- **A sixth `HALO_PS5` branch** the phase did not list: the compile thread's
+  `setpriority` is Linux's; on the PS5 the thread runs at the game's
+  priority. The frame rate held while it compiled, so it stands, and phase
+  5 may give it a priority of the console's.
+- **Two warnings turned off** for the shared renderer files under `-Wextra`
+  (Vulkan's `{ sType }` initialisers; a flexible array in the self-test):
+  the code is unchanged and Android compiles it without `-Wextra`.
+
+Carried into phase 5:
+
+- **A missing pipeline is built on the game's thread at its draw** (the
+  shared `host_vk_pipeline_find`), not skipped: the first sight of each
+  costs a frame of 150 to 200 ms in The Pillar of Autumn's windows. That is
+  the Android code's behaviour, and the Vulkan plan's decision to skip was
+  about shaders; whether the console wants the skip, or a warm-up from the
+  cache, is phase 5's performance work.
+- **RADV's 120 Hz check is unreliable** (four of five launches logged `59.94
+  Hz restored` while the display ran at 119.88), and the PS button's menu
+  can bring a run down to 59.94 for good. Recorded, not worked around; the
+  console's output setting decides which rate a player sees.
+- **A menu at 27 to 39 frames a second once**, with everything starved at
+  the same time, not explained; it did not recur without the single-write
+  screenshots. The long session is where it would show again.
+- **The pad's removal does not reach SDL2** when switched off from the
+  Quick Menu; split screen and the second pad need another way to notice.
+- **The host's heap grew from 160 to 240 MB** over a session with the
+  renderer, and its peak is permanent (phase 0 B).
+- **The deploy's follower outlives a killed run** and files a later run's
+  logs under the killed one's folder; and the screenshot folder's 20-file
+  cap loses a long run's first pictures. Both the deploy's to fix.
+- `init.txt`'s `display_framerate 1` is on the console, the user's.
+
+### Phase 4 — the Vulkan renderer on RADV (2026-10-18)
+
+Implemented on 2026-10-18 and run on the user's console (13.590.001), the
+user at the TV from the second run on. **The result in one line:** the
+Android port's Vulkan renderer runs on RADV as it is, through five small
+`HALO_PS5` branches and two PS5 files; the menus and campaign levels draw on
+the TV as on Android, with no draw skipped after a pipeline's first sight,
+at 59.94 frames a second, or 119.8 once `param.json` declares high-frame-rate
+output; the pad drives them, the sound plays with no late callback, the PS
+button's menu does not stop the level. Two faults were found and fixed on
+the way: the screenshot writer stalled the game (and the music) for 0.6 s at
+each screenshot, and a shadow of uninitialised size halted the game in Two
+Betrayals (a fix in the game's shared code, outside this phase's list, at
+the user's decision). **Not done as written:** no screenshot of The Silent
+Cartographer's beach, nor of the water and the flares: the user looked at
+them on the TV and judged them right, and closed the phase without them.
+
+**The renderer line and the device** (step 1, `build/ps5/logs/20261018-164344-2`):
+
+```
+renderer: Vulkan on RADV, linked (PS5_Mesa 01d70579b8d4, built by PS5_Vulkan 8aee3afb37bc), PlayStation 5 GPU (RADV NAVI21), Vulkan 1.4.354, radv Mesa 26.2.0 (360.0 ms)
+vk: surface: display "PS5 VideoOut", 3840x2160 at 59940 mHz, plane 0 (on that display, stack 0, its alpha 0x1)
+vk: device ready: queue family 0, colour targets B8G8R8A8_UNORM, depth targets D32_SFLOAT_S8_UINT, blit filter linear, dynamic rendering from Vulkan 1.3; anisotropy 1, non-solid fill 1, precise occlusion 1, BC textures 1
+vk: clears self-test: ok (a full clear, alpha only on the left half, red only on the top right quarter; 2 partial clears drawn, 2 by vkCmdClearAttachments)
+vk: data self-test: id 1 ok (wanted R255 G0 B0, seen R255 G0 B0)   (ids 2 and 3 the same)
+vk: swapchain 3840x2160, 3 images, format B8G8R8A8_UNORM, FIFO, preTransform identity
+vk: first frame presented
+```
+
+The instance and the physical device take 360 ms on a first start and 44 ms
+on a second. The game's shader service self-test passes too (two shaders
+compile, the deliberately broken one fails with glslang's message). The
+depth format is `D32_SFLOAT_S8_UINT`: RADV does not offer
+`D24_UNORM_S8_UINT` as an attachment. **RADV reports `occlusionQueryPrecise`
+true**, where PS5_Vulkan's README says its own driver (ps5vk) reports it
+false, so the renderer asks for precise queries. The heartbeat is 59.94 a
+second with the stand-in's pacing off (the swapchain paces: 2299 frames
+swapped in 41 s). The marker's red and green squares are at the top corners
+of all seven screenshots of step 1 (`00000564.png`: the main menu). RADV's
+one line on standard error: `ac_compute_device_uuid's output is based on
+invalid pci bus info.`
+
+**The `HALO_PS5` branches, argued** (Android's objects of every touched file,
+and Linux's `host_common.c`, are identical to the ones built before the
+change with debug information stripped: compared with `llvm-objcopy-22
+--strip-debug` and `cmp`, on the final tree; `host_common.c.o` of Android is
+identical byte for byte):
+
+- `host_vk.h` (351 lines, +15 −2): no `VK_USE_PLATFORM_ANDROID_KHR`; the
+  instance list's surface functions are a macro of their own, the display
+  plane's five on the PS5, `vkCreateAndroidSurfaceKHR` elsewhere (so the
+  Android list expands to the same tokens); and the screenshot hook's
+  declaration.
+- `host_vk.c` (498, +9 −3): the instance extension asked for besides
+  `VK_KHR_surface` is `VK_KHR_display` on the PS5, named once by a macro.
+- `host_vk_present.c` (662, +76): `host_vk_surface_make` makes the display
+  plane surface (the host probe's sequence: one display, its first mode,
+  plane 0, stack 0, opaque alpha, identity, the mode's extent; RADV lists the
+  119.88 Hz mode first when it offers it, so the first mode is the fastest);
+  a failure is said once even when the caller is quiet, since there is no
+  window to wait for; `native_window` answers NULL and `surface_extent` asks
+  no window; the swapchain's images get transfer-source usage where the
+  surface offers it (0x9f does), for the screenshot; the screenshot hook,
+  after the blit (and the marker), before the transition to present. The
+  largest branch, a ninth of the file.
+- `host_vk_shaders.c` (1443, +32): `glslang_load` binds `G`'s fields to the
+  linked functions; the cache root is `/data/halo`; no `SDL_AddEventWatch`
+  (and so no `lifecycle_watch`, which would be unused); and **one branch the
+  plan did not list**: the compile thread's `setpriority(PRIO_PROCESS,
+  syscall(SYS_gettid), 10)` is Linux's (FreeBSD has no `SYS_gettid`, and
+  `PRIO_PROCESS` there names the whole process), so on the PS5 the thread
+  runs at the game thread's priority. It did not show: the game kept its
+  frame rate while it compiled.
+- `host_common.c` (275, +1 −1): `host_vk_exit` under `defined(__ANDROID__) ||
+  defined(HALO_PS5)`. `host_main.c`'s end report also calls it (so a fatal
+  end saves the cache too); the second call finds nothing new and says
+  nothing.
+
+**The PS5's files.** `host_vk_driver_ps5.c` (91 lines): RADV's
+`vk_icdGetInstanceProcAddr` as the driver's entry point, the shader cache
+moved to `/data/halo/radv-shader-cache` (made 0777), RADV's, Mesa's, ACO's
+and NIR's variables in the environment logged, the pins in the description,
+`host_vk_driver_name` empty (as for a phone's own driver).
+`host_vk_screenshot_ps5.c` (371 lines): below. `host_vk_null.c` is deleted.
+`host_main.c`: the renderer started before the game's thread (RADV's
+standard error to the kernel log, prefixed `[radv]`; the four switches from
+the environment; the cache's folders made 0777 so FTP can list them; a
+renderer that does not come up ends the title with `host_fatal`); the
+start-up line says phase 4; `debug.gpu_stats` in `config.toml` no longer
+clears `HALO_GPU_STATS`. `tools/ps5_build.py`: the nine renderer files,
+`-I port/android/guest`, `-DHOST_VK_GLSLANG_TAG`, the RADV pins for the
+driver file, and, for the renderer's files and the screenshot's,
+`-Wno-missing-field-initializers -Wno-gnu-variable-sized-type-not-at-end`
+(below). `tools/ps5_deploy.py`: `fetch` converts the screenshots to PNG with
+Pillow and deletes them from the console; `--env NAME=VALUE` writes
+`environment.txt` at the upload (and its absence removes one), so no run
+leaves settings behind; `follow` shows RADV's `[radv]` lines.
+
+**Memory** (the heartbeat's minute lines; phase 2's headless menu: the heap
+160 MB, direct memory's largest free block 11269 MB):
+
+| Where | The host's heap (peak) | Direct memory's largest free block |
+|---|---|---|
+| The main menu, second start (`20261018-172359-2`) | 160 MB (160) | 10922 MB |
+| Two Betrayals, played (`20261018-172359`) | 160 to 176 MB (176) | 10426 to 10410 MB |
+| The menus, The Pillar of Autumn and back, with the screenshot buffer (`20261018-170812`) | 208 to 240 MB (240) | 10376 to 10344 MB |
+
+So the renderer takes 350 to 925 MB of direct memory with its device,
+images (256 MB of texture memory in a level) and rings, and the heap grows
+with the run (the peak is permanent, phase 0 B).
+
+**`__wrap_mmap` with RADV running** (every run that ended itself): 1 call
+answered in the guest's direct memory, 12 passed to the system, **0 below
+4 GB**. Two of the twelve are new: `mmap(0, 2097160, protection 3, flags
+0x1, descriptor 20)` twice at the device's creation, a shared mapping of a
+file (RADV's disk cache, presumably) at 0x201200000 and 0x201404000.
+
+**The shader compile thread** (`vk: compile thread` and `services` lines):
+
+- Cold (step 1): 99 shaders compiled (glslang 3.6 to 4.0 ms on average,
+  `vkCreateShaderModule` 5.5 to 7.8 ms), 75 pipelines (12.2 ms on average in
+  the first batch, then 5.7, 4.8 and 1.7 ms), 1 failed (the self-test's
+  broken one).
+- The menus and The Pillar of Autumn (`20261018-170812`): 120 from the cache,
+  298 compiled, 0 failed, 567 pipelines; the pipeline cache 262 KB.
+- **Every pipeline was made at its draw** (`567 made (567 at their draw)`):
+  the shared code's `host_vk_pipeline_find` builds a missing pipeline on the
+  game's thread instead of skipping the draw, so no draw was ever skipped
+  for a pipeline (or a shader) on the console, and a first sight costs a
+  frame its build time instead. The frames of 150 to 200 ms in The Pillar of
+  Autumn's windows (58.1 to 58.3 a second) are presumably those.
+- After the session: 809 `.spv` files in `vk_cache/spirv/16.6.0-1`, the
+  pipeline cache `vk_cache/pipelines/417a3ed5f2a4cf1ae4bc82ba6de9f0e4-3-06802000.bin`
+  328,440 bytes.
+- **The second start's warm-up** (`20261018-172359-2`, the menus for two
+  minutes): `shader cache ...: 809 shaders on the device`, `pipeline cache
+  ...: loaded from the device`; 23 shaders from the cache, **0 compiled**, 17
+  pipelines at 0.03 and 0.74 ms on average (cold: 12.2 ms).
+
+**Frame rates** (the heartbeat; the game's own counter, `display_framerate`
+from `/data/halo/init.txt`, agreed on the TV):
+
+| Where | At 59.94 Hz | At 119.88 Hz |
+|---|---|---|
+| The main menu | 59.94 (longest frame 40 to 50 ms) | 119.81 (longest 35 ms; `20261018-172908-2`), 118.07 |
+| The Pillar of Autumn | 59.94, some windows 58.1 to 58.3 (one frame of about 200 ms) | not played at 120 |
+| Two Betrayals | 59.94 | 118.2 to 118.7 (`20261018-172359`) |
+
+The counters: about 20 draws a frame at the main menu (1,200 in 60 frames),
+359 in The Pillar of Autumn (21,540), 420 to 430 in Two Betrayals (25,600
+to 25,850); skipped 0 for a shader, a pipeline, a target, data or anything
+else, 0 with a texture missing, validation 0 (no layer on the console), 0
+swapchain re-creations, the GL stub count 0 of 112.
+
+**What the game draws with lines.** `D3DPT_LINELIST`, `LINESTRIP` and
+`LINELOOP` come only from the game's debug views: `rasterizer_debug.c`'s
+debug lines through `rasterizer_xbox_draw_primitives.c` (two vertices a
+primitive) and `rasterizer_xbox_debug.c`'s `Begin(D3DPT_LINELIST)` and
+`LINESTRIP`. None was on in any run, so **RADV's line-list gap was not seen**;
+the scene that would show it is a debug view (`debug_objects`, the
+structure's debug lines) turned on through `init.txt`.
+
+**The flares and the water.** Seen by the user on the TV, in Two Betrayals
+(the run's only level: the Halo ring's landscape, which the user called
+"Halo"): "Water and flares look great". RADV reports precise occlusion, so
+the renderer's visibility tests ask for precise queries and nothing of
+RADV's coarse-query gap applies. **No screenshot of them, nor of The Silent
+Cartographer's beach**, which no run visited: the user judged by eye and
+closed the phase.
+
+**The screenshots** (`build/ps5/logs`, 3840x2160 PNG):
+
+- the main menu with the marker: `20261018-164344-2/00000564.png`; without
+  it, at 118 frames a second (the game's counter): `20261018-172908-2/00002332.png`;
+- The Pillar of Autumn's opening, the cryo bay: `20261018-165239/00013609.png`
+  and `00014209.png`; its corridors and a fight (the HUD, a Covenant
+  grunt, the assault rifle): `20261018-164800/00019098.png` to
+  `00021481.png`;
+- the attract mode's cryo bay ("Reveille") with the marker:
+  `20261018-164344-2/00002000.png`;
+- none of The Silent Cartographer, the water or the flares (above).
+
+**Phase 3's runs**, the user at the console with the sound on:
+
+- **Run 3, the menus driven and heard:** in every run from the second on;
+  "Everything worked, I controlled the game with my ps5 controller". The
+  `pad:` lines list the presses (`cross 7 circle 8 up 41 down 31` in a
+  minute of menus, `20261018-172359-2`).
+- **Run 5, the pad off and on:** the user switched it off and on at the main
+  menu in `20261018-172359-2` (the system's menu up from 22.7 to 25.7 s) and
+  the menus answered after: "Pad off and on works". **But SDL2 reported
+  neither `gamepad removed` nor `added`** in that run or any other: a pad
+  turned off from the Quick Menu does not reach SDL2 as a disconnect, so the
+  game never saw it go. What the player sees is right; the log cannot show
+  the run as phase 3 wrote it.
+- **Run 6, the PS button in a level** (Two Betrayals, `20261018-172359`):
+  `overlay: the system's status flags 01 00 00 00 at 82.322 s`, `the
+  system's menu is up: the window's focus is lost`, the Quick Menu's `00 01
+  00 00` at 84.158 s, the menu gone and the focus gained at 192.9 s, up and
+  gone again at 194.5 and 195.5 s; the pad read 0 while the menu was up;
+  "the level keeps playing".
+- **Runs 2, 4 and 7, a level played** (Two Betrayals, `20261018-172359`, and
+  The Pillar of Autumn earlier): moving, looking, shooting, jumping, weapons
+  (`cross 5 square 5 triangle 6 L1 6 down 8`, every axis end to end, R2 to
+  32767); rumble asked with the motors on 156 and 106 times in two minutes,
+  and felt ("rumble works"). The audio lines over that run's four whole
+  minutes: 2813 or 2814 callbacks a minute, **0 late**, gaps 21.245 to 21.462
+  ms, the hand-off at most 1.61 ms (a period is 21.33 ms); no gap heard.
+  The run was killed after them, so it has no end totals; the second start's
+  run has them: 5620 callbacks, 0 late, gaps 21.25 to 21.42 ms, the hand-off
+  at most 1.10 ms. Run 2's network part waits for phase 6.
+
+**The screenshot copy's cost:** the copy of the 3840x2160 image is 0.54 ms
+of GPU time (0.17 ms in the last run), into 31.6 MB of host-cached memory;
+the writer thread then takes 1.26 to 1.39 s to turn it to RGB and write its
+23.7 MB. **As first written it stalled the game:** every heartbeat window
+with a screenshot had one frame of 600 to 650 ms, the others none, and the
+user heard the menu's music cut every 10 s. One `fwrite` of the whole
+picture held the disk while the game's own reads (the music, streamed from
+the map) waited. Written 1 MB at a time with 5 ms between, a screenshot
+every 5 s leaves every window at 119.8 a second with a longest frame of
+35 ms (`20261018-172908-2`). The audio device never missed a callback
+throughout: the music stopped because the game did.
+
+**Unexpected, and what was done about it:**
+
+- **120 Hz.** The console can drive the TV at 119.88 Hz, which RADV offers
+  (its first mode) only when `/app0/sce_sys/param.json`'s `attribute3` has
+  the bits 0x80040 (PS5_Mesa's `wsi_common_videoout.c`, PS5_Vulkan R31).
+  `port/ps5/sce_sys/param.json` now declares it (524352), at the user's
+  request; nothing else changed. The game is not capped (it draws at the
+  display's rate), so it runs at 119.8. **RADV's check of the switch is
+  unreliable**: it configures 119.88 Hz and measures one vblank period right
+  away; of the five launches with the declaration, the first took the mode
+  (the surface's line says 119880 mHz) and the other four found 20.87 ms and
+  logged `[radv] wsi/videoout: 119.88 Hz accepted, but a vblank comes every
+  20.870 ms; 59.94 Hz restored`, the system's `[AvControl]` lines showing the
+  HDMI link still changing to 119.88 Hz VRR. In all five the display went on
+  at 119.88 and the game ran at 116 to 119.8 a second, though in four RADV
+  and the surface said 59.94. Opening the PS button's menu brought one run
+  (Two Betrayals) from 118.7 down to 59.94 for the rest of it. The check is
+  RADV's, recorded, not worked around. The HDMI link was
+  `1080P_11988`: the console sends 1080p to this TV, whatever the 3840x2160
+  the title presents (the console's output setting).
+- **The game halted in Two Betrayals** (`c40`, `20261018-171707` and the
+  game's `debug.txt`): `EXCEPTION halt in c:\halo\SOURCE\structures\structures.c,#135:
+  radius>=0.f`, 6 s after the level began, from `render_object_shadows`
+  through `structure_render_shadow` and `structure_visibility_build_surfaces`
+  into `structure_clusters_in_sphere` (the stack in `debug.txt`, symbolised
+  with `llvm-symbolizer-22` on `build/ps5/halo_guest_vk.elf`). The title kept
+  presenting the halt's message. Cause, read in the source:
+  `_rasterizer_environment_shadow_begin` writes the shadow volume's radius
+  only when it draws the shadow (into the main target, with environment
+  shadows on) and answers TRUE either way, and `render_object_shadow_end`
+  cast a volume with whatever the stack held in `struct object_render_data`.
+  **Fixed in `source/render/render_objects.c` (+14 lines), outside this
+  phase's list, at the user's decision**: the radius starts at 0 and a
+  shadow without one casts no volume (a NaN neither). Two Betrayals then
+  played without the halt (`20261018-172359`). Every port compiles the file,
+  so their objects of it change; `ninja linux_x86_64` builds.
+- **A menu at 27 to 39 frames a second** with a frame of about 970 ms in
+  every window, after returning from The Pillar of Autumn in the run with
+  screenshots (`20261018-170812`), with the compile thread's
+  `vkCreateShaderModule` at 904 ms on average and one audio callback 158 ms
+  late: everything starved at once. It did not come back in any run without
+  the single-write screenshots (the 46 windows of `20261018-171222`, the
+  user going from the menu into a level and back: all at 59.94 but four,
+  with one frame of 0.16 to 0.70 s each, presumably the loads), and the user
+  heard the music whole. Not explained further. A log of each thread's CPU set was tried and taken out:
+  `pthread_getaffinity_np` answers `ERANGE` (34) with the SDK's `cpuset_t`
+  and with a 512-byte set.
+- **The shared renderer is not `-Wextra` clean**: Vulkan's `{ sType }`
+  initialisers (95 `missing-field-initializers`) and the clears self-test's
+  command with its rectangles after it (`gnu-variable-sized-type-not-at-end`,
+  which Android's clang warns of too). The two warnings are off for those
+  files in `tools/ps5_build.py`, as `tomlc17.c` has its own; the code is
+  unchanged.
+- **The renderer's failure line says "GL ES"**: `host_vk_startup`'s failure
+  text is `GL ES (Vulkan was asked for: ...)`, Android's fallback. On the PS5
+  `host_main.c` logs it and ends the title (`host_fatal`, with the reason);
+  the wording is the shared file's.
+- **The pad's last part-minute was never logged**: `pad:` lines are written
+  a minute at a time, so a run's end lost up to a minute of presses (which
+  hid whether the user had pressed anything in step 1: they had).
+  `ps5_input_report` now writes the part minute first
+  (`host_sdl_ps5_input.c`, +6 −3).
+- **The deploy's follower outlives a killed run**: a run killed by the next
+  `--run` keeps its follower until its timeout, which then fetches the
+  console's files, by then a later run's, into the killed run's folder (and
+  its `klog.txt` holds the later runs too). Each run's own `halo.log` is the
+  one the next `--run` fetched first: run 2's in `20261018-165239`, run 3's
+  in `20261018-170812`, run 4's (no screenshots) in `20261018-171222`, run
+  5's (the halt) in `20261018-171707`, run 7's (Two Betrayals, the PS
+  button) in `20261018-172359`. Not changed; worth fixing in the deploy.
+- **The screenshot folder keeps 20**, so a long run's early screenshots are
+  deleted on the console before a fetch; the run in `20261018-164800` and
+  `20261018-165239` lost its menus' first minutes that way.
+- **`init.txt`'s `display_framerate 1`** in `/data/halo` (the game's own
+  frame counter, at the user's request) was left on the console.
+- **No `dlopen` is called** by the host: the `U dlopen` in `eboot.elf` is an
+  archive's of the link (as before this phase).
+- **Tests:** `ninja ps5` builds with `-Werror`; `ninja linux_x86_64` builds;
+  `pytest -q tools/test_ps5_host.py tools/test_ps5_build.py
+  tools/test_host_units.py tools/test_host_syscall.py`: 15 passed, 1 skipped
+  (the old skip); `llvm-nm-22` on `eboot.elf`: no weak host symbol.
 
 ### Phase 3 — audit (2026-10-18)
 

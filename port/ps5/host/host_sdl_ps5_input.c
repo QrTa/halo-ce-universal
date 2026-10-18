@@ -379,7 +379,8 @@ static struct
 	int used;
 } pad_minute;
 
-static void pad_line(uint64_t now)
+/* the line, once a minute; or now, for the end's part minute (last) */
+static void pad_line(uint64_t now, int last)
 {
 	char line[768];
 	size_t used = 0;
@@ -391,7 +392,7 @@ static void pad_line(uint64_t now)
 		pad_minute.line_start = now;
 		return;
 	}
-	if (now - pad_minute.line_start < PAD_LINE_NS)
+	if (now - pad_minute.line_start < PAD_LINE_NS && !last)
 		return;
 	if (pad_minute.used || on != pad_minute.rumble_on_before)
 	{
@@ -535,7 +536,7 @@ int ps5_input_poll(uint32_t *which)
 	*which = 0;
 	if (!sdl_started)
 		return PS5_EVENT_NONE;
-	pad_line(now);
+	pad_line(now, 0);
 	kind = overlay_check(now);
 	if (kind != PS5_EVENT_NONE)
 		return kind;
@@ -568,6 +569,8 @@ int ps5_input_poll(uint32_t *which)
 
 void ps5_input_report(void)
 {
+	/* (what the pad did since the last minute's line) */
+	pad_line(ps5_now_ns(), 1);
 	host_logf(HOST_LOG_INFO, "pad: rumble asked %llu times (%llu with the motors on), the longest call %.2f ms",
 		(unsigned long long)rumble_requests, (unsigned long long)rumble_on, rumble_longest_ns / 1e6);
 }

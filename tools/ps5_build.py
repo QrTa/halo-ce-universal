@@ -78,6 +78,11 @@ TOMLC17_DIR = Path("port/third_party/tomlc17")
 # the Android host library's files the PS5's host uses as they are
 # (port/ps5/PS5.md, phase 2); the rest are replaced by port/ps5/host's
 SHARED_HOST_FILES = ("host_arch.c", "host_common.c", "host_loader.c", "host_thread.c", "host_watch_hash.c")
+# and the Vulkan renderer's host half (port/ps5/PS5.md, phase 4), less
+# host_vk_driver.c (port/ps5/host/host_vk_driver_ps5.c is the console's) and
+# the probe, host_vk_probe.c
+SHARED_RENDERER_FILES = ("host_vk.c", "host_vk_data.c", "host_vk_draw.c", "host_vk_post.c", "host_vk_present.c",
+                         "host_vk_render.c", "host_vk_shaders.c", "host_vk_texture.c", "host_vk_visibility.c")
 HOST_WRAPS = ("--wrap=mmap", "--wrap=SDL_ShowSimpleMessageBox")
 BUILD = Path("build/ps5")
 THIRD_PARTY = BUILD / "third_party"
@@ -234,6 +239,11 @@ def pins_text() -> str:
     """the pins in one line, for the title's log"""
     return (f"PS5_Vulkan {PS5_VULKAN_COMMIT[:12]}, SDK fork {PS5_PAYLOAD_SDK_REVISION[:7]}, "
             f"PS5_Mesa {PS5_MESA_COMMIT[:12]}, pacbrew {PACBREW_VERSION}, glslang {GLSLANG_TAG}")
+
+
+def radv_pins_text() -> str:
+    """what RADV's archive is built from, for the renderer's log line"""
+    return f"PS5_Mesa {PS5_MESA_COMMIT[:12]}, built by PS5_Vulkan {PS5_VULKAN_COMMIT[:12]}"
 
 
 def _clang_of(llvm_config: Path) -> Path:
@@ -442,6 +452,10 @@ def _generate(n: Writer, sln: Any, config_path: Path) -> None:
         "-DHALO_PS5=1",
         f"-I{root / PORT_DIR / 'host'}", f"-I{root / ANDROID_DIR / 'include'}", f"-I{root / ANDROID_DIR / 'host'}",
         f"-I{root / LINUX_DIR / 'src'}", f"-I{root / TOMLC17_DIR}", f"-I{host_dir / 'gen'}",
+        # (the renderer's command stream and shader layouts, which both of its
+        # halves include; and the folder of its SPIR-V cache is named for the
+        # compiler, as Android's: host_vk_shaders.c)
+        f"-I{root / ANDROID_DIR / 'guest'}", shlex.quote(f'-DHOST_VK_GLSLANG_TAG="{GLSLANG_TAG}"'),
         # (Vulkan's headers, SDL2's and SDL3's are not the host's to keep free
         # of warnings; SDL3's give the guest's constants and layouts, and its
         # calls in the shared files bind to SDL2's of the same names)
@@ -459,7 +473,7 @@ def _generate(n: Writer, sln: Any, config_path: Path) -> None:
     # file helpers (posix.h's, which the game imports), config.toml's
     # parser, the import table and the stubs
     host_sources = [*sorted((root / PORT_DIR / "host").glob("*.c")),
-                    *(root / ANDROID_DIR / "host" / name for name in SHARED_HOST_FILES),
+                    *(root / ANDROID_DIR / "host" / name for name in SHARED_HOST_FILES + SHARED_RENDERER_FILES),
                     root / LINUX_DIR / "src" / "posix_files.c", root / TOMLC17_DIR / "tomlc17.c",
                     guest["host_table_c"], import_stubs]
     for source in host_sources:
@@ -467,11 +481,22 @@ def _generate(n: Writer, sln: Any, config_path: Path) -> None:
         cflags = host_cflags
         if source.name == "host_main.c":
             cflags += " " + shlex.quote(f'-DHALO_PS5_PINS="{pins_text()}"')
+        if source.name == "host_vk_driver_ps5.c":
+            cflags += " " + shlex.quote(f'-DHALO_PS5_RADV_PINS="{radv_pins_text()}"')
         if source.name == "tomlc17.c":
             # (the SDK's math.h: its isnan's _Generic names volatile types,
             # which an lvalue never has; the warning is the header's, in a
             # file that is not this repository's to change)
             cflags += " -Wno-unreachable-code-generic-assoc"
+        if source.name in SHARED_RENDERER_FILES or source.name == "host_vk_screenshot_ps5.c":
+            # (Vulkan's idiom, a structure given its sType and nothing else,
+            # is what -Wextra's missing-field-initializers names: the shared
+            # files use it throughout, as the screenshot does after them, and
+            # Android compiles them without -Wextra; and host_vk_render.c's
+            # clears' self-test puts a clear command, which ends in its
+            # rectangles, before the rectangles it sends, which clang 22
+            # names a GNU extension)
+            cflags += " -Wno-missing-field-initializers -Wno-gnu-variable-sized-type-not-at-end"
         n.build(outputs=obj, rule="ps5_host_cc", inputs=source, variables={"cflags": cflags},
                 implicit=[build_stamp])
         objects.append(obj)

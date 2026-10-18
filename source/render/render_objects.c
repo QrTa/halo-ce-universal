@@ -911,6 +911,12 @@ static boolean render_object_shadow_begin(
 	shadow_color.green = shadow_color.green * shadow_intensity + (1.f - shadow_intensity);
 	shadow_color.blue = shadow_color.blue * shadow_intensity + (1.f - shadow_intensity);
 
+	/* port: the rasterizer writes the shadow volume's radius only when it
+	draws the shadow (into the main target, with environment shadows on), and
+	answers TRUE either way: without this, render_object_shadow_end cast a
+	volume of whatever the stack held, and a negative one halted the game in
+	structure_clusters_in_sphere (radius>=0.f, Two Betrayals on the PS5) */
+	data->shadow_bounding_radius = 0.f;
 	return rasterizer_environment_shadow_begin(
 		data->object_index,
 		&data->shadow_matrix,
@@ -938,6 +944,14 @@ static void render_object_shadow_end(
 {
 	real_plane3d shadow_volume_planes[NUMBER_OF_SHADOW_VOLUME_PLANES];
 	real_rectangle3d shadow_volume_bounds;
+
+	/* port: no shadow was drawn (render_object_shadow_begin): no volume to
+	cast (a NaN fails the test too) */
+	if (!(data->shadow_bounding_radius > 0.f))
+	{
+		rasterizer_environment_shadow_end();
+		return;
+	}
 
 	shadow_volume_plane_pair(
 		&data->shadow_matrix.up,

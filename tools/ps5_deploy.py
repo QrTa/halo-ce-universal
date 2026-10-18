@@ -15,19 +15,24 @@ Usage: python3 tools/ps5_deploy.py [options] ACTION...   (in the order given)
 Actions:
   fetch          the title's log (halo.log in /data/halo, or in the title's
                  folder; both when both are there) and the *.txt files of the
-                 title's folder, into build/ps5/logs/<UTC time>/
+                 title's folder, into build/ps5/logs/<UTC time>/; and the
+                 screenshots (/data/halo/screenshots/*.ppm, HALO_PS5_SCREENSHOT),
+                 converted to PNG there and deleted from the console
   upload         the built title folder (build/ps5/title/<ID>), eboot.bin and
                  sce_sys/param.json last, each file's size checked after it;
                  refused while the title runs, unless --force. --hold puts
                  hold.txt in the title's folder (the host then waits 120 s
                  before it ends, so it can be killed); without it a hold.txt
-                 there is removed
+                 there is removed. --env NAME=VALUE (again for each) writes
+                 environment.txt there, the host's environment; without it an
+                 environment.txt there is removed
   status, launch, kill, restart
                  one ps5vkctl command each; a launch of the title while it
                  runs is refused, and kill and restart name only this title
   follow         the kernel log: the backlog the server replays is skipped,
                  each line it doubles is shown once, and the host's lines
-                 ("halo: ") and any fatal signal are printed until the host's
+                 ("halo: "), RADV's ("[radv] ") and any fatal signal are printed
+                 until the host's
                  last line, a fatal signal, or --timeout (180 s); the whole
                  capture is saved
   load-ps5vkctl  PS5_Vulkan's build/ps5vkctl/ps5vkctl.elf sent to the user's
@@ -72,6 +77,10 @@ BACKLOG_LIMIT_SECONDS = 5.0
 # before it
 HOST_LAST_LINES = ("halo: the host ends", "halo: holding for ")
 FATAL_SIGNAL = "# A user thread receives a fatal signal"
+# RADV's standard error, which the host sends to the kernel log with this
+# prefix (port/ps5/host/host_main.c)
+RADV_PREFIX = "[radv] "
+SCREENSHOTS = f"{DATA_FOLDER}/screenshots"
 
 
 class DeployError(Exception):
@@ -241,10 +250,39 @@ def action_fetch(args: argparse.Namespace, folder: Optional[Path] = None) -> int
             with (folder / local).open("wb") as handle:
                 ftp.retrbinary(f"RETR {name}", handle.write)
             fetched.append(f"{remote_folder}/{name}")
+        shots = fetch_screenshots(ftp, folder)
     finally:
         ftp_close(ftp)
     say(f"fetched {', '.join(fetched) if fetched else 'nothing (no log on the console)'} into {folder}")
+    if shots:
+        say(f"fetched {len(shots)} screenshots: {', '.join(shots)}")
     return 0
+
+
+def fetch_screenshots(ftp: ftplib.FTP, folder: Path) -> List[str]:
+    """the host's screenshots (binary PPM, port/ps5/host/host_vk_screenshot_ps5.c),
+    each saved as a PNG of the same name and then deleted from the console;
+    the PNGs' names"""
+    from PIL import Image  # (only when there are screenshots to convert)
+
+    names = [name for name in ftp_files(ftp, SCREENSHOTS) or [] if name.endswith(".ppm")]
+    saved = []
+    for name in names:
+        data = io.BytesIO()
+        ftp.cwd(SCREENSHOTS)
+        ftp.retrbinary(f"RETR {name}", data.write)
+        data.seek(0)
+        local = folder / (Path(name).stem + ".png")
+        try:
+            with Image.open(data) as image:
+                image.save(local)
+        except (OSError, ValueError) as error:
+            say(f"{SCREENSHOTS}/{name}: not a picture ({error}); kept as it is")
+            local = folder / name
+            local.write_bytes(data.getvalue())
+        saved.append(local.name)
+        ftp_delete(ftp, name)
+    return saved
 
 
 def action_upload(args: argparse.Namespace) -> int:
@@ -299,6 +337,12 @@ def action_upload(args: argparse.Namespace) -> int:
             say(f"{title_folder(args)}/hold.txt: put (the host will wait 120 s before it ends)")
         elif ftp_delete(ftp, "hold.txt"):
             say(f"{title_folder(args)}/hold.txt: removed")
+        if args.env:
+            text = "".join(f"{setting}\n" for setting in args.env)
+            ftp.storbinary("STOR environment.txt", io.BytesIO(text.encode("utf-8")))
+            say(f"{title_folder(args)}/environment.txt: {' '.join(args.env)}")
+        elif ftp_delete(ftp, "environment.txt"):
+            say(f"{title_folder(args)}/environment.txt: removed")
     finally:
         ftp_close(ftp)
     elapsed = time.monotonic() - started
@@ -366,8 +410,11 @@ def action_follow(args: argparse.Namespace, folder: Optional[Path] = None,
         for line in klog_lines(connection, args, time.monotonic() + args.timeout):
             log_file.write(line + "\n")
             at = line.find("halo: ")
+            radv = line.find(RADV_PREFIX)
             if at >= 0:
                 text = line[at:]
+            elif radv >= 0:
+                text = line[radv:]
             elif line.startswith("#") and (in_signal or line.startswith(FATAL_SIGNAL)):
                 text = line
             else:
@@ -464,10 +511,15 @@ def main() -> int:
     parser.add_argument("--timeout", type=float, default=180.0, help="follow's, in seconds (default 180)")
     parser.add_argument("--hold", action="store_true", help="upload puts hold.txt in the title's folder")
     parser.add_argument("--force", action="store_true", help="upload while the title runs")
+    parser.add_argument("--env", action="append", default=[], metavar="NAME=VALUE",
+                        help="upload writes environment.txt in the title's folder with this line (again for each)")
     parser.add_argument("--ps5vkctl", default=str(DEFAULT_PS5VKCTL), help="the payload load-ps5vkctl sends")
     args = parser.parse_args()
     if not args.run and not args.actions:
         parser.error("name an action, or --run")
+    bad = [setting for setting in args.env if "=" not in setting or setting.startswith("=") or "\n" in setting]
+    if bad:
+        parser.error(f"--env takes NAME=VALUE, not {', '.join(bad)}")
     unknown = [action for action in args.actions if action not in ACTIONS]
     if unknown:
         parser.error(f"unknown action {', '.join(unknown)}: {', '.join(ACTIONS)}")

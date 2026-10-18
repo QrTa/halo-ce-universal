@@ -10,7 +10,8 @@ host_renderer_vulkan); this is for host_vk.c's own files.
 #ifndef HOST_VK_H
 #define HOST_VK_H
 
-#ifndef VK_USE_PLATFORM_ANDROID_KHR
+/* (the PS5's surface is a display plane, VK_KHR_display's, which needs no platform define: port/ps5/PS5.md, phase 4) */
+#if !defined(VK_USE_PLATFORM_ANDROID_KHR) && !defined(HALO_PS5)
 #define VK_USE_PLATFORM_ANDROID_KHR
 #endif
 #include "host_vk_driver.h"
@@ -26,10 +27,17 @@ instance is 1.0-level and the extension stands in for it */
 	X(vkDestroyInstance) X(vkEnumeratePhysicalDevices) X(vkGetPhysicalDeviceProperties) \
 	X(vkGetPhysicalDeviceQueueFamilyProperties) X(vkEnumerateDeviceExtensionProperties) \
 	X(vkGetPhysicalDeviceFeatures2) X(vkGetPhysicalDeviceProperties2) X(vkGetDeviceProcAddr) \
-	X(vkCreateAndroidSurfaceKHR) X(vkDestroySurfaceKHR) X(vkCreateDevice) \
+	HOST_VK_SURFACE_FUNCTIONS(X) X(vkDestroySurfaceKHR) X(vkCreateDevice) \
 	X(vkGetPhysicalDeviceMemoryProperties) X(vkGetPhysicalDeviceFormatProperties) \
 	X(vkGetPhysicalDeviceSurfaceSupportKHR) X(vkGetPhysicalDeviceSurfaceCapabilitiesKHR) \
 	X(vkGetPhysicalDeviceSurfaceFormatsKHR)
+#ifdef HALO_PS5
+#define HOST_VK_SURFACE_FUNCTIONS(X) \
+	X(vkCreateDisplayPlaneSurfaceKHR) X(vkGetPhysicalDeviceDisplayPropertiesKHR) X(vkGetDisplayModePropertiesKHR) \
+	X(vkGetPhysicalDeviceDisplayPlanePropertiesKHR) X(vkGetDisplayPlaneCapabilitiesKHR)
+#else
+#define HOST_VK_SURFACE_FUNCTIONS(X) X(vkCreateAndroidSurfaceKHR)
+#endif
 
 /* what the startup keeps: nothing in it is made twice (phase 2 adds the device) */
 struct host_vk
@@ -334,5 +342,10 @@ uint32_t host_vk_present_record(VkCommandBuffer command, struct host_vk_target *
 /* after the frame was submitted: presents the image acquired by host_vk_present_record */
 void host_vk_present_queue(uint32_t image_index);
 void host_vk_present_destroy(void);
+#ifdef HALO_PS5
+/* port/ps5/host/host_vk_screenshot_ps5.c: after the blit, when a screenshot is due, the copy of the swapchain image (in
+*layout, which it leaves the image in) to a buffer, written to a file once the frame's fence has passed */
+void host_vk_screenshot_record(VkCommandBuffer command, VkImage image, VkImageLayout *layout);
+#endif
 
 #endif

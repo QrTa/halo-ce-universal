@@ -91,6 +91,26 @@ static int glslang_load(char *message, size_t message_size)
 {
 	if (G.initialized)
 		return 1;
+#ifdef HALO_PS5
+	/* glslang is in the title's link (a title cannot load a library: port/ps5/PS5.md, phase 4): each field is the
+	function of its name */
+	G.library = (void *)1;
+	G.initialize_process = glslang_initialize_process;
+	G.shader_create = glslang_shader_create;
+	G.shader_delete = glslang_shader_delete;
+	G.shader_preprocess = glslang_shader_preprocess;
+	G.shader_parse = glslang_shader_parse;
+	G.shader_info_log = glslang_shader_get_info_log;
+	G.program_create = glslang_program_create;
+	G.program_delete = glslang_program_delete;
+	G.program_add_shader = glslang_program_add_shader;
+	G.program_link = glslang_program_link;
+	G.program_spirv_generate = glslang_program_SPIRV_generate;
+	G.program_spirv_size = glslang_program_SPIRV_get_size;
+	G.program_spirv_ptr = glslang_program_SPIRV_get_ptr;
+	G.program_info_log = glslang_program_get_info_log;
+	G.default_resource = glslang_default_resource;
+#else
 	if (G.library)
 	{
 		snprintf(message, message_size, "glslang did not load");
@@ -127,6 +147,7 @@ static int glslang_load(char *message, size_t message_size)
 	LOAD(program_info_log, "glslang_program_get_info_log")
 	LOAD(default_resource, "glslang_default_resource")
 #undef LOAD
+#endif
 	if (!G.initialize_process())
 	{
 		host_logf(HOST_LOG_ERROR, "vk: glslang_initialize_process failed");
@@ -1037,8 +1058,10 @@ static void pipeline_unqueue(struct pipeline *pipeline)
 static void *compile_thread(void *unused)
 {
 	(void)unused;
+#ifndef HALO_PS5
 	/* below the game thread's priority: Android lets an app raise its own niceness */
 	setpriority(PRIO_PROCESS, (id_t)syscall(SYS_gettid), 10);
+#endif
 	pthread_mutex_lock(&S.lock);
 	for (;;)
 	{
@@ -1237,6 +1260,7 @@ void host_vk_exit(void)
 	}
 }
 
+#ifndef HALO_PS5
 /* ---------- the app goes to the background
 
 Android stops the game thread then (the surface's loss is found only when it returns), and may end the process while it is
@@ -1249,6 +1273,7 @@ static bool lifecycle_watch(void *unused, SDL_Event *event)
 		host_vk_pipeline_cache_save("the app went to the background");
 	return true;
 }
+#endif
 
 /* ---------- start */
 
@@ -1346,7 +1371,12 @@ void host_vk_services_start(void)
 	VkDescriptorSetLayoutBinding bindings[7];
 	VkDescriptorSetLayoutCreateInfo set_info = { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO };
 	VkPipelineLayoutCreateInfo layout_info = { VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO };
+#ifdef HALO_PS5
+	/* (the data folder: the title's own folder is replaced by every install) */
+	const char *internal = "/data/halo";
+#else
 	const char *internal = SDL_GetAndroidInternalStoragePath();
+#endif
 	pthread_attr_t attributes;
 	pthread_t thread;
 	unsigned index;
@@ -1407,5 +1437,7 @@ void host_vk_services_start(void)
 	}
 	pthread_attr_destroy(&attributes);
 	S.started = 1;
+#ifndef HALO_PS5
 	SDL_AddEventWatch(lifecycle_watch, NULL);
+#endif
 }

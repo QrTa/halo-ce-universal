@@ -54,6 +54,10 @@ void ps5_memory_figures(double *heap_mb, double *heap_peak_mb, double *direct_fr
 reported every 10 s, not only at the end (host_gl_none.c) */
 extern int host_gl_statistics;
 
+/* HALO_PS5_SCREENSHOT's seconds, read by host_main.c: the presented picture
+written to a file that often (host_vk_screenshot_ps5.c); 0 for none */
+extern int ps5_screenshot_seconds;
+
 /* ---------- SDL: the game's SDL3 calls over pacbrew's SDL2
 
 host_sdl_ps5.c answers the game's calls with SDL3's headers (the guest's

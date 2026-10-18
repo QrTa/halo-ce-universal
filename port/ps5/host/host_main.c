@@ -22,6 +22,12 @@ In order, the title:
 - claims the guest's three fixed ranges as direct memory
   (host_memory_reserve_early), installs the fault handlers and the signal
   stack;
+- brings the Vulkan renderer up on RADV (host_vk_startup: the instance and
+  the physical device; the device and the swapchain on VideoOut's display
+  plane are made at the game's first submission, port/ps5/PS5.md, phase 4),
+  with RADV's standard error sent to the kernel log and the renderer's
+  debugging switches read from the environment; the console has no other
+  renderer, so a renderer that does not come up ends the title;
 - starts the game's thread, whose stack is guest memory, and waits.
 
 The game's thread passes the guest its environment (HOME and the saves'
@@ -49,7 +55,14 @@ Two files in the title's folder change a run, for the deploy's tests:
 killed from the PC; /app0/environment.txt, NAME=VALUE lines, sets the
 host's environment (HALO_ settings are passed on to the game: HALO_EXIT_AFTER
 ends it after that many seconds; HALO_PS5_CRASH_TEST makes the host fault on
-purpose once the image is loaded, to show the crash report).
+purpose once the image is loaded, to show the crash report). The renderer's
+switches are read from there too, since the desktop game's settings table
+keeps them for Android: HALO_VK_SELF_TEST=1 (the backend's and the game's
+self-tests), HALO_VK_PRESENT_MARKER=1 (a red and a green square at the
+picture's top corners), HALO_GPU_STATS=1 (the draws' and the GL names'
+counts as the run goes) and HALO_PS5_SCREENSHOT=<seconds> (the presented
+picture written to /data/halo/screenshots, host_vk_screenshot_ps5.c); RADV's
+own (RADV_DEBUG, RADV_PERFTEST, MESA_VK_*) reach the driver as they are.
 
 The title ends in _exit, which the kernel log follows with a SIGSYS for
 every title (phase 0 B); the README says so.
@@ -66,6 +79,8 @@ build by tools/android_build_stamp.py, as the Android host's) */
 #include <SDL2/SDL_version.h>
 #include <vulkan/vulkan.h>
 #include "glslang/Include/glslang_c_interface.h"
+
+#include "vk_shaders.h"
 
 #include <ps5platform/fp.h>
 #include <ps5platform/kernel.h>
@@ -89,6 +104,10 @@ title is built with (tools/ps5_build.py) */
 #define HALO_PS5_PINS "unknown"
 #endif
 
+#ifndef HOST_VK_GLSLANG_TAG
+#define HOST_VK_GLSLANG_TAG "unknown"
+#endif
+
 #define HOLD_SECONDS 120
 #define GAME_STACK_SIZE (16 * 1024 * 1024)
 #define GUEST_IMAGE PS5_TITLE_FOLDER "/halo_guest.elf"
@@ -97,6 +116,10 @@ title is built with (tools/ps5_build.py) */
 /* RADV's ICD entry point: the archive has no vkGetInstanceProcAddr
 (port/ps5/PS5.md, phase 0 B) */
 PFN_vkVoidFunction vk_icdGetInstanceProcAddr(VkInstance instance, const char *name);
+
+/* the image is the Vulkan one, which makes no GL context (host.h); the
+console has no other */
+int host_renderer_vulkan;
 
 /* a notification on the screen (the probes' declaration, after OpenOrbis's) */
 struct notify_request
@@ -282,7 +305,7 @@ static void log_identity(void)
 {
 	struct ps5_kernel_sw_version version;
 
-	ps5_log("Halo: Combat Evolved for the PS5, build %s (phase 2: the host's core, no graphics)", HALO_PROBE_BUILD);
+	ps5_log("Halo: Combat Evolved for the PS5, build %s (phase 4: the Vulkan renderer on RADV)", HALO_PROBE_BUILD);
 	memset(&version, 0, sizeof(version));
 	version.size = sizeof(version);
 	if (sceKernelGetSystemSwVersion(&version) == 0)
@@ -292,8 +315,8 @@ static void log_identity(void)
 	ps5_log("built with %s", HALO_PS5_PINS);
 }
 
-/* that SDL2, RADV and glslang are in the link and answer: nothing more of
-RADV's and glslang's is used until phase 4 */
+/* that SDL2, RADV and glslang are in the link and answer, before the
+renderer uses them */
 static void log_link_proofs(void)
 {
 	SDL_version compiled, linked;
@@ -441,7 +464,9 @@ static void read_gpu_stats(const char *path)
 	{
 		toml_datum_t statistics = toml_seek(result.toptab, "debug.gpu_stats");
 
-		host_gl_statistics = statistics.type == TOML_BOOLEAN && statistics.u.boolean;
+		/* (HALO_GPU_STATS in the environment has set it already, if it is set) */
+		if (statistics.type == TOML_BOOLEAN && statistics.u.boolean)
+			host_gl_statistics = 1;
 	}
 	toml_free(result);
 }
@@ -539,6 +564,61 @@ static void *game_main(void *unused)
 	host_run_guest_main(host_make_boot(&environment, "halo"));
 }
 
+/* ---------- the renderer */
+
+/* an environment switch of the renderer's: 1 if NAME is set to a number
+above 0 (logged), else 0 */
+static int switch_set(const char *name)
+{
+	const char *value = getenv(name);
+	int number = value ? atoi(value) : 0;
+
+	if (number > 0)
+		ps5_log("renderer: %s=%d", name, number);
+	return number > 0 ? number : 0;
+}
+
+/* a folder FTP can list (0777: the console's FTP server sees only what
+everyone may), made before the renderer makes it 0770 */
+static void open_folder(const char *path)
+{
+	if (mkdir(path, 0777) == 0)
+		chmod(path, 0777);
+}
+
+/* Vulkan on RADV, before the game's thread, after the guest's ranges are
+claimed (as Android's host_main.c starts it after the image's range is
+reserved): the instance and the physical device here, the device and the
+swapchain at the game's first submission */
+static void renderer_start(void)
+{
+	char line[600];
+	char folder[256];
+
+	ps5_log("RADV's standard error to the kernel log, prefixed [radv]: %s",
+		ps5_klog_capture_stderr("[radv] ") == 0 ? "yes" : strerror(errno));
+	host_vk_self_test = switch_set("HALO_VK_SELF_TEST") != 0;
+	host_vk_present_marker = switch_set("HALO_VK_PRESENT_MARKER") != 0;
+	host_gl_statistics = switch_set("HALO_GPU_STATS") != 0;
+	ps5_screenshot_seconds = switch_set("HALO_PS5_SCREENSHOT");
+	/* (the renderer's caches, host_vk_shaders.c's layout, open to FTP) */
+	open_folder(PS5_DATA_FOLDER "/vk_cache");
+	open_folder(PS5_DATA_FOLDER "/vk_cache/spirv");
+	snprintf(folder, sizeof(folder), PS5_DATA_FOLDER "/vk_cache/spirv/%s-%d", HOST_VK_GLSLANG_TAG,
+		VK_SHADER_GENERATOR_VERSION);
+	open_folder(folder);
+	open_folder(PS5_DATA_FOLDER "/vk_cache/pipelines");
+	open_folder(PS5_DATA_FOLDER "/vk_cache/failed");
+	{
+		uint64_t start = ps5_now_ns();
+
+		host_renderer_vulkan = host_vk_startup("", 0, line, sizeof(line));
+		ps5_log("renderer: %s (%.1f ms)", line, (ps5_now_ns() - start) / 1e6);
+	}
+	if (!host_renderer_vulkan)
+		host_fatal("the Vulkan renderer did not come up on RADV, and the console has no other: %s", line);
+}
+
 int main(void)
 {
 	int taken, waited;
@@ -582,6 +662,7 @@ int main(void)
 		host_fatal("the guest's memory could not be placed below 4 GB");
 	host_install_signal_handlers();
 	host_signal_stack_install();
+	renderer_start();
 	main_thread_id = ps5_thread_id();
 	host_set_tp(MAIN_THREAD_MARK);
 	if (host_native_thread_create(game_main, NULL, GAME_STACK_SIZE) != 0)

@@ -1,13 +1,12 @@
 # PS5
 
 `ninja ps5` builds the game for a jailbroken PlayStation 5, as a homebrew
-title. This is the port's third phase (`PS5.md`, the plan): the game runs
-with nothing on the TV yet (the picture is phase 4), but with the pad and
-its sound. From a data folder holding only the game's disc image it
-extracts its maps, loads the main menu and runs its loop at 60 frames a
-second; the pad and the sound go through pacbrew's SDL2. Phase 3's tests
-with a person at the console are made at the end of phase 4, with the
-picture.
+title. This is the port's fourth phase (`PS5.md`, the plan): the game is on
+the TV, drawn by the Android port's Vulkan renderer on RADV, with the pad
+and its sound. From a data folder holding only the game's disc image it
+extracts its maps (with nothing on the screen yet: phase 5), then plays the
+menus and the campaign at 60 frames a second, or 120 on a TV that takes it;
+the pad and the sound go through pacbrew's SDL2.
 
 The game is the x32 guest image of `ninja linux_x86_64`
 (`port/linux/README.md`, "64-bit x86"): the decompilation compiled as 32-bit
@@ -116,6 +115,47 @@ return addresses of the stack; an address in the game is looked up with
 `addr2line -e build/ps5/halo_guest_vk.elf`, one in the host in
 `build/ps5/host/eboot.elf.map`.
 
+## The picture
+
+The game draws through the Vulkan renderer of the Android port
+(`port/android/VULKAN.md`), whose host half is compiled for the console as it
+is, on RADV, the Vulkan driver PS5_Vulkan builds from PS5_Mesa, linked into
+the title. The log's `renderer:` line names it; a console where it does not
+come up ends the title (there is no other renderer), saying why.
+
+The game draws at 1920x1080 and the picture is scaled to the console's
+display, 3840x2160, at 59.94 Hz, or at 119.88 Hz: the title declares
+high-frame-rate output (`param.json`), and RADV takes the 120 Hz mode when
+the console's output does (Settings, Screen and Video, Video Output, Enable
+120 Hz Output, with a TV that takes it). RADV checks the switch once and
+sometimes logs `59.94 Hz restored` while the display goes on at 120 Hz; the
+heartbeat's frames a second say which it is. The system's menu may bring
+the display back to 59.94 Hz for the rest of the run.
+
+The renderer compiles the game's shaders on a thread of its own the first
+time it meets them, and keeps them, with its pipelines, in
+`/data/halo/vk_cache`; RADV keeps its own in `/data/halo/radv-shader-cache`.
+A second start compiles nothing it has met before. Removing either folder
+only makes the next start compile again.
+
+For testing, through `environment.txt` (`tools/ps5_deploy.py --env`):
+
+- `HALO_VK_SELF_TEST=1`: the renderer's and the game's self-tests at start
+  (`clears self-test: ok`, `data self-test: ... ok`);
+- `HALO_VK_PRESENT_MARKER=1`: a red and a green square at the picture's top
+  corners, to see which way up it is;
+- `HALO_GPU_STATS=1`: the draws and what skipped them, every second;
+- `HALO_PS5_SCREENSHOT=<seconds>`: the picture as it went to the TV, written
+  that often to `/data/halo/screenshots` (the last 20 kept);
+  `tools/ps5_deploy.py`'s `fetch` brings them to the run's folder as PNG
+  and deletes them from the console.
+
+RADV's own variables (`RADV_DEBUG`, `RADV_PERFTEST`, `MESA_VK_*`) reach the
+driver as they are; `MESA_VK_ABORT_ON_DEVICE_LOSS=1` stops at a GPU fault
+with Mesa's message in the kernel log, where RADV's lines go, prefixed
+`[radv]`. The game's own frame counter is a console command: a line
+`display_framerate 1` in `/data/halo/init.txt`.
+
 ## The pad and the sound
 
 The game's pads are SDL2's game controllers: the DualSense, listed under
@@ -146,18 +186,21 @@ so every run starts with the focus lost.
 
 ## What runs, and what does not yet
 
-- Runs: the game's start-up, the first start's extraction, the main
-  menu's map and its loop, paced to the display's 59.94 Hz; settings,
-  saves and the game's files in `/data/halo`; the pad, its rumble and the
-  sound through SDL2; the system's menus as focus events.
-- Not yet: the picture (every draw is dropped until the Vulkan renderer is
-  brought up, phase 4), the microphone and voice chat (phase 5), the
-  network (phase 6: the game starts with it down, so the network test's
-  matches cannot be hosted), and the desktop's self-updater, which a
-  console title does not have (it is updated by installing it again).
+- Runs: the game's start-up, the first start's extraction, the menus and
+  the campaign on the TV, paced to the display's 59.94 or 119.88 Hz;
+  settings, saves and the game's files in `/data/halo`; the pad, its rumble
+  and the sound through SDL2; the system's menus as focus events (the level
+  goes on under them).
+- Not yet: a picture during the first start's extraction, native 4K
+  drawing, pausing under the system's menu, the microphone and voice chat
+  (phase 5), the network (phase 6: the game starts with it down, so the
+  network test's matches cannot be hosted), and the desktop's self-updater,
+  which a console title does not have (it is updated by installing it
+  again).
 
 For the deploy's tests, two files in the title's folder change a run:
 `hold.txt` (`--hold`) keeps the title for 120 s after the game ends, and
-`environment.txt`, `NAME=VALUE` lines, gives the game settings through its
-environment (`HALO_EXIT_AFTER=60` ends it after a minute; the settings'
-variables are in `port/linux/README.md`).
+`environment.txt`, `NAME=VALUE` lines (`--env NAME=VALUE`, again for each;
+an upload without `--env` removes the file), gives the game settings
+through its environment (`HALO_EXIT_AFTER=60` ends it after a minute; the
+settings' variables are in `port/linux/README.md`).
