@@ -44,8 +44,11 @@ void d3d8_surface_initialize(D3DSurface *surface, D3DFORMAT format, unsigned lon
 void d3d8_surface_resize(D3DSurface *surface, D3DFORMAT format, unsigned long width, unsigned long height);
 
 /* what the context supports: xbox_textures.c reads it (as d3d8_gl.c
-defines it on Android); nothing here is OpenGL, so nothing is supported */
+defines it on Android); nothing here is OpenGL, so nothing is supported.
+(OpenGL ES's only, xgpu.h: a desktop guest, the PS5's, has none.) */
+#ifdef HALO_GLES
 struct xgpu_capabilities xgpu_capabilities;
+#endif
 
 /* whether two copies of a state are the same, compared a word at a time:
 musl's memcmp goes a byte at a time, and every draw compares several
@@ -2009,26 +2012,39 @@ static void dump_text(const char *folder, const char *name, const char *text, co
 	dump_file(folder, name, text, strlen(text), what);
 }
 
-/* the GL ES generators' text, for the comparison: they write the context's #version, which this image has none of */
+/* the GL ES generators' text, for the comparison: they write the context's #version, which this image has none of
+(on a desktop guest, the PS5's, the desktop generators', which write none) */
 static char *gl_vertex_shader(const struct vertex_shader_object *program, unsigned long mask)
 {
+#ifdef HALO_GLES
 	const char *saved = xgpu_capabilities.shading_language;
+#endif
 	char *text;
 
+#ifdef HALO_GLES
 	xgpu_capabilities.shading_language = "310 es";
+#endif
 	text = nv2a_vertex_shader_to_glsl(program->instructions, program->instruction_count, mask, NULL);
+#ifdef HALO_GLES
 	xgpu_capabilities.shading_language = saved;
+#endif
 	return text;
 }
 
 static char *gl_pixel_shader(const struct nv2a_pixel_shader_key *key)
 {
+#ifdef HALO_GLES
 	const char *saved = xgpu_capabilities.shading_language;
+#endif
 	char *text;
 
+#ifdef HALO_GLES
 	xgpu_capabilities.shading_language = "310 es";
+#endif
 	text = nv2a_pixel_shader_to_glsl(key);
+#ifdef HALO_GLES
 	xgpu_capabilities.shading_language = saved;
+#endif
 	return text;
 }
 

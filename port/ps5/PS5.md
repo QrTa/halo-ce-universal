@@ -16,8 +16,10 @@ Status: phase 0, part A is done (the probes: memory, the title, pad, audio,
 RADV, the guest's CPU side up to its first SDL call; `PS5_FINDINGS.md`).
 Phase 0, part B is done and reviewed (the host, SDL2 and glslang probes,
 "Progress"); every "(to confirm)" row of "Decisions" is settled. Phase 1 is
-written out in detail and ready to be handed over.
-Nothing of the port itself exists yet; the probes are in `port/ps5/probe`.
+done and reviewed: `ninja ps5 && python3 tools/ps5_deploy.py --run` builds,
+installs and starts the title, and its log shows the game's start-up to the
+first SDL call. Phase 2 is next, to be written out. The probes are in
+`port/ps5/probe`.
 
 ---
 
@@ -123,6 +125,7 @@ rename):
 | `port/ps5/host/host_update_none.c` | — | `host_update_*` unavailable |
 | `port/ps5/host/host_bootstrap.c`, `host_bootstrap.S` | the guest probe's section 6 | **temporary** (phase 1): the ranges, the loader, the thunks and the trivial answers that prove the build pipeline; phase 2 deletes them |
 | `port/ps5/host/host_libc_extra.c` | the SDL2 probe's `libc_extra.c` | what pacbrew's archives want of libc and no system module exports (`___mb_cur_max`) |
+| `port/ps5/host/ps5_host.h` | — | what the PS5's own host files share: the log, and (phase 1) the bootstrap's entry |
 | `tools/ps5_title.sh` | `port/ps5/probe/title/build.sh` | the title's link (`radv-link.sh` sourced, `prospero-lld`, `ps5-native-tool link`) and signing as a script the ninja rules call |
 | `tools/test_ps5_build.py` | `tools/test_linux_guest_build.py` | the configure test: not asked for, unavailable with a reason, generated against a fake checkout |
 | `port/ps5/sce_sys/param.json`, `icon0.png` | the probes' | a title ID of our own (PPSA and five digits), the name, the icon from the Android master |
@@ -854,7 +857,10 @@ start-up to the first SDL call.
 ## Phase 2 — the host's core, no graphics
 
 The system layer, after the Switch's, with the Android host's shared files
-running as they are: `host_mman.c` (direct memory for the guest's ranges;
+running as they are (phase 1's compile survey under "Progress" says which
+compile with the PS5 toolchain as they are and what stops the others; two
+of its failures are only include paths it did not pass, `tomlc17.h` and
+`update.h`): `host_mman.c` (direct memory for the guest's ranges;
 `mmap`, `munmap`, `mprotect` and `madvise` for `host_memory.c`, including
 `MAP_FIXED_NOREPLACE` for the window's reservation), `host_syscall.c`
 (files with the guest's `stat` and open flags translated, directories,
@@ -1055,6 +1061,357 @@ As the deko3d and Vulkan plans were, on purpose:
 ---
 
 ## Progress
+
+### Phase 1 — audit (2026-10-18)
+
+Checked against the acceptance list, on the sources, the build and the
+console:
+
+1. **The builds.** `ninja ps5` is a null build here (the build stamp alone
+   reruns, as Android's); the three tests pass (14); `ninja linux_x86_64`
+   has no work; `ninja` alone still defaults to `linux`. The Android and
+   Switch objects of the seven changed shared files compile. The configure
+   with a missing checkout gives the unavailable target, as the test shows.
+2. **The link.** `llvm-nm` on `build/ps5/host/eboot.elf` has
+   `vk_icdGetInstanceProcAddr`, `glslang_initialize_process` and
+   `SDL_GetVersion` (local, as `--exclude-libs=ALL` makes them) and the
+   host's `___mb_cur_max`; the fetched logs show the three proofs.
+3. **The run.** The last fetched log (`build/ps5/logs/20261018-021445`) ends
+   at `host_sdl_get_base_path` after the same 14 host calls as the guest
+   probe's run 3, with the Vulkan image (274 imports). The console holds
+   `/data/homebrew/PPSA99500` with the title's six files and
+   `/data/halo/halo.log`; nothing else of ours is new there.
+4. **The relaunch and the kill** are in the runs' record (runs 2 to 4).
+5. **"Progress"** has the pins against the checkouts, the sizes, the times,
+   the payload manager's requests and the compile survey.
+6. **Scope.** Seven shared files changed, outside what the phase allowed,
+   with the user's decision taken during the phase: the Vulkan renderer had
+   never been compiled into a desktop guest. The change is nine `#if` gates
+   widened by `|| defined(HALO_PS5)` and `xgpu_capabilities` in `d3d8_vk.c`
+   put under `HALO_GLES`, where its type is declared; `HALO_PS5` is defined
+   by no other build and Android defines `HALO_GLES`, so the other builds'
+   objects cannot change. Accepted; it is the "Shared code" row's kind of
+   change, argued under "Progress" as that row asks.
+7. **The README** says how to build, install and run what exists.
+
+Two things the audit changed:
+
+- **`tools/ps5_deploy.py` was too close to PS5_Vulkan's `ps5_console.py`**
+  (GPL) in two places: the one-command function and the kernel log's backlog
+  loop were that file's lines with the names kept. Both are rewritten in a
+  shape of their own (a line stream over the socket; a generator for the
+  kernel log's lines), and tried read-only against the console (`status`,
+  and a short `follow`). What remains in common with it is five idioms of
+  one line each.
+- The README called glslang GPL; it is not, and the notice says so. Fixed.
+
+Noted for phase 2, not changed: the compile survey ran without
+`-I port/third_party/tomlc17` and `-I port/linux/src`, so `host_common.c`
+and `host_desktop.c` fail on include paths there, not on the system;
+`host_main.c` ends with `_exit(0)` while the game's thread may still run.
+
+### Phase 1 — the build and the deploy (2026-10-18)
+
+Implemented on 2026-10-18 and run on the user's console (system software
+13.590.001). The files: `tools/ps5_build.py`,
+`tools/ps5_title.sh`, `tools/ps5_deploy.py`, `tools/test_ps5_build.py`,
+`configure.py` (the six `--ps5` options and the one call), and under
+`port/ps5`: `host/host_main.c`, `host/ps5_host.h`, `host/host_bootstrap.c`
+and `.S` (temporary), `host/host_libc_extra.c`, `sce_sys/param.json`,
+`sce_sys/icon0.png` and `README.md`. The probes are unchanged. And, with the
+user's decision (below), seven shared files: `port/android/guest/d3d8_vk.c`
+and `port/linux/src/hud_hires.c`, `.h`, `text_hires.c`, `.h`,
+`menu_files.c`, `.h`.
+
+**The result in one line:** `ninja ps5 && python3 tools/ps5_deploy.py --run`
+builds the title from a clean `build/ps5`, installs and starts it, and its
+log stops at `host_sdl_get_base_path` as the guest probe's run 3 did, with
+the Vulkan image (runs 6 and 7).
+
+**The Vulkan image did not compile in the desktop guest**, at first. Two of
+its files failed, with every compiler (clang 18 and 22):
+
+- `port/android/guest/d3d8_vk.c`: `struct xgpu_capabilities` is incomplete
+  (6 errors). `xgpu.h` declares it only under `HALO_GLES`, and `d3d8_vk.c`
+  sets its `shading_language` to `"310 es"` around two calls (lines 1992 to
+  2008).
+- `port/android/guest/xbox_textures_vk.c`: `hud_hires_png_pixels`,
+  `text_hires_atlas_rows`, `menu_art_name`, `menu_art_serial` and
+  `menu_art_png` are undeclared (9 errors). `hud_hires.h`, `text_hires.h` and
+  `menu_files.h` declare them, and `hud_hires.c`, `text_hires.c` and
+  `menu_files.c` define them, only under `defined(HALO_SWITCH) ||
+  defined(HALO_ANDROID)`: the deko3d renderer's, which the Vulkan one shares.
+- `nv2a_vsh_vk.c` and `nv2a_psh_vk.c` compile.
+
+So no guest had ever had the Vulkan renderer without `HALO_ANDROID`. The
+phase said nothing under `port/android` or `port/linux` changes; runs 1 to 5
+were made with a stand-in (below), and then the user chose to make the
+change in this phase. It is argued here, as "Shared code" asks:
+
+- The gates of the helpers only the deko3d and Vulkan renderers call
+  (`hud_hires_png_pixels`, `text_hires_atlas_rows`, `menu_art_name`,
+  `menu_art_serial`, `menu_art_png`, and `menu_files.c`'s `art_serial`; nine
+  `#if`s in six files) are now `defined(HALO_SWITCH) || defined(HALO_ANDROID)
+  || defined(HALO_PS5)`, and the PS5's guest is compiled with `-DHALO_PS5=1`
+  (`tools/ps5_build.py`). The headers' comments say "the deko3d and Vulkan
+  renderers'".
+- `d3d8_vk.c` defines `xgpu_capabilities` and sets its `shading_language`
+  only under `HALO_GLES`, where `xgpu.h` declares it. On the desktop guest
+  nothing reads it: the desktop GL generators write no `#version` (theirs is
+  under `HALO_GLES` in `nv2a_vsh.c` and `nv2a_psh.c`), and the only use in
+  `d3d8_vk.c` is its debug comparison of the Vulkan generators' text with
+  the GL ones' (`gl_vertex_shader`, `gl_pixel_shader`), whose `.gl` files on
+  the PS5 then have no `#version` line.
+- The link then wanted the renderer's host calls (`host_vk_submit` and the
+  rest): the PS5's guest takes `port/android/host_imports_vk.list` as
+  Android's does, in the one import table of both images (274 imports, 265
+  before).
+- **Android, the Switch and Linux are unchanged, byte for byte**: the
+  objects of the changed files in `build/android`, `build/switch` and
+  `build/linux_x86_64` were rebuilt after the change and compared with the
+  ones from before it, and all ten are identical (`HALO_PS5` is defined
+  nowhere else, and Android defines `HALO_GLES`). So the phone was not
+  needed.
+
+**The stand-in, for runs 1 to 5.** Before the change, `build/ps5/halo_guest.elf`
+(the GL image the generator links from the same objects, with the window
+movable) was copied by hand to `build/ps5/title/PPSA99500/halo_guest.elf`,
+with the user's leave: the bootstrap stops before any renderer runs. Runs 6
+and 7 are the build's own title, the Vulkan image in it.
+
+The pins, and what the checkouts are at (all at their pins; configure.py
+warned of nothing):
+
+| | pin (`tools/ps5_build.py`) | the checkout |
+|---|---|---|
+| PS5_Vulkan | 8aee3afb37bcfad06f0c7d263b901040f08ebbd0 | the same (`git rev-parse HEAD`) |
+| the SDK fork | 95c08f27386fc698f6bbe21dde3030140a41d10b | the same (`.ps5-sdk-revision`) |
+| PS5_Mesa | 01d70579b8d410d6a482e36c6f184798ae4c83ad | the same |
+| pacbrew | v0.40.2, a85f65de…ec4d | the same (the setup script's `version=` and `hash=`) |
+| glslang | 16.6.0 (`android_build.GLSLANG_TAG`) | the Android build's clone, e1b562a8bed2, reused |
+
+The build, on this machine:
+
+- `rm -rf build/ps5` (phase 0 B's folder was moved aside to
+  `build/ps5-phase0b`, not deleted: it holds the probes' built titles and the
+  raw kernel log capture), then `python3 configure.py --ps5`: 21.6 s (musl
+  and SDL3 downloaded; glslang's clone reused; pacbrew already cached).
+- `ninja ps5` from clean, after the change: 44.5 s, 1637 steps (glslang's
+  build is one of them); `configure.py --ps5` before it, 19.6 s. (Before the
+  change, `ninja -k 0 ps5` ran 1634 of them in 44.6 s and stopped at the two
+  Vulkan objects.) A rebuild: the one build-stamp step, as Android's (it is
+  written at every build and restat). But the first `ninja ps5` after a
+  clean build redoes 293 steps, in 3.0 s, once: `-d explain` says the musl
+  objects are older than `build/ps5/guest/libc_include/bits/alltypes.h`,
+  which `.ninja_log` records as written once, 86 ms into the build, before
+  them. That is the shared guest generator's graph, unchanged here, on this
+  WSL filesystem; it is recorded, not chased.
+- The eboot: `eboot.bin` 29,599,331 bytes; `eboot.title.elf` (ps5-native-tool's,
+  unsigned) 30,134,764; `eboot.elf` (the linker's, with `-g`) 106,676,968.
+- `llvm-nm` (the SDK's) on `build/ps5/host/eboot.elf`:
+  `vk_icdGetInstanceProcAddr` at 0x6f20e0, `glslang_initialize_process` at
+  0x7894d0, `SDL_GetVersion` at 0x9948f0 (local symbols, `t`: the link's
+  `--exclude-libs=ALL`).
+- No symbol clash between RADV's, glslang's and SDL2's recipes: the first
+  link succeeded. The host compiles with `-Werror` and no warning.
+- `ninja linux_x86_64` builds (with this tree's own options:
+  `--linux-x86-64-cc clang-22 --linux-x86-64-movable-window`, which
+  `configure.py` was put back to, with `--ps5`); `build.ninja` is unchanged
+  outside the PS5 section. `python3 -m pytest -q tools/test_ps5_build.py
+  tools/test_linux_guest_build.py tools/test_guest_layout.py`: 14 passed.
+- `configure.py --ps5-vulkan /nonexistent`: exit 0, and `ninja ps5` says
+  "PS5 build (ps5) unavailable: no PS5_Vulkan checkout at /nonexistent". A
+  `configure.py` that is not asked for the build writes a quiet unavailable
+  `ps5` target (the `linux_x86_64` pattern) and prints nothing: the test's
+  first case. In this tree it is asked for once `build/ps5/third_party` is
+  there, as the plan says.
+
+`ps5vkctl` did not answer (connection refused: the console had been
+restarted since phase 0 B). With the user's word that the payload manager was
+up, `tools/ps5_deploy.py load-ps5vkctl` loaded it. The manager's requests,
+read from ps5-payload-manager v0.5.2's `src/http_server.c` and
+`frontend/src/App.jsx` (tag e4e72dc9d831):
+
+```
+POST /manage:upload?filename=ps5vkctl.elf   Content-Type: application/octet-stream, the ELF as the body (150936 bytes)
+  -> 200 OK: OK      (it stores it as /data/pldmgr/payloads/ps5vkctl/ps5vkctl.elf, as phase 0 B's)
+GET /loadpayload:ps5vkctl.elf               (the name resolved in its payload store; handed to the ELF loader on 9021)
+  -> 200 OK: OK
+ps5vkctl ping: ok ps5vkctl 1 pid=114
+ps5vkctl status: ok idle
+```
+
+All of it took 0.6 s. `ps5vkctl.elf` is PS5_Vulkan's `build/ps5vkctl` of
+phase 0 B, SHA-256 aee9e434…9390; it was not rebuilt.
+
+**The runs** (each `--run` saved its capture and log under
+`build/ps5/logs/<UTC time>/`):
+
+1. `--run` (20261018-015922 and -015923): nothing to fetch before; upload,
+   6 files, 47.5 MB in 0.7 s; `launch` answered `ok launched PPSA99500
+   result=0x00002018 via systemServiceApp/login as user 372994645` (the
+   first start of a new title; later ones went `via lncUtilApp/foreground`);
+   14.1 s in all, 11.8 s from the launch to the end of the last fetch. The
+   log:
+
+   ```
+   halo.log: writing to /data/halo/halo.log and the kernel log
+   Halo: Combat Evolved for the PS5, build 93c2cc912+changes (phase 1: the bootstrap host)
+   system software 13.590.001 (0x13590001)
+   built with PS5_Vulkan 8aee3afb37bc, SDK fork 95c08f2, PS5_Mesa 01d70579b8d4, pacbrew v0.40.2, glslang 16.6.0
+   SDL2: SDL_GetVersion: 2.30.12 (compiled against 2.30.12)
+   RADV: vk_icdGetInstanceProcAddr(NULL, "vkCreateInstance"): af19c0 (non-null)
+   glslang: glslang_initialize_process: 1
+   glslang: glslang_finalize_process returned
+   /data/halo: found; holds halo.log
+   bootstrap: the guest's ranges, the image, its start-up (port/ps5/host/host_bootstrap.c)
+   image: 0x70000000-0x74000000, 64 MB of direct memory, read, write and execute, zeroed, in 1 ms
+   Xbox window: reserving 0x80000000-0xa0000000: placed elsewhere, 0xffffffff
+   Xbox window: 0x90000000-0xb0000000, 512 MB of direct memory, zeroed, in 14 ms
+   Custom Edition's tag cache: 0x40440000-0x41b40000, 23 MB of direct memory, zeroed, in 0 ms
+   pool: 0x10000000-0x20000000, 256 MB of direct memory, zeroed, in 7 ms
+   segment 0: 0x70000000-0x70000030, 48 bytes from the file, flags 4
+   segment 1: 0x70000030-0x703e20fd, 4071629 bytes from the file, flags 5
+   segment 2: 0x703e2100-0x70e93803, 11212547 bytes from the file, flags 4
+   segment 3: 0x70ea0000-0x7117524c, 2970188 bytes from the file, flags 6
+   segment 4: 0x71175280-0x72a10ff0, 0 bytes from the file, flags 6
+   header: magic 0x4f4c4148 (right), ABI 4 (the host's 4), image end 0x72a11000 (loaded to 0x72a10ff0)
+   entry points: start 0x703c95b0, thread start 0x703c9740, attach 0x703c9830, detach 0x703c98c0, constructors 0x71175244-0x7117524c
+   265 imports
+   the game's thread starts on 1fffff8c; MXCSR 0x00001f80
+        1 host_set_tp(0x728c870c)
+        2 host_syscall gettid(0x0, 0x0, 0x0, 0x0) = 1
+        3 host_syscall mmap(0x90000000, 0x20000000, 0x0, 0x104022) = 2415919104
+        5   the game writes to stderr: halo-linux:
+        7   the game writes to stderr: Xbox contiguous memory window: 512 MB at 0x90000000
+        8   the game writes to stderr:
+        9 host_syscall brk(0x0, 0x0, 0x0, 0x0) = 0
+       10 host_syscall brk(0x2000, 0x0, 0x0, 0x0) = 0
+       11 host_syscall mmap(0x0, 0x2000, 0x0, 0x22) = 268500992
+       12 host_syscall mprotect(0x10011000, 0x1000, 0x3, 0x0) = 0
+       13 host_syscall mmap(0x0, 0x1000, 0x3, 0x22) = 268566528
+   after 14 calls to the host in 0.040 s, 0 MB of the pool taken
+   system calls: writev 3 gettid 1 brk 2 mmap 3 mprotect 1
+   bootstrap: the first import not answered: host_sdl_get_base_path(0x728c87a0, 0x400, 0x1, 0x0)
+   the host ends
+   ```
+
+   The same 14 calls as the guest probe's run 3, in 0.040 s instead of
+   0.101 s (the probe logged to a file through stdio). Runs 1 to 4 had a
+   guest built with clang 18 (see below), whose entry points differ from run
+   3's; run 5's, with clang 22, are run 3's.
+2. `--run` again (20261018-015950, -015951): run 1's `halo.log` was fetched
+   first, then upload, launch and follow: 2.2 s in all, 0.9 s from the launch
+   to the last fetch. The kernel log then reports the `SIGSYS` after
+   `exit()`, as phase 0 B found.
+3. The kill test: `--run --hold --timeout 30` (20261018-020004, -020004-2):
+   `hold.txt` put; the follow ended at the host's `holding for 120 s before
+   the end (/app0/hold.txt), so the title can be killed`. Then:
+
+   ```
+   ps5vkctl status: ok running app=24600 title=PPSA99500
+   (tools/ps5_deploy.py launch: refused, "PPSA99500 is running already")
+   ps5vkctl kill PPSA99500: ok killed PPSA99500: PPSA99500 is gone (app id 24600, 1 processes killed, result 0x00000000)
+   ps5vkctl status: ok idle
+   ```
+
+4. `--run --hold` again (20261018-020020), then a plain `--run` while it was
+   held (20261018-020022, -020024): `--run` fetched, found the title running
+   and killed it (`ok killed ... app id 32792, 1 processes killed`), removed
+   `hold.txt`, and ran it to `the host ends`: 6.3 s in all. `status` said
+   `running` just after the last line and `idle` 3 s later.
+5. `--run` with the guest rebuilt by clang 22 (20261018-020817, -020818):
+   the same log to `host_sdl_get_base_path`, with run 3's entry points
+   (`start 0x703d0470, thread start 0x702343b0, attach 0x702344a0, detach
+   0x70234530, constructors 0x7117520c-0x71175214`); 2.2 s in all.
+6. `--run` with the build's own title, the Vulkan image as `halo_guest.elf`
+   (20261018-021324, -021325): segments to 0x72cabde0 (image end
+   0x72cac000), `start 0x703cb060`, **274 imports**, the same 14 host calls,
+   `bootstrap: the first import not answered:
+   host_sdl_get_base_path(0x72742880, 0x400, 0x0, 0x0)`, `the host ends`;
+   2.1 s in all, 0.8 s from the launch.
+7. The closing check, from a clean `build/ps5` and in one shell:
+   `ninja ps5 && python3 tools/ps5_deploy.py --run`: exit 0, the same log.
+
+The console holds `/data/homebrew/PPSA99500` (the title, the Vulkan image
+in it, no `hold.txt`) and `/data/halo/halo.log` of ours. The probes' titles and
+`/data/halo` are otherwise as they were; the manager's copy of
+`ps5vkctl.elf` was rewritten with the same file.
+
+**The compile survey**, for phase 2: the host's flags of step 5
+(`-std=c11 -O2 -g -Wall -Wextra -Werror ... -DHALO_PS5=1`, the includes,
+clang 22 through `prospero-clang18`), `-fsyntax-only`, the first error:
+
+| File | Compiles | The first error |
+|---|---|---|
+| `port/android/host/host_arch.c` | no (20 errors) | `host_arch.c:82: unknown type name 'greg_t'` (Linux's `ucontext_t` layout) |
+| `port/android/host/host_common.c` | no | `host_common.c:15: 'tomlc17.h' file not found` (an include path: `port/third_party/tomlc17`) |
+| `port/android/host/host_debug.c` | no (6 errors) | `host_debug.c:53: call to undeclared function 'gettid'` |
+| `port/android/host/host_gl.c` | no | `host_gl.c:131: unused function 'gl_count_index'` (`-Werror`; the PS5 has no GL, the file goes) |
+| `port/android/host/host_loader.c` | yes | |
+| `port/android/host/host_memory.c` | no (3 errors) | `host_memory.c:219: use of undeclared identifier 'MAP_NORESERVE'` |
+| `port/android/host/host_probe.c` | no (4 errors) | `host_probe.c:222: cast to 'const uint32_t *' from smaller integer type 'uint32_t'` (`-Wint-to-pointer-cast`) |
+| `port/android/host/host_sdl.c` | no | `host_sdl.c:16: 'SDL3/SDL.h' file not found` (replaced by the PS5's SDL file) |
+| `port/android/host/host_syscall.c` | no | `host_syscall.c:56: 'linux/futex.h' file not found` (replaced by the PS5's) |
+| `port/android/host/host_thread.c` | yes | |
+| `port/android/host/host_watch_hash.c` | yes | |
+| `port/linux/host/host_desktop.c` | no | `host_desktop.c:16: 'update.h' file not found` (an include path: `port/linux/src`) |
+| `port/linux/host/host_main.c` | no | `host_main.c:23: 'SDL3/SDL.h' file not found` (the PS5's `host_main.c` takes its place) |
+| `port/linux/src/posix_files.c` | yes | |
+
+**Unexpected, and what was done about it:**
+
+- **The Vulkan image** (above): it did not compile in a desktop guest; runs 1
+  to 5 used the GL image, then the shared files were changed with the user's
+  decision.
+- **The guest's default compiler.** The plan's default, `clang`, is clang 18
+  here: the guest was built without profile-guided optimisation ("the
+  profiles in pgo need clang 22"), and its archive step failed, as this
+  machine has no unversioned `llvm-ar` or `llvm-objdump` on the path. So
+  `--ps5-guest-cc` defaults to the host's clang 22 (`--ps5-llvm-config
+  --bindir`'s, `/usr/lib/llvm-22/bin/clang`, the profiles' compiler), and
+  `tools/ps5_build.py` takes `llvm-ar`, `ld.lld` and `llvm-objdump` from the
+  folder of an unversioned compiler, as it takes `llvm-ar-22` and the rest
+  for `clang-22`. A plain `configure.py --ps5` from a clean `build/ps5` then
+  takes 13.8 s, and `ninja -k 0 ps5` 45.0 s (`-fprofile-use=pgo/halo_linux.profdata`),
+  with the same two Vulkan objects failing. Runs 1 to 4 were made before
+  this, with a clang 18 guest.
+- **Clang 22 for the host needs `PS5_CLANG`.** PS5_Vulkan's
+  `tooling/prospero-clang18` takes its compiler from `PS5_CLANG`, else the
+  first `clang` on the path; `LLVM_CONFIG` reaches only the SDK's own
+  wrappers. So the phase 0 B probes' own code was compiled with clang 18. The
+  host's rule sets both (`PS5_CLANG` from `llvm-config-22 --bindir`), and
+  `radv_link_recipe` then takes clang 22's runtime library too. glslang is
+  built with `LLVM_CONFIG` unset, so with clang 18, as the glslang probe was.
+- **`ps5-native-tool link` writes no symbol table**, so the plan's
+  "`build/ps5/host/eboot.elf` defines the three symbols" holds only of
+  prospero-lld's output. That is now `eboot.elf` (with `eboot.elf.map`: the
+  file to look a crash up in), and ps5-native-tool's is `eboot.title.elf`,
+  which is signed into `eboot.bin`.
+- **NOTICE.txt is written by a build rule** (`python3 -m tools.ps5_build
+  notice`), from the same constants, not at configure time: written at
+  configure time it would be a file ninja could not make again once
+  `build/ps5/title` is removed.
+- **Paths.** The PS5's own rules name their files by absolute path (CMake
+  and `tools/ps5_title.sh` run them elsewhere); the guest's rules are the
+  shared generator's, which names them from the repository. The Switch's
+  build is the same mixture: only its `elf2nro` needs absolute paths.
+- **The hostdeps environment** is checked, as the plan says, but no rule of
+  this phase needs meson or LLVM 18: it is sourced only if `libc.prx` has to
+  be rebuilt (`tools/rebuild-libc.sh`). It is RADV's build's.
+- **`radv_link_recipe` writes `build/radv-platform-local.map` into the
+  PS5_Vulkan checkout** at every link, as it did for the probes.
+- **klogsrv did not double its lines** in these runs (39 `halo:` lines in
+  the capture for 39 in the file). The follower shows a line when it first
+  comes and lets one copy of it pass after, so it handles both.
+- **FTP's SIZE of a SELF is its decrypted size**: `eboot.bin` (29,599,331
+  bytes) is reported as 30,134,764, `eboot.title.elf`'s size exactly;
+  `libc.prx` (1,284,674) as 1,335,962. The upload compares the eboot with
+  the unsigned ELF and says so for both.
+- `ps5_build.py` also has the generator's `build/ps5/host/host_import_table.c`
+  written, which phase 1 does not compile (phase 2's).
+- `/data/halo: found; holds halo.log`: the log is opened before the folder
+  is listed, so it lists itself.
 
 ### Phase 0, part B — audit (2026-10-18)
 

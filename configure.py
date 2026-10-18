@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 # root build script: writes build.ninja for the native ports (Linux, Windows,
-# Android, Switch) and the web port
+# Android, Switch, PS5) and the web port
 
 import argparse
 import io
@@ -14,6 +14,7 @@ from tools import ninja_syntax
 from tools.android_build import android_configure_inputs, generate_android_build
 from tools.linux_guest_build import generate_linux_guest_builds, linux_guest_configure_inputs, native_linux_guest
 from tools.linux_build import check_profile_options, generate_linux_build, linux_configure_inputs
+from tools.ps5_build import generate_ps5_build, ps5_configure_inputs
 from tools.switch_build import generate_switch_build, switch_configure_inputs
 from tools.web_build import generate_web_build, web_configure_inputs
 from tools.windows_build import generate_windows_build, windows_configure_inputs
@@ -126,6 +127,40 @@ parser.add_argument(
     "(HALO_MOVABLE_WINDOW), as the PS5 needs: its console loads a system module at 0x80000000",
 )
 parser.add_argument(
+    "--ps5",
+    action="store_true",
+    help="generate `ninja ps5`, the PS5 title (port/ps5/README.md): configure.py then downloads its musl, SDL3 "
+    "and glslang (once, to build/ps5/third_party) and resolves pacbrew's SDL2 through PS5_Vulkan. "
+    "--ps5-vulkan asks for it too",
+)
+parser.add_argument(
+    "--ps5-vulkan",
+    metavar="PATH",
+    help="the PS5_Vulkan checkout `ninja ps5` builds with, set up by its tools/setup-native-dependencies.sh "
+    "(default: PS5_VULKAN, then ~/projects/ps5-deps/PS5_Vulkan)",
+)
+parser.add_argument(
+    "--ps5-mesa",
+    metavar="PATH",
+    help="the PS5_Mesa checkout, for Vulkan's headers (default: PS5_Mesa beside PS5_Vulkan)",
+)
+parser.add_argument(
+    "--ps5-llvm-config",
+    metavar="PATH",
+    help="the llvm-config of the clang that compiles the PS5 host, clang 22 (default: /usr/bin/llvm-config-22)",
+)
+parser.add_argument(
+    "--ps5-hostdeps",
+    metavar="ENV",
+    help="a script that puts meson's and LLVM's tools on the path for the PS5 build "
+    "(default: ~/projects/ps5-deps/hostdeps/env.sh)",
+)
+parser.add_argument(
+    "--ps5-guest-cc",
+    type=str,
+    help="clang (with the x32 target) for the PS5 build's guest image (default: --ps5-llvm-config's clang, clang 22)",
+)
+parser.add_argument(
     "--web-emcc",
     type=str,
     help="Emscripten's emcc for `ninja web` (default: emcc on the PATH, then EMSDK's or ~/emsdk's)",
@@ -156,6 +191,12 @@ sln = SimpleNamespace(
     linux_x86_64=args.linux_x86_64,
     linux_x86_64_cc=args.linux_x86_64_cc,
     linux_x86_64_movable_window=args.linux_x86_64_movable_window,
+    ps5=args.ps5,
+    ps5_vulkan=args.ps5_vulkan,
+    ps5_mesa=args.ps5_mesa,
+    ps5_llvm_config=args.ps5_llvm_config,
+    ps5_hostdeps=args.ps5_hostdeps,
+    ps5_guest_cc=args.ps5_guest_cc,
     web_emcc=args.web_emcc,
 )
 
@@ -184,6 +225,7 @@ generate_android_build(n, sln)
 generate_linux_guest_builds(n, sln)
 generate_windows_build(n, sln)
 generate_switch_build(n, sln)
+generate_ps5_build(n, sln)
 generate_web_build(n, sln)
 
 n.comment("Reconfigure on change")
@@ -204,6 +246,7 @@ n.build(
         *linux_guest_configure_inputs(),
         *windows_configure_inputs(),
         *switch_configure_inputs(),
+        *ps5_configure_inputs(),
         *web_configure_inputs(),
     ],
 )
