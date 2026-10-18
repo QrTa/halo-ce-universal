@@ -18,7 +18,8 @@ Phase 0, part B is done and reviewed (the host, SDL2 and glslang probes,
 "Progress"); every "(to confirm)" row of "Decisions" is settled. Phase 1 is
 done and reviewed: `ninja ps5 && python3 tools/ps5_deploy.py --run` builds,
 installs and starts the title, and its log shows the game's start-up to the
-first SDL call. Phase 2 is next, to be written out. The probes are in
+first SDL call. Phase 2 is written out in detail and ready to be handed
+over. The probes are in
 `port/ps5/probe`.
 
 ---
@@ -116,13 +117,16 @@ rename):
 | `tools/ps5_build.py` | `tools/switch_build.py` | `ninja ps5`: the guest image, the host as a title (clang 22 through the SDK fork, RADV's archive, glslang), `param.json`, the icon, `libc.prx`; `configure.py --ps5` options for the PS5_Vulkan checkout |
 | `tools/ps5_deploy.py` | `tools/switch_deploy.py`, `probe/title/deploy.sh` | upload over FTP (port 2121), `eboot.bin` last; start, stop and restart through `ps5vkctl`; fetch the log |
 | `port/ps5/host/host_main.c` | `port/switch/host/host_main.c` | title start-up: `ps5_fp_ieee()`, the user service, the data folder, the environment, the log file and the kernel log, the game thread |
-| `port/ps5/host/host_mman.c` | `port/switch/host/host_mman.c` | the guest's ranges as direct memory; `mmap`, `munmap`, `mprotect`, `madvise` served inside them for `host_memory.c` |
-| `port/ps5/host/host_syscall.c` | `port/switch/host/host_syscall.c` | the guest's Linux system calls on FreeBSD's libc: files (`stat` layouts, open flags), clocks, `writev`, directories, exit |
+| `port/ps5/host/host_memory.c` | `port/android/host/host_memory.c`, as the Switch rewrote its own | the guest's ranges and pools as direct memory, the map read through `sceKernelVirtualQuery`, the write watch and the crash report as Android's; `__wrap_mmap` for the loader's one mapping |
+| `port/ps5/host/host_syscall.c`, `host_syscall_tables.c`, `freebsd_abi.h` | `port/android/host/host_syscall.c` (the shape), `port/switch/host/host_syscall.c` (the inventory) | the guest's Linux system calls on FreeBSD's libc: files (`stat` layouts, open flags), clocks, `writev`, directories, exit; the pure translations in their own file, tested on the PC, FreeBSD's numbers as literals asserted against the SDK's headers |
 | `port/ps5/host/host_futex.c` | `port/switch/host/host_futex.c` | futexes over `_umtx_op`, or over a mutex and condition variable per address |
 | `port/ps5/host/host_sdl_ps5.c` (and `host_sdl3_events.c` if SDL2 is under it) | `port/switch/host/host_sdl2.c` | SDL3's 69 calls answered: pad, audio, events, ticks; the window, context, displays, 2D renderer and dialogs as stand-ins |
 | `port/ps5/host/host_vk_driver_ps5.c` | `port/android/host/host_vk_driver.c` | RADV linked in: its ICD entry point `vk_icdGetInstanceProcAddr` called directly (the archive has no `vkGetInstanceProcAddr`), the driver's name for the log |
 | `port/ps5/host/host_vk_present_ps5.c` | `port/android/host/host_vk_present.c` | the surface through `VK_KHR_display` on VideoOut, the FIFO swapchain, the letterboxed blit, re-creation |
 | `port/ps5/host/host_update_none.c` | — | `host_update_*` unavailable |
+| `port/ps5/host/host_vk_null.c` | — | **until phase 4**: the renderer's nine imports answered so that every draw is dropped and nothing waits |
+| `port/ps5/host/host_gl_none.c` | — | no OpenGL on the console: every `hostgl_*` name resolved to one counting no-op, the eight `host_gl_*` imports as no-ops |
+| `port/ps5/tests/`, `tools/test_ps5_host.py` | `port/android/tests/`, `tools/test_host_units.py` | the PS5 host's pure parts tested on the PC |
 | `port/ps5/host/host_bootstrap.c`, `host_bootstrap.S` | the guest probe's section 6 | **temporary** (phase 1): the ranges, the loader, the thunks and the trivial answers that prove the build pipeline; phase 2 deletes them |
 | `port/ps5/host/host_libc_extra.c` | the SDL2 probe's `libc_extra.c` | what pacbrew's archives want of libc and no system module exports (`___mb_cur_max`) |
 | `port/ps5/host/ps5_host.h` | — | what the PS5's own host files share: the log, and (phase 1) the bootstrap's entry |
@@ -856,41 +860,502 @@ start-up to the first SDL call.
 
 ## Phase 2 — the host's core, no graphics
 
-The system layer, after the Switch's, with the Android host's shared files
-running as they are (phase 1's compile survey under "Progress" says which
-compile with the PS5 toolchain as they are and what stops the others; two
-of its failures are only include paths it did not pass, `tomlc17.h` and
-`update.h`): `host_mman.c` (direct memory for the guest's ranges;
-`mmap`, `munmap`, `mprotect` and `madvise` for `host_memory.c`, including
-`MAP_FIXED_NOREPLACE` for the window's reservation), `host_syscall.c`
-(files with the guest's `stat` and open flags translated, directories,
-clocks, `writev` to the log, the ids, exit; `getcwd` and `realpath`
-answered by the host itself, never libc's: a title's `getcwd` import jumps
-to unmapped memory and `realpath` answers `EPERM`), `host_futex.c` (over
-`_umtx_op`'s 32-bit private operations, the table under "Progress"),
-`host_thread.c`'s stacks below 4 GB (proved), `host_debug.c`'s fault
-reports with the PS5's `ucontext`, `host_common.c`'s boot block and
-environment (the data folder as the game's home, `HALO_*` settings from
-`config.toml`), the log file and the kernel log. The game's SDL is answered
-by stand-ins (a window and a GL context that exist, no pad, no audio; the
-first start's message box answered "Yes" and its file picker with the disc
-image found in `/data/halo`, so the desktop's extraction of `maps/` runs
-headless, its progress in the log), and the renderer's host half by a null
-backend that retires every submission unseen, so the game runs headless.
-`debug.exit_after` ends a run cleanly; a title's `exit()` and `_exit()` end
-in `SIGSYS` in the kernel log (PS5_Vulkan's titles too), so the host's exit
-is checked here for what it leaves behind (the log flushed, the files
-closed) and the signal is explained once in the log, or avoided if a cleaner
-end is found. Two numbers from phase 0 B to settle here: the extraction's
-write speed (18 MB/s with `fsync` after each file in the probe; measure
-without) and a cold read of a map (the probe's reads were the cache's).
+Written to be picked up by an agent that has not seen the work so far. Read
+first, in this order: this plan's "Decisions", "Where the port lives",
+"Files" and "How this plan is worked"; phase 0 B's and phase 1's entries
+under "Progress" whole (the console's memory, faults, futexes, files and
+`exit()`; the compile survey; what the bootstrap host logs); then the code.
+The Android host library: `port/android/host/host.h` whole (the interface
+this phase implements the PS5's side of), `host_common.c`, `host_thread.c`,
+`host_loader.c`, `host_debug.c`, `host_arch.c`, `host_memory.c` whole (the
+file this phase rewrites for the PS5: its bookkeeping stays, its system
+calls go) and `host_syscall.c` whole (the model of a system call layer with
+the guest's layouts translated); the Linux host, `port/linux/host/host_main.c`
+(the entry point the PS5's follows) and `host_desktop.c` (the desktop's 35
+imports, to be answered by stand-ins here); the Switch host,
+`port/switch/host/host_memory.c` and `host_mman.c` (a rewrite of the memory
+layer for a system without Linux's calls, which is what this phase does
+over direct memory), `host_syscall.c` (the inventory of the guest's calls
+on a non-Linux libc), `host_futex.c` (what a futex layer must cover) and
+`host_sdl2.c`'s stand-in parts (`standin_window`, the swap's pacing); the
+guest's side, `port/android/guest/runtime/guest_sdl.c` and
+`port/linux/host/guest_desktop.c` (what each `host_sdl_*` import is asked
+and expects back), `port/android/include/halo_guest_syscall.h` (the guest's
+numbers, layouts and flags) and `halo_android_abi.h`; the phase 1 files
+under `port/ps5/host`; the SDK fork's headers under
+`~/projects/ps5-deps/PS5_Vulkan/.deps/native/ps5-payload-sdk/target/include`
+(`sys/mman.h`, `sys/stat.h`, `sys/umtx.h`, `x86/ucontext.h`, `fcntl.h`,
+`errno.h`, `dirent.h`, `time.h`, and `ps5platform/kernel.h` for the direct
+memory calls the probes used) and PS5_Vulkan's `docs/PLATFORM_NOTES.md`; the
+phase 0 B probes `port/ps5/probe/host/main.c` (sections 1 to 4: the direct
+memory recipe, `_umtx_op`'s forms, the fault handler and its `mcontext`,
+the files) as working code to lift from. The work is reviewed against the
+acceptance list at the end of this phase.
+
+### What this phase is, and is not
+
+- **It is** the PS5's system layer under the Android host library: memory
+  (the guest's ranges and pools as direct memory, the write watch, the
+  crash report), system calls on FreeBSD's libc, futexes over `_umtx_op`,
+  threads, the entry point's real start-up; and stand-ins for everything
+  the game asks of SDL, OpenGL, the renderer's host half and the updater,
+  so that the game runs headless from a fresh data folder to its main
+  menu's map and keeps running. At the end `host_bootstrap.c` and `.S` are
+  deleted.
+- **It is not** the pad, audio or events (phase 3), the renderer (phase 4),
+  or anything on the TV. The stand-ins written here are kept: phase 3 fills
+  the pad, audio and event parts of `host_sdl_ps5.c` with SDL2, phase 4
+  replaces `host_vk_null.c` with the real renderer files.
+- **Shared files.** `host_loader.c`, `host_thread.c`, `host_watch_hash.c`
+  and `host_common.c` compile for the PS5 as they are and are used as they
+  are. `host_arch.c` and `host_debug.c` need a PS5 branch each (the
+  FreeBSD `mcontext`; the thread id, and no sampler), behind `HALO_PS5`,
+  argued under "Progress"; if a file would have more than a third of its
+  lines under the define, a PS5 file replaces it instead, and the write-up
+  says so. Android's `host_memory.c`, `host_syscall.c`, `host_sdl.c`,
+  `host_gl.c`, `host_main.c`, `host_touch.c`, `host_probe.c` and the
+  `host_vk*` files are **not** compiled for the PS5: the PS5's own files
+  take their places (below). Nothing under `port/linux`, `port/switch`,
+  `source` or the probes changes; Android's and Linux's objects must not
+  change for the files that are shared (`HALO_PS5` is the only gate).
+- **Nothing of PS5_Vulkan's is copied in.** Its platform layer is called
+  (`ps5platform/*.h`), not copied; FreeBSD's constants are written as
+  numbers in a header of our own and checked against the SDK's headers at
+  compile time.
+
+### Files
+
+| File | What |
+|---|---|
+| `port/ps5/host/host_main.c` | grows into the real entry point (below); the bootstrap call goes |
+| `port/ps5/host/host_memory.c` | **new**: Android's `host_memory.c` with its system calls replaced by the console's: `sceKernelReserveVirtualRange`, `sceKernelAllocateDirectMemory`, `sceKernelMapDirectMemory`, `sceKernelMprotect` and `sceKernelVirtualQuery` in place of `mmap`, `MAP_FIXED_NOREPLACE` and `/proc/self/maps`. The pools, the guest page bookkeeping, `host_guest_mmap`'s rules, the write watch and the crash report stay as Android's are. Also `__wrap_mmap`, below |
+| `port/ps5/host/host_syscall.c` | **new**: the guest's 91 system calls (`halo_guest_syscall.h`) on FreeBSD's libc, after Android's structure and the Switch's inventory |
+| `port/ps5/host/host_syscall_tables.c`, `freebsd_abi.h` | **new**: the pure translations (open flags both ways, `errno`, clock ids, `AT_*`, the `kstat` and `dirent64` layouts filled from fields passed in) and the FreeBSD numbers they map to, written as literals and checked by `_Static_assert` against the SDK's headers in `host_syscall.c`; the PC test compiles the tables alone |
+| `port/ps5/host/host_futex.c` | **new**: the guest's futex operations over `_umtx_op`, as phase 0 B's table sets out |
+| `port/ps5/host/host_sdl_ps5.c` | **new**: the 69 `host_sdl_*` imports; in this phase every one a stand-in (below) |
+| `port/ps5/host/host_vk_null.c` | **new**, until phase 4: the renderer's nine imports and `host_vk_exit`, `host_renderer_vulkan`, `host_vk_presenting`, `host_vk_window`, answering so that the game runs with every draw dropped |
+| `port/ps5/host/host_gl_none.c` | **new**: `host_gl_resolve` answering every `hostgl_*` name with one no-op that returns 0 and counts the name; `host_gl_frame` reporting the names called every 10 s under `debug.gpu_stats`; the eight `host_gl_*` imports as no-ops |
+| `port/ps5/host/host_update_none.c` | **new**: the six `host_update_*` imports answering "unavailable" |
+| `port/android/host/host_arch.c` | a `HALO_PS5` branch: the registers from FreeBSD's `mcontext` (`mc_rip`, `mc_rsp`, `mc_rbp`, `mc_rax` to `mc_r15`, `mc_err`, `mc_trapno`), as phase 0 B's probe read them |
+| `port/android/host/host_debug.c` | a `HALO_PS5` branch: the thread id from the console (what the SDK's libc offers, `pthread_getthreadid_np` or the kernel's call; say which), and the sampler and profiler answering "not on the PS5" in the log when asked, their Linux bodies compiled out |
+| `tools/ps5_build.py` | the host's sources: `port/ps5/host/*.c`, the six shared Android files named above, `port/third_party/tomlc17/tomlc17.c`, the guest build's `host_import_table.c`, and a generated `host_import_stubs.c` (below); `-I port/linux/src -I port/third_party/tomlc17` added; `--wrap=mmap` in the link; `host_bootstrap.c` and `.S` and the syscall-names rule removed |
+| `tools/ps5_title.sh` | takes extra linker flags after `--` as it takes inputs (the wrap) |
+| `port/ps5/tests/host_syscall_tables_test.c`, `tools/test_ps5_host.py` | **new**: the tables tested on the PC |
+| `port/ps5/README.md` | the data folder, `config.toml`, the log, what runs and what does not yet |
+
+### The entry point (`host_main.c`)
+
+After phase 1's start (`ps5_fp_ieee`, the log, the identity, the three
+link proofs, `/data/halo`), in this order, as `port/linux/host/host_main.c`
+and Android's `host_main.c` do it:
+
+1. `host_log_set_sink` to the PS5 log (the file and the kernel log; one
+   `write` a line, no stdio: signal handlers log through it).
+2. `/data/halo` must exist: without it the host logs why and ends. With it,
+   `/data/halo/save` is made if missing.
+3. `host_memory_reserve_early()`: on the PS5 this claims the guest's three
+   fixed ranges as direct memory at once (the image's at
+   `HALO_GUEST_IMAGE_BASE` for `HALO_GUEST_IMAGE_RESERVE`, Custom Edition's
+   at 0x40440000, the window at the first 256 MB boundary from 0x80000000
+   where 512 MB are free: the probe's recipe), before any pool exists, so
+   no pool can land on them. Each range logged with its placement time, as
+   the probe logs them.
+4. `host_install_signal_handlers()`, `host_signal_stack_install()`.
+5. The game thread: `host_native_thread_create(game_main, NULL, 16 MB)`;
+   the main thread waits forever (`pause()` or a sleep loop).
+6. `game_main`: the environment (`HOME=/data/halo`, `HALO_DATA_ROOT=/data/halo`,
+   `HALO_SAVE_ROOT=/data/halo/save`, `XDG_DATA_HOME=/data/halo`, `TZ` from
+   `host_time_zone`, and `HALO_*` settings the host wants to pass); the
+   image read whole from `/app0/halo_guest.elf` (its size logged);
+   `host_load_image(file, size, NULL, 0)` (no relocations: x32 does not
+   move); `host_apply_debug_settings("/data/halo/config.toml", NULL)`;
+   `host_run_guest_main(host_make_boot(&environment, "halo"))`.
+7. The hold for the deploy's kill test stays, moved to where the game
+   ends (`host_exit`): `/app0/hold.txt` makes `host_exit` sleep 120 s
+   before `_exit`.
+
+`host_exit` (`host_common.c`) ends with `_exit`, which the kernel log
+follows with `SIGSYS` (phase 0 B). Before `_exit`, the PS5's sink flushes
+nothing (each line is a write) and closes the file; the `SIGSYS` is
+explained once in the README. If a cleaner end is found (PS5_Vulkan's
+`docs` may say; `sceSystemServiceLoadExec` with no path is one thing to
+try), say so under "Progress"; it is not required.
+
+### Memory (`host_memory.c`, the PS5's)
+
+Copy Android's file and keep its shape: the same `host.h` functions, the
+pools (`struct pool`, `pool_take`, `pool_release`), `guest_pages`,
+`host_guest_mmap`'s rules (`MAP_FIXED` over the guest's own pages replaces,
+`MAP_FIXED_NOREPLACE` over used pages is `-EEXIST`, a range outside the
+guest's is `-ENOMEM`), the watch (`page_protected`, `page_generation`,
+`mark_written`, `host_memory_watch_*`) and `report_crash`. Replace the
+system underneath:
+
+- **Reserving.** `reserve(address, size)` is `sceKernelReserveVirtualRange`
+  at the address, checked to have landed there (the probe's
+  `reserve_exactly`: a reservation placed elsewhere is unmapped and counts
+  as taken), then `sceKernelAllocateDirectMemory` and
+  `sceKernelMapDirectMemory` fixed, read-write, so a reserved range is
+  backed memory. The three fixed ranges and every pool are reserved this
+  way; a pool is `POOL_SIZE` of direct memory from its creation. Direct
+  memory comes back holding what it held: a range is zeroed when it is
+  given out (`host_low_map`, a `MAP_FIXED` mapping, a pool's pages), not
+  when it is reserved, so the cost is paid for what is used.
+- **The map.** `find_gap`, `log_conflicts` and `host_memory_report_low_mappings`
+  read `sceKernelVirtualQuery` with the find-next flag, as the host probe's
+  section 2 walks the map (the 72-byte info struct, 15 regions on this
+  console), instead of `/proc/self/maps`. A pool goes in the lowest gap of
+  `POOL_SIZE` at or above 16 MB that does not touch the three fixed
+  ranges.
+- **Protection.** `host_low_map`'s protection and the guest's `mprotect`
+  are libc's `mprotect` (one call with `sceKernelMprotect` on direct
+  memory, phase 0 B); `pool_release` sets `PROT_NONE` and keeps the memory
+  (the address space stays reserved, as Android's does; the memory is
+  direct memory, which the heap would not reuse anyway). `madvise` on
+  direct memory is answered 0 without a call unless the SDK's libc has one
+  that works; say which.
+- **Execute.** The loader's `mprotect(PROT_READ | PROT_EXEC)` of the
+  image's code is libc's and works on direct memory (phase 0 B ran code so
+  protected in the guest probe). Nothing asks for execute at map time.
+- **`__wrap_mmap`.** `host_loader.c` maps the image's range itself
+  (`mmap(low, size, RW, MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED)`), which on
+  the PS5 would put flexible memory over the direct memory reserved for it.
+  The link wraps `mmap`: `__wrap_mmap` answers a `MAP_FIXED` anonymous
+  mapping that lies inside a range this file reserved by zeroing it and
+  setting its protection, and hands everything else to `__real_mmap`
+  (RADV's, SDL2's and glslang's own mappings, above 4 GB, go through
+  untouched). Log the wrapped calls at `HOST_LOG_INFO` the first ten
+  times, so phase 4 sees whether RADV ever maps below 4 GB.
+- **`host_memory_initialize(preferred_base, size, base)`**: the image is
+  already reserved by `host_memory_reserve_early`; this checks the range
+  asked for lies within it, writes `*base = preferred_base` (x32 never
+  moves; a request that does not fit is `-1` with the log saying so), and
+  records `image_base`/`image_end` for the bookkeeping. The window's base
+  and size answer `host_memory_window_base`/`_size` from the early
+  reservation (the guest reads them through the boot block, as Android's
+  does). `host_memory_fixed_unavailable` is 1 if any of the three ranges
+  could not be reserved.
+- **File mappings.** A guest `mmap` with a descriptor (`fd != -1`) is
+  answered as the Switch's is: the range from a pool or the fixed address,
+  then `pread` into it (the game maps nothing large this way; say under
+  "Progress" what it did map, if anything).
+- **The watch** stays as Android's: `host_memory_watch_protect` is
+  `mprotect(PROT_READ)` a page at a time; the fault handler recognises a
+  protected page of the window, marks it and reprotects it read-write. On
+  the PS5 the handler is installed for `SIGSEGV` and `SIGBUS` both with
+  `SA_SIGINFO | SA_NODEFER | SA_ONSTACK`, and both handlers check for a
+  watched page first (FreeBSD may raise either; phase 0 B saw `SIGSEGV`
+  with `si_code 2`). `report_crash` reads the registers through
+  `host_arch_context` (the PS5 branch) and walks frames as Android's does;
+  the `addr2line` line says `build/ps5/halo_guest_vk.elf`. `chain` to the
+  previous handler stays.
+- **`host_memory_watch_use_hashes`** stays callable and does what it does
+  (no ARM translation here; it is never called).
+
+### System calls (`host_syscall.c`, the PS5's)
+
+Android's file is the structure (one `switch` on the guest number, each
+call translated and made with libc, results as the guest's 32-bit `long`
+with Linux's negative `errno`); the Switch's is the inventory of what the
+guest asks on a non-Linux system. Every one of the 91 numbers in
+`halo_guest_syscall.h` is either answered or returns `-ENOSYS` on purpose,
+with a comment saying which calls take the fallback and why (as the test of
+the numbering expects: musl falls back from `statx` to `newfstatat`, from
+`clone3` to `clone`, which the guest never reaches because threads go
+through `host_thread_create`).
+
+The translations, in `host_syscall_tables.c` with their numbers in
+`freebsd_abi.h` (each number a literal with a comment naming the SDK
+header it came from, and `host_syscall.c` asserting each against that
+header with `_Static_assert`, so the PC test and the console agree):
+
+- **Open flags** both ways: the guest's are AArch64 Linux's
+  (`GUEST_O_*` in the header); FreeBSD's differ for `O_CREAT` (0x200),
+  `O_TRUNC` (0x400), `O_EXCL` (0x800), `O_APPEND` (8), `O_NONBLOCK` (4),
+  `O_DIRECTORY` (0x20000), `O_NOFOLLOW` (0x100), `O_CLOEXEC` (0x100000),
+  `O_DIRECT` (0x10000), `O_SYNC`; `O_LARGEFILE`, `O_NOATIME`, `O_PATH`,
+  `O_TMPFILE` have no FreeBSD flag and are dropped (`O_PATH` makes the open
+  `O_RDONLY | O_DIRECTORY`-free; say what musl asks it for). `fcntl`'s
+  `F_GETFL` answers in the guest's flags.
+- **`AT_*`**: `AT_FDCWD` is -100 on both; `AT_SYMLINK_NOFOLLOW` 0x100 to
+  0x200, `AT_REMOVEDIR` 0x200 to 0x800, `AT_EMPTY_PATH` has no FreeBSD
+  flag (musl's `fstat` uses it on an empty path: answer with `fstat`).
+- **`errno`**: FreeBSD's number to Linux's for every value the calls can
+  return (`EAGAIN` 35 to 11, `ETIMEDOUT` 60 to 110, `ENOSYS` 78 to 38,
+  `ENOTEMPTY` 66 to 39, `EOVERFLOW` 84 to 75 and the rest; the first 34
+  agree).
+- **`struct halo_guest_kstat`** from FreeBSD's `struct stat` field by
+  field (device, inode, mode, links, uid, gid, rdev, size, blksize,
+  blocks, the three times as the guest's 32-bit `timespec`); the mode's
+  type bits agree, the permission bits agree.
+- **`getdents64`**: FreeBSD's `getdirentries` records (`d_fileno`,
+  `d_reclen`, `d_type`, `d_namlen`, `d_name`) repacked as Linux's
+  `linux_dirent64` (inode, offset, reclen, type, name, 8-byte aligned),
+  `d_type` values agreeing; the offset the next call continues from kept
+  per descriptor (`lseek` on the directory, as FreeBSD's `readdir` does).
+- **Clocks**: `CLOCK_REALTIME` 0, `CLOCK_MONOTONIC` 1 to FreeBSD's 4,
+  `CLOCK_BOOTTIME` 7 to `CLOCK_UPTIME` 5, `CLOCK_PROCESS_CPUTIME_ID` 2 and
+  `CLOCK_THREAD_CPUTIME_ID` 3 to FreeBSD's 15 and 14; the guest's
+  `timespec` is 32-bit seconds (the header says why).
+- **`pollfd`, `iovec`**: `pollfd` is 8 bytes on both and the event bits
+  agree for `POLLIN`, `POLLOUT`, `POLLERR`, `POLLHUP`, `POLLNVAL`; `iovec`
+  is converted as Android's does.
+
+The calls, by family (follow Android's answers for the semantics and the
+Switch's file for what a non-Linux libc needs):
+
+- **Files**: `openat` (flags translated, mode as is), `close`, `read`,
+  `write`, `readv`, `writev`, `pread64`, `pwrite64`, `preadv`, `pwritev`
+  (the offset in two halves, as Android's), `_llseek` (the result written
+  back as 64 bits), `fsync`, `fdatasync` (`fsync`), `ftruncate`,
+  `newfstatat`, `fstat`, `faccessat` (the platform layer's `access`, phase
+  0 B: it answers), `readlinkat` (`/proc/self/exe` answered
+  `/data/halo/halo`, the "executable's folder" the game searches for its
+  data; anything else through libc), `mkdirat`, `unlinkat` (with
+  `AT_REMOVEDIR` as `rmdir`), `renameat`, `renameat2` (flags 0 only),
+  `fchmod`, `fchmodat`, `utimensat`, `getdents64`, `getcwd` (answered
+  `/data/halo` by the host: libc's crashes a title, phase 0 B), `chdir`
+  (accepted for `/data/halo` only), `statfs`/`fstatfs` (from `statvfs`'s
+  figures into the guest's layout, or `-ENOSYS` if the game never asks;
+  say which), `statx` (`-ENOSYS`), `dup`, `dup3`, `pipe2`, `fcntl`
+  (`F_GETFL`, `F_SETFL`, `F_GETFD`, `F_SETFD`, `F_DUPFD_CLOEXEC`; locks
+  `-ENOSYS`), `ioctl` (`-ENOTTY`), `flock`, `umask`.
+- **Standard streams**: `write` and `writev` to 1 and 2 go to the host's
+  log, prefixed `game: ` (Android's puts them in logcat), a line at a time.
+- **Memory**: `mmap`, `munmap`, `mprotect`, `madvise` to `host_memory.c`;
+  `mremap` `-ENOSYS` (musl's `realloc` falls back); `brk` `-ENOMEM`
+  (musl then uses `mmap`; the bootstrap answered 0, which also works; use
+  Android's answer).
+- **Threads and synchronisation**: `futex` to `host_futex.c`;
+  `set_tid_address`, `gettid` (the thread id the PS5 branch of
+  `host_debug.c` uses), `getpid`, `getppid`; `sched_yield`;
+  `nanosleep`, `clock_nanosleep` (relative and `TIMER_ABSTIME`, the clock
+  translated), `clock_gettime`, `clock_getres`, `gettimeofday`, `times`,
+  `getrusage` (zeros are acceptable, logged once), the `*itimer` and
+  `timer_*` calls `-ENOSYS`; `clone`, `clone3`, `execve`, `wait4`,
+  `waitid` `-ENOSYS`; `tkill`, `tgkill`, `kill` `-ENOSYS` (the guest's
+  signals are the host's).
+- **Signals**: `rt_sigaction`, `rt_sigprocmask`, `sigaltstack`,
+  `rt_sigtimedwait` answered as Android's does (the host owns the
+  handlers).
+- **Identity and limits**: `getuid` and the rest 1000; `uname` with
+  `Linux`, a release of `5.15.0` and `x86_64` (the guest is a Linux
+  program and reads these); `sysinfo` with the direct memory's size and
+  free block as total and free RAM; `getrlimit`/`prlimit64` with
+  `RLIMIT_STACK` 8 MB, `RLIMIT_NOFILE` 1024 and infinity elsewhere.
+- **Networking** (`sendmsg`, `recvmsg`, `epoll_pwait`, `ppoll`, `pselect6`)
+  `-ENOSYS` in this phase, with phase 6 named in the comment; the game must
+  start without them (the desktop guest starts with the network down).
+- **Random**: `getrandom` from `arc4random_buf`. `membarrier` `-ENOSYS`.
+- **Exit**: `exit_group` is `host_exit`; `exit` of a thread is the thread's
+  end, as Android's handles it.
+
+Every call the guest makes that answers `-ENOSYS` is counted by number,
+and the counts logged when the game ends, so the write-up lists what the
+game asked for and did not get.
+
+### Futexes (`host_futex.c`)
+
+Phase 0 B's table, as written under "Progress": `FUTEX_WAIT` compares first
+and answers `-EAGAIN` on a mismatch, else `UMTX_OP_WAIT_UINT_PRIVATE` with
+a relative `struct _umtx_time` on `CLOCK_MONOTONIC` or none;
+`FUTEX_WAIT_BITSET` the same with `UMTX_ABSTIME` and the clock the guest
+named; `FUTEX_WAKE` and `_BITSET` as `UMTX_OP_WAKE_PRIVATE`, answering 0;
+`FUTEX_REQUEUE` as wake `n` then wake all on the second word; the
+priority-inheritance operations `-ENOSYS`; `ETIMEDOUT` and `EINTR` to
+Linux's numbers. The word is a guest address below 4 GB, used as it is.
+`FUTEX_PRIVATE_FLAG` and `FUTEX_CLOCK_REALTIME` stripped from the
+operation first.
+
+### Threads
+
+`host_thread.c` is used as it is: stacks from `host_low_map` (a pool, direct
+memory), `pthread_create` with `pthread_attr_setstack` (under the RADV
+recipe's `--wrap=pthread_create`, which the host probe's waiters already
+went through), the thread pointer in `__thread` storage, the reaper, the
+signal stacks. Two things to check and log once: that `__thread` variables
+work on a thread the platform layer's wrapper made (`host_get_tp` after
+`host_set_tp` on a new thread), and that the thread id `host_debug.c`'s PS5
+branch reports is distinct per thread.
+
+### The stand-ins (`host_sdl_ps5.c`, `host_vk_null.c`, `host_gl_none.c`, `host_update_none.c`)
+
+The game must reach its menu and run its loop with no display, no pad and
+no sound. Its calls cross as `host_sdl.c`'s do (integers, floats, strings,
+flat structures; handles for SDL objects): read `guest_sdl.c` and
+`guest_desktop.c` for what each expects back, and the Switch's `host_sdl2.c`
+for the stand-in window and context. `host_sdl_ps5.c` keeps a small handle
+table (the Switch's `handle_new`/`handle_get` shape).
+
+- **Start-up**: `host_sdl_init` 1; `set_hint` 1; `get_error` ""; `ticks`
+  and `ticks_ns` from `CLOCK_MONOTONIC`; `thread_id` a small per-thread
+  number; `get_base_path` `/data/halo/` (so the game's search finds
+  `maps/` and `config.toml` there); `get_hint_boolean` the default passed;
+  `has_screen_keyboard_support` 0; `text_input_*` no-ops.
+- **The window and the context**: `create_window` one handle, 1920x1080,
+  fullscreen; `window_size_in_pixels` and `get_window_size` 1920x1080;
+  `set_window_size`, `set_window_fullscreen`, `_mode`, `destroy_window`,
+  `warp_mouse_in_window`, `set_relative_mouse` accepted; `get_window_flags`
+  fullscreen and shown; `gl_set_attribute` 1; `gl_create_context` a
+  handle; `gl_make_current` 1; `gl_set_swap_interval` kept; **`gl_swap_window`
+  paces the game**: with a swap interval above 0, sleep until the next
+  tick of 1/59.94 s (`clock_nanosleep` with `TIMER_ABSTIME` on the
+  monotonic clock, the Switch's way under deko3d before it presents), and
+  count frames: every 5 s one log line with the frames and the mean and
+  longest frame, which is the headless run's heartbeat.
+- **Displays**: `get_display_for_window` and `get_primary_display` 1;
+  `get_display_mode` 1920x1080 at 59.94 Hz, 32-bit; `get_fullscreen_display_modes`
+  that one mode; `get_closest_fullscreen_display_mode` it;
+  `get_display_usable_bounds` 1920x1080.
+- **Events**: `poll_event` 0 events, `pump_events` nothing; `push_event`
+  keeps the pushed event in a small queue that `poll_event` returns (the
+  guest pushes its own); `get_gamepads` none; `open_gamepad`,
+  `gamepad_from_id` 0; `gamepad_axis`, `_button`, `_type` 0;
+  `rumble_gamepad`, `close_gamepad` accepted; `scancode_name` and
+  `_from_name` from SDL3's own table (a string array; the desktop guest
+  maps keys by name at start).
+- **Audio**: `get_audio_devices` one device, `get_audio_device_name`
+  "PS5"; `open_audio_stream` a handle with the stream's format and rate;
+  `put_audio_stream_data` accepts and counts the bytes;
+  `get_audio_stream_available` answers the bytes queued less what a device
+  at the stream's rate would have played since the stream was resumed, not
+  below 0, so the game's mixer keeps time and never fills without end;
+  `get_audio_stream_data` (recording) 0; `resume_audio_stream_device`,
+  `destroy_audio_stream` accepted. Phase 3 puts SDL2 under this.
+- **The desktop's dialogs**: `show_message_box` logs the title, the
+  message and the buttons, and chooses the button whose text is "Yes"
+  (else the first), so the first start's question about the disc image is
+  answered; `open_file_dialog` logs the filters and answers the first
+  `.iso` or `.xiso` (either case) found in `/data/halo`, else fails, so the
+  extraction gets its image; `show_simple_message_box` and `show_toast`
+  log; the clipboard a static string; the 2D renderer's ten calls
+  (`create_renderer` to `render_present`) accepted, a handle, no drawing,
+  logged once per name.
+- **`host_vk_null.c`**: `host_vk_submit` reads nothing and advances a
+  counter; `host_vk_retired` returns it (every submission retired at once,
+  so the game never waits); `host_vk_shader_find` returns 0 with the
+  status "compiling" (`vk_commands.h`'s value), so every draw is skipped
+  as the renderer does for a shader not ready; `host_vk_shader_compile`
+  accepted; `host_vk_format_supported`, `host_vk_bc_supported` 1,
+  `host_vk_samples_supported` 1, `host_vk_visibility` 0,
+  `host_vk_driver_name` "none (phase 2)"; `host_vk_exit` nothing;
+  `host_renderer_vulkan` 1 (the image is the Vulkan one),
+  `host_vk_presenting` 0, `host_vk_window` NULL.
+- **`host_gl_none.c`**: as in the table above. The vk image's shared
+  files still make some GL calls (Android's `host_gl.c` reports them under
+  `debug.gpu_stats`); here each name is counted, and the count logged at
+  the end, so phase 4 knows what they are.
+- **`host_update_none.c`**: `host_update_executable_path` writes
+  `/app0/eboot.bin`; the other five return failure with a log line once.
+
+### The generated import stubs (`host_import_stubs.c`)
+
+`tools/ps5_build.py` writes, from the same import lists the guest's table
+is made of, a C file with one **weak** function per import name: `long
+name(long a, long b, long c, long d, long e, long f)` that calls
+`host_fatal("import %s is not answered (%lx, %lx, %lx, %lx)", ...)`. A real
+definition in any host object overrides it at link time, so the link
+succeeds while the host is incomplete and a missing import ends the run
+with its name and arguments in the log, as the bootstrap did. The file
+stays for good (a safety net), and the acceptance checks that **no stub
+is left** that the game reaches in this phase: `llvm-nm` on `eboot.elf`
+lists the weak symbols still standing, and the write-up lists them (they
+should be imports the game cannot reach without a pad or a display, or
+none).
+
+### The build
+
+- `tools/ps5_build.py`: the host's sources are `port/ps5/host/*.c`,
+  `port/android/host/{host_arch,host_common,host_debug,host_loader,host_thread,host_watch_hash}.c`,
+  `port/third_party/tomlc17/tomlc17.c`, the guest build's
+  `host_import_table.c` and the generated `host_import_stubs.c`; the flags
+  gain `-I port/linux/src -I port/third_party/tomlc17 -I port/android/include`
+  (already) and keep `-DHALO_PS5=1`; the link gains `--wrap=mmap`
+  (`tools/ps5_title.sh` passes flags after `--` as it passes inputs). The
+  `host_bootstrap.*` files and the syscall-names rule go; the host's
+  compile stays `-Werror`, and a shared file that warns under the PS5
+  toolchain is fixed behind `HALO_PS5` or argued.
+- `tools/test_ps5_host.py`: compiles `port/ps5/tests/host_syscall_tables_test.c`
+  with `host_syscall_tables.c` using the PC's compiler and runs it: the
+  open flags map both ways and round-trip, the `errno` table covers every
+  Linux value the calls return, `AT_*` and the clocks map, a `kstat` filled
+  from given fields has the header's layout, a `dirent64` packs and aligns.
+  `pytest -q tools/test_ps5_host.py tools/test_ps5_build.py`.
+
+### Testing on the console
+
+The user puts the disc image (`.iso` or `.xiso`) in `/data/halo` over FTP
+before the first run, and nothing else (the user owns it; ask, do not copy
+one yourself). `debug.exit_after = 60` is not yet in `config.toml` (the
+game writes the file on its first run); the host passes it through the
+environment for the runs that need it (`HALO_EXIT_AFTER=60`, read by
+`port_config.c` as the comment in its table says).
+
+1. **The first start**: `--run` with `/data/halo` holding only the disc
+   image. Expected in the log, in order: the three ranges reserved; the
+   image loaded, `274 imports (0 unavailable)` or the `hostgl_*` names
+   unavailable only; musl's start (the same first calls as phase 1's); SDL
+   init, the window and the context stand-ins; the game's own output
+   (`game: ` lines: it prints its start-up); the message box about the disc
+   image answered "Yes"; the file dialog answering the image; the
+   extraction's progress (the guest draws it through the 2D renderer:
+   count the `render_present` calls and log the files the guest opens
+   under `maps.partial/`, so the log shows it moving) and its time;
+   `maps.partial` renamed `maps`; the main menu's map loaded (the game
+   opens `maps/ui.map` and more); the heartbeat lines at 60 frames a
+   second; the exit after 60 s with `the game exited (0)` and the counts
+   (the `-ENOSYS` calls, the GL names, the stubs reached, if any).
+2. **The second start**: no question, no extraction, the menu's map at once;
+   the time from launch to the first heartbeat.
+3. **Without `exit_after`**: five minutes of the loop at the menu (the menu
+   cycles its attract mode on its own), the heartbeat steady, the host's
+   heap peak and the direct memory free block logged every minute (phase
+   0 B's figures, in the heartbeat line), then `kill` from the deploy.
+4. **A crash on purpose**, once: `HALO_PS5_CRASH_TEST=1` in the environment
+   makes the host write to an unmapped guest address from the game thread
+   after the image is loaded; the log must show `report_crash`'s lines
+   (the signal, the registers, the frames, the `addr2line` line) before
+   the process dies. Then the setting is removed.
+5. The console is left with the title, `/data/halo/{maps,save,config.toml,halo.log}`
+   and the disc image.
+
+### Acceptance
+
+The review checks each of these:
+
+1. `ninja ps5` builds with `-Werror`; `ninja linux_x86_64` builds; the
+   Android and Switch objects of `host_arch.c` and `host_debug.c` are
+   unchanged (compare them before and after, as phase 1 did);
+   `pytest -q tools/test_ps5_host.py tools/test_ps5_build.py
+   tools/test_host_units.py tools/test_host_syscall.py` passes.
+2. The first start's log from a folder holding only the disc image shows
+   the extraction and the menu's map loaded, and the exit at 60 s; the
+   second start's log shows the menu's map without the question.
+3. Five minutes at the menu: the heartbeat at 60 frames a second
+   throughout (within a frame), the heap's peak and the free block
+   logged, no fault.
+4. The crash test's log shows the registers and frames.
+5. `llvm-nm` on `eboot.elf`: the weak stubs still standing are listed
+   under "Progress", and none of them appears in any run's log.
+6. "Progress" has: the `-ENOSYS` counts and what asked for them, the GL
+   names the vk image called, the `__wrap_mmap` calls seen, the thread
+   checks, the extraction's time and the first map's load time, the heap
+   and direct memory figures over five minutes, the `HALO_PS5` branches
+   argued, and anything unexpected.
+7. `host_bootstrap.c`, `host_bootstrap.S` and the syscall-names rule are
+   gone; `host_main.c`'s header comment says what it does now.
+8. Nothing changed outside `port/ps5/`, `tools/ps5_build.py`,
+   `tools/ps5_title.sh`, `tools/test_ps5_host.py`, and the two shared
+   files' `HALO_PS5` branches; nothing of PS5_Vulkan's copied in; FreeBSD's
+   numbers are literals in our header, asserted against the SDK's.
+
+Don't commit; the review does that. Record anything unexpected under
+"Progress", even if it was dealt with.
 
 **Ends with:** the game, started from `ninja ps5` against a `/data/halo`
-holding only the disc image and a `config.toml`, extracts `maps/`, loads
-the main menu's map and runs its loop, frames ticking in the log, for a
-minute, and exits when told; the Switch's host unit tests
-(`tools/test_host_syscall.py`, `tools/test_host_units.py`) pass for the
-PS5's files where they apply.
+holding only the disc image, extracts `maps/`, loads the main menu's map and
+runs its loop at 60 frames a second with nothing drawn, for as long as it is
+left, and exits when told.
 
 ## Phase 3 — SDL: pad, audio, events
 
