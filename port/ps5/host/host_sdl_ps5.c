@@ -6,15 +6,17 @@ port/linux/host/guest_desktop.c send them here, as the host_sdl_* imports
 of host_imports.list), which Android answers with SDL3 (host_sdl.c) and the
 Linux host with SDL3 and its desktop half (host_desktop.c).
 
-In phase 2 of port/ps5/PS5.md every one of them is a stand-in, so that the
-game runs headless from a fresh data folder to its main menu's map and
-keeps running: a fixed console has one fullscreen window, one 1080p
-display mode, no pad, no keyboard and no sound yet. Phase 3 fills the pad,
-audio and event parts with pacbrew's SDL2 (the Switch's host_sdl2.c is the
-model of both); phase 4's renderer presents, after which its swapchain
-paces the frames instead of the stand-in swap here. What stays a stand-in
-for good: the window, the GL context, the displays, the 2D renderer and the
-desktop's dialogs.
+Since phase 3 of port/ps5/PS5.md the pad, the sound and the events are
+pacbrew's SDL2's (the Switch's host_sdl2.c is the model): SDL's start-up,
+the pad and its events in host_sdl_ps5_input.c, the sound in
+host_sdl_ps5_audio.c, which are compiled against SDL2's headers. This file
+has SDL3's, for the guest's constants and layouts: it writes the events as
+SDL3's, checks the SDL3 values the SDL2 files use (ps5_host.h), and keeps
+the stand-ins for what SDL2 is not asked for (its video is never started).
+The swap is a stand-in until phase 4's renderer presents, after which its
+swapchain paces the frames instead. What stays a stand-in for good:
+the window, the GL context, the displays, the 2D renderer and the desktop's
+dialogs.
 
 - The stand-in swap paces the game: with a swap interval, each frame waits
   for the next tick of 1/59.94 s (the console's only display mode,
@@ -22,23 +24,18 @@ desktop's dialogs.
   deko3d before it presented. Every 5 s a line says how many frames, their
   mean and longest: the headless run's heartbeat; every minute it adds the
   host's heap and direct memory's largest free block.
-- The guest's audio is a callback stream (dsound_sdl.c): with no device,
-  a thread of the stream's own (with a guest stack, host_thread.c) calls
-  the guest's callback as a device at the stream's rate would, a period of
-  the guest's SDL_HINT_AUDIO_DEVICE_SAMPLE_FRAMES at a time, and counts
-  what it is given; so the game's mixer runs and keeps time, as it will
-  over SDL2's device in phase 3.
 - The first start's question about the disc image is answered "Yes", and
   the file dialog with the first .iso or .xiso in the data folder, so the
   extraction runs with nobody at the console; the extraction's progress
   screen (the 2D renderer) draws nothing and counts its frames.
+- The clocks are the monotonic clock's, not SDL2's (phase 0 B: its ticks
+  ran 1 ms behind in 5 s).
 
 Only integers, floats, strings and flat structures cross, as in host_sdl.c;
-SDL's objects are handles into the table here (host.h). SDL3's headers give
-the constants and layouts the guest uses. The one SDL call made is the
-scancode table's, which pacbrew's SDL2 links in: SDL2's
-SDL_GetScancodeName and SDL_GetScancodeFromName take and give the same
-values as SDL3's (USB HID usage numbers), and need no SDL_Init.
+SDL's objects are handles into the table here (host.h). The scancode names
+are SDL2's table, which takes and gives the same values as SDL3's (USB HID
+usage numbers) under the same names and needs no SDL_Init: the one SDL2
+call made through SDL3's declarations.
 */
 
 #include "host.h"
@@ -54,6 +51,31 @@ values as SDL3's (USB HID usage numbers), and need no SDL_Init.
 #include <time.h>
 
 _Static_assert(sizeof(SDL_Event) == 128, "SDL_Event is 128 bytes for the guest too");
+
+/* the SDL3 values host_sdl_ps5_input.c and host_sdl_ps5_audio.c use, as
+ps5_host.h writes them */
+_Static_assert(SDL_GAMEPAD_BUTTON_SOUTH == 0 && SDL_GAMEPAD_BUTTON_DPAD_RIGHT == 14 && SDL_GAMEPAD_BUTTON_MISC1 == 15 &&
+	SDL_GAMEPAD_BUTTON_TOUCHPAD == PS5_SDL3_GAMEPAD_BUTTON_TOUCHPAD, "SDL3's gamepad buttons");
+_Static_assert(SDL_GAMEPAD_AXIS_LEFTX == 0 && SDL_GAMEPAD_AXIS_RIGHT_TRIGGER == 5 &&
+	SDL_GAMEPAD_AXIS_COUNT == PS5_SDL3_GAMEPAD_AXIS_COUNT, "SDL3's gamepad axes");
+_Static_assert((int)SDL_GAMEPAD_TYPE_UNKNOWN == PS5_SDL3_GAMEPAD_TYPE_UNKNOWN &&
+	(int)SDL_GAMEPAD_TYPE_STANDARD == PS5_SDL3_GAMEPAD_TYPE_STANDARD &&
+	(int)SDL_GAMEPAD_TYPE_XBOX360 == PS5_SDL3_GAMEPAD_TYPE_XBOX360 && (int)SDL_GAMEPAD_TYPE_XBOXONE == PS5_SDL3_GAMEPAD_TYPE_XBOXONE &&
+	(int)SDL_GAMEPAD_TYPE_PS3 == PS5_SDL3_GAMEPAD_TYPE_PS3 && (int)SDL_GAMEPAD_TYPE_PS4 == PS5_SDL3_GAMEPAD_TYPE_PS4 &&
+	(int)SDL_GAMEPAD_TYPE_PS5 == PS5_SDL3_GAMEPAD_TYPE_PS5 &&
+	(int)SDL_GAMEPAD_TYPE_NINTENDO_SWITCH_PRO == PS5_SDL3_GAMEPAD_TYPE_NINTENDO_SWITCH_PRO &&
+	(int)SDL_GAMEPAD_TYPE_NINTENDO_SWITCH_JOYCON_LEFT == PS5_SDL3_GAMEPAD_TYPE_NINTENDO_SWITCH_JOYCON_LEFT &&
+	(int)SDL_GAMEPAD_TYPE_NINTENDO_SWITCH_JOYCON_RIGHT == PS5_SDL3_GAMEPAD_TYPE_NINTENDO_SWITCH_JOYCON_RIGHT &&
+	(int)SDL_GAMEPAD_TYPE_NINTENDO_SWITCH_JOYCON_PAIR == PS5_SDL3_GAMEPAD_TYPE_NINTENDO_SWITCH_JOYCON_PAIR, "SDL3's gamepad types");
+_Static_assert(SDL_AUDIO_F32 == PS5_SDL3_AUDIO_F32, "SDL3's float format");
+_Static_assert(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK == PS5_SDL3_AUDIO_DEVICE_DEFAULT_PLAYBACK &&
+	SDL_AUDIO_DEVICE_DEFAULT_RECORDING == PS5_SDL3_AUDIO_DEVICE_DEFAULT_RECORDING, "SDL3's default devices");
+_Static_assert(sizeof(SDL_AudioSpec) == sizeof(struct ps5_sdl3_audio_spec) &&
+	offsetof(SDL_AudioSpec, format) == offsetof(struct ps5_sdl3_audio_spec, format) &&
+	offsetof(SDL_AudioSpec, channels) == offsetof(struct ps5_sdl3_audio_spec, channels) &&
+	offsetof(SDL_AudioSpec, freq) == offsetof(struct ps5_sdl3_audio_spec, freq), "SDL3's SDL_AudioSpec");
+_Static_assert(!__builtin_strcmp(SDL_HINT_AUDIO_DEVICE_SAMPLE_FRAMES, PS5_SDL3_HINT_AUDIO_DEVICE_SAMPLE_FRAMES),
+	"SDL3's hint for the device's period");
 
 /* ---------- handles (host.h; Android's host_sdl.c's) */
 
@@ -148,30 +170,6 @@ static void log_once(int *done, const char *format, ...)
 }
 
 /* ---------- start-up */
-
-/* the period the guest asks its audio device for (SDL_HINT_AUDIO_DEVICE_SAMPLE_FRAMES) */
-static int audio_period_frames = 1024;
-
-int host_sdl_init(uint32_t flags)
-{
-	static int logged;
-
-	log_once(&logged, "SDL: SDL_Init(0x%x): the stand-ins (port/ps5/host/host_sdl_ps5.c), no pad or sound yet", flags);
-	return 1;
-}
-
-int host_sdl_set_hint(const char *name, const char *value)
-{
-	if (name && value && !strcmp(name, SDL_HINT_AUDIO_DEVICE_SAMPLE_FRAMES) && atoi(value) > 0)
-		audio_period_frames = atoi(value);
-	return 1;
-}
-
-void host_sdl_get_error(char *buffer, uint32_t size)
-{
-	if (size)
-		buffer[0] = 0;
-}
 
 int64_t host_sdl_ticks(void)
 {
@@ -477,7 +475,8 @@ int host_sdl_get_display_usable_bounds(uint32_t display, void *rectangle)
 	return 1;
 }
 
-/* ---------- events: none from the console yet; the guest's own pushed ones */
+/* ---------- events: the guest's own pushed ones first, then SDL2's and the
+overlay's (host_sdl_ps5_input.c), written as SDL3's */
 
 #define EVENT_QUEUE 32
 
@@ -487,6 +486,8 @@ static pthread_mutex_t event_lock = PTHREAD_MUTEX_INITIALIZER;
 
 int host_sdl_poll_event(void *event)
 {
+	SDL_Event result;
+	uint32_t which;
 	int found = 0;
 
 	pthread_mutex_lock(&event_lock);
@@ -498,7 +499,36 @@ int host_sdl_poll_event(void *event)
 		found = 1;
 	}
 	pthread_mutex_unlock(&event_lock);
-	return found;
+	if (found)
+		return 1;
+	memset(&result, 0, sizeof(result));
+	switch (ps5_input_poll(&which))
+	{
+	case PS5_EVENT_QUIT:
+		result.type = SDL_EVENT_QUIT;
+		break;
+	case PS5_EVENT_GAMEPAD_ADDED:
+		result.type = SDL_EVENT_GAMEPAD_ADDED;
+		result.gdevice.which = (SDL_JoystickID)which;
+		break;
+	case PS5_EVENT_GAMEPAD_REMOVED:
+		result.type = SDL_EVENT_GAMEPAD_REMOVED;
+		result.gdevice.which = (SDL_JoystickID)which;
+		break;
+	case PS5_EVENT_FOCUS_LOST:
+		result.type = SDL_EVENT_WINDOW_FOCUS_LOST;
+		result.window.windowID = 1;
+		break;
+	case PS5_EVENT_FOCUS_GAINED:
+		result.type = SDL_EVENT_WINDOW_FOCUS_GAINED;
+		result.window.windowID = 1;
+		break;
+	default:
+		return 0;
+	}
+	result.common.timestamp = ps5_now_ns();
+	memcpy(event, &result, sizeof(result));
+	return 1;
 }
 
 void host_sdl_pump_events(void)
@@ -522,61 +552,6 @@ int host_sdl_push_event(const void *event)
 	return pushed;
 }
 
-/* ---------- gamepads: none until phase 3 */
-
-int host_sdl_get_gamepads(uint32_t *ids, int capacity)
-{
-	(void)ids;
-	(void)capacity;
-	return 0;
-}
-
-uint32_t host_sdl_open_gamepad(uint32_t id)
-{
-	(void)id;
-	return 0;
-}
-
-uint32_t host_sdl_gamepad_from_id(uint32_t id)
-{
-	(void)id;
-	return 0;
-}
-
-void host_sdl_close_gamepad(uint32_t gamepad)
-{
-	(void)gamepad;
-}
-
-int host_sdl_gamepad_axis(uint32_t gamepad, int axis)
-{
-	(void)gamepad;
-	(void)axis;
-	return 0;
-}
-
-int host_sdl_gamepad_button(uint32_t gamepad, int button)
-{
-	(void)gamepad;
-	(void)button;
-	return 0;
-}
-
-int host_sdl_gamepad_type(uint32_t gamepad)
-{
-	(void)gamepad;
-	return SDL_GAMEPAD_TYPE_UNKNOWN;
-}
-
-int host_sdl_rumble_gamepad(uint32_t gamepad, uint32_t low, uint32_t high, uint32_t milliseconds)
-{
-	(void)gamepad;
-	(void)low;
-	(void)high;
-	(void)milliseconds;
-	return 0;
-}
-
 /* the desktop guest maps keys by name at start: SDL's own table */
 void host_sdl_scancode_name(int32_t scancode, char *buffer, uint32_t size)
 {
@@ -589,169 +564,6 @@ void host_sdl_scancode_name(int32_t scancode, char *buffer, uint32_t size)
 int32_t host_sdl_scancode_from_name(const char *name)
 {
 	return (int32_t)SDL_GetScancodeFromName(name);
-}
-
-/* ---------- audio: a device's clock with no device */
-
-#define AUDIO_DEVICE_ID 2
-
-struct audio_stream
-{
-	uint32_t handle;
-	SDL_AudioSpec spec;
-	uint32_t callback, userdata;
-	/* bytes the guest put, and the stream's clock from its resume */
-	uint64_t put_bytes, played_base;
-	uint64_t resumed_ns;
-	uint64_t callbacks;
-	int running, quit;
-};
-
-static uint64_t audio_bytes_total, audio_callbacks_total;
-
-static uint32_t frame_bytes(const SDL_AudioSpec *spec)
-{
-	return (uint32_t)SDL_AUDIO_BYTESIZE(spec->format) * (uint32_t)(spec->channels > 0 ? spec->channels : 1);
-}
-
-/* what a device would have played by now */
-static uint64_t played_bytes(const struct audio_stream *stream, uint64_t now)
-{
-	if (!stream->resumed_ns || !stream->spec.freq)
-		return stream->played_base;
-	return stream->played_base + (now - stream->resumed_ns) * (uint64_t)stream->spec.freq / 1000000000ull *
-		frame_bytes(&stream->spec);
-}
-
-/* the stream's device: the guest's callback a period at a time, on time
-(a thread with a guest stack, so it can run guest code) */
-static void *audio_clock(void *context)
-{
-	struct audio_stream *stream = context;
-	uint64_t period_ns = (uint64_t)audio_period_frames * 1000000000ull /
-		(uint64_t)(stream->spec.freq > 0 ? stream->spec.freq : 48000);
-	uint32_t period_bytes = (uint32_t)audio_period_frames * frame_bytes(&stream->spec);
-	uint64_t next = ps5_now_ns();
-
-	host_logf(HOST_LOG_INFO, "audio: the stand-in device calls the game's mixer every %.1f ms (%d frames at %d Hz)",
-		period_ns / 1e6, audio_period_frames, stream->spec.freq);
-	while (!__atomic_load_n(&stream->quit, __ATOMIC_ACQUIRE))
-	{
-		struct timespec deadline;
-
-		host_call_guest(stream->callback, stream->userdata, stream->handle, period_bytes, period_bytes);
-		stream->callbacks++;
-		__atomic_add_fetch(&audio_callbacks_total, 1, __ATOMIC_RELAXED);
-		next += period_ns;
-		deadline.tv_sec = (time_t)(next / 1000000000ull);
-		deadline.tv_nsec = (long)(next % 1000000000ull);
-		clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &deadline, NULL);
-	}
-	free(stream);
-	return NULL;
-}
-
-int host_sdl_get_audio_devices(int recording, uint32_t *ids, int maximum)
-{
-	if (recording)
-		return 0;
-	if (maximum > 0)
-		ids[0] = AUDIO_DEVICE_ID;
-	return 1;
-}
-
-int host_sdl_get_audio_device_name(uint32_t device, char *name, int size)
-{
-	if (device != AUDIO_DEVICE_ID || size < 1)
-		return 0;
-	snprintf(name, (size_t)size, "PS5");
-	return 1;
-}
-
-uint32_t host_sdl_open_audio_stream(uint32_t device, const void *spec, uint32_t callback, uint32_t userdata)
-{
-	struct audio_stream *stream;
-
-	if (device == SDL_AUDIO_DEVICE_DEFAULT_RECORDING)
-		return 0;
-	stream = calloc(1, sizeof(*stream));
-	if (!stream)
-		return 0;
-	memcpy(&stream->spec, spec, sizeof(stream->spec));
-	stream->callback = callback;
-	stream->userdata = userdata;
-	stream->handle = host_sdl_handle_new(_handle_audio, stream);
-	if (!stream->handle)
-	{
-		free(stream);
-		return 0;
-	}
-	host_logf(HOST_LOG_INFO, "audio: stream %u opened on the stand-in device: format 0x%x, %d channels, %d Hz, %s",
-		stream->handle, (unsigned)stream->spec.format, stream->spec.channels, stream->spec.freq,
-		callback ? "with the game's callback" : "without a callback");
-	return stream->handle;
-}
-
-int host_sdl_put_audio_stream_data(uint32_t handle, const void *data, int length)
-{
-	struct audio_stream *stream = host_sdl_handle_get(handle, _handle_audio);
-
-	(void)data;
-	if (!stream || length < 0)
-		return 0;
-	stream->put_bytes += (uint64_t)length;
-	__atomic_add_fetch(&audio_bytes_total, (uint64_t)length, __ATOMIC_RELAXED);
-	return 1;
-}
-
-int host_sdl_resume_audio_stream_device(uint32_t handle)
-{
-	struct audio_stream *stream = host_sdl_handle_get(handle, _handle_audio);
-
-	if (!stream)
-		return 0;
-	if (stream->running)
-		return 1;
-	stream->running = 1;
-	stream->resumed_ns = ps5_now_ns();
-	if (stream->callback && host_native_thread_create(audio_clock, stream, 256 * 1024) != 0)
-		host_fatal("cannot start the audio stand-in's thread");
-	return 1;
-}
-
-int host_sdl_get_audio_stream_data(uint32_t handle, void *data, int length)
-{
-	(void)handle;
-	(void)data;
-	(void)length;
-	return 0;
-}
-
-/* the bytes queued less what a device at the stream's rate would have
-played since it was resumed */
-int host_sdl_get_audio_stream_available(uint32_t handle)
-{
-	struct audio_stream *stream = host_sdl_handle_get(handle, _handle_audio);
-	uint64_t played;
-
-	if (!stream)
-		return -1;
-	played = played_bytes(stream, ps5_now_ns());
-	return stream->put_bytes > played ? (int)(stream->put_bytes - played) : 0;
-}
-
-void host_sdl_destroy_audio_stream(uint32_t handle)
-{
-	struct audio_stream *stream = host_sdl_handle_get(handle, _handle_audio);
-
-	if (!stream)
-		return;
-	host_sdl_handle_free(handle);
-	/* (its thread frees it; one never resumed has none) */
-	if (stream->running && stream->callback)
-		__atomic_store_n(&stream->quit, 1, __ATOMIC_RELEASE);
-	else
-		free(stream);
 }
 
 /* ---------- the clipboard, the toast, the messages */
@@ -973,8 +785,8 @@ int host_sdl_render_present(uint32_t renderer)
 
 void ps5_sdl_report(void)
 {
-	host_logf(HOST_LOG_INFO, "SDL stand-ins: %llu frames swapped, %llu presents of the 2D renderer, the game's mixer "
-		"called %llu times for %.1f MB of sound", (unsigned long long)frames_swapped,
-		(unsigned long long)renderer_presents, (unsigned long long)audio_callbacks_total,
-		audio_bytes_total / (1024.0 * 1024.0));
+	host_logf(HOST_LOG_INFO, "SDL stand-ins: %llu frames swapped, %llu presents of the 2D renderer",
+		(unsigned long long)frames_swapped, (unsigned long long)renderer_presents);
+	ps5_input_report();
+	ps5_audio_report();
 }

@@ -21,8 +21,10 @@ installs and starts the title, and its log shows the game's start-up to the
 first SDL call. Phase 2 is done and
 reviewed: the game runs headless from a data folder holding only the disc
 image, through the extraction, to the main menu's map at 59.94 frames a
-second ("Progress"). Phase 3 is written out in detail and ready to be
-handed over. The probes are in `port/ps5/probe`.
+second ("Progress"). Phase 3's code is done and reviewed (the pad, the sound
+and the system's overlay over SDL2); its runs with a person at the console
+are moved to the end of phase 4, to be made with the picture. Phase 4 is
+next, to be written out. The probes are in `port/ps5/probe`.
 
 ---
 
@@ -122,7 +124,7 @@ rename):
 | `port/ps5/host/host_memory.c` | `port/android/host/host_memory.c`, as the Switch rewrote its own | the guest's ranges and pools as direct memory, the map read through `sceKernelVirtualQuery`, the write watch and the crash report as Android's; `__wrap_mmap` for the loader's one mapping |
 | `port/ps5/host/host_syscall.c`, `host_syscall_tables.c`, `freebsd_abi.h` | `port/android/host/host_syscall.c` (the shape), `port/switch/host/host_syscall.c` (the inventory) | the guest's Linux system calls on FreeBSD's libc: files (`stat` layouts, open flags), clocks, `writev`, directories, exit; the pure translations in their own file, tested on the PC, FreeBSD's numbers as literals asserted against the SDK's headers |
 | `port/ps5/host/host_futex.c` | `port/switch/host/host_futex.c` | futexes over `_umtx_op`, or over a mutex and condition variable per address |
-| `port/ps5/host/host_sdl_ps5.c` (and `host_sdl3_events.c` if SDL2 is under it) | `port/switch/host/host_sdl2.c` | SDL3's 69 calls answered: pad, audio, events, ticks; the window, context, displays, 2D renderer and dialogs as stand-ins |
+| `port/ps5/host/host_sdl_ps5.c`, `host_sdl_ps5_input.c`, `host_sdl_ps5_audio.c` | `port/switch/host/host_sdl2.c`, `host_sdl3_events.c` | SDL3's 69 calls answered: `host_sdl_ps5.c` with SDL3's headers (the events written as SDL3's, the ticks, the stand-ins for the window, context, displays, 2D renderer and dialogs, and the checks of the SDL3 values the other two use); `_input.c` (start-up, the pad, its events, the system's overlay) and `_audio.c` (the device and the hand-off to a guest stack) with pacbrew's SDL2's, which cannot share a file with SDL3's (phase 3) |
 | `port/ps5/host/host_vk_driver_ps5.c` | `port/android/host/host_vk_driver.c` | RADV linked in: its ICD entry point `vk_icdGetInstanceProcAddr` called directly (the archive has no `vkGetInstanceProcAddr`), the driver's name for the log |
 | `port/ps5/host/host_vk_present_ps5.c` | `port/android/host/host_vk_present.c` | the surface through `VK_KHR_display` on VideoOut, the FIFO swapchain, the letterboxed blit, re-creation |
 | `port/ps5/host/host_update_none.c` | — | `host_update_*` unavailable |
@@ -1364,6 +1366,16 @@ left, and exits when told.
 
 ## Phase 3 — SDL: pad, audio, events
 
+**State (2026-10-18):** the code is written and run 1 below passed on the
+console; the user moved the rest of "Testing on the console" (runs 2 to 7)
+to the end of phase 4, so that the pad, the sound and the focus events are
+tried with the picture on the TV (see phase 4, "Phase 3's runs"). Runs 2
+and 4 need a match, which the network test cannot host before phase 6
+(the server needs a socket: "Progress"). Two statements below were wrong
+and are corrected in place: SDL2's touch pad button is 20, as SDL3's; and
+the Quick Menu sets the status's second flag byte for as long as it is up,
+not for 0.1 s.
+
 Written to be picked up by an agent that has not seen the work so far. Read
 first, in this order: this plan's "Decisions" (the SDL row: pacbrew's SDL2,
 never its video), "Where the port lives" and "How this plan is worked";
@@ -1457,9 +1469,10 @@ versions for the hints the game sets; log any SDL2 refuses).
   (-32768 to 32767; the game applies its own dead zone).
 - `host_sdl_gamepad_button(handle, button)`: SDL3's button numbers are
   SDL2's for the fifteen the game reads (south, east, west, north, back,
-  guide, start, the sticks, the shoulders, the d-pad: 0 to 14); the touch
-  pad click is SDL2's `TOUCHPAD` (15) and SDL3's `TOUCHPAD` (20): map that
-  one. The pad's mapping on the console (phase 0 B) has no back, guide or
+  guide, start, the sticks, the shoulders, the d-pad: 0 to 14), and on to
+  the touch pad click, 20 in both (misc 1 and the four paddles between are
+  the same too; corrected: this said SDL2's was 15). SDL3's 21 on (misc 2
+  to 6) are not SDL2's and read 0. The pad's mapping on the console (phase 0 B) has no back, guide or
   misc button: they read 0.
 - `host_sdl_gamepad_type`: SDL2's type to SDL3's as the Switch's
   `host_sdl3_gamepad_type` maps them (PS5 to `SDL_GAMEPAD_TYPE_PS5`,
@@ -1482,7 +1495,9 @@ game polls the pad's state each frame. The guest's own pushed events
 
 **The system's overlay** (phase 0 B: the title runs on under the PS button's
 menu, and only the pad's `intercepted` bit and `isSystemUiOverlaid` from
-`sceSystemServiceGetStatus` tell). Each `poll_event` asks
+`sceSystemServiceGetStatus` tell; the Quick Menu sets the second flag byte
+instead of the first, for as long as it is up: phase 0 B's run 3 shows
+`00 01` from 19.875 s to 23.780 s, so either byte is the overlay). Each `poll_event` asks
 `sceSystemServiceGetStatus` (declared as the host probe declared it, with
 its 16 KB buffer, the first byte read; a few microseconds) and, when the
 flag changes, returns `SDL_EVENT_WINDOW_FOCUS_LOST` or `FOCUS_GAINED` as
@@ -1642,6 +1657,29 @@ layer is not available on the console; the renderer's own diagnostics
 (draw counts, the two-second wait reports, the self-tests) are, and RADV's
 debug output through its environment.
 
+**Phase 3's runs, at the end** (moved here by the user on 2026-10-18, to be
+tried with the picture): once the menus and a map are on the TV, phase 3's
+"Testing on the console", runs 3 to 7, and the acceptance items they prove
+(3, 4 and 5, and 7's figures), with the user at the console and the TV's
+sound on, each run announced:
+
+- run 3, the menus driven by the pad and heard (cross, circle, the d-pad),
+  the host's per-minute `pad:` line showing the presses;
+- run 5, the pad switched off and on: `SDL: gamepad removed` and `added` in
+  the log, the game's `gamepads:` lines again, the menus answering after;
+- run 6, the PS button and the Quick Menu: the `overlay:` lines (the first
+  flag byte for the PS button's menu, the second for the Quick Menu), the
+  focus lost and gained, what the game did (seen on the TV), the pad's
+  state while the menu is up;
+- runs 2, 4 and 7 as far as there is no network: a campaign level started
+  from the menus and played (the movement, the turning, the shots, the
+  jump and the weapon change seen on the TV and in the `pad:` lines; the
+  rumble felt, `pad: rumble asked ... with the motors on` above 0), and
+  five minutes of it for the audio lines (0 late callbacks, the hand-off's
+  maximum under a period, no gaps heard). Run 2's own proof, the network
+  test's per-second player lines, waits for phase 6's network: the match it
+  hosts needs a socket.
+
 **Ends with:** the game on the TV: the menus and the two maps as they are
 under Vulkan on Android, at 60 frames a second in the menus, with the
 frame times of the maps under "Progress"; what RADV's known gaps (precise
@@ -1759,6 +1797,227 @@ As the deko3d and Vulkan plans were, on purpose:
 ---
 
 ## Progress
+
+### Phase 3 — audit (2026-10-18)
+
+Checked on the sources, the build, the tests and the two fetched logs:
+
+1. **The build and scope.** `ninja ps5` is a null build; the four test files
+   pass (15, the one old skip); no weak host symbol stands; only
+   `port/ps5/host`, the README and the plan changed. SDL2's video is never
+   asked for: the init mask is the four subsystems in the source, and the
+   log's `SDL_Init` line says `video driver none`.
+2. **The code.** The hand-off is the Switch's protocol (SDL's callback sets
+   the request under the lock and waits on `done`; the thread with the guest
+   stack runs the game's mixer outside the lock and signals; what the game
+   puts into its stream meanwhile is appended under the lock and copied to
+   SDL's buffer after); the stream's destruction closes the device before
+   it tells the thread to quit, so no callback runs on a freed binding. The
+   SDL3 values the SDL2 files rely on are literals asserted against SDL3's
+   headers in one file and against SDL2's in the others, the way
+   `freebsd_abi.h` is checked. The remote control is left out by type and
+   name. The overlay poll reads either flag byte.
+3. **The logs** (`20261018-050418`, `050508`) have every line the entry
+   quotes: the init line, the two controllers, the obtained spec, the
+   callback counts with no late one, the hand-off's maxima, the overlay's
+   flags and the focus events.
+4. **Three files, not one**, against the phase's text: accepted, for the
+   reason given (SDL2's and SDL3's headers cannot be included together, as
+   the Switch found). The Files table was updated by the implementer.
+5. **Runs 2 to 7 were not made**, by the user's decision during the phase:
+   they move to the end of phase 4, with the picture on the TV. Acceptance
+   items 2 to 5 and 7's five-minute figures are therefore **open**, and
+   phase 4's acceptance will carry them. Run 2 as written needs a hosted
+   match, which the network stand-in cannot give before phase 6; phase 4's
+   version plays a campaign level from the menus instead.
+6. **Two corrections to the plan's record** found by the implementer and
+   checked against phase 0 B's capture: SDL2's touch pad button is 20, as
+   SDL3's (the phase text said 15; corrected in place), and the Quick Menu
+   sets the status's second flag byte for as long as it is up (phase 0 B's
+   entry misread it; corrected by this audit, above).
+
+Carried forward: a title starts with the overlay flag set for about 6.6 s
+after launch (the system's launch screen), so the game begins with the focus
+lost; phase 5 must not pause on that. The game asks for rumble every frame
+with the motors off; SDL2 forwards only changes, so it costs nothing. The
+microphone is not SDL2's on this console (0 recording devices): voice chat
+is phase 5's through the system's voice services, if at all.
+
+### Phase 3 — SDL: pad, audio, events (2026-10-18)
+
+Implemented on 2026-10-18; run 1 passed on the user's console (13.590.001).
+**The result in one line:** the game starts SDL2 with its timer, events,
+game controllers and audio and no video, lists the pad and leaves the
+remote control out, opens the pad as a PS5 controller, plays its sound
+through SDL2's device in exactly the format it asks for (48 kHz, float,
+stereo, 1024 frames), with every callback handed to a thread with a guest
+stack in at most 1.45 ms and none late, and turns the system's overlay into
+focus events. **Runs 2 to 7 were not made:** the user moved them to the end
+of phase 4, to be tried with the picture (phase 4, "Phase 3's runs"). So
+acceptance items 2 to 5 are open, and run 2 cannot be made before phase 6
+(below).
+
+**Files.** `port/ps5/host/host_sdl_ps5_input.c` (new: `host_sdl_init`,
+`set_hint`, `get_error`, the gamepad calls, `ps5_input_poll` with the
+overlay check, the per-minute `pad:` line), `host_sdl_ps5_audio.c` (new:
+the audio calls, the hand-off, the cadence and hand-off figures),
+`host_sdl_ps5.c` (the moved parts gone; `host_sdl_poll_event` writes the
+input file's events as SDL3's; the SDL3 values the other two use checked
+with `_Static_assert`; `ps5_sdl_report` calls theirs), `ps5_host.h` (those
+SDL3 values as literals, the event kinds, the three functions the files
+share). `host_main.c` and `tools/ps5_build.py` unchanged: the host's
+include path already has pacbrew's `include` folder, so `<SDL2/SDL.h>`
+resolves, and the build globs `port/ps5/host/*.c`. The README.
+
+**Why three files, not one.** The phase said to split only past about
+1,500 lines (the three are 792, 573 and 463). The reason is the headers:
+SDL2's and SDL3's declare the same names differently (`SDL_Init` returns
+`int` in one and `bool` in the other, `SDL_Event` is two layouts), so no
+file can include both, as on the Switch (`host_sdl2.c` beside
+`host_sdl3_events.c`). The SDL3 values the SDL2 files need are literals in
+`ps5_host.h`, each asserted against SDL3's headers in `host_sdl_ps5.c`; the
+SDL2 files assert their side against SDL2's (`SDL_CONTROLLER_BUTTON_TOUCHPAD
+== 20`, `SDL_CONTROLLER_AXIS_MAX == 6`, `AUDIO_F32SYS == 0x8120`), as
+`freebsd_abi.h`'s literals are asserted against the SDK's.
+
+**The SDL3-to-SDL2 values the files rely on:**
+
+| What | SDL3 (the guest's) | SDL2 | Done |
+|---|---|---|---|
+| Init flags | any | `TIMER \| EVENTS \| GAMECONTROLLER \| AUDIO` | SDL2 is started for these four whatever the game asks (it asked `0x6030`: video, audio, gamepad, events), once; a later call adds nothing |
+| Axes | `LEFTX` 0 to `RIGHT_TRIGGER` 5 | `LEFTX` 0 to `TRIGGERRIGHT` 5 | passed as they are; values as they are (-32768 to 32767) |
+| Buttons | `SOUTH` 0 to `DPAD_RIGHT` 14, `MISC1` 15, paddles 16 to 19, `TOUCHPAD` 20, `MISC2` to `MISC6` 21 to 25 | `A` 0 to `DPAD_RIGHT` 14, `MISC1` 15, `PADDLE1` to `4` 16 to 19, `TOUCHPAD` 20 | 0 to 20 passed as they are (the paddles are in the same order, P1, P3, P2, P4); 21 on read 0 |
+| Gamepad types | `UNKNOWN` 0, `STANDARD` 1, `XBOX360` 2, `XBOXONE` 3, `PS3` 4, `PS4` 5, `PS5` 6, `SWITCH_PRO` 7, Joy-Cons 8 to 10 | `UNKNOWN` 0, `XBOX360` 1, `XBOXONE` 2, `PS3` 3, `PS4` 4, `SWITCH_PRO` 5, `VIRTUAL` 6, `PS5` 7, Luna 8, Stadia 9, Shield 10, Joy-Cons 11 to 13 | mapped by name; one SDL3 lacks is unknown. The pad: SDL2's 7, the game's 6 |
+| Audio format | `SDL_AUDIO_F32` 0x8120 | `AUDIO_F32SYS` 0x8120 | passed as it is |
+| Default devices | playback `0xffffffff`, recording `0xfffffffe` | `NULL` name | playback opens SDL2's default; recording fails (below) |
+| The period | `SDL_HINT_AUDIO_DEVICE_SAMPLE_FRAMES` ("SDL_AUDIO_DEVICE_SAMPLE_FRAMES") | none: `SDL_AudioSpec.samples` | kept by the host, given as `samples` |
+| Events | `GAMEPAD_ADDED`/`REMOVED` (by instance), `QUIT`, `WINDOW_FOCUS_LOST`/`GAINED` | `CONTROLLERDEVICEADDED` (by device index), `CONTROLLERDEVICEREMOVED` (by instance), `QUIT`; focus from the system's status | added: the index's instance id; button and axis events dropped and counted |
+| Other hints | `SDL_APP_NAME` | `SDL_APP_NAME` | passed to `SDL_SetHint` (accepted) |
+
+**Run 1** (`build/ps5/logs/20261018-050418`, `HALO_EXIT_AFTER=30`, nobody
+at the console):
+
+```
+SDL: the hint SDL_APP_NAME=Halo
+SDL: SDL_Init(timer, events, game controller, audio) for the game's 0x6030 in 1248 us: SDL 2.30.12 (SDL-2.30.12-ga47182a20), audio driver ps5, video driver none (SDL2's video is never started here)
+SDL: audio driver 0: ps5
+SDL: audio driver 1: disk
+SDL: audio driver 2: dummy
+SDL: 1 playback device(s)
+SDL:   playback device 0: System audio output device
+SDL: 0 recording device(s) (voice chat's microphone is phase 5's: no stream records in this phase)
+overlay: the system's status flags 01 00 00 00 at 0.198 s
+overlay: the system's menu is up: the window's focus is lost
+SDL: gamepad added: "thelinkin3000", instance 1
+gamepad 1: "thelinkin3000" opened, type 7 (PS5; SDL3's 6), 054c:0ce6, rumble yes
+gamepads: SDL2 lists 2 joystick(s)
+gamepads:   joystick 0: "thelinkin3000", instance 1, a game controller, type 7 (PS5), GUID 0300d0424c050000e60c000011810000
+gamepads:   joystick 1: "PS5 Remote Control", instance 0, a game controller, type 0 (unknown), GUID 030000004c050000cec0000011810000: left out (the console's remote control)
+game: halo-linux: gamepads: SDL lists 1
+game: halo-linux: gamepads: port 0 reads SDL gamepad 1 (type 6)
+audio: stream 4 on SDL2's device 2 (the default): asked 48000 Hz, float (0x8120), 2 channels, 1024 frames; obtained 48000 Hz, float (0x8120), 2 channels, 1024 frames (21.33 ms), 8192 bytes a callback, silence 0
+audio: the first callback at 0.359 s, for 8192 bytes
+overlay: "thelinkin3000" reads buttons 0x0, axes 0 0 0 0 0 0 while the menu is up
+overlay: the system's status flags 00 00 00 00 at 6.772 s
+overlay: the system's menu is gone: the window's focus is gained
+...
+pad: rumble asked 885 times (0 with the motors on), the longest call 0.02 ms
+audio: 1400 callbacks of SDL2's for 10.9 MB of the game's sound, 0 late; gaps min 21.26 ms, max 21.44 ms; the hand-off's max 1.14 ms; 0.0 MB put into streams without a callback
+```
+
+- **SDL2 init and drivers:** 1.2 ms; audio driver `ps5` (of `ps5`, `disk`,
+  `dummy`); video driver none, though the game's flags (`0x6030`) include
+  SDL3's video bit.
+- **The controllers:** the pad (its name the signed-in user's PSN name,
+  type 7, `054c:0ce6`, rumble yes) and the remote control (type 0), as phase
+  0 B listed them; the remote control is left out and logged. SDL2 sends
+  `CONTROLLERDEVICEADDED` for the pad already there at the start, which the
+  game opens; then the game lists one pad, type 6.
+- **The audio device's obtained spec** is the asked one: 48000 Hz, float
+  (0x8120), 2 channels, 1024 frames, 8192 bytes a callback.
+- **The callback cadence:** 1400 callbacks in 30 s (46.9 a second: the
+  1400 the phase expected), gaps 21.26 to 21.44 ms, 0 late. **The hand-off**
+  (SDL2's callback to the game's mixer returning): at most 1.14 ms, 5% of a
+  period. The per-minute lines (min, median, max of both) need a run of a
+  minute or more; neither run had one. The five minutes are phase 4's.
+- **Rumble:** the game asks every frame (885 times in 30 s), all with the
+  motors at 0 at the menu; each call takes at most 0.02 ms (SDL2 sends the
+  pad only a change).
+- **Focus loss:** the game got `SDL_EVENT_WINDOW_FOCUS_LOST` at 0.2 s and
+  `GAINED` at 6.8 s (below). It logs nothing on either; `sdl_platform.c`
+  clears its held keys and mouse buttons and sets `input_state.focused`;
+  the mixer's callbacks never stopped (nobody was listening). What
+  it does on the PS button with a picture is phase 4's run 6.
+- **The game's lines that show each input:** none yet; nobody pressed
+  anything. The host's per-minute `pad:` line lists the presses (by the
+  DualSense's names), each axis's range and the rumble requests for every
+  minute the pad was used.
+- **Streams without a callback:** none asked for; the game opened no
+  microphone in either run (voice chat's stream opens only when voice is
+  used). Pacbrew's SDL2 lists 0 recording devices: SDL2's recording is not
+  the microphone's way here, as the phase guessed.
+
+**The network test check** (`20261018-050508`, `HALO_EXIT_AFTER=45`,
+`HALO_NETWORK_TEST=host:bloodgulch`, nobody at the console, made to learn
+whether run 2 could work before calling the user): `bloodgulch.map` opened
+at 2.7 s, `network test: hosting bloodgulch`, `starting the game`, then
+heartbeats only, no per-second player lines. The game's `debug.txt`:
+
+```
+starting precaching of map 'bloodgulch'
+winsock error #10050: WSAENETDOWN
+failed to create the server connection
+failed to initiate a multiplayer game server
+```
+
+A system link game needs its server's socket, and `host_posix_none.c`
+answers as a machine whose network is down until phase 6. **Run 2 as
+written cannot be made before phase 6**, and neither can run 4 (the game
+rumbles only in play) inside it; phase 4's version plays a campaign level
+from the menus instead, and the per-second lines wait for the network. The
+run's audio: 2104 callbacks in 45 s, 0 late, gaps 21.27 to 21.43 ms, the
+hand-off at most 1.45 ms.
+
+**Unexpected, and what was done about it:**
+
+- **The plan had SDL2's touch pad button wrong.** It said 15; pacbrew's
+  `SDL_gamecontroller.h` has `MISC1` 15, `PADDLE1` to `4` 16 to 19 and
+  `TOUCHPAD` 20, the same numbers as SDL3's, so no button is mapped. The
+  phase text is corrected.
+- **The Quick Menu sets the second flag, not the first.** Phase 0 B's
+  run 3 capture, read again: the PS button's menu set the first byte after
+  the count (`01 00 00 00`, 6.5 to 17.8 s); the Quick Menu set it for
+  0.1 s, then the second (`00 01 00 00`) from 19.875 s until it closed at
+  23.780 s, and the probe logs only changes. Phase 0 B's entry ("the second
+  byte was set for 0.1 s") misread it. The host treats either byte as the
+  overlay, and logs the four bytes on every change.
+- **A title starts overlaid.** The first byte was set from the first check
+  (0.198 s) until 6.772 s after the launch, with nobody touching the
+  console: the system's own launch screen or notification, presumably. So
+  the game starts with the focus lost and gains it at 6.8 s. Harmless at
+  the menu; phase 5 should keep it in mind if it pauses on the overlay.
+- **The pad while overlaid** (that start-up overlay): buttons 0, axes 0,
+  as phase 0 B's scePad reading. The PS button's case is phase 4's run 6.
+- **The console had been restarted** before run 1: ps5vkctl was not
+  resident (loaded again through the payload manager), klogsrv refused
+  connections, and `launch` failed with
+  `lncUtilApp/foreground(user 372994645)=0x80b21401` (and the same for
+  login). The user rebooted everything, after which both runs went through
+  as before. ps5vkctl was then loaded a second time while one was already
+  resident (its status had answered `ok idle`); the new one answered
+  (`pid=101`) and nothing went wrong.
+- **The FTP server answers a delete with 226**, which Python's `ftplib`
+  takes for an error; the file was deleted (`environment.txt`, after the
+  runs; the title's folder holds the title only).
+- **The host's start-up line still says "phase 2"** (`host_main.c`, which
+  this phase did not change).
+
+**Tests:** `ninja ps5` builds with `-Werror`; `pytest -q
+tools/test_ps5_host.py tools/test_ps5_build.py tools/test_host_units.py
+tools/test_host_syscall.py`: 15 passed, 1 skipped (the skip predates
+phase 2). `llvm-nm` on `eboot.elf`: 72 `host_sdl_*` defined, no weak host
+symbol. No shared file changed, so Android's and Linux's builds are
+untouched.
 
 ### Phase 2 — audit (2026-10-18)
 
@@ -2794,8 +3053,10 @@ after the 90 s: 10 of 10 frames presented
 
 - PS button from 6.5 to 17.8 s, the Quick Menu from 19.8 to 23.8 s.
 - The pad's intercepted bit and the status's first byte (`isSystemUiOverlaid`)
-  follow the system's menu. The second byte was set for 0.1 s while the
-  Quick Menu opened.
+  follow the PS button's menu. The Quick Menu sets the first byte for 0.1 s
+  and then the **second** byte for as long as it is up (`00 01 00 00` from
+  19.875 s to 23.780 s; the probe logs only changes). Corrected by phase 3's
+  audit: this entry first read the second byte as set for 0.1 s only.
 - Frames, the acquire and the present never stopped. The timestamps are
   continuous: the process is not suspended.
 - `sceSystemServiceReceiveEvent` answered 0x80a10004 throughout and

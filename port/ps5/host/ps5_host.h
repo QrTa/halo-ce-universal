@@ -54,4 +54,70 @@ void ps5_memory_figures(double *heap_mb, double *heap_peak_mb, double *direct_fr
 reported every 10 s, not only at the end (host_gl_none.c) */
 extern int host_gl_statistics;
 
+/* ---------- SDL: the game's SDL3 calls over pacbrew's SDL2
+
+host_sdl_ps5.c answers the game's calls with SDL3's headers (the guest's
+values and layouts), host_sdl_ps5_input.c (start-up, the pad, its events,
+the system's overlay) and host_sdl_ps5_audio.c (the sound) with SDL2's:
+the two versions' headers declare the same names differently, so they
+cannot share a file. These are the SDL3 values the SDL2 files need, as
+literals; host_sdl_ps5.c checks each against SDL3's headers. */
+
+/* SDL3's gamepad buttons 0 (south) to 20 (the touch pad) are SDL2's 0 (a)
+to 20 (touch pad) one for one; SDL3's 21 on (misc 2 to 6) are not SDL2's */
+#define PS5_SDL3_GAMEPAD_BUTTON_TOUCHPAD 20
+/* SDL3's six gamepad axes (left x, left y, right x, right y, the left and
+right triggers) are SDL2's 0 to 5 */
+#define PS5_SDL3_GAMEPAD_AXIS_COUNT 6
+/* SDL3's gamepad types (SDL_GamepadType); SDL2's numbers differ */
+enum ps5_sdl3_gamepad_type
+{
+	PS5_SDL3_GAMEPAD_TYPE_UNKNOWN = 0,
+	PS5_SDL3_GAMEPAD_TYPE_STANDARD = 1,
+	PS5_SDL3_GAMEPAD_TYPE_XBOX360 = 2,
+	PS5_SDL3_GAMEPAD_TYPE_XBOXONE = 3,
+	PS5_SDL3_GAMEPAD_TYPE_PS3 = 4,
+	PS5_SDL3_GAMEPAD_TYPE_PS4 = 5,
+	PS5_SDL3_GAMEPAD_TYPE_PS5 = 6,
+	PS5_SDL3_GAMEPAD_TYPE_NINTENDO_SWITCH_PRO = 7,
+	PS5_SDL3_GAMEPAD_TYPE_NINTENDO_SWITCH_JOYCON_LEFT = 8,
+	PS5_SDL3_GAMEPAD_TYPE_NINTENDO_SWITCH_JOYCON_RIGHT = 9,
+	PS5_SDL3_GAMEPAD_TYPE_NINTENDO_SWITCH_JOYCON_PAIR = 10,
+};
+/* SDL3's SDL_AUDIO_F32 (native-endian 32-bit float), SDL2's AUDIO_F32SYS */
+#define PS5_SDL3_AUDIO_F32 0x8120
+#define PS5_SDL3_AUDIO_DEVICE_DEFAULT_PLAYBACK 0xffffffffu
+#define PS5_SDL3_AUDIO_DEVICE_DEFAULT_RECORDING 0xfffffffeu
+/* SDL3's SDL_AudioSpec, as the guest passes it */
+struct ps5_sdl3_audio_spec
+{
+	int32_t format;
+	int32_t channels;
+	int32_t freq;
+};
+/* SDL3's SDL_HINT_AUDIO_DEVICE_SAMPLE_FRAMES, which SDL2 does not have */
+#define PS5_SDL3_HINT_AUDIO_DEVICE_SAMPLE_FRAMES "SDL_AUDIO_DEVICE_SAMPLE_FRAMES"
+
+/* the events host_sdl_ps5_input.c has for the game (host_sdl_poll_event
+writes them as SDL3's) */
+enum ps5_event_kind
+{
+	PS5_EVENT_NONE,
+	PS5_EVENT_QUIT,
+	PS5_EVENT_GAMEPAD_ADDED,
+	PS5_EVENT_GAMEPAD_REMOVED,
+	PS5_EVENT_FOCUS_LOST,
+	PS5_EVENT_FOCUS_GAINED,
+};
+
+/* the next event from SDL2 or the system's overlay, PS5_EVENT_NONE when
+there is none; *which is a gamepad's instance id (host_sdl_ps5_input.c) */
+int ps5_input_poll(uint32_t *which);
+/* the period the game asks its audio device for, in frames
+(SDL_HINT_AUDIO_DEVICE_SAMPLE_FRAMES; host_sdl_ps5_audio.c) */
+void ps5_audio_set_period(int frames);
+/* their parts of ps5_sdl_report, when the game ends */
+void ps5_input_report(void);
+void ps5_audio_report(void);
+
 #endif

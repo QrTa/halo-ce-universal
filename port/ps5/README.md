@@ -1,11 +1,13 @@
 # PS5
 
 `ninja ps5` builds the game for a jailbroken PlayStation 5, as a homebrew
-title. This is the port's second phase (`PS5.md`, the plan): the game runs
-headless. From a data folder holding only the game's disc image it extracts
-its maps, loads the main menu and runs its loop at 60 frames a second, with
-nothing on the TV, no pad and no sound yet (the pad and sound are phase 3,
-the picture phase 4).
+title. This is the port's third phase (`PS5.md`, the plan): the game runs
+with nothing on the TV yet (the picture is phase 4), but with the pad and
+its sound. From a data folder holding only the game's disc image it
+extracts its maps, loads the main menu and runs its loop at 60 frames a
+second; the pad and the sound go through pacbrew's SDL2. Phase 3's tests
+with a person at the console are made at the end of phase 4, with the
+picture.
 
 The game is the x32 guest image of `ninja linux_x86_64`
 (`port/linux/README.md`, "64-bit x86"): the decompilation compiled as 32-bit
@@ -114,15 +116,44 @@ return addresses of the stack; an address in the game is looked up with
 `addr2line -e build/ps5/halo_guest_vk.elf`, one in the host in
 `build/ps5/host/eboot.elf.map`.
 
+## The pad and the sound
+
+The game's pads are SDL2's game controllers: the DualSense, listed under
+the signed-in user's name, as a PS5 controller. The console also lists its
+own "PS5 Remote Control" as a controller; the game is never given it, and
+the log says so (`gamepads: ... left out`). A pad switched off and on is
+listed again (`SDL: gamepad removed`, `added`). The pad rumbles through
+SDL2. Every minute in which the pad was used, a `pad:` line lists the
+buttons pressed, each stick's and trigger's range and the rumble asked for.
+
+The sound is SDL2's device on the console's audio output: 48 kHz, float,
+stereo, 1024 frames a callback (21.3 ms), the format the game asks for.
+SDL2 calls for sound on a thread that cannot run the game, so each call is
+handed to a thread that can. Every minute an `audio:` line gives the
+callbacks, the gaps between them (one longer than two periods is late)
+and the time the hand-off took; the end of the run gives the totals. No
+microphone is used yet, so voice chat is off.
+
+SDL2's video is never started: its PS5 driver crashes a title (it calls
+the keyboard library, which a title does not load). The log's `SDL_Init`
+line says `video driver none`.
+
+The PS button's menu and the Quick Menu do not stop the game; the host
+reads the system's flags and gives the game "focus lost" while either is
+up, and "focus gained" after, as a desktop window would (`overlay:` lines).
+The system also sets the flag for about 6 s after the title is launched,
+so every run starts with the focus lost.
+
 ## What runs, and what does not yet
 
 - Runs: the game's start-up, the first start's extraction, the main
   menu's map and its loop, paced to the display's 59.94 Hz; settings,
-  saves and the game's files in `/data/halo`; the game's sound mixer, on a
-  device's clock with nothing played.
+  saves and the game's files in `/data/halo`; the pad, its rumble and the
+  sound through SDL2; the system's menus as focus events.
 - Not yet: the picture (every draw is dropped until the Vulkan renderer is
-  brought up, phase 4), the pad and sound (phase 3), the network (phase 6:
-  the game starts with it down), and the desktop's self-updater, which a
+  brought up, phase 4), the microphone and voice chat (phase 5), the
+  network (phase 6: the game starts with it down, so the network test's
+  matches cannot be hosted), and the desktop's self-updater, which a
   console title does not have (it is updated by installing it again).
 
 For the deploy's tests, two files in the title's folder change a run:
