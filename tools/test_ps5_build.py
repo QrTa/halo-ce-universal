@@ -26,7 +26,7 @@ def tree(tmp_path, monkeypatch):
     (tmp_path / "port" / "linux" / "host").mkdir(parents=True)
     shutil.copy(ROOT / "port" / "linux" / "port.json", tmp_path / "port" / "linux" / "port.json")
     (tmp_path / "port" / "ps5" / "host").mkdir(parents=True)
-    for name in ("host_main.c", "host_bootstrap.c", "host_bootstrap.S"):
+    for name in ("host_main.c", "host_syscall.c"):
         (tmp_path / "port" / "ps5" / "host" / name).write_text("")
     headers = tmp_path / "gl"
     for name in ps5_build.GL_HEADER_NAMES:
@@ -131,7 +131,8 @@ def test_checkout_generates_the_title(repository, tmp_path, capsys):
     assert repository == [ps5_build.THIRD_PARTY, "glslang", "pacbrew"]
     assert "unavailable" not in text, err
     title = ROOT / "build" / "ps5" / "title" / ps5_build.TITLE_ID
-    for name in ("build/ps5/halo_guest_vk.elf", "host_main.c.o", "host_bootstrap.c.o", "host_bootstrap.S.o",
+    for name in ("build/ps5/halo_guest_vk.elf", "host_main.c.o", "host_syscall.c.o", "host_arch.c.o", "posix_files.c.o",
+                 "host_import_stubs.c.o", "--wrap=mmap",
                  "rule ps5_link", "build/ps5/host/eboot.elf", "libglslang.a", "-lSDL2",
                  f"{title}/eboot.bin", f"{title}/sce_sys/param.json", f"{title}/sce_sys/icon0.png",
                  f"{title}/sce_module/libc.prx", f"{title}/halo_guest.elf", f"{title}/NOTICE.txt"):

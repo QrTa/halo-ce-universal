@@ -1,0 +1,12 @@
+/*
+The PS5 host's link (tools/ps5_build.py): the names the title must not
+export. The title converter refuses a title that exports anything, and a
+wrapped name the system's modules also define (mmap, libkernel's) is
+exported by the link unless it is local here, as PS5_Vulkan's link recipe
+does for the names it binds.
+*/
+{
+    local:
+        __wrap_mmap;
+        __wrap_SDL_ShowSimpleMessageBox;
+};

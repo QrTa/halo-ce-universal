@@ -18,8 +18,10 @@ Phase 0, part B is done and reviewed (the host, SDL2 and glslang probes,
 "Progress"); every "(to confirm)" row of "Decisions" is settled. Phase 1 is
 done and reviewed: `ninja ps5 && python3 tools/ps5_deploy.py --run` builds,
 installs and starts the title, and its log shows the game's start-up to the
-first SDL call. Phase 2 is written out in detail and ready to be handed
-over. The probes are in
+first SDL call. Phase 2 is done and
+reviewed: the game runs headless from a data folder holding only the disc
+image, through the extraction, to the main menu's map at 59.94 frames a
+second ("Progress"). Phase 3 is next, to be written out. The probes are in
 `port/ps5/probe`.
 
 ---
@@ -125,7 +127,10 @@ rename):
 | `port/ps5/host/host_vk_present_ps5.c` | `port/android/host/host_vk_present.c` | the surface through `VK_KHR_display` on VideoOut, the FIFO swapchain, the letterboxed blit, re-creation |
 | `port/ps5/host/host_update_none.c` | — | `host_update_*` unavailable |
 | `port/ps5/host/host_vk_null.c` | — | **until phase 4**: the renderer's nine imports answered so that every draw is dropped and nothing waits |
-| `port/ps5/host/host_gl_none.c` | — | no OpenGL on the console: every `hostgl_*` name resolved to one counting no-op, the eight `host_gl_*` imports as no-ops |
+| `port/ps5/host/host_gl_none.c` | — | no OpenGL on the console: every `hostgl_*` name resolved to one counting no-op, the nine `host_gl_*` imports as no-ops |
+| `port/ps5/host/host_debug_ps5.c` | `port/android/host/host_debug.c` | in its place: the thread id (`pthread_getthreadid_np`), each guest thread's floating point mode, the thread bookkeeping; the sampler and profiler answer "not on the PS5" (phase 2: the Linux ones are most of the file) |
+| `port/ps5/host/host_posix_none.c` | `port/linux/src/posix_net.c`, `posix_upnp.c`, `posix_dtls.c` | **until phase 6**: `posix.h`'s network, UPnP, DTLS and Discord helpers answering as a machine whose network is down; `posix_files.c` is compiled as it is |
+| `port/ps5/host/host_local.map` | — | the link's version script: the wrapped names (`mmap`, `SDL_ShowSimpleMessageBox`) kept local, since the title converter refuses an export |
 | `port/ps5/tests/`, `tools/test_ps5_host.py` | `port/android/tests/`, `tools/test_host_units.py` | the PS5 host's pure parts tested on the PC |
 | `port/ps5/host/host_bootstrap.c`, `host_bootstrap.S` | the guest probe's section 6 | **temporary** (phase 1): the ranges, the loader, the thunks and the trivial answers that prove the build pipeline; phase 2 deletes them |
 | `port/ps5/host/host_libc_extra.c` | the SDL2 probe's `libc_extra.c` | what pacbrew's archives want of libc and no system module exports (`___mb_cur_max`) |
@@ -1370,7 +1375,7 @@ rumble through `SDL_GameControllerRumble`, and the pad's `intercepted` bit
 (read through `scePad` beside SDL, or SDL's own events if it reports it) as
 a pause; events for the game's loop (button and axis events, quit); audio
 through an SDL2 audio device at 48 kHz float, 256 samples a callback
-(5.3 ms apart, as probed), the guest's SDL3 audio streams queued onto it;
+(5.3 ms apart, as probed), the guest's stream being a callback stream (`dsound_sdl.c`): SDL2's device callback runs the guest's on a thread with a guest stack, in place of phase 2's clock thread, and `SDL_HINT_AUDIO_DEVICE_SAMPLE_FRAMES` (1024 frames, 21.3 ms) sets the device's period;
 ticks from `SDL_GetTicks64` or the monotonic clock; the clipboard and text
 input as a console has them; and
 the desktop's calls (display modes: one, 1920x1080; fullscreen: always;
@@ -1521,11 +1526,331 @@ As the deko3d and Vulkan plans were, on purpose:
 | Firmware: proved on 13.59 here, 12.x by PS5_Vulkan; other versions unknown | Phase 7 says which were proved |
 | The toolchain is another project's, GPL, and moves | Pinned by commit in `tools/ps5_build.py`; nothing copied in |
 | Suspend and the PS button leave the title in a bad state | Phase 0 B: the title runs on under the system's menu, nothing breaks, two flags tell; phase 5 pauses on them and tries rest mode |
-| A title's `exit()` ends in `SIGSYS` | Phase 2 checks what the host's exit leaves behind |
+| A title's `exit()` ends in `SIGSYS` | Phase 2: it leaves nothing behind (the log is written a line at a time); PS5_Vulkan's titles get it too; explained in the README |
+| The guest's 4 KB pages on 16 KB system pages: a 4 KB guard page that shares a system page with memory in use cannot be protected, so a guest stack overflow into it goes unnoticed | Phase 2 chose the union of the four pages' protections (nothing in use is ever made inaccessible); phase 5's long session watches for silent corruption, and the host's own guards are whole system pages |
 
 ---
 
 ## Progress
+
+### Phase 2 — audit (2026-10-18)
+
+Checked against the acceptance list, on the sources, the build, the fetched
+logs and the tests:
+
+1. **The builds and tests.** `ninja ps5` and `ninja linux_x86_64` are null
+   builds here; the four test files pass (15, and the one skip that
+   predates the phase). The `host_arch.c` change is two `HALO_PS5` branches
+   and nothing else, so the other builds' code cannot change; the
+   implementer's object comparison (identical with debug information
+   stripped) agrees.
+2. **The first start.** `build/ps5/logs/20261018-031835-2/halo.log` (the
+   folder without the suffix holds the previous run's fetched log, which is
+   why it shows the failed attempts): the defaults written to
+   `config.toml`, the question answered, `maps.partial/a10.map` at 0.2 s to
+   `wizard.map` at 31.2 s, `ui.map` opened, the heartbeat at 59.94. The
+   second start (`032011`): `ui.map` at 0.2 s, the exit at 60.2 s.
+3. **Five minutes** (`032750`): 60 heartbeats, 59 of them 300 frames in
+   5.00 or 5.01 s at 59.94 a second with the longest frame 16.78 or 16.79
+   ms; the heap at 160 MB throughout.
+4. **The crash test**'s registers and frames are in "Progress" and its
+   folder.
+5. **No weak stub stands**: `llvm-nm` on `eboot.elf` lists no weak host
+   symbol; 72 `host_sdl_*` functions are defined.
+6. **"Progress"** has every figure the phase asked for.
+7. `host_bootstrap.*` and the syscall-names rule are gone; `host_main.c`'s
+   header says what it does.
+8. **Scope and copying.** Nothing of PS5_Vulkan's or the fork's is in the
+   new files (a line-by-line comparison with their sources finds only
+   `vsnprintf` and `stmxcsr` idioms). FreeBSD's constants are literals in
+   `freebsd_abi.h`, ten of them asserted against the SDK's headers in the
+   PS5 build, and I checked eleven against the headers by hand: they agree.
+
+The console's own state could not be listed this time: its FTP server
+refuses connections (the console answers ping), so the folder contents
+under "Progress" stand on the implementer's word and the fetched logs.
+
+Deviations accepted:
+
+- **Three files the phase did not name**: `host_debug_ps5.c` in place of
+  the shared `host_debug.c` (the phase's own rule: more than a third of the
+  file would be compiled out), `host_posix_none.c` for the 55 `posix.h`
+  imports the phase did not count, and `host_local.map`, without which the
+  title converter refused the wrapped `mmap`. All three are in the Files
+  table now.
+- **`tools/test_ps5_build.py`** changed by two lines, outside the allowed
+  list, because it named the deleted bootstrap objects.
+- **The disc image was copied by the implementer**, on the user's word in
+  the session; the plan had asked the user to do it.
+- **`HALO_DATA_ROOT` is not set**, against the phase's text: setting it is
+  `paths.data`, which turns the first start's offer off. The game finds
+  `/data/halo` through `/proc/self/exe` instead. Right, and recorded.
+- **The first start cannot `exit_after`**: the game offers no extraction to
+  a run it thinks nobody watches. The phase's step 1 was run without the
+  setting and killed at the menu; the exit was shown on the second start.
+
+Carried into later phases: phase 3's audio is a callback stream driven by a
+device thread (the phase text now says so); the 4 KB guard-page weakness is
+a new row in Risks for phase 5's long session to watch; `host_posix_none.c`
+is what phase 6 replaces; the `__wrap_mmap` counts tell phase 4 whether
+RADV maps below 4 GB.
+
+### Phase 2 — the host's core, no graphics (2026-10-18)
+
+Implemented on 2026-10-18 and run on the user's console (13.590.001). **The
+result in one line:** from `/data/halo` holding only the disc image, the
+title answers the game's question, extracts `maps/` (1774 MB in 31 s), loads
+the main menu's map (`ui.map`, 35.1 s after the launch) and runs its loop at
+59.94 frames a second with every draw dropped; the second start loads
+`ui.map` 0.2 s after the launch; five minutes at the menu were steady; the
+exit at 60 s reports the game's end; a crash is reported with registers and
+frames.
+
+**Files.** New under `port/ps5/host`: `host_memory.c`, `host_syscall.c`,
+`host_syscall_tables.c` and `.h`, `freebsd_abi.h`, `host_futex.c`,
+`host_sdl_ps5.c`, `host_vk_null.c`, `host_gl_none.c`, `host_update_none.c`,
+and three the plan did not name: `host_debug_ps5.c` (in place of
+`host_debug.c`, below), `host_posix_none.c` (the game's network and
+desktop helpers, below) and `host_local.map` (the link's local names,
+below). `host_main.c` is the real entry point, `ps5_host.h` what the PS5
+files share; `host_bootstrap.c` and `.S` and the syscall-names rule are
+gone. `port/ps5/tests/host_syscall_tables_test.c`, `tools/test_ps5_host.py`,
+the README. Shared: `port/android/host/host_arch.c` (a `HALO_PS5` branch).
+Outside the allowed list: `tools/test_ps5_build.py`, two lines (below).
+`tools/ps5_title.sh` needed no change: it already hands what follows `--`
+to the linker as it is, flags included.
+
+**The runs** (`build/ps5/logs/<time>`; every one through
+`tools/ps5_deploy.py --run`, stopped with its `kill` where the game does not
+end itself):
+
+1. 031543 (first start, before the fixes): memory, the loader, the 274
+   imports (0 unavailable), musl's start-up, `config.toml` not writable,
+   the question answered "Yes", the dialog answered with the image, then
+   "extraction failed: Could not start the extraction." over and over (the
+   game asks again on failure). Cause: the guest's 4 KB pages (below).
+   Killed.
+2. 031645: the same with the failure log added: every guest `mprotect` of
+   a 4 KB page was `EINVAL`. Killed.
+3. 031835 (**the first start**, from the folder holding the image and phase
+   1's `halo.log`): `settings: wrote the defaults to /data/halo/config.toml`;
+   the question and the dialog answered; `extracting maps/a10.map` at 0.2 s
+   to `wizard.map` at 31.2 s, the 2D renderer's 1971 presents counted (its
+   text logged every 10 s: `ui.map (1748 of 1774 MB)` at 30.2 s), `extracted
+   the maps folder`; `data root: /data/halo`; the window and context
+   stand-ins; `ui.map` opened at 35.1 s; heartbeats of 36.2 and 40.5 frames
+   a second, then 59.94 (mean 16.68 ms, longest 16.79 ms). Stopped by the
+   follow's timeout at 60 s and killed: see `exit_after` below.
+4. 032011 (**the second start**, `HALO_EXIT_AFTER=60` through
+   `/app0/environment.txt`): no question; the first heartbeat and `ui.map`
+   at 0.2 s; `exiting after debug.exit_after`, `the game exited (0)`, the
+   game ended at 60.2 s, the reports (below), `the host ends`; exit 0.
+5. 032130: the host found no `/data/halo` and ended at once (below).
+6. 032205: the same title again: `/data/halo` found. Killed after 20 s.
+7. 032243 (**five minutes at the menu**, no `exit_after`): 331 s, then
+   killed. `halo.log` (fetched after the kill, 032750) has 60 heartbeats:
+   the first at 54.48 a second (the map's load), then 59 at 59.94 a second,
+   mean 16.68 ms, longest 16.78 or 16.79 ms in every one; five memory
+   lines, each "the host's heap 160 MB (peak 160 MB), direct memory's
+   largest free block 11269 MB". No fault.
+8. 032809, 032849 (**the crash test**, `HALO_PS5_CRASH_TEST=1`); the second,
+   with eboot offsets in the report:
+
+   ```
+   HALO_PS5_CRASH_TEST: writing to the unmapped guest address 0x08000000 from the game's thread
+   error: signal 11 (code 2) at address 8000000: pc 0000000000402d42 sp 0000000003883a30 fp 0000000003883f40
+   error:   in the host: llvm-symbolizer --obj=build/ps5/host/eboot.elf 0x2d42
+   error:   rax 000000000000005d rbx 0000000000000012 rcx f6dffad37c546278 rdx 000000000000005d
+   error:   rsi 0000000000000000 rdi 0000000880f4d2c0 rbp 0000000003883f40 rsp 0000000003883a30
+   error:   r8  0000002000000000 r9  0000002001000020 r10 000000000515ca11 r11 0000002001ffffa0
+   error:   r12 000000080000e370 r13 0000000001203e94 r14 0000002003000020 r15 0000000001203e94
+   error:   rip 0000000000402d42 efl 0000000000010206 err 0000000000000006 trp 000000000000000c
+   error:   frame  0: return 000000000040cb4b (the host: eboot.elf 0xcb4b)
+   error:   frame  1: return 0000000000ebe7c9 (the host: eboot.elf 0xabe7c9)
+   error:   frame  2: return 000000080000763d
+   error:   frame  3: return 0000000000000000
+   ```
+
+   then the system's own block (`signal: 11 (SIGSEGV)`, `page fault (user
+   write data, page not present)`). The offsets are `game_main`
+   (`host_main.c:533`, the write), `thread_main` (`host_thread.c`) and the
+   platform layer's `plain_thread_start`. `si_code` is 2, not phase 0 B's 1
+   for an unmapped read: 0x08000000 lies in pool 0 (0x02880000-0x12880000),
+   whose pages not given out are kept `PROT_NONE`.
+9. 032921, the closing run of the final build with `HALO_EXIT_AFTER=60`:
+   the first frame and `ui.map` at 0.2 s, the exit at 60.2 s, the same
+   reports; exit 0. (A comment changed after it; the code did not.)
+
+`environment.txt` was removed from the title's folder after each run that
+used it, and so was run 5's stray `/data/homebrew/PPSA99500/halo.log`. The
+console holds the title, and in `/data/halo` the disc image, `maps/`,
+`save/`, `custom_maps/`, `config.toml`, `debug.txt`, `gamestate.txt` and
+`halo.log`.
+
+**What the game's end reports** (runs 4 and 9, the same):
+
+- **-ENOSYS**: `mremap (216) 28`, nothing else. musl's `realloc` asks for it
+  and falls back to a new mapping and a copy. No `statfs`, `times`,
+  `getrusage`, network call, timer, signal or process call was made in any
+  run, and no `statx`. No file was mapped (`mmap` with a descriptor), so
+  that path is untried.
+- **GL names the Vulkan image called**: none, of the 112 the loader
+  resolved.
+- **`__wrap_mmap`**: 1 call answered in the guest's direct memory (the
+  loader's `mmap(70000000, 46841856, RW, MAP_FIXED | MAP_ANON)`), 10 passed
+  to the system, 0 of them below 4 GB. The ten are `host_thread.c`'s signal
+  stacks (69632 bytes, one a thread, from 0x20001c000 up: flexible memory).
+  RADV has not run yet; phase 4 sees its own.
+- **The renderer stand-in**: about 3570 submissions in 60 s, 0 shaders sent
+  to compile (the guest sends GLSL only for a shader it is told is unknown;
+  the stand-in says "compiling"), every draw dropped.
+- **The audio stand-in**: the game's mixer called 2808 times in 60 s, every
+  21.3 ms (1024 frames at 48 kHz, the period the game asks SDL for), 21.9 MB
+  of sound.
+- **Memory**: one pool (159 of its 256 MB free), the host's heap 160 MB
+  (peak 160 MB), direct memory's largest free block 11269 MB: the same in
+  every run and over the five minutes.
+
+**The thread checks** (every run): `__thread on the game's thread is its own
+(it read 00000000 before it was set, the main thread holds 0badf00d), and it
+reads back; thread ids: main 102239, the game's 100868 (distinct)`, and `a
+thread made from the game's thread: made (0, -), its id 102252`. The id is
+`pthread_getthreadid_np`, which libkernel exports to a title. The first
+thread made has MXCSR 0x1fa0: no flush-to-zero, only the precision flag
+set; each guest thread sets IEEE all the same (`host_debug_ps5.c`).
+
+**The weak stubs still standing: none.** `llvm-nm` on `eboot.elf` lists no
+weak symbol among the 162 functions of the host's import table. The one
+that stood at the first link, `host_gl_debug_output` (debug.gl_debug's
+logger, a ninth `host_gl_*` import the plan did not count), is answered in
+`host_gl_none.c` as a no-op that says so once. No run's log has "is not
+answered".
+
+**The `HALO_PS5` branches, argued.**
+
+- `host_arch.c`: one branch for FreeBSD's `mcontext` (`mc_rip`, `mc_rsp`,
+  `mc_rbp`, the general registers, `mc_rflags`, `mc_err`, `mc_trapno`), and
+  one for `host_arch_read_memory`, which on Linux copies through
+  `process_vm_readv` and here asks `sceKernelQueryMemoryProtection` (one
+  system call a region, no lock) whether each page is readable before the
+  copy. 53 lines added, of 214: under a third.
+- `host_debug.c`: **a PS5 file instead**, `port/ps5/host/host_debug_ps5.c`.
+  Its sampler and profiler send signals with `tgkill` and
+  `rt_tgsigqueueinfo` and read `/proc`, none of which a title has; compiled
+  out they would be about 400 of its 481 lines, over the third. The PS5
+  file keeps the thread bookkeeping, answers both "not on the PS5", and is
+  where each guest thread sets its floating point mode
+  (`host_debug_thread_started` is the first thing `host_thread.c`'s threads
+  do).
+- **Android's and Linux's objects**: `host_arch.c.o` and `host_debug.c.o` of
+  `build/android` and `build/linux_x86_64` were saved before the change and
+  rebuilt after. `host_debug.c.o` is identical (its source did not change).
+  `host_arch.c.o` differs only in `.debug_line` (2 and 1 bytes longer), and
+  is identical byte for byte with the debug information stripped
+  (`llvm-objcopy --strip-debug`): its code and data are unchanged. Clang
+  writes the source's MD5 into DWARF 5's line table, so no change to a
+  source can leave a `-g` object identical. The Switch compiles neither
+  file.
+
+**Unexpected, and what was done about it:**
+
+- **The guest's pages are 4 KB, the console's 16 KB.** The guest's musl is
+  built for 4 KB pages whatever the boot block says; its malloc
+  `mprotect`s single 4 KB pages, which the console refuses with `EINVAL`, so
+  `calloc`, and with it `pthread_create`, failed (run 1's "Could not start
+  the extraction"). `host_memory.c` keeps the guest's pages in 4 KB, as
+  Android's does, with a protection byte each, and gives each 16 KB system
+  page the union of its four: a guard page that shares a system page with
+  memory in use stays accessible, and nothing in use is ever made
+  inaccessible. `host_low_map` hands out whole system pages, so the host's
+  own 16 KB guard pages (`host_thread.c`) never reach a neighbour. A run of
+  equal protections is one `mprotect` call.
+- **`debug.exit_after` turns the first start's extraction off.**
+  `platform_offer_game_data` (`sdl_platform.c`) offers nothing to "runs
+  nobody is watching" (`debug.hidden_window` or `debug.exit_after`). So the
+  first start cannot both extract and exit at 60 s, as step 1 of "Testing
+  on the console" expected: it ran without `exit_after` and was killed at
+  the menu (run 3); the exit at 60 s is the second start's (runs 4 and 9).
+- **`HALO_DATA_ROOT` is not set.** The plan's environment had it, but it is
+  `paths.data`, which skips the search beside the executable and with it
+  the offer to extract (`xbox_files.c`). The game finds `/data/halo` itself
+  through `/proc/self/exe` (answered `/data/halo/halo`). `HOME`,
+  `XDG_DATA_HOME`, `HALO_SAVE_ROOT` and `TZ` are set as planned.
+- **55 imports the plan did not list**: `posix.h`'s helpers
+  (`hostposix_*`), which the desktop guest imports and the Linux host
+  compiles from `port/linux/src/posix_*.c`. The file helpers are
+  `posix_files.c`, compiled for the PS5 as it is (it builds with
+  `-Werror`); the network, UPnP, DTLS, Discord and desktop ones are
+  `host_posix_none.c`, which answers as a machine whose network is down
+  (phase 6, the plan's nearest case), and the rest as Android's
+  `posix_net.c` does. The game said: `Internet play: cannot open its socket
+  ... it is off`.
+- **The audio stand-in drives the game's mixer.** The plan's stand-in took
+  pushed audio; the game's stream is a callback stream (`dsound_sdl.c`), so
+  a stream with a callback gets a thread with a guest stack that calls it a
+  period at a time at the stream's rate, as a device would. Without it the
+  game's voices would never drain. The plan's answers stay for a stream
+  without a callback.
+- **No window translation.** Android's `to_host` and `to_guest` move the
+  game's window addresses to where the window really is. The x32 guest is
+  built with the window movable and already passes real addresses (its first
+  `mmap` is at 0x90000000); with the window at 0x90000000 the translation
+  would have moved 0x90000000 to 0xa0000000. `host_memory.c` has none.
+- **Libc calls a title cannot make.** `fcntl(F_SETFD)` answers `EINVAL`
+  (now answered by the host: close-on-exec means nothing where no process
+  is started); `chdir("/data/halo")` answers `EPERM` (the guest's relative
+  paths are made absolute by `host_syscall.c`); `readlink` is not exported
+  (`readlinkat` answers `/proc/self/exe`, else `EINVAL` or the file's
+  error); `pipe2` and `dup3` are not exported (`pipe` and `dup2`, then the
+  flags), and the kernel keeps no `umask` for a title (the guest's is
+  remembered). Directories are read with `getdents`, which the platform
+  layer itself uses. FreeBSD 11 has no `O_DSYNC` (both sync flags are
+  `O_SYNC`). The plan's "the first 34 `errno` values agree" holds but for
+  11 (FreeBSD's `EDEADLK`, Linux's `EAGAIN`).
+- **The title saw no `/data/halo` once** (run 5): `stat` failed in a title
+  started 19 s after the previous one ended, and the next launch saw it.
+  The host now waits up to 2 s for the folder, and logs any wait.
+- **The link exported `__wrap_mmap`**, which the title converter refuses
+  ("native converter does not yet publish application exports"):
+  libkernel's stub defines `mmap`, so the wrap was exported to override it.
+  `visibility("hidden")` did not prevent it; a version script of our own,
+  `port/ps5/host/host_local.map`, makes both wraps local, as PS5_Vulkan's
+  recipe does for its bindings.
+- **`host_fatal`'s message box** is SDL3's `SDL_ShowSimpleMessageBox` in
+  `host_common.c`, which binds to SDL2's in this link, whose video is never
+  started (phase 0 B). The link wraps it (`--wrap=SDL_ShowSimpleMessageBox`)
+  into a system notification. `host_common.c` compiles against SDL3's
+  headers, now on the host's include path, unchanged.
+- **The game's end, seen from the PS5's files.** `host_exit` and
+  `host_fatal` are `host_common.c`'s and end in `_exit`; the PS5's log sink
+  recognises their last lines ("the game exited (", a fatal line) and writes
+  the reports, the hold and "the host ends" before returning to them.
+- **tomlc17 warns under the SDK's `math.h`** (`isnan`'s `_Generic` names
+  volatile types: `-Wunreachable-code-generic-assoc`). The warning is the
+  header's; `tomlc17.c` alone is compiled with it off.
+- **`tools/test_ps5_build.py` changed**, outside the allowed list: it named
+  `host_bootstrap.c.o` and `.S.o`, which this phase deletes, so its fake
+  tree and its list name the phase 2 host's objects and the wrap instead
+  (two lines). Without it the acceptance's tests could not pass.
+- **The deploy's printout drops identical consecutive lines** (its
+  de-duplication of klogsrv's doubled lines), so run 7's steady heartbeats
+  showed 33 of 60 there; `halo.log` has them all.
+- **The `SIGSYS` after the exit** is not in the captures: the follower stops
+  at "the host ends", before the kernel reports it.
+- **Descriptors 0 to 2 are open** when a title starts. The host would take
+  any that were not, so no guest file is given 1 or 2, whose writes go to
+  the log.
+- **The extraction writes at about 57 MB/s** (1774 MB in 31 s), three times
+  phase 0 B's 18 MB/s, which measured writes with an `fsync` each.
+- **The disc image was copied by the implementer**, on the user's
+  instruction (2026-10-18: "Put the image yourself"), from the PC's
+  `E:\Halo - Combat Evolved (USA) (Rev 2).xiso.iso` to `/data/halo` over
+  FTP: 3,625,713,664 bytes in 46 s, the size checked.
+- **Tests**: `pytest -q tools/test_ps5_host.py tools/test_ps5_build.py
+  tools/test_host_units.py tools/test_host_syscall.py`: 15 passed, 1
+  skipped (`test_x32_boundary`: it wants an unversioned `ld.lld`,
+  `llvm-objcopy` and `llvm-nm`, which this machine has only as `-22`; the
+  skip is not new). `ninja linux_x86_64` builds.
 
 ### Phase 1 — audit (2026-10-18)
 

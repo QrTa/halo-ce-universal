@@ -1,9 +1,11 @@
 # PS5
 
 `ninja ps5` builds the game for a jailbroken PlayStation 5, as a homebrew
-title. This is the port's first phase (`PS5.md`, the plan): the build, the
-deploy, and a host that loads the game and follows its start-up as far as
-the first thing it asks of SDL. The game does not run yet.
+title. This is the port's second phase (`PS5.md`, the plan): the game runs
+headless. From a data folder holding only the game's disc image it extracts
+its maps, loads the main menu and runs its loop at 60 frames a second, with
+nothing on the TV, no pad and no sound yet (the pad and sound are phase 3,
+the picture phase 4).
 
 The game is the x32 guest image of `ninja linux_x86_64`
 (`port/linux/README.md`, "64-bit x86"): the decompilation compiled as 32-bit
@@ -78,9 +80,53 @@ the kernel log of the run. `--host` names another console;
 `tools/ps5_deploy.py --help` lists the actions one at a time (`upload`,
 `launch`, `kill`, `status`, `follow`, `fetch`).
 
-## Game data and the log
+## Game data
 
-The title's data folder is `/data/halo`, made over FTP. In this phase the
-host only lists it. The log is `/data/halo/halo.log` (or `halo.log` in the
-title's folder when there is no `/data/halo`), and every line goes to the
-kernel log too, prefixed `halo: `.
+The game's data folder is `/data/halo`; make it over FTP and put the game's
+Xbox disc image (`.iso` or `.xiso`) in it. On the first start the game finds
+no `maps` folder there and extracts it from the image (about 1.8 GB, half a
+minute): the desktop game asks whether to and which image, and on the PS5
+the host answers "Yes" and the first `.iso` or `.xiso` in `/data/halo`.
+After that the folder holds:
+
+- `maps/`, the extracted maps (the image can then be removed);
+- `config.toml`, the game's settings, written with the defaults on the
+  first start (`port/linux/README.md` describes them);
+- `save/`, the saves;
+- `debug.txt`, the game's own log, and `halo.log`, the host's.
+
+## The log
+
+The host's log is `/data/halo/halo.log` (or `halo.log` in the title's folder
+when there is no `/data/halo`), and every line goes to the kernel log too,
+prefixed `halo: `. It has the ranges of memory the game was given, the
+game's own output (`game: `), the files the extraction writes, the maps
+opened, and every 5 s a heartbeat: the frames swapped, their mean and
+longest time, and every minute the host's heap and the console's free
+direct memory. When the game ends it lists the system calls it asked for
+and did not get, the OpenGL names it called, and the memory figures, then
+`the host ends`. After that the kernel log reports a `SIGSYS` for the
+title: every PS5 title that exits gets one (`PS5.md`, phase 0 B), and it
+means nothing more.
+
+A crash is reported in the log with the signal, the registers and the
+return addresses of the stack; an address in the game is looked up with
+`addr2line -e build/ps5/halo_guest_vk.elf`, one in the host in
+`build/ps5/host/eboot.elf.map`.
+
+## What runs, and what does not yet
+
+- Runs: the game's start-up, the first start's extraction, the main
+  menu's map and its loop, paced to the display's 59.94 Hz; settings,
+  saves and the game's files in `/data/halo`; the game's sound mixer, on a
+  device's clock with nothing played.
+- Not yet: the picture (every draw is dropped until the Vulkan renderer is
+  brought up, phase 4), the pad and sound (phase 3), the network (phase 6:
+  the game starts with it down), and the desktop's self-updater, which a
+  console title does not have (it is updated by installing it again).
+
+For the deploy's tests, two files in the title's folder change a run:
+`hold.txt` (`--hold`) keeps the title for 120 s after the game ends, and
+`environment.txt`, `NAME=VALUE` lines, gives the game settings through its
+environment (`HALO_EXIT_AFTER=60` ends it after a minute; the settings'
+variables are in `port/linux/README.md`).
