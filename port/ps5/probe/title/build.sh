@@ -15,8 +15,15 @@
 #
 # The probe folder holds its C and assembly sources and param.json, and
 # optionally prebuild.sh, run with the build's work folder (where it may
-# write headers the sources include), and title-files.list, files of this
-# repository (one path a line) copied into the title's folder. The title is made
+# write headers the sources include), title-files.list, files of this
+# repository (one path a line) copied into the title's folder, and
+# build-extra.sh, sourced after this script has set its variables and before
+# it compiles, which may append to the arrays extra_cflags (C sources),
+# extra_cxxflags (C++: the runtime and any .cpp of the probe), extra_objects
+# and extra_link (inputs and flags for prospero-lld, after the probe's
+# objects) and extra_stubs (stub libraries ps5-native-tool link is given
+# besides the SDK's), and may replace linker_script (prospero-lld's -T and
+# its search paths). The title is made
 # in build/ps5/probe/<TITLE_ID>/; copy that folder to
 # /data/homebrew/<TITLE_ID>/ on the console over FTP and start it from the
 # home screen (ShadowMountPlus lists it). Results are written beside it, in
@@ -62,12 +69,21 @@ fi
 [[ ! -x $probe/prebuild.sh ]] || "$probe/prebuild.sh" "$work"
 
 cc() { PS5_PAYLOAD_SDK="$sdk" sh "$vulkan/tooling/prospero-clang18" "$@"; }
+extra_cflags=()
+extra_cxxflags=()
+extra_objects=()
+extra_link=()
+extra_stubs=()
+linker_script=(-T "$native/ps5-pie.ld")
+# shellcheck disable=SC1091
+[[ ! -f $probe/build-extra.sh ]] || source "$probe/build-extra.sh"
+
 cflags=(-std=c11 -O2 -g -Wall -Wextra -Werror -ffunction-sections -fdata-sections
     -I "$repository/port/ps5/probe/title" -I "$repository/port/android/include" -I "$work")
 objects=()
 for source in "$probe"/*.c "$repository/port/ps5/probe/title/probe_report.c"; do
     object="$work/obj/$(basename "$source").o"
-    cc "${cflags[@]}" -c "$source" -o "$object"
+    cc "${cflags[@]}" "${extra_cflags[@]}" -c "$source" -o "$object"
     objects+=("$object")
 done
 for source in "$probe"/*.S; do
@@ -77,19 +93,31 @@ for source in "$probe"/*.S; do
     objects+=("$object")
 done
 cxxflags=(-std=c++20 -O2 -Wall -Wextra -fno-exceptions -fno-rtti -ffunction-sections -fdata-sections)
+cxxflags+=("${extra_cxxflags[@]}")
+for source in "$probe"/*.cpp; do
+    [[ -e $source ]] || continue
+    object="$work/obj/$(basename "$source").o"
+    cc "${cxxflags[@]}" -I "$repository/port/ps5/probe/title" -c "$source" -o "$object"
+    objects+=("$object")
+done
 cc "${cxxflags[@]}" -c "$native/app_crt.cpp" -o "$work/obj/app_crt.o"
 cc "${cxxflags[@]}" -c "$native/app_cpp_runtime.cpp" -o "$work/obj/app_cpp_runtime.o"
 
-"$sdk/bin/prospero-lld" -T "$native/ps5-pie.ld" --eh-frame-hdr \
+"$sdk/bin/prospero-lld" "${linker_script[@]}" --eh-frame-hdr \
     --version-script "$native/app-symbols.map" --exclude-libs=ALL \
     -e _start -o "$work/llvm-pie.elf" \
-    "$work/obj/app_crt.o" "$work/obj/app_cpp_runtime.o" "${objects[@]}" \
+    "$work/obj/app_crt.o" "$work/obj/app_cpp_runtime.o" "${objects[@]}" "${extra_objects[@]}" \
+    "${extra_link[@]}" \
     "$sdk/target/lib/libps5platform.a" \
     --as-needed "$sdk"/target/lib/*.so
 # (the loader constants PS5_Vulkan's titles use, validated on firmware 6.02
 # and 12.70)
+stub_arguments=()
+for stub in "${extra_stubs[@]}"; do
+    stub_arguments+=(--stub "$stub")
+done
 "$tool" link --in "$work/llvm-pie.elf" --out "$work/eboot.elf" --stub-dir "$sdk/target/lib" \
-    --module-sdk 0x02000009 --companion-sdk 0x08050001 --file-name eboot.elf
+    "${stub_arguments[@]}" --module-sdk 0x02000009 --companion-sdk 0x08050001 --file-name eboot.elf
 
 rm -rf -- "$app"
 mkdir -p "$app/sce_sys" "$app/sce_module"
