@@ -78,10 +78,11 @@ void host_sdl_scancode_name(int scancode, char *buffer, unsigned int size);
 int host_sdl_scancode_from_name(const char *name);
 int host_sdl_show_toast(const char *message, int duration, int gravity, int x, int y);
 int host_sdl_show_simple_message_box(unsigned int flags, const char *title, const char *message);
-/* SDL_ShowMessageBox of up to three buttons (SDL_MessageBoxData has not the
-guest's layout): the index of the one chosen, else -1 */
-int host_sdl_show_message_box(unsigned int flags, const char *title, const char *message, int default_index,
-	const char *button0, const char *button1, const char *button2);
+/* SDL_ShowMessageBox: the question as guest_sdl.c's struct message_box (the
+host's struct host_message_box), since SDL_MessageBoxData has not the
+guest's layout and a call of seven arguments would put a pointer on the
+stack; 1 and the button chosen in the structure, else 0 */
+int host_sdl_show_message_box(void *box);
 int host_sdl_get_gamepads(unsigned int *ids, int capacity);
 unsigned int host_sdl_open_gamepad(unsigned int id);
 unsigned int host_sdl_gamepad_from_id(unsigned int id);

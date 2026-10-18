@@ -613,32 +613,37 @@ int host_sdl_show_simple_message_box(uint32_t flags, const char *title, const ch
 
 /* ---------- a question for the player (the mods at startup: port_mods.c) */
 
-int host_sdl_show_message_box(uint32_t flags, const char *title, const char *message, int default_index,
-	const char *button0, const char *button1, const char *button2)
+/* 1 and the button chosen in box->chosen, else 0 (the structure: host.h) */
+int host_sdl_show_message_box(struct host_message_box *box)
 {
-	const char *labels[3] = { button0, button1, button2 };
-	SDL_MessageBoxButtonData buttons[3];
+	SDL_MessageBoxButtonData buttons[HOST_MESSAGE_BOX_BUTTONS];
 	SDL_MessageBoxData question;
-	int count = 0;
+	const char *texts = (const char *)(uintptr_t)box->button_texts;
+	uint32_t used = 0;
 	int answer = -1;
 	int index;
 
-	for (index = 0; index < 3; index++)
+	if (box->button_count < 0 || box->button_count > HOST_MESSAGE_BOX_BUTTONS)
+		return 0;
+	for (index = 0; index < box->button_count; index++)
 	{
-		if (!labels[index])
-			continue;
-		buttons[count].flags = index == default_index ?
-			SDL_MESSAGEBOX_BUTTON_RETURNKEY_DEFAULT | SDL_MESSAGEBOX_BUTTON_ESCAPEKEY_DEFAULT : 0;
-		buttons[count].buttonID = index;
-		buttons[count].text = labels[index];
-		count++;
+		const char *end = used < box->button_texts_size ? memchr(texts + used, 0, box->button_texts_size - used) : NULL;
+
+		if (!end)
+			return 0;
+		buttons[index].flags = (SDL_MessageBoxButtonFlags)box->button_flags[index];
+		buttons[index].buttonID = box->button_ids[index];
+		buttons[index].text = texts + used;
+		used = (uint32_t)(end - texts) + 1;
 	}
-	question.flags = (SDL_MessageBoxFlags)flags;
-	question.window = NULL;
-	question.title = title;
-	question.message = message;
-	question.numbuttons = count;
+	memset(&question, 0, sizeof(question));
+	question.flags = (SDL_MessageBoxFlags)box->flags;
+	question.title = (const char *)(uintptr_t)box->title;
+	question.message = (const char *)(uintptr_t)box->message;
+	question.numbuttons = box->button_count;
 	question.buttons = buttons;
-	question.colorScheme = NULL;
-	return SDL_ShowMessageBox(&question, &answer) ? answer : -1;
+	if (!SDL_ShowMessageBox(&question, &answer))
+		return 0;
+	box->chosen = answer;
+	return 1;
 }

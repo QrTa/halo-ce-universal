@@ -1404,16 +1404,10 @@ int host_sdl_show_simple_message_box(uint32_t flags, const char *title, const ch
 
 /* a question (the mods at startup: port_mods.c): the log, and no answer,
 which the guest takes as not able to ask */
-int host_sdl_show_message_box(uint32_t flags, const char *title, const char *message, int default_index,
-	const char *button0, const char *button1, const char *button2)
+int host_sdl_show_message_box(struct host_message_box *box)
 {
-	(void)flags;
-	(void)default_index;
-	(void)button0;
-	(void)button1;
-	(void)button2;
-	host_logf(HOST_LOG_WARN, "%s: %s", title, message);
-	return -1;
+	host_logf(HOST_LOG_WARN, "%s: %s", (const char *)(uintptr_t)box->title, (const char *)(uintptr_t)box->message);
+	return 0;
 }
 
 /* ---------- Android's on-screen touch controls (port/android/host/host_touch.c)

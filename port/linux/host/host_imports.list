@@ -34,7 +34,6 @@ host_sdl_render_clear
 host_sdl_render_fill_rect
 host_sdl_render_debug_text
 host_sdl_render_present
-host_sdl_show_message_box
 host_sdl_open_file_dialog
 host_update_download
 host_update_executable_path

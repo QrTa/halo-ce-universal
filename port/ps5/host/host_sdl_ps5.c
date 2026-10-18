@@ -642,24 +642,6 @@ int host_sdl_show_simple_message_box(uint32_t flags, const char *title, const ch
 	return 1;
 }
 
-/* guest_desktop.c's struct message_box, host_desktop.c's */
-#define MESSAGE_BOX_BUTTONS 8
-
-struct host_message_box
-{
-	uint32_t flags;
-	uint32_t title;
-	uint32_t message;
-	int32_t button_count;
-	int32_t button_flags[MESSAGE_BOX_BUTTONS];
-	int32_t button_ids[MESSAGE_BOX_BUTTONS];
-	uint32_t button_texts;
-	uint32_t button_texts_size;
-	int32_t chosen;
-};
-
-typedef char host_message_box_size_check[sizeof(struct host_message_box) == 92 ? 1 : -1];
-
 /* set when the file dialog found no disc image to answer with: the game asks
 its question again, and is answered "No" this time, so it quits rather than
 asking forever (sdl_platform.c's platform_offer_game_data) */
@@ -674,7 +656,7 @@ int host_sdl_show_message_box(struct host_message_box *box)
 	size_t used = 0, listed = 0;
 	int index, chosen = 0;
 
-	if (box->button_count < 1 || box->button_count > MESSAGE_BOX_BUTTONS)
+	if (box->button_count < 1 || box->button_count > HOST_MESSAGE_BOX_BUTTONS)
 		return 0;
 	buttons[0] = 0;
 	for (index = 0; index < box->button_count; index++)
