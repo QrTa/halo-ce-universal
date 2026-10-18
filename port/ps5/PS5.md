@@ -27,7 +27,7 @@ are moved to the end of phase 4, to be made with the picture. Phase 4 is
 done and reviewed: the game draws through the Android port's Vulkan
 renderer on RADV, the menus and campaign levels on the TV as on Android, at
 59.94 or 119.88 frames a second, with phase 3's runs made with the user at
-the console ("Progress"). Phase 5, the network (the phases were swapped), is done and reviewed: the console hosts and joins system link games and joins internet games through the brokers and the tunnel, and downloads shared maps. Phase 6 is next, to be written out. The probes are
+the console ("Progress"). Phase 5, the network (the phases were swapped), is done and reviewed: the console hosts and joins system link games and joins internet games through the brokers and the tunnel, and downloads shared maps. Phase 6 is written out in detail and ready to be handed over. The probes are
 in `port/ps5/probe`.
 
 ---
@@ -2172,38 +2172,235 @@ map sharing working; and a ten-minute unattended match's figures for phase
 
 ## Phase 6 — playing on the console
 
-What makes it a port rather than a demo:
+(Swapped with the network, phase 5, on 2026-10-18: performance is measured
+in a match now that the console hosts and joins them.)
 
-- **The first start on the TV**: the extraction of `maps/` from the disc
-  image runs since phase 2; this adds what the player sees while it does
-  (the desktop draws its progress through SDL's 2D renderer, a stand-in
-  here: a notification per step, or the renderer's own clear-and-text), and
-  what they see when `/data/halo` holds no disc image at all.
-- **Saves and settings** in `/data/halo`; the console-specific settings
-  (the display width, native 4K as an option) and their rows in
-  `port_config.c`.
-- **The PS button**: phase 0 B found that the title keeps running and
-  presenting while the system's menu is up, the swapchain stays valid,
-  `sceSystemServiceReceiveEvent` delivers nothing, and only two flags tell:
-  the pad's `intercepted` bit and `isSystemUiOverlaid` from
-  `sceSystemServiceGetStatus`. So the host pauses the game and stops
-  reading the pad while either is set, and resumes when both clear. Rest
-  mode and a closed title are tried here, with the log read afterwards.
-- **Performance**, measured in a match now that phase 5 gives one: the
-  game thread's milliseconds a frame in a busy scene, the present at 4K,
-  the shader compile thread's effect on the first minutes, the pipelines
-  built at their draw (phase 4's audit); 60 frames a second held in a
-  match, as the deko3d plan's phase 7 held it, with the headless network
-  test's per-second lines as the unattended measure.
-- **Split screen**: a second controller and user (`scePadOpen` for each
-  logged-in user), tried in a local match.
-- **A long session**: a campaign level played start to end; a match of
-  twenty minutes; the memory the host takes over it (the platform heap's
-  peak and direct memory's free block, logged every minute: the heap never
-  shrinks, so its peak is what the session costs).
+Written to be picked up by an agent that has not seen the work so far. Read
+first, in this order: this plan's "Decisions", "Where the port lives" and
+"How this plan is worked"; the "Carried into" lists of phases 2, 3, 4 and 5
+under "Progress" (each item of this phase comes from one of them: the
+overlay's flags and the title starting overlaid, the pad's silent removal,
+the pipelines built at their draw, the 120 Hz check, the heap's growth, the
+4 KB guard pages, the deploy's run folders, the ten-minute match); then
+the code. `tools/ps5_deploy.py` whole (the follower and the run's folders,
+fixed first), `port/ps5/host/host_sdl_ps5.c` (the window stand-in's size,
+the heartbeat, the dialogs and the 2D renderer stand-ins: the first start's
+progress text passes through `host_sdl_render_debug_text`),
+`host_sdl_ps5_input.c` (the overlay check, the pad listing, the `pad:`
+line), `host_vk_screenshot_ps5.c` (the cap), `host_main.c`;
+`port/android/host/host_vk_shaders.c` (`compile_thread`'s priority, which
+the PS5 branch leaves at the game's; `host_vk_pipeline_find`, which builds
+a missing pipeline at its draw), `port/linux/src/port_config.c` (the
+settings table: `_platform_*` flags and how a build's platform is chosen;
+the guest is compiled with `HALO_PS5`, so a PS5 platform is possible),
+`port/linux/src/sdl_platform.c` around `SDL_EVENT_WINDOW_FOCUS_LOST` and
+`platform_offer_game_data` (the extraction's offer and its progress
+screen), `source/main/main.c` and `port/linux/game/menu_tags.c` where the
+campaign's pause screen is opened (`pause_game`, the Start button's path);
+`port/linux/game/network_test.c` (the bots: `debug.test_input`, and the
+per-second lines); the SDK fork's `platform/src/probe_threads.c` (how a
+thread's priority is set on the console: `pthread_setschedparam`); and
+PS5_Vulkan's `docs/HARDWARE_FINDINGS.md` where it names rest mode or
+suspend, if it does. The work is reviewed against the acceptance list at
+the end of this phase.
+
+### What this phase is, and is not
+
+- **It is** what makes the console build a port rather than a demo: the
+  deploy fixed so long sessions can be measured; the ten-minute match that
+  phase 5 left as phase 6's first figures; the first start seen on the TV;
+  the PS5's own settings rows; the PS button pausing a single-player game;
+  rest mode tried; the pad's arrival and removal noticed; split screen with
+  a second pad; native 4K as a setting; the compile thread below the game's
+  priority; and the long sessions, a campaign level start to end and a
+  twenty-minute match, with the memory and frame figures that say whether
+  the port holds.
+- **It is not** the microphone (the console's own voice is phase 7's
+  question, if at all), internet hosting or UPnP (phase 5's, open until a
+  network allows), or new rendering work: RADV's gaps stay as recorded.
+- **Shared code is used as it is.** Two shared files change, each behind
+  `HALO_PS5` and argued: `port_config.c` gains a PS5 platform flag and the
+  rows that need it (below), and `host_vk_shaders.c`'s compile thread
+  takes a priority of the console's. Android's, Linux's and the Switch's
+  builds must not change: the preprocessed form of each under their defines
+  is compared, as phases 4 and 5 did (the Switch compiles `port_config.c`
+  too).
+
+### Files
+
+| File | What |
+|---|---|
+| `tools/ps5_deploy.py` | the follower ends when `status` says the title is no longer running (polled every 2 s once the host's lines have begun), not only at the host's last line or the timeout; a run's folder is made at its launch and nothing of a later run is ever written into it; `--run --minutes N` for a long run: follows for N minutes, fetching the screenshots every 5 minutes into the run's folder (so the console's cap loses none), then kills the title and fetches; `fetch` also brings `/data/halo/debug.txt` (the game's own log) |
+| `port/ps5/host/host_vk_screenshot_ps5.c` | the cap becomes 200 (the deploy fetches during a run) |
+| `port/linux/src/port_config.c` | `_platform_ps5` (32) and the PS5 as the running platform under `HALO_PS5`; rows (below): `display.ps5_resolution`, and `_platform_ps5` added to `debug.vk_self_test`, `debug.vk_present_marker`, `debug.gpu_stats` and `debug.vk_validation` (harmless) so `config.toml` keeps them; the README's settings table gets the new row |
+| `port/ps5/host/host_sdl_ps5.c` | the window's size from `display.ps5_resolution` (1920x1080, or 3840x2160: read by the host from `config.toml` as it reads its debugging settings); the first start's progress as notifications; the heartbeat's frame-time buckets (below) |
+| `port/ps5/host/host_sdl_ps5_input.c` | the pad's arrival and removal by polling `SDL_NumJoysticks` once a second when no event said so, synthesising the events; the PS button's pause (below); the start-up overlay told apart from the player's |
+| `port/ps5/host/host_main.c` | the no-disc-image case: a notification saying where to put it, and the title ends; `display.ps5_resolution` read |
+| `port/android/host/host_vk_shaders.c` | `HALO_PS5`: the compile thread lowered with `pthread_setschedparam` (the console's `SCHED_OTHER` range, as the fork's probe sets it), instead of Linux's `setpriority` |
+| `port/ps5/README.md` | the settings, the PS button, split screen, rest mode, the first start, the figures |
+
+### The work, in order
+
+1. **The deploy first.** Phases 4 and 5 lost run logs to the follower
+   outliving a killed run and to the screenshot cap. Fix as the Files table
+   says, and prove it: a `--run --minutes 2` whose title is killed from
+   another shell at one minute ends its follower within a few seconds and
+   fetches into its own folder; the next `--run` starts a new folder with
+   nothing of the first. Then the ten-minute match (step 2) uses it.
+
+2. **The ten-minute match, unattended** (phase 5's item 7): the console
+   hosts `HALO_NETWORK_TEST=host:bloodgulch` with its bot
+   (`HALO_TEST_INPUT` wandering), the user's other machine joins with its
+   bot (`join`), `--run --minutes 11`. From it: the heartbeat's frames a
+   second and its new buckets (frames over 20 ms and over 33 ms per
+   window), the renderer's counters, the compile thread's totals, the
+   heap's figures every minute and direct memory's free block, both
+   machines' per-second lines. These are the baseline every later step is
+   measured against; put them in a table under "Progress".
+
+3. **The frame-time buckets** in the heartbeat (`host_sdl_ps5.c`): beside
+   the mean and the longest, the count of frames over 20 ms and over 33 ms
+   in the window (at 120 Hz, over 10 and 17 ms too, scaled from the
+   display's rate), so a hitch shows as a count, not a single longest.
+   Done before step 2 so the baseline has them.
+
+4. **The compile thread's priority** (`host_vk_shaders.c`, `HALO_PS5`):
+   `pthread_setschedparam` to below the game thread's, as the fork's
+   `probe_threads.c` shows the console accepts; log the policy and
+   priorities it got. Measure in the match's first minute (cold caches,
+   `/data/halo/vk_cache` and `radv-shader-cache` removed once for this)
+   against step 2's first minute: the buckets with and without.
+
+5. **The pipelines built at their draw** (phase 4's audit): on a cold
+   cache a first sight costs a frame 150 to 200 ms; warm, under 1 ms. Record
+   the cold first minute's buckets (step 4 gives them) and the warm one's.
+   If the cold hitches are worse than Android's (the Vulkan plan's
+   "Progress" has its figures), say so; do not change the shared code's
+   choice in this phase.
+
+6. **The first start on the TV.** The extraction runs with nothing drawn:
+   the guest draws its progress through the 2D renderer stand-ins, whose
+   `render_debug_text` already carries the text (`ui.map (1748 of 1774 MB)`,
+   phase 2). The host turns it into notifications: one when the extraction
+   starts (the image's name), one at every 10 %, one when `maps/` is in
+   place, through `sceKernelSendNotificationRequest`, and the heartbeat
+   line says the stand-in renderer is in use. When `/data/halo` holds no
+   disc image: the file dialog fails as now, and the host sends one
+   notification ("put the game's disc image (.iso or .xiso) in /data/halo
+   over FTP and start again") and ends the title after the game's own
+   message box, instead of the game asking forever. Tried from a `/data/halo`
+   emptied of `maps/` with the image, and once without the image (the user
+   moves the image aside and back).
+
+7. **The settings** (`port_config.c`, `HALO_PS5`): `_platform_ps5`, the
+   running platform under `HALO_PS5`, and the rows. `display.ps5_resolution`
+   is `"1080p"` (the default; the game draws at 1920x1080 and the present
+   scales to 4K) or `"2160p"` (the stand-in window becomes 3840x2160 and the
+   game draws at 4K). The host reads it from `config.toml` as it reads
+   `debug.vk_*` (and the environment's `HALO_PS5_RESOLUTION` for the
+   deploy's tests). Measure the match at 2160p against step 2 (the buckets,
+   the frames a second at 60 and at 120 Hz if the TV takes it, the GPU's
+   share if the counters give it); record whether 4K holds 60. The in-game
+   Settings menus are not changed in this phase (the Android ones are
+   Android's); the setting is `config.toml`'s.
+
+8. **The PS button.** Phase 3 and 4 found: the title runs on under the
+   system's menu, the overlay flags tell, the pad reads nothing meanwhile,
+   and the title starts overlaid for about 6 s. So: the start-up overlay
+   is told apart (the flag set before the game's first frame, cleared
+   without a player's doing) and is not a pause; a later overlay in a
+   **single-player** game opens the campaign's pause screen the way the
+   Start button does (the host presses Start for one frame when the
+   overlay comes up and the game is in a campaign level: the simplest way
+   that needs no guest change; `menu_tags.c`'s `pause_game` and `main.c`'s
+   `ui_widgets_disable_pause_game` say what the screen is and when it is
+   refused), and in a multiplayer game nothing (a match cannot pause). On
+   return the player resumes from the pause screen themselves. Tried in a
+   level and in a match, with the PS button and with the Quick Menu; the
+   log's `overlay:` lines and what the TV showed.
+
+9. **Rest mode**, once at the menu and once in a level: the console put to
+   rest with the title running, then woken. What the log shows (the frames
+   stopping, the swapchain out of date, the audio device), whether the game
+   is where it was, and whether the title survived at all. If the process
+   is killed, the pipeline cache's last save and the game's saves are what
+   survive: say so in the README. Nothing is built on it unless something
+   small (re-making the swapchain, reopening the audio device) brings it
+   back.
+
+10. **The pad's arrival and removal.** SDL2 reports neither when a pad is
+    switched off from the Quick Menu (phase 4). The host polls
+    `SDL_NumJoysticks` once a second; a change with no event is logged and
+    the `GAMEPAD_REMOVED`/`ADDED` event synthesised with the instance id,
+    so the game lists its pads again. Tried: the pad off and on at the menu
+    and in a level (the game's `gamepads:` lines, the menus answering).
+
+11. **Split screen.** A second DualSense paired to the console (the user
+    signs a second user in, or not: try both; the console names a pad
+    after its user). What SDL2 lists (`gamepads:` lines, the types), what
+    the game opens (two ports), a local two-player match on Blood Gulch
+    from the menus (the user's second pad in hand, or a friend's), five
+    minutes; the counters and buckets with two viewports. If a second pad
+    is not listed without a second user, say what the console wants.
+
+12. **The long sessions**, with the deploy's `--minutes`:
+    - a twenty-minute match, unattended, as step 2 (the user's other
+      machine's bot joining): the heap every minute (it grew from 160 to
+      240 MB in phase 4's session; its peak is permanent), direct memory's
+      free block, the buckets, no fault, the counters; the `-ENOSYS` counts
+      and the GL names at the end;
+    - a campaign level played by the user start to end (The Pillar of
+      Autumn, 20 to 30 minutes): the picture judged, the buckets, the loads
+      between its sections (cold map reads: phase 2 could not measure
+      them), the heap;
+    - an hour at the main menu, unattended: the heap and the frames.
+    The 4 KB guard-page weakness (phase 2) has no test but these: a guest
+    stack overflow would corrupt its neighbour silently; any oddity in the
+    long sessions is looked at with that in mind.
+
+### Acceptance
+
+The review checks each of these:
+
+1. `ninja ps5` builds with `-Werror`; `ninja linux_x86_64` builds; the
+   preprocessed `port_config.c` and `host_vk_shaders.c` under Android's,
+   Linux's and the Switch's defines (where each compiles the file) are
+   unchanged; the four test files pass; no weak host symbol stands.
+2. The deploy's fix proved as step 1 says, and every run folder of this
+   phase holds only its own run's files.
+3. The ten-minute baseline table under "Progress", with both machines'
+   per-second lines quoted for one minute and agreeing.
+4. The first start: notifications seen (the user), `maps/` extracted from
+   an emptied folder; the no-image case ending the title with its message.
+5. `display.ps5_resolution` round-trips through `config.toml` (the game's
+   rewrite keeps it), 2160p draws at 3840x2160 (the renderer's target size
+   in the log, a screenshot), and the figures at both are in the table.
+6. The PS button: the pause screen opens in a level, nothing happens in a
+   match, the start-up overlay pauses nothing; the `overlay:` lines quoted.
+7. Rest mode's result recorded both ways (survived, or not, and what
+   came back).
+8. The pad off and on noticed by the game both at the menu and in a level.
+9. Split screen: a two-player local match played, or the console's
+   requirement for a second pad named.
+10. The long sessions' figures: twenty minutes' heap and buckets, the
+    campaign level's loads and play, the hour's heap; no fault, or the
+    fault's report.
+11. "Progress" has: the `HALO_PS5` branches argued with their line counts
+    and the preprocessing check, the compile thread's priorities and
+    their effect, the cold and warm first minutes, 4K's figures, rest
+    mode, split screen's listing, and anything unexpected.
+12. Nothing changed outside `port/ps5/`, `tools/ps5_deploy.py`, the two
+    shared files' `HALO_PS5` branches, and `port/linux/README.md`'s
+    settings table.
+
+Don't commit; the review does that. Record anything unexpected under
+"Progress", even if it was dealt with.
 
 **Ends with:** a campaign level played through and a split-screen match,
-on the console, from a fresh install with only the `.iso` in `/data/halo`.
+on the console, from a fresh install with only the disc image in
+`/data/halo`; the PS button pausing a level; and a table of the console's
+figures, at 1080p and 4K, in a ten-minute match and over twenty, that says
+the port holds 60 frames a second.
 
 ## Phase 7 — for players
 
