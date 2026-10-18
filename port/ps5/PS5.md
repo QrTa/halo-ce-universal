@@ -27,7 +27,7 @@ are moved to the end of phase 4, to be made with the picture. Phase 4 is
 done and reviewed: the game draws through the Android port's Vulkan
 renderer on RADV, the menus and campaign levels on the TV as on Android, at
 59.94 or 119.88 frames a second, with phase 3's runs made with the user at
-the console ("Progress"). Phase 5 is next, to be written out. The probes are
+the console ("Progress"). Phase 5, now the network (the phases were swapped), is next, to be written out. The probes are
 in `port/ps5/probe`.
 
 ---
@@ -75,11 +75,11 @@ settles the ones it names.
 | Texture write tracking | **`host_memory_watch_*`'s page protection and `SIGSEGV`**, with libc's `mprotect` on the window's direct memory (`sceKernelMprotect` behaves the same) and the handler on a `sigaltstack`. Why: on a thread whose stack is guest memory, a title gets the write fault with its full context (`si_code` 2, `si_addr` and `mc_addr` the address written, `mc_err` 7, `mc_trapno` 12), on the alternate stack, and the write completes after the handler unprotects the page; a protect, fault and unprotect cycle costs 63 µs a page; a read of unmapped memory comes with `si_code` 1, so `host_debug.c` can tell a crash from a watched page. |
 | Futexes | **`_umtx_op` with `UMTX_OP_WAIT_UINT_PRIVATE` (15) and `UMTX_OP_WAKE_PRIVATE` (16)**, the guest's futex operations mapped onto them as the table under "Progress" sets out. `UMTX_OP_WAIT` (2) compares 64 bits and is never used on the guest's 32-bit words. Why: `libkernel` exports `_umtx_op` to a title. The 32-bit wait and wake work on a word in the guest's pool from threads whose stacks are guest memory, and a wake reaches its waiter in 5 to 6 µs. The relative and absolute timeouts end in `ETIMEDOUT` at 100 ms. The private forms behave as the shared ones do, and need no shared key. |
 | A shader or pipeline not ready at a draw | **The draw is skipped** while it compiles on another thread, as the renderer already does. |
-| Game data | **`/data/halo`**, a folder the user fills over FTP: the disc image, from which the first start extracts `maps/` as the desktop build does (`sdl_platform.c`, `xiso.c`). The desktop asks through a message box and a file picker; on the PS5 the host answers the message box "Yes" and the picker with the `.iso` or `.xiso` it finds in `/data/halo`, so the extraction runs with no change to the guest and no screen (phase 2), and phase 5 only adds a progress display. `config.toml`, `save/` and the caches are beside the maps. `/app0` (the title's folder) holds only the build. |
-| Display | VideoOut's one mode, **3840x2160 at 59.94 Hz**, as the swapchain; the game renders at its `display` width (1080p by default) and the present blits and scales, as Android's does. Native 4K is a setting to try in phase 5. |
+| Game data | **`/data/halo`**, a folder the user fills over FTP: the disc image, from which the first start extracts `maps/` as the desktop build does (`sdl_platform.c`, `xiso.c`). The desktop asks through a message box and a file picker; on the PS5 the host answers the message box "Yes" and the picker with the `.iso` or `.xiso` it finds in `/data/halo`, so the extraction runs with no change to the guest and no screen (phase 2), and phase 6 only adds a progress display. `config.toml`, `save/` and the caches are beside the maps. `/app0` (the title's folder) holds only the build. |
+| Display | VideoOut's one mode, **3840x2160 at 59.94 Hz**, as the swapchain; the game renders at its `display` width (1080p by default) and the present blits and scales, as Android's does. Native 4K is a setting to try in phase 6. |
 | Logs | **A file in the data folder** (`halo.log`, as the Switch) and the kernel log (`sceKernelDebugOutText`, read with klogsrv on port 3232); faults reported with their registers as the Linux host does. |
 | Self-updater | **None**: `host_update_*` answer "unavailable", as a build without it. |
-| Networking | **Last** (phase 6): FreeBSD sockets through the host's system calls, the Switch's `host_net.c` the model. |
+| Networking | **Phase 5**, before the rest of play (swapped with it on 2026-10-18: a match is the busiest case and the headless network test measures it unattended): FreeBSD sockets through the host's system calls, the Switch's `host_net.c` the model. |
 | Licensing | PS5_Vulkan and its SDK fork are GPL-3.0-or-later; RADV comes from PS5_Mesa, whose licence (Mesa's, and PS5_Vulkan's additions) phase 7 reads and names. **Nothing of theirs is copied into this repository**; they are a build dependency at pinned commits, and the PS5 build is a GPL work as a whole. Its source is this repository **and** those three at their pinned commits: a released binary ships with a notice naming each repository, its commit and where to get it, and the pins in `tools/ps5_build.py` are what the notice is generated from. |
 | Testing | **The user's console** (192.168.2.157, system software 13.59) is what every phase is accepted on. Runs are started through **`ps5vkctl`** (PS5_Vulkan's resident payload, port 9111), which the user approved on 2026-10-17 after phase 0 B's item 9 proved it. It is loaded once per console boot through the user's payload manager (itsPLK's, port 8084: `/manage:upload`, then `/loadpayload:`), since the console's ELF loader on 9021 only takes local connections. Phase 1's deploy uploads, then launches and kills through it. A run that needs the user's hands (the pad, the PS button) is still announced first, so the user is at the console. |
 
@@ -136,7 +136,7 @@ rename):
 | `port/ps5/host/host_vk_null.c` | — | **phases 2 and 3 only**: the renderer's nine imports answered so that every draw is dropped and nothing waits; deleted in phase 4 |
 | `port/ps5/host/host_gl_none.c` | — | no OpenGL on the console: every `hostgl_*` name resolved to one counting no-op, the nine `host_gl_*` imports as no-ops |
 | `port/ps5/host/host_debug_ps5.c` | `port/android/host/host_debug.c` | in its place: the thread id (`pthread_getthreadid_np`), each guest thread's floating point mode, the thread bookkeeping; the sampler and profiler answer "not on the PS5" (phase 2: the Linux ones are most of the file) |
-| `port/ps5/host/host_posix_none.c` | `port/linux/src/posix_net.c`, `posix_upnp.c`, `posix_dtls.c` | **until phase 6**: `posix.h`'s network, UPnP, DTLS and Discord helpers answering as a machine whose network is down; `posix_files.c` is compiled as it is |
+| `port/ps5/host/host_posix_none.c` | `port/linux/src/posix_net.c`, `posix_upnp.c`, `posix_dtls.c` | **until phase 5**: `posix.h`'s network, UPnP, DTLS and Discord helpers answering as a machine whose network is down; `posix_files.c` is compiled as it is |
 | `port/ps5/host/host_local.map` | — | the link's version script: the wrapped names (`mmap`, `SDL_ShowSimpleMessageBox`) kept local, since the title converter refuses an export |
 | `port/ps5/tests/`, `tools/test_ps5_host.py` | `port/android/tests/`, `tools/test_host_units.py` | the PS5 host's pure parts tested on the PC |
 | `port/ps5/host/host_bootstrap.c`, `host_bootstrap.S` | the guest probe's section 6 | **temporary** (phase 1): the ranges, the loader, the thunks and the trivial answers that prove the build pipeline; phase 2 deletes them |
@@ -1898,7 +1898,26 @@ Don't commit; the review does that. Record anything unexpected under
 are under Vulkan on Android, driven by the pad and heard, with the frame
 rates and what RADV's known gaps change under "Progress".
 
-## Phase 5 — playing on the console
+## Phase 5 — networking
+
+(Phases 5 and 6 were swapped on 2026-10-18, the user's decision: a match is
+the game's busiest case and the headless network test gives performance
+figures without a person at the TV, so the network comes first and phase 6
+measures performance in multiplayer.)
+
+
+FreeBSD sockets through `host_syscall.c` (`socket`, `bind`, `sendto`,
+`recvfrom`, `poll`, the options the netcode sets, the address structures'
+layouts) and whatever `libSceNet` needs first; the Switch's `host_net.c`
+is the model, `port/linux/src/posix_net.c` compiled into the host as the
+Linux host does. System link on the LAN first, then internet play (the
+brokers, DTLS with mbedTLS in the host, UPnP, the server browser) and map
+sharing. The network version is the same code and does not change.
+
+**Ends with:** a system link game with the PC build and an internet game
+through a broker, each played for ten minutes.
+
+## Phase 6 — playing on the console
 
 What makes it a port rather than a demo:
 
@@ -1917,10 +1936,12 @@ What makes it a port rather than a demo:
   `sceSystemServiceGetStatus`. So the host pauses the game and stops
   reading the pad while either is set, and resumes when both clear. Rest
   mode and a closed title are tried here, with the log read afterwards.
-- **Performance**: the game thread's milliseconds a frame in a busy scene,
-  the present at 4K, the shader compile thread's effect on the first
-  minutes; 60 frames a second held in a match, as the deko3d plan's phase
-  7 held it.
+- **Performance**, measured in a match now that phase 5 gives one: the
+  game thread's milliseconds a frame in a busy scene, the present at 4K,
+  the shader compile thread's effect on the first minutes, the pipelines
+  built at their draw (phase 4's audit); 60 frames a second held in a
+  match, as the deko3d plan's phase 7 held it, with the headless network
+  test's per-second lines as the unattended measure.
 - **Split screen**: a second controller and user (`scePadOpen` for each
   logged-in user), tried in a local match.
 - **A long session**: a campaign level played start to end; a match of
@@ -1930,19 +1951,6 @@ What makes it a port rather than a demo:
 
 **Ends with:** a campaign level played through and a split-screen match,
 on the console, from a fresh install with only the `.iso` in `/data/halo`.
-
-## Phase 6 — networking
-
-FreeBSD sockets through `host_syscall.c` (`socket`, `bind`, `sendto`,
-`recvfrom`, `poll`, the options the netcode sets, the address structures'
-layouts) and whatever `libSceNet` needs first; the Switch's `host_net.c`
-is the model, `port/linux/src/posix_net.c` compiled into the host as the
-Linux host does. System link on the LAN first, then internet play (the
-brokers, DTLS with mbedTLS in the host, UPnP, the server browser) and map
-sharing. The network version is the same code and does not change.
-
-**Ends with:** a system link game with the PC build and an internet game
-through a broker, each played for ten minutes.
 
 ## Phase 7 — for players
 
