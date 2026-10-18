@@ -54,7 +54,7 @@ extern char const *config_string(char const *name);
 unsigned long system_milliseconds(void);
 
 /* the Master Chief Collection's skulls (Halopedia's MCC:Skulls), their help
-in two lines of the skulls screen's (42 characters at most) */
+on the skulls screen's help line, which wraps it (88 characters at most) */
 struct skull_description const skull_descriptions[NUMBER_OF_SKULLS] =
 {
 	{ "anger", "ANGER", "Enemies fire faster." },
@@ -190,7 +190,30 @@ void skulls_text_from_mask(unsigned long mask, char *text, unsigned int size)
 	}
 }
 
-/* the host's (or a game of one machine's) skulls, from its settings */
+int skulls_unlock_mode(void)
+{
+	char const *mode = config_string("game.skulls_unlock_mode");
+
+	if (mode && !_stricmp(mode, "all"))
+		return _skulls_unlock_all;
+	if (mode && !_stricmp(mode, "play"))
+		return _skulls_unlock_play;
+	return _skulls_unlock_unset;
+}
+
+unsigned long skulls_unlocked_mask(void)
+{
+	unsigned long everything = (1UL << NUMBER_OF_SKULLS) - 1;
+
+	if (skulls_unlock_mode() != _skulls_unlock_play)
+		return everything;
+	/* (Grunt Birthday Party the one had from the start) */
+	return (skulls_mask_from_text(config_string("game.skulls_unlocked")) | (1UL << _skull_grunt_birthday_party)) &
+		everything;
+}
+
+/* the host's (or a game of one machine's) skulls, from its settings: those
+turned on that it has */
 static unsigned long config_mask(void)
 {
 	struct network_game *game = network_game_get_game();
@@ -200,7 +223,7 @@ static unsigned long config_mask(void)
 	if (game && game->variant.game_engine_index != game_engine_none)
 		return 0;
 
-	return skulls_mask_from_text(config_string("game.skulls_active"));
+	return skulls_mask_from_text(config_string("game.skulls_active")) & skulls_unlocked_mask();
 }
 
 static void party_sound_add(void);

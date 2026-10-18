@@ -391,6 +391,7 @@ static char const *const port_function_names[] =
 	"randomizer profile save", "randomizer profile load", "randomizer start", "randomizer profile delete",
 	/* (the skulls screen, after a campaign level's difficulty) */
 	"skull toggle", "skulls all off", "skulls start", "skulls up", "skulls down", "skulls left", "skulls right",
+	"skulls unlock all", "skulls unlock play",
 };
 
 /* the PC version's game data functions that the Xbox's have not, from

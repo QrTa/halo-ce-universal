@@ -351,6 +351,30 @@
 		<on event="stick_right" run="skulls right"/>
 		<on event="left_mouse" run="mouse emit accept event"/>
 	</widget>
+	<widget name="main_menu/difficulty_select/skulls/unlock_screen" width="640" height="480" flags="pass_unhandled_to_focused_child pause_game" bitmap="bitmaps/gradient">
+		<on event="b" back="true"/>
+		<on event="back" back="true"/>
+		<child widget="main_menu/difficulty_select/skulls/header_skulls"/>
+		<child widget="main_menu/difficulty_select/skulls/unlock_text"/>
+		<child widget="main_menu/difficulty_select/skulls/unlock_menu"/>
+	</widget>
+	<widget name="main_menu/difficulty_select/skulls/unlock_text" type="text" controller="1" left="68" top="90" width="504" height="190" text="How should the skulls be unlocked?\n\nALL UNLOCKED: every skull can be turned on\nright away.\n\nUNLOCK BY PLAYING: Birthday Party is yours.\nEnemies carry the others: pick one up to\nuse it on that level, and finish the level\nto keep it. Die before then and it's lost." font="ui\small_ui" color="#FFFFFFFF">
+	</widget>
+	<widget name="main_menu/difficulty_select/skulls/unlock_menu" type="column_list" width="640" height="480" flags="pass_unhandled_to_focused_child up_down_tabs_children">
+		<child widget="main_menu/difficulty_select/skulls/unlock_all" x="64" y="296"/>
+		<child widget="main_menu/difficulty_select/skulls/unlock_play" x="64" y="328"/>
+		<child widget="common_button_cancel" x="510" y="415"/>
+	</widget>
+	<widget name="main_menu/difficulty_select/skulls/unlock_all" type="text" width="512" height="28" bitmap="bitmaps/option_bkds" text="ALL UNLOCKED" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
+		<on event="a" run="skulls unlock all"/>
+		<on event="start" run="skulls unlock all"/>
+		<on event="left_mouse" run="mouse emit accept event"/>
+	</widget>
+	<widget name="main_menu/difficulty_select/skulls/unlock_play" type="text" width="512" height="28" bitmap="bitmaps/option_bkds" text="UNLOCK BY PLAYING" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
+		<on event="a" run="skulls unlock play"/>
+		<on event="start" run="skulls unlock play"/>
+		<on event="left_mouse" run="mouse emit accept event"/>
+	</widget>
 	<widget name="main_menu/difficulty_select/skulls/button_cancel" type="text" width="128" height="24" bitmap="bitmaps/text_button_background" string_list="strings/common_button_captions" string_index="2" font="ui\small_ui" color="#FFFFFFFF" align="center" text_y="2">
 		<on event="a" run="mouse emit back event"/>
 		<on event="start" run="mouse emit back event"/>

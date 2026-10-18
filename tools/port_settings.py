@@ -833,6 +833,7 @@ def _skulls_screen() -> list:
                       '<on event="left_mouse" run="mouse emit accept event"/>', *moves])
     lines += _button(f"{base}/button_ok", 1, ['<on event="a" run="skulls start"/>',
                                               '<on event="start" run="skulls start"/>', *moves])
+    lines += _skulls_unlock_screen(base)
     # (Cancel as shell.xml's common_button_cancel, with the grid's moves)
     lines += _widget(f"{base}/button_cancel",
                      [("type", "text"), ("width", 128), ("height", 24), ("bitmap", "bitmaps/text_button_background"),
@@ -841,6 +842,53 @@ def _skulls_screen() -> list:
                      ['<on event="a" run="mouse emit back event"/>',
                       '<on event="start" run="mouse emit back event"/>',
                       '<on event="left_mouse" run="mouse emit back event"/>', *moves])
+    return lines
+
+
+# the question the skulls screen asks before it opens the first time
+# (menu_functions.c's "skulls unlock all" and "skulls unlock play")
+SKULLS_UNLOCK_TEXT = [
+    "How should the skulls be unlocked?",
+    "",
+    "ALL UNLOCKED: every skull can be turned on",
+    "right away.",
+    "",
+    "UNLOCK BY PLAYING: Birthday Party is yours.",
+    "Enemies carry the others: pick one up to",
+    "use it on that level, and finish the level",
+    "to keep it. Die before then and it's lost.",
+]
+
+
+def _skulls_unlock_screen(base: str) -> list:
+    """the question of how the skulls are had: every one now, or those found
+    playing; menu_functions.c then opens the skulls screen"""
+    lines = _widget(f"{base}/unlock_screen",
+                    [("width", 640), ("height", 480), ("flags", "pass_unhandled_to_focused_child pause_game"),
+                     ("bitmap", "bitmaps/gradient")],
+                    ['<on event="b" back="true"/>', '<on event="back" back="true"/>',
+                     f'<child widget="{base}/header_skulls"/>',
+                     f'<child widget="{base}/unlock_text"/>',
+                     f'<child widget="{base}/unlock_menu"/>'])
+    lines += _widget(f"{base}/unlock_text",
+                     [("type", "text"), ("controller", 1), ("left", 68), ("top", 90), ("width", 504), ("height", 190),
+                      ("text", "\\n".join(SKULLS_UNLOCK_TEXT)), ("font", "ui\\small_ui"), ("color", "#FFFFFFFF")], [])
+    choices = [("unlock_all", "ALL UNLOCKED", "skulls unlock all"),
+               ("unlock_play", "UNLOCK BY PLAYING", "skulls unlock play")]
+    children = []
+    for index, (name, _, _) in enumerate(choices):
+        children.append(f'<child{attributes([("widget", f"{base}/{name}"), ("x", 64), ("y", 296 + index * 32)])}/>')
+    children.append('<child widget="common_button_cancel" x="510" y="415"/>')
+    lines += _widget(f"{base}/unlock_menu",
+                     [("type", "column_list"), ("width", 640), ("height", 480),
+                      ("flags", "pass_unhandled_to_focused_child up_down_tabs_children")], children)
+    for name, label, function in choices:
+        lines += _widget(f"{base}/{name}",
+                         [("type", "text"), ("width", 512), ("height", 28), ("bitmap", "bitmaps/option_bkds"),
+                          ("text", label), ("font", "ui\\large_ui"), ("color", "#FF2896FF"), ("text_x", 13),
+                          ("text_y", 4)],
+                         [f'<on event="a" run="{function}"/>', f'<on event="start" run="{function}"/>',
+                          '<on event="left_mouse" run="mouse emit accept event"/>'])
     return lines
 
 

@@ -49,6 +49,17 @@ extern struct skull_description const skull_descriptions[NUMBER_OF_SKULLS];
 /* whether the skull is on in the campaign game being played */
 int skull_active(int skull);
 
+/* how the skulls are had (game.skulls_unlock_mode): every one, or those
+found playing, or not asked yet; and the mask of those had */
+enum
+{
+	_skulls_unlock_unset = 0,
+	_skulls_unlock_all,
+	_skulls_unlock_play
+};
+int skulls_unlock_mode(void);
+unsigned long skulls_unlocked_mask(void);
+
 /* game.skulls_active's words, to a mask of the skulls and back */
 unsigned long skulls_mask_from_text(char const *text);
 void skulls_text_from_mask(unsigned long mask, char *text, unsigned int size);

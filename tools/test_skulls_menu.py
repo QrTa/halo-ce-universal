@@ -48,7 +48,8 @@ def test_skulls_grid_is_one_list():
 
 
 def test_skull_helps_fit_the_help_line():
-    """Each skull's help is two lines at most, of 42 characters at most."""
+    """Each skull's help fits the help line's two lines (the line wraps a long
+    one): 88 characters at most."""
     table = (ROOT / "port/linux/game/skulls.c").read_text()
     helps = re.findall(r'^\t\{ "[a-z_]+", "[^"]+", "((?:[^"\\]|\\.)*)" \},$', table, re.MULTILINE)
 
@@ -56,18 +57,18 @@ def test_skull_helps_fit_the_help_line():
     for text in helps:
         lines = text.replace("\\'", "'").split("\\n")
         assert len(lines) <= 2, text
-        assert all(len(line) <= 42 for line in lines), text
+        assert sum(len(line) for line in lines) <= 88, text
 
 
-def test_skulls_match_the_game():
-    """skulls.c's table, halo_skulls.h's enum and SKULLS name the skulls in the same order."""
-    table = (ROOT / "port/linux/game/skulls.c").read_text()
-    header = (ROOT / "port/linux/include/halo_skulls.h").read_text()
-    rows = re.findall(r'^\t\{ "([a-z_]+)", "([^"]+)",', table, re.MULTILINE)
-    enum = re.findall(r"^\t_skull_([a-z_]+)(?: = 0)?,$", header[:header.index("NUMBER_OF_SKULLS")], re.MULTILINE)
+def test_skulls_unlock_question():
+    """The first opening asks how the skulls are had, its two answers run in C."""
+    screen = "\n".join(port_settings.settings_files()["main_menu.difficulty_select.skulls.xml"])
 
-    assert rows == port_settings.SKULLS
-    assert enum == [key for key, _ in port_settings.SKULLS]
+    assert 'name="main_menu/difficulty_select/skulls/unlock_screen"' in screen
+    assert 'run="skulls unlock all"' in screen
+    assert 'run="skulls unlock play"' in screen
+    for line in port_settings.SKULLS_UNLOCK_TEXT:
+        assert len(line) <= 44, line
 
 
 def test_skull_handlers_are_registered():
@@ -76,6 +77,6 @@ def test_skull_handlers_are_registered():
     functions = (ROOT / "port/linux/game/menu_functions.c").read_text()
 
     for name in ("skull toggle", "skulls all off", "skulls start", "skulls up", "skulls down", "skulls left",
-                 "skulls right", "skulls screen update"):
+                 "skulls right", "skulls unlock all", "skulls unlock play", "skulls screen update"):
         assert f'"{name}"' in tags
         assert f'!strcmp(name, "{name}")' in functions

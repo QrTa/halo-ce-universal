@@ -451,6 +451,16 @@ static const struct config_setting config_settings[] =
 		"foreign, ghost, grunt_birthday_party, grunt_funeral, iron, malfunction,\n"
 		"mythic, pinata, recession, sputnik, thats_just_wrong, thunderstorm,\n"
 		"tough_luck. Written by the skulls screen." },
+	{ "game.skulls_unlock_mode", _config_string, "\"\"", "HALO_SKULLS_UNLOCK_MODE", _environment_value, _platform_all,
+		"How the skulls are had, asked the first time the skulls screen opens:\n"
+		"\"all\" (every skull can be turned on), \"play\" (Grunt Birthday Party,\n"
+		"and those found: enemies carry the locked skulls, one picked up is on\n"
+		"for that level, and kept once the level is finished; a death loses it),\n"
+		"or \"\" (not asked yet)." },
+	{ "game.skulls_unlocked", _config_string, "\"\"", "HALO_SKULLS_UNLOCKED", _environment_value, _platform_all,
+		"With game.skulls_unlock_mode \"play\", the skulls found and kept,\n"
+		"separated by commas (game.skulls_active's names). Grunt Birthday Party\n"
+		"is always had. Written as levels are finished." },
 	{ "game.custom_edition", _config_boolean, "true", "HALO_CUSTOM_EDITION", _environment_value, _platform_all,
 		"Load and run Halo Custom Edition maps (not those that need OpenSauce):\n"
 		"put them and Custom Edition's bitmaps.map, sounds.map and loc.map in\n"
