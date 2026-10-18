@@ -71,7 +71,19 @@ enum
 	host, port/linux/host, which have the desktop's settings, and the
 	host's own) */
 	_platform_guest = 16,
+#ifdef HALO_PS5
+	/* (the PS5's, port/ps5: a guest build, with the console's own rows and
+	the Vulkan renderer's debugging rows, which its host reads) */
+	_platform_ps5 = 32,
+#endif
 };
+
+/* the Vulkan renderer's debugging rows: Android's, and the PS5's */
+#ifdef HALO_PS5
+#define PLATFORM_VULKAN (_platform_android | _platform_ps5)
+#else
+#define PLATFORM_VULKAN _platform_android
+#endif
 
 struct config_setting
 {
@@ -119,6 +131,12 @@ static const struct config_setting config_settings[] =
 	{ "display.window_scale", _config_integer, "2", "HALO_WINDOW_SCALE", _environment_value, _platform_desktop,
 		"Where display.window_size is empty: the window's size as a multiple of\n"
 		"640x480." },
+#ifdef HALO_PS5
+	{ "display.ps5_resolution", _config_string, "\"1080p\"", "HALO_PS5_RESOLUTION", _environment_value, _platform_ps5,
+		"The PS5's: the size the game draws at, \"1080p\" (1920x1080, which the\n"
+		"console scales to its 4K output) or \"2160p\" (3840x2160). Read when the\n"
+		"game starts." },
+#endif
 	{ "display.screen_width", _config_integer, "0", "HALO_SCREEN_WIDTH", _environment_value, _platform_android,
 		"Columns of the 480-line picture: 0 for the display's shape, 640 for the\n"
 		"Xbox's 4:3." },
@@ -825,10 +843,10 @@ static const struct config_setting config_settings[] =
 		"hash (the names gpu_capture logs); the folder must exist. Empty for none." },
 #endif
 #ifndef HALO_SWITCH
-	{ "debug.vk_present_marker", _config_boolean, "false", "HALO_VK_PRESENT_MARKER", _environment_set_is_true, _platform_android,
+	{ "debug.vk_present_marker", _config_boolean, "false", "HALO_VK_PRESENT_MARKER", _environment_set_is_true, PLATFORM_VULKAN,
 		"Under the Vulkan renderer, draw a red square at the top left and a green one\n"
 		"at the top right of the picture, so that a screenshot shows which way up it is." },
-	{ "debug.vk_self_test", _config_boolean, "false", "HALO_VK_SELF_TEST", _environment_set_is_true, _platform_android,
+	{ "debug.vk_self_test", _config_boolean, "false", "HALO_VK_SELF_TEST", _environment_set_is_true, PLATFORM_VULKAN,
 		"Under the Vulkan renderer, try the renderer's clears and the copying of a\n"
 		"draw's data on small targets of its own at start-up; the log says ok or FAILED." },
 	/* the Android app's Vulkan probe and profiler (port/android/host); the Switch's
@@ -837,7 +855,7 @@ static const struct config_setting config_settings[] =
 		"Run the Vulkan probe (port/android/host/host_vk_probe.c) instead of the\n"
 		"game: \"all\", or a list of caps, memory, compile, pipelines, draw, present;\n"
 		"empty runs the game. It writes vk_probe.txt." },
-	{ "debug.vk_validation", _config_boolean, "false", "HALO_VK_VALIDATION", _environment_set_is_true, _platform_android,
+	{ "debug.vk_validation", _config_boolean, "false", "HALO_VK_VALIDATION", _environment_set_is_true, PLATFORM_VULKAN,
 		"Turn on Vulkan's validation layer in the probe and in the Vulkan renderer,\n"
 		"when the app carries it." },
 	{ "debug.profile_hz", _config_integer, "0", "HALO_PROFILE_HZ", _environment_value, _platform_android,
@@ -854,6 +872,8 @@ static const struct config_setting config_settings[] =
 #define CONFIG_PLATFORM (_platform_desktop | _platform_web)
 #elif defined(_WIN32)
 #define CONFIG_PLATFORM (_platform_desktop | _platform_windows)
+#elif defined(HALO_PS5)
+#define CONFIG_PLATFORM (_platform_desktop | _platform_guest | _platform_ps5)
 #elif defined(HALO_GUEST)
 #define CONFIG_PLATFORM (_platform_desktop | _platform_guest)
 #else

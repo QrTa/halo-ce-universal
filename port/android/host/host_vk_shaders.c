@@ -1061,6 +1061,22 @@ static void *compile_thread(void *unused)
 #ifndef HALO_PS5
 	/* below the game thread's priority: Android lets an app raise its own niceness */
 	setpriority(PRIO_PROCESS, (id_t)syscall(SYS_gettid), 10);
+#else
+	/* below the game thread's priority: the console takes pthread_setschedparam in the title's policy (FIFO), whose
+	priorities run from 256, the highest, to 767, the lowest, and a title's threads start at 700 (port/ps5/PS5.md,
+	phase 6) */
+	{
+		struct sched_param parameters;
+		int policy = 0, was, result;
+
+		pthread_getschedparam(pthread_self(), &policy, &parameters);
+		was = parameters.sched_priority;
+		parameters.sched_priority = was + 32 < sched_get_priority_max(policy) ? was + 32 : sched_get_priority_max(policy);
+		result = pthread_setschedparam(pthread_self(), policy, &parameters);
+		pthread_getschedparam(pthread_self(), &policy, &parameters);
+		host_logf(HOST_LOG_INFO, "vk: the compile thread's priority %d (it was %d; policy %d, %d to %d): %s", parameters.sched_priority,
+			was, policy, sched_get_priority_min(policy), sched_get_priority_max(policy), result ? strerror(result) : "set");
+	}
 #endif
 	pthread_mutex_lock(&S.lock);
 	for (;;)

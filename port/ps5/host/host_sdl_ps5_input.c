@@ -23,7 +23,20 @@ is the model.
 - The system's overlay (the PS button's menu, the Quick Menu) does not
   stop or tell a title (phase 0 B): sceSystemServiceGetStatus's flags are
   read every few milliseconds, and a change is the window's focus lost or
-  gained, as a desktop window's would be.
+  gained, as a desktop window's would be. The overlay a title starts under
+  (the system's launch screen) is told apart (up at the first look, or
+  before the game's first frame) and is
+  nothing more. A later one in a campaign level (the loaded
+  map's header says solo) opens the campaign's pause screen the way the
+  Start button does: the first pad reads Start pressed for 100 ms, which
+  needs no change to the game (port/ps5/PS5.md, phase 6). In a
+  multiplayer game or the menus it is nothing (a match cannot pause); on
+  return the player resumes from the pause screen themselves.
+- SDL2 reports neither the pad's removal nor its return when it is
+  switched off and on from the Quick Menu (phase 4): once a second, when
+  no event has said so, the joysticks SDL2 lists are compared with the
+  last listing, and a pad gone or come is logged and its event made, so
+  the game lists its pads again.
 */
 
 #include "host.h"
@@ -48,6 +61,12 @@ unknown type (phase 0 B) */
 #define PAD_LINE_NS 60000000000ull
 /* how often the overlay's flags are read */
 #define OVERLAY_CHECK_NS 5000000ull
+/* how often the pads SDL2 lists are compared with the last listing */
+#define PAD_POLL_NS 1000000000ull
+/* how long the overlay's Start press lasts: a few of the game's frames, one press */
+#define START_PRESS_NS 100000000ull
+/* SDL2's (and SDL3's) Start, the DualSense's options button */
+#define START_BUTTON SDL_CONTROLLER_BUTTON_START
 
 /* ---------- start-up */
 
@@ -180,6 +199,46 @@ static int sdl3_gamepad_type(SDL_GameControllerType type)
 	}
 }
 
+/* The type of the joystick at a device index, asked of SDL2 once for each
+instance and remembered: pacbrew's SDL 2.30.12 builds a mapping string in
+SDL_GameControllerTypeForIndex and never frees it, about 285 bytes a call,
+and the pads are listed many times a frame (port/ps5/PS5.md, phase 6: the
+host's heap grew 16 to 32 MB a minute in a match with a second player). A
+joystick's type does not change while it is connected. */
+#define KNOWN_TYPES 32
+
+static SDL_GameControllerType device_type(int index)
+{
+	static pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
+	static struct
+	{
+		SDL_JoystickID id;
+		SDL_GameControllerType type;
+	} known[KNOWN_TYPES];
+	static int known_types, next;
+	SDL_JoystickID id = SDL_JoystickGetDeviceInstanceID(index);
+	SDL_GameControllerType type;
+	int slot;
+
+	pthread_mutex_lock(&lock);
+	for (slot = 0; slot < known_types; slot++)
+	{
+		if (known[slot].id == id)
+		{
+			type = known[slot].type;
+			pthread_mutex_unlock(&lock);
+			return type;
+		}
+	}
+	type = SDL_GameControllerTypeForIndex(index);
+	/* (instance ids are not reused; the oldest is forgotten when full) */
+	slot = known_types < KNOWN_TYPES ? known_types++ : next++ % KNOWN_TYPES;
+	known[slot].id = id;
+	known[slot].type = type;
+	pthread_mutex_unlock(&lock);
+	return type;
+}
+
 /* whether the joystick at this device index is one of the game's: a game
 controller, and not the console's remote control */
 static int is_game_pad(int index)
@@ -189,8 +248,7 @@ static int is_game_pad(int index)
 	if (!SDL_IsGameController(index))
 		return 0;
 	name = SDL_GameControllerNameForIndex(index);
-	return !(SDL_GameControllerTypeForIndex(index) == SDL_CONTROLLER_TYPE_UNKNOWN && name &&
-		!strcmp(name, REMOTE_CONTROL_NAME));
+	return !(device_type(index) == SDL_CONTROLLER_TYPE_UNKNOWN && name && !strcmp(name, REMOTE_CONTROL_NAME));
 }
 
 /* the joysticks SDL2 lists, each time the list changes */
@@ -224,7 +282,7 @@ static void log_listing(void)
 		SDL_JoystickGetGUIDString(SDL_JoystickGetDeviceGUID(index), guid, sizeof(guid));
 		host_logf(HOST_LOG_INFO, "gamepads:   joystick %d: \"%s\", instance %d, %s, type %d (%s), GUID %s%s", index,
 			name ? name : "", (int)ids[index], SDL_IsGameController(index) ? "a game controller" : "not a game controller",
-			(int)SDL_GameControllerTypeForIndex(index), controller_type_name(SDL_GameControllerTypeForIndex(index)), guid,
+			(int)device_type(index), controller_type_name(device_type(index)), guid,
 			is_game_pad(index) ? "" : SDL_IsGameController(index) ? ": left out (the console's remote control)" :
 			": left out");
 	}
@@ -311,6 +369,10 @@ int host_sdl_gamepad_axis(uint32_t gamepad, int axis)
 	return SDL_GameControllerGetAxis(object, (SDL_GameControllerAxis)axis);
 }
 
+/* the overlay's Start press (overlay_check): the pad and until when */
+static SDL_JoystickID start_pad = -1;
+static uint64_t start_until;
+
 /* (the pad's mapping on the console has no back, guide or misc button
 (phase 0 B): they read 0) */
 int host_sdl_gamepad_button(uint32_t gamepad, int button)
@@ -319,6 +381,9 @@ int host_sdl_gamepad_button(uint32_t gamepad, int button)
 
 	if (!object || button < 0 || button > PS5_SDL3_GAMEPAD_BUTTON_TOUCHPAD)
 		return 0;
+	if (button == START_BUTTON && start_pad >= 0 && ps5_now_ns() < __atomic_load_n(&start_until, __ATOMIC_ACQUIRE) &&
+		SDL_JoystickInstanceID(SDL_GameControllerGetJoystick(object)) == start_pad)
+		return 1;
 	return SDL_GameControllerGetButton(object, (SDL_GameControllerButton)button);
 }
 
@@ -475,6 +540,68 @@ static void log_pad_while_overlaid(void)
 	}
 }
 
+/* the loaded map, from the guest's cache_file_globals (host_loader.c finds
+it): { boolean tags_loaded; byte pad[3]; struct cache_file_header header;
+... }, and the header's name at 0x20 and its type at 0x60 (a short: 0 solo,
+1 multiplayer, 2 the main menu, scenario_definitions.h's scenario types;
+cache_files.c names the field reserved60). The type, or -1 with no map. */
+static int loaded_map(char *name, size_t size)
+{
+	const unsigned char *globals = (const unsigned char *)(uintptr_t)host_image.cache_file_globals;
+	uint16_t type;
+
+	name[0] = 0;
+	if (!globals || !globals[0])
+		return -1;
+	snprintf(name, size, "%.31s", (const char *)globals + 4 + 0x20);
+	memcpy(&type, globals + 4 + 0x60, sizeof(type));
+	return type;
+}
+
+/* the first of the game's pads SDL2 lists, the one Start is pressed on; -1 for none */
+static SDL_JoystickID first_game_pad(void)
+{
+	int count = SDL_NumJoysticks(), index;
+
+	for (index = 0; index < count; index++)
+	{
+		if (is_game_pad(index) && SDL_GameControllerFromInstanceID(SDL_JoystickGetDeviceInstanceID(index)))
+			return SDL_JoystickGetDeviceInstanceID(index);
+	}
+	return -1;
+}
+
+/* what the overlay coming up means: nothing at the start, the pause screen
+in a campaign level, nothing elsewhere */
+static void overlay_up(uint64_t now, int start_up)
+{
+	char map[40];
+	int type = loaded_map(map, sizeof(map));
+	SDL_JoystickID pad;
+
+	if (start_up)
+	{
+		host_logf(HOST_LOG_INFO, "overlay: the start-up overlay (up before the game's first frame): not a pause");
+		return;
+	}
+	if (type != 0)
+	{
+		host_logf(HOST_LOG_INFO, "overlay: the map is %s (type %d, %s): no pause", map[0] ? map : "none", type,
+			type == 1 ? "multiplayer: a match cannot pause" : type == 2 ? "the menus" : "no map");
+		return;
+	}
+	pad = first_game_pad();
+	if (pad < 0)
+	{
+		host_logf(HOST_LOG_INFO, "overlay: the map is %s (a campaign level), but no pad is open to press Start on", map);
+		return;
+	}
+	start_pad = pad;
+	__atomic_store_n(&start_until, now + START_PRESS_NS, __ATOMIC_RELEASE);
+	host_logf(HOST_LOG_INFO, "overlay: the map is %s (a campaign level): Start pressed on pad %d for %llu ms, "
+		"the pause screen", map, (int)pad, (unsigned long long)(START_PRESS_NS / 1000000));
+}
+
 /* PS5_EVENT_FOCUS_LOST or GAINED when the overlay comes or goes, else
 PS5_EVENT_NONE. Overlaid is either of the first two flags: the PS button's
 menu sets the first, the Quick Menu the second for as long as it is up
@@ -484,7 +611,8 @@ static int overlay_check(uint64_t now)
 	static unsigned char status[16384];
 	static unsigned char last[4];
 	static uint64_t checked_at, overlaid_at;
-	static int overlaid, pad_logged, failure_logged;
+	static int overlaid, pad_logged, failure_logged, start_up, looked;
+	int looked_before;
 	int32_t result;
 	int now_overlaid;
 
@@ -508,6 +636,8 @@ static int overlay_check(uint64_t now)
 		failure_logged = 1;
 		return PS5_EVENT_NONE;
 	}
+	looked_before = looked;
+	looked = 1;
 	if (memcmp(last, status + 4, sizeof(last)))
 	{
 		memcpy(last, status + 4, sizeof(last));
@@ -519,10 +649,116 @@ static int overlay_check(uint64_t now)
 		return PS5_EVENT_NONE;
 	overlaid = now_overlaid;
 	if (overlaid)
+	{
 		overlaid_at = now;
-	host_logf(HOST_LOG_INFO, "overlay: the system's menu is %s: the window's focus is %s", overlaid ? "up" : "gone",
-		overlaid ? "lost" : "gained");
+		pad_logged = 0;
+		/* (up at the first look, or before the game's first frame: the game
+		draws its first frame before it first asks for events, phase 6) */
+		start_up = !looked_before || ps5_frames_swapped() == 0;
+	}
+	host_logf(HOST_LOG_INFO, "overlay: the system's menu is %s at %.3f s: the window's focus is %s%s",
+		overlaid ? "up" : "gone", ps5_seconds(), overlaid ? "lost" : "gained",
+		start_up ? " (the start-up overlay)" : "");
+	if (overlaid)
+		overlay_up(now, start_up);
+	else
+		start_up = 0;
 	return overlaid ? PS5_EVENT_FOCUS_LOST : PS5_EVENT_FOCUS_GAINED;
+}
+
+/* ---------- the pads' arrival and removal, by polling
+
+The game's pads as last seen (by SDL2's events or this poll): what a new
+listing is compared with. An event SDL2 sends updates it too, so a change
+it reported is not made again. */
+
+#define KNOWN_PADS 16
+
+static SDL_JoystickID known_pads[KNOWN_PADS];
+static int known_count = -1;
+
+static int known_index(SDL_JoystickID id)
+{
+	int index;
+
+	for (index = 0; index < known_count; index++)
+	{
+		if (known_pads[index] == id)
+			return index;
+	}
+	return -1;
+}
+
+static void known_add(SDL_JoystickID id)
+{
+	if (known_count >= 0 && known_index(id) < 0 && known_count < KNOWN_PADS)
+		known_pads[known_count++] = id;
+}
+
+static void known_remove(SDL_JoystickID id)
+{
+	int index = known_count >= 0 ? known_index(id) : -1;
+
+	if (index >= 0)
+		known_pads[index] = known_pads[--known_count];
+}
+
+/* once a second: a pad of the game's that SDL2 no longer lists is removed,
+one it lists that was not known is added (PS5_EVENT_GAMEPAD_*, *which its
+instance), one change a call */
+static int pad_poll(uint64_t now, uint32_t *which)
+{
+	static uint64_t polled_at;
+	SDL_JoystickID listed[KNOWN_PADS];
+	int count, index, listed_count = 0;
+
+	if (polled_at && now - polled_at < PAD_POLL_NS)
+		return PS5_EVENT_NONE;
+	polled_at = now;
+	SDL_JoystickUpdate();
+	count = SDL_NumJoysticks();
+	for (index = 0; index < count && listed_count < KNOWN_PADS; index++)
+	{
+		if (is_game_pad(index))
+			listed[listed_count++] = SDL_JoystickGetDeviceInstanceID(index);
+	}
+	if (known_count < 0)
+	{
+		/* (the first listing: the pads there at the start, which the game
+		asks for itself) */
+		memcpy(known_pads, listed, (size_t)listed_count * sizeof(listed[0]));
+		known_count = listed_count;
+		return PS5_EVENT_NONE;
+	}
+	for (index = 0; index < known_count; index++)
+	{
+		int other, still = 0;
+
+		for (other = 0; other < listed_count; other++)
+			still |= listed[other] == known_pads[index];
+		if (!still)
+		{
+			*which = (uint32_t)known_pads[index];
+			known_remove(known_pads[index]);
+			host_logf(HOST_LOG_INFO, "gamepads: instance %u is no longer listed, and SDL2 said nothing: removed "
+				"(the poll)", *which);
+			log_listing();
+			return PS5_EVENT_GAMEPAD_REMOVED;
+		}
+	}
+	for (index = 0; index < listed_count; index++)
+	{
+		if (known_index(listed[index]) < 0)
+		{
+			*which = (uint32_t)listed[index];
+			known_add(listed[index]);
+			host_logf(HOST_LOG_INFO, "gamepads: instance %u is listed, and SDL2 said nothing: added (the poll)",
+				*which);
+			log_listing();
+			return PS5_EVENT_GAMEPAD_ADDED;
+		}
+	}
+	return PS5_EVENT_NONE;
 }
 
 /* ---------- events */
@@ -554,17 +790,32 @@ int ps5_input_poll(uint32_t *which)
 			*which = (uint32_t)SDL_JoystickGetDeviceInstanceID(event.cdevice.which);
 			host_logf(HOST_LOG_INFO, "SDL: gamepad added: \"%s\", instance %u",
 				SDL_GameControllerNameForIndex(event.cdevice.which), *which);
+			if (known_count >= 0 && known_index((SDL_JoystickID)*which) >= 0)
+			{
+				/* (the poll has made it already) */
+				host_logf(HOST_LOG_INFO, "SDL: (the poll had added it)");
+				*which = 0;
+				break;
+			}
+			known_add((SDL_JoystickID)*which);
 			return PS5_EVENT_GAMEPAD_ADDED;
 		case SDL_CONTROLLERDEVICEREMOVED:
 			*which = (uint32_t)event.cdevice.which;
 			host_logf(HOST_LOG_INFO, "SDL: gamepad removed: instance %u", *which);
+			if (known_count >= 0 && known_index((SDL_JoystickID)*which) < 0)
+			{
+				host_logf(HOST_LOG_INFO, "SDL: (the poll had removed it)");
+				*which = 0;
+				break;
+			}
+			known_remove((SDL_JoystickID)*which);
 			return PS5_EVENT_GAMEPAD_REMOVED;
 		default:
 			pad_count(&event);
 			break;
 		}
 	}
-	return PS5_EVENT_NONE;
+	return pad_poll(now, which);
 }
 
 void ps5_input_report(void)

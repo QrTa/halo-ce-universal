@@ -18,9 +18,20 @@ FTP), and the title's own read-only folder */
 
 /* one line to the log file and the kernel log (host_main.c), with no
 newline: the log adds it. Safe from any thread and from signal handlers:
-each line is one write, without locks or stdio. */
+each line is queued with one atomic add, without locks or stdio, and a
+thread of the log's writes it out (ps5_log_sync writes it at once). */
 void ps5_log(const char *format, ...) __attribute__((format(printf, 1, 2)));
 void ps5_log_line(const char *line);
+/* what is queued written out now, and with from_now_on every later line at
+once too (the end, a crash report) */
+void ps5_log_sync(int from_now_on);
+/* the lines written since the last call, those that took over 2 ms, and the
+longest write to the kernel log and to the file, in ms (the heartbeat's) */
+void ps5_log_costs(unsigned *lines, unsigned *slow, double *klog_ms, double *file_ms);
+
+/* a notification on the screen (host_main.c; sceKernelSendNotificationRequest),
+logged too */
+void ps5_notify(const char *format, ...) __attribute__((format(printf, 1, 2)));
 
 /* the monotonic clock in nanoseconds, and the time since the host started
 in seconds, for the log */
@@ -50,6 +61,12 @@ gives memory back) and direct memory's largest free block, in MB, for the
 heartbeat (host_memory.c) */
 void ps5_memory_figures(double *heap_mb, double *heap_peak_mb, double *direct_free_mb);
 
+/* the callers whose live heap grew most since the last call, logged
+(host_alloc_track_ps5.c; nothing unless built with PS5_ALLOC_TRACK) */
+void ps5_alloc_report(void);
+/* from here on, blocks are tracked (host_main.c, as main starts) */
+void ps5_alloc_start(void);
+
 /* the network (host_net_ps5.c): a name's IPv4 address through the
 console's resolver (network byte order), or 0, for posix_net.c's
 posix_resolve_ipv4; and the step 1 smoke test of port/ps5/PS5.md, phase 5
@@ -67,6 +84,16 @@ extern int host_gl_statistics;
 /* HALO_PS5_SCREENSHOT's seconds, read by host_main.c: the presented picture
 written to a file that often (host_vk_screenshot_ps5.c); 0 for none */
 extern int ps5_screenshot_seconds;
+
+/* config.toml's display.ps5_resolution (or HALO_PS5_RESOLUTION), read by
+host_main.c before the game starts: the stand-in window's size, which the
+game draws at (host_sdl_ps5.c); 1920x1080, or 3840x2160 for "2160p" */
+extern int ps5_display_width, ps5_display_height;
+
+/* the frames the game has swapped so far (host_sdl_ps5.c): 0 before its
+first, which tells the system's start-up overlay from a later one
+(host_sdl_ps5_input.c) */
+uint64_t ps5_frames_swapped(void);
 
 /* ---------- SDL: the game's SDL3 calls over pacbrew's SDL2
 

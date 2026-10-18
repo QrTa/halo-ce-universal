@@ -41,9 +41,11 @@ settings, and runs the game's main; the game ends the process itself
 (host_exit, host_common.c).
 
 The log is one file, /data/halo/halo.log, and the kernel log (klogsrv,
-port 3232), where each line is prefixed "halo: "; each line is written as it
-is made, with no lock and no stdio, so signal handlers log through it and a
-crash leaves everything up to it. tools/ps5_deploy.py follows the kernel
+port 3232), where each line is prefixed "halo: "; lines are queued with no
+lock and no stdio and written by a thread of the log's own, since a line
+costs its writer milliseconds, and errors, the end and a crash report are
+written at once, so signal handlers log through it and a crash leaves
+everything up to it. tools/ps5_deploy.py follows the kernel
 log, stops at the host's last line ("the host ends", or the hold's), and
 fetches the file.
 
@@ -95,6 +97,8 @@ build by tools/android_build_stamp.py, as the Android host's) */
 #include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <pthread.h>
+#include <sched.h>
 #include <stdarg.h>
 #include <stdbool.h>
 #include <stdio.h>
@@ -154,13 +158,163 @@ double ps5_seconds(void)
 	return (ps5_now_ns() - start_ns) / 1e9;
 }
 
-/* ---------- the log */
+/* ---------- the log
+
+A line costs the thread that writes it 2 to 13 ms, most of it in
+sceKernelDebugOutText (port/ps5/PS5.md, phase 6: the renderer's two lines
+every 60 frames were two frames over 17 ms a second). So the lines go into
+a queue that a thread of the log's own writes out, in order. Errors and
+worse, the end and a crash report are written at once, after what is
+queued (ps5_log_sync), so nothing before an _exit is lost. Each line is
+claimed with one atomic add and needs no lock, so signal handlers log
+through it too. */
+
+#define LOG_LINE 1100
+#define LOG_QUEUE 512
 
 static int log_file = -1;
 
-void ps5_log_line(const char *line)
+static struct
 {
-	char text[1100];
+	char text[LOG_LINE];
+	int length;
+	int ready;
+} log_queue[LOG_QUEUE];
+/* the next slot to claim, and the next to write out */
+static uint64_t log_head, log_tail;
+/* the writing (one thread at a time), whether the writer runs, and whether
+every line is written at once now (the end) */
+static int log_writing, log_writer_running, log_synchronous;
+
+static void log_cost(uint64_t klog_ns, uint64_t file_ns);
+
+static void log_write(const char *text, int length)
+{
+	uint64_t start = ps5_now_ns(), klog, file;
+
+	sceKernelDebugOutText(0, text);
+	klog = ps5_now_ns();
+	/* (the file has the line without the kernel log's prefix) */
+	if (log_file >= 0 && write(log_file, text + 6, (size_t)length - 6) < 0)
+		return;
+	file = ps5_now_ns();
+	log_cost(klog - start, file - klog);
+}
+
+/* the queued lines that are ready, in order, while log_writing is held */
+static int log_drain(void)
+{
+	int written = 0;
+
+	for (;;)
+	{
+		uint64_t tail = __atomic_load_n(&log_tail, __ATOMIC_ACQUIRE);
+
+		if (tail == __atomic_load_n(&log_head, __ATOMIC_ACQUIRE) ||
+			!__atomic_load_n(&log_queue[tail % LOG_QUEUE].ready, __ATOMIC_ACQUIRE))
+			return written;
+		log_write(log_queue[tail % LOG_QUEUE].text, log_queue[tail % LOG_QUEUE].length);
+		__atomic_store_n(&log_queue[tail % LOG_QUEUE].ready, 0, __ATOMIC_RELEASE);
+		__atomic_store_n(&log_tail, tail + 1, __ATOMIC_RELEASE);
+		written++;
+	}
+}
+
+/* log_writing, waited for a while (a signal handler may have interrupted its
+holder on this thread: then the line is written without it); whether it is held */
+static int log_take(void)
+{
+	int tries;
+
+	for (tries = 0; tries < 100000; tries++)
+	{
+		if (!__atomic_exchange_n(&log_writing, 1, __ATOMIC_ACQUIRE))
+			return 1;
+		sched_yield();
+	}
+	return 0;
+}
+
+static void log_give(int held)
+{
+	if (held)
+		__atomic_store_n(&log_writing, 0, __ATOMIC_RELEASE);
+}
+
+static void *log_writer(void *unused)
+{
+	(void)unused;
+	for (;;)
+	{
+		int written = 0;
+
+		if (!__atomic_exchange_n(&log_writing, 1, __ATOMIC_ACQUIRE))
+		{
+			written = log_drain();
+			__atomic_store_n(&log_writing, 0, __ATOMIC_RELEASE);
+		}
+		if (!written)
+			usleep(2000);
+	}
+	return NULL;
+}
+
+void ps5_log_sync(int from_now_on)
+{
+	int held;
+
+	if (from_now_on)
+		__atomic_store_n(&log_synchronous, 1, __ATOMIC_RELEASE);
+	held = log_take();
+	log_drain();
+	log_give(held);
+}
+
+static void log_line_now(const char *text, int length)
+{
+	int held = log_take();
+
+	log_drain();
+	log_write(text, length);
+	log_give(held);
+}
+
+static void log_queue_line(const char *text, int length, int now)
+{
+	uint64_t slot;
+
+	if (now || !__atomic_load_n(&log_writer_running, __ATOMIC_ACQUIRE) ||
+		__atomic_load_n(&log_synchronous, __ATOMIC_ACQUIRE))
+	{
+		log_line_now(text, length);
+		return;
+	}
+	slot = __atomic_fetch_add(&log_head, 1, __ATOMIC_ACQ_REL);
+	/* (a full queue waits for the writer, which is another thread) */
+	while (slot - __atomic_load_n(&log_tail, __ATOMIC_ACQUIRE) >= LOG_QUEUE)
+		usleep(100);
+	memcpy(log_queue[slot % LOG_QUEUE].text, text, (size_t)length + 1);
+	log_queue[slot % LOG_QUEUE].length = length;
+	__atomic_store_n(&log_queue[slot % LOG_QUEUE].ready, 1, __ATOMIC_RELEASE);
+}
+
+static void log_start_writer(void)
+{
+	pthread_t thread;
+
+	if (pthread_create(&thread, NULL, log_writer, NULL) == 0)
+	{
+		pthread_detach(thread);
+		__atomic_store_n(&log_writer_running, 1, __ATOMIC_RELEASE);
+		ps5_log("the log: written by a thread of its own (errors, the end and a crash report at once)");
+	}
+	else
+		ps5_log("the log: no writer thread; each line is written by its own thread");
+}
+
+static void log_format(const char *line, int now)
+{
+	char text[LOG_LINE];
 	int length = snprintf(text, sizeof(text), "halo: %s\n", line);
 
 	if (length < 0)
@@ -170,10 +324,35 @@ void ps5_log_line(const char *line)
 		length = sizeof(text) - 1;
 		text[length - 1] = '\n';
 	}
-	sceKernelDebugOutText(0, text);
-	/* (the file has the line without the kernel log's prefix) */
-	if (log_file >= 0 && write(log_file, text + 6, (size_t)length - 6) < 0)
-		return;
+	log_queue_line(text, length, now);
+}
+
+void ps5_log_line(const char *line)
+{
+	log_format(line, 0);
+}
+
+/* what the log's lines cost the thread that writes them (now the log's
+own, mostly), for the heartbeat */
+static uint64_t log_lines, log_slow, log_klog_longest, log_file_longest;
+
+static void log_cost(uint64_t klog_ns, uint64_t file_ns)
+{
+	__atomic_add_fetch(&log_lines, 1, __ATOMIC_RELAXED);
+	if (klog_ns + file_ns > 2000000ull)
+		__atomic_add_fetch(&log_slow, 1, __ATOMIC_RELAXED);
+	if (klog_ns > __atomic_load_n(&log_klog_longest, __ATOMIC_RELAXED))
+		__atomic_store_n(&log_klog_longest, klog_ns, __ATOMIC_RELAXED);
+	if (file_ns > __atomic_load_n(&log_file_longest, __ATOMIC_RELAXED))
+		__atomic_store_n(&log_file_longest, file_ns, __ATOMIC_RELAXED);
+}
+
+void ps5_log_costs(unsigned *lines, unsigned *slow, double *klog_ms, double *file_ms)
+{
+	*lines = (unsigned)__atomic_exchange_n(&log_lines, 0, __ATOMIC_RELAXED);
+	*slow = (unsigned)__atomic_exchange_n(&log_slow, 0, __ATOMIC_RELAXED);
+	*klog_ms = __atomic_exchange_n(&log_klog_longest, 0, __ATOMIC_RELAXED) / 1e6;
+	*file_ms = __atomic_exchange_n(&log_file_longest, 0, __ATOMIC_RELAXED) / 1e6;
 }
 
 void ps5_log(const char *format, ...)
@@ -187,12 +366,16 @@ void ps5_log(const char *format, ...)
 	ps5_log_line(line);
 }
 
-static void notify(const char *message)
+void ps5_notify(const char *format, ...)
 {
 	struct notify_request request;
+	va_list arguments;
 
 	memset(&request, 0, sizeof(request));
-	snprintf(request.message, sizeof(request.message), "%s", message);
+	va_start(arguments, format);
+	vsnprintf(request.message, sizeof(request.message), format, arguments);
+	va_end(arguments);
+	ps5_log("notification: %s", request.message);
 	sceKernelSendNotificationRequest(0, &request, sizeof(request), 0);
 }
 
@@ -254,7 +437,13 @@ static void log_sink(int priority, const char *line)
 	const char *level = priority >= HOST_LOG_FATAL ? "fatal: " : priority >= HOST_LOG_ERROR ? "error: " :
 		priority >= HOST_LOG_WARN ? "warning: " : "";
 
-	ps5_log("%s%s", level, line);
+	char text[1024];
+
+	/* (the end, and anything worse than a warning, written at once) */
+	if (priority >= HOST_LOG_FATAL || !strncmp(line, "the game exited (", 17))
+		ps5_log_sync(1);
+	snprintf(text, sizeof(text), "%s%s", level, line);
+	log_format(text, priority >= HOST_LOG_ERROR);
 	/* host_common.c's host_exit and host_fatal: their lines are the last
 	before _exit, and the end is reported after them */
 	if (priority >= HOST_LOG_FATAL || !strncmp(line, "the game exited (", 17))
@@ -269,6 +458,7 @@ static void end_of_game(void)
 
 	if (__atomic_exchange_n(&game_ended, 1, __ATOMIC_ACQ_REL))
 		return;
+	ps5_log_sync(1);
 	ps5_log("the game ended at %.1f s", ps5_seconds());
 	host_vk_exit();
 	ps5_sdl_report();
@@ -281,7 +471,7 @@ static void end_of_game(void)
 			HOLD_SECONDS);
 		sleep(HOLD_SECONDS);
 	}
-	notify("Halo: Combat Evolved ends");
+	ps5_notify("Halo: Combat Evolved ends");
 	/* (the kernel log then reports exit() and a SIGSYS, as for every title
 	that ends: port/ps5/README.md) */
 	ps5_log("the host ends");
@@ -301,7 +491,7 @@ bool __wrap_SDL_ShowSimpleMessageBox(uint32_t flags, const char *title, const ch
 	(void)flags;
 	(void)window;
 	snprintf(text, sizeof(text), "%s: %s", title ? title : "Halo", message ? message : "");
-	notify(text);
+	ps5_notify("%s", text);
 	return true;
 }
 
@@ -311,7 +501,7 @@ static void log_identity(void)
 {
 	struct ps5_kernel_sw_version version;
 
-	ps5_log("Halo: Combat Evolved for the PS5, build %s (phase 5: the network)", HALO_PROBE_BUILD);
+	ps5_log("Halo: Combat Evolved for the PS5, build %s (phase 6: playing on the console)", HALO_PROBE_BUILD);
 	memset(&version, 0, sizeof(version));
 	version.size = sizeof(version);
 	if (sceKernelGetSystemSwVersion(&version) == 0)
@@ -458,6 +648,14 @@ static void check_threads(void)
 	}
 	ps5_log("thread checks: a thread made from the game's thread: %s (%d, %s), its id %d", made_error ? "FAILED" : "made",
 		made_error, made_error ? strerror(made_error) : "-", made_id);
+	{
+		struct sched_param parameters;
+		int policy = -1, result = pthread_getschedparam(pthread_self(), &policy, &parameters);
+
+		ps5_log("thread checks: the game's thread's scheduling: %d (policy %d, priority %d; the policy's range %d to %d)",
+			result, policy, result ? -1 : parameters.sched_priority, sched_get_priority_min(policy),
+			sched_get_priority_max(policy));
+	}
 }
 
 /* config.toml's debug.gpu_stats (Android's host_main.c reads it the same way) */
@@ -475,6 +673,43 @@ static void read_gpu_stats(const char *path)
 			host_gl_statistics = 1;
 	}
 	toml_free(result);
+}
+
+/* display.ps5_resolution (HALO_PS5_RESOLUTION in the environment first, for
+the deploy's tests): the stand-in window's size, which the game draws at;
+read before the game starts, so a change takes effect at the next start */
+static void read_display_resolution(const char *path)
+{
+	const char *from = "the default";
+	char value[16] = "1080p";
+	toml_result_t result = toml_parse_file_ex(path);
+
+	if (getenv("HALO_PS5_RESOLUTION"))
+	{
+		snprintf(value, sizeof(value), "%s", getenv("HALO_PS5_RESOLUTION"));
+		from = "HALO_PS5_RESOLUTION";
+	}
+	else if (result.ok)
+	{
+		toml_datum_t setting = toml_seek(result.toptab, "display.ps5_resolution");
+
+		if (setting.type == TOML_STRING)
+		{
+			snprintf(value, sizeof(value), "%s", setting.u.s);
+			from = "config.toml";
+		}
+	}
+	if (result.ok)
+		toml_free(result);
+	if (!strcmp(value, "2160p"))
+	{
+		ps5_display_width = 3840;
+		ps5_display_height = 2160;
+	}
+	else if (strcmp(value, "1080p"))
+		ps5_log("display.ps5_resolution: \"%s\" is neither \"1080p\" nor \"2160p\": 1080p", value);
+	ps5_log("display.ps5_resolution: \"%s\" (%s): the game draws at %dx%d", value, from, ps5_display_width,
+		ps5_display_height);
 }
 
 /* /app0/halo_guest.elf, whole, in the host's heap; NULL if it cannot be read */
@@ -566,6 +801,7 @@ static void *game_main(void *unused)
 
 	host_apply_debug_settings(PS5_DATA_FOLDER "/config.toml", NULL);
 	read_gpu_stats(PS5_DATA_FOLDER "/config.toml");
+	read_display_resolution(PS5_DATA_FOLDER "/config.toml");
 	ps5_log("the game starts at %.1f s", ps5_seconds());
 	host_run_guest_main(host_make_boot(&environment, "halo"));
 }
@@ -639,7 +875,8 @@ int main(void)
 	for (waited = 0; waited < 20 && !is_folder(PS5_DATA_FOLDER); waited++)
 		usleep(100000);
 	log_open();
-	notify("Halo: Combat Evolved starts");
+	log_start_writer();
+	ps5_notify("Halo: Combat Evolved starts");
 	log_identity();
 	ps5_log("descriptors 0 to 2: %s", taken == 7 ? "free at start, taken with " PS5_TITLE_FOLDER "/eboot.bin" :
 		taken ? "some free at start, taken with " PS5_TITLE_FOLDER "/eboot.bin" : "open at start");
@@ -651,6 +888,7 @@ int main(void)
 	host_log_set_sink(log_sink);
 	if (!is_folder(PS5_DATA_FOLDER))
 	{
+		ps5_log_sync(1);
 		ps5_log("the game needs " PS5_DATA_FOLDER ", with the game's disc image in it (port/ps5/README.md)");
 		ps5_log("the host ends");
 		_exit(1);
@@ -662,6 +900,7 @@ int main(void)
 	if (chdir(PS5_DATA_FOLDER) != 0)
 		ps5_log("chdir(" PS5_DATA_FOLDER "): %s", strerror(errno));
 	read_environment_file();
+	ps5_alloc_start();
 	if (getenv("HALO_PS5_NET_TEST") && atoi(getenv("HALO_PS5_NET_TEST")) > 0)
 		ps5_net_test();
 	ps5_net_start();

@@ -27,7 +27,7 @@ are moved to the end of phase 4, to be made with the picture. Phase 4 is
 done and reviewed: the game draws through the Android port's Vulkan
 renderer on RADV, the menus and campaign levels on the TV as on Android, at
 59.94 or 119.88 frames a second, with phase 3's runs made with the user at
-the console ("Progress"). Phase 5, the network (the phases were swapped), is done and reviewed: the console hosts and joins system link games and joins internet games through the brokers and the tunnel, and downloads shared maps. Phase 6 is written out in detail and ready to be handed over. The probes are
+the console ("Progress"). Phase 5, the network (the phases were swapped), is done and reviewed: the console hosts and joins system link games and joins internet games through the brokers and the tunnel, and downloads shared maps. Phase 6 is done and reviewed: the console holds 119.88 frames a second in a match at 1080p and at native 4K and in split screen, the first start is seen on the TV, and the heap no longer grows; the campaign level, the PS button's pause in a level, rest mode and the long sessions were left out by the user's decision. Phase 7 is next, to be written out. The probes are
 in `port/ps5/probe`.
 
 ---
@@ -2468,6 +2468,434 @@ As the deko3d and Vulkan plans were, on purpose:
 ---
 
 ## Progress
+
+### Phase 6 — audit (2026-10-18)
+
+Checked on the sources, the build, the tests, the fetched logs and the
+screenshots; the runs left out were the user's decision during the phase,
+and the entry's own table against the acceptance list is right.
+
+1. **The builds and tests.** `ninja ps5` and `ninja linux_x86_64` are null
+   builds; the four test files pass; no weak host symbol stands; the
+   platform layer's heap wrapper serves (`heap_wrap.o` in the link map;
+   the diagnostic is at 0). **The shared files are unchanged for the other
+   builds:** `port_config.c` preprocessed with the Android, Linux x86-64
+   and Switch guests' own compile commands, before and after, is identical
+   (9,182, 9,175 and 9,348 lines), and `host_vk_shaders.c` with the
+   Android host's (21,066 lines).
+2. **The deploy's fix** is proved by the two folders `201656` and `201841`,
+   each with its own `halo.log`, `debug.txt` and capture and nothing of
+   the other's; every folder of the phase is clean.
+3. **The baseline and the fix the buckets found.** The ten-minute match's
+   log (`202350`) has the buckets at 10 / 10 / 1 in every window and the
+   heap climbing 160 to 304 MB; the runs with the log on its own thread
+   (`204143`, `204342`) have 0 / 0 / 0 and a longest frame of 8.4 ms at
+   119.88 a second, at 1080p and at 2160p. The queued log is sound: each
+   line is claimed with one atomic add into a ring of 512 lines, the
+   writer drains in order, anything at error level or at the end is written
+   at once after what is queued, the crash report syncs first, and the
+   spin that guards the writer is bounded (100,000 yields) so a handler
+   that interrupted the writer cannot hang.
+4. **The screenshots, seen:** Blood Gulch at native 3840x2160 with the
+   game's own counter at 120 (`204342/00011817.png`), and the two viewports
+   of the Rat Race split-screen match at 120 (`205052/00054525.png`), both
+   as the Android port draws them.
+5. **The first start** (`204733`, `204747`): the no-image notification and
+   the title ending with the game's own "no game data: quitting"; the
+   extraction's notifications at every 10 %; seen by the user.
+6. **The leak** was real and is fixed: pacbrew's SDL 2.30.12 leaks the
+   mapping string in `SDL_GameControllerTypeForIndex`, which the host asked
+   for every joystick at every listing; the type is now remembered per
+   instance, and the heap sat at 192 MB over two minutes of split screen
+   where it had grown 32 MB a minute. The implementer traced it with a
+   diagnostic that replaces the platform layer's heap wrapper when built
+   with `PS5_ALLOC_TRACK` at 1 (`host_alloc_track_ps5.c`, off as shipped).
+   It shares twelve lines with the fork's `heap_wrap.c` (GPL): the
+   `__real_*` declarations the wrapped names force, the one-line
+   forwardings of `getline` and `memalign` to their siblings, and one
+   realloc condition; the recording and the report, which are the file,
+   are its own. Accepted with that noted; it is not compiled into the
+   title.
+7. **Open, by the user's decision:** the campaign level start to end, and
+   with it the PS button's pause screen in a level (the Start press is
+   written, the map type read from the guest's cache header, untried); rest
+   mode; the pad switched off and on (the poll is written, untried); the
+   twenty-minute match and the hour at the menu; the compile thread's
+   priority's effect (one cold run, not two). The "Ends with" is not met in
+   its campaign level. The smallest run that would close most of it is one
+   campaign level played with the PS button pressed once in it.
+8. **The console's state:** it runs the diagnostic build (at 1), not the
+   tree's; the next upload puts it right. `/data/halo/maps.phase6-aside`
+   (1.8 GB, the old maps) is still there, since FTP cannot delete what the
+   title wrote; removing it is a chore for the host to offer (phase 7) or
+   the user another way.
+
+Deviations accepted: the runs merged and cut at the user's word; the
+Switch as the other machine; Rat Race for split screen; a diagnostic file
+the phase did not name, for a leak the phase did not foresee.
+
+Carried into phase 7: the campaign level and the PS button's pause in it,
+rest mode, the pad test, a long session to confirm the heap holds beyond
+two minutes, the compile priority's effect, the console's two chores above,
+and whether SDL2 drops a pad switched off at all.
+
+### Phase 6 — playing on the console (2026-10-18)
+
+Implemented on 2026-10-18 and run on the user's console (13.590.001, 120 Hz
+output), with the user at the TV for the first start and split screen and
+their Switch as the other machine of the ten-minute match. **The result in
+one line:** the deploy keeps each run to its own folder; the console holds
+119.88 frames a second in a match at 1080p and at native 2160p, and in a
+split-screen match with a second DualSense, once the log's lines were
+taken off the game's threads (they were every frame over 17 ms the
+baseline had); the first start is seen on the TV as notifications, and the
+no-image case ends the title with its message. **Not made, by the user's
+decisions during the phase:** the campaign level start to end (so the PS
+button's pause screen in a level, the in-level pad test and the level's
+loads), the twenty-minute match, the hour at the menu, rest mode (the user
+judged the trip to the home screen and back enough), the pad switched off
+and on, and the second cold run for the compile thread's priority. The
+user asked for the runs to be kept to the minimum, and they were merged
+(below).
+
+**Against the acceptance list:**
+
+| Item | State | What shows it |
+|---|---|---|
+| 1. Builds, preprocessing, tests, no weak symbol | met | below ("The preprocessing check") |
+| 2. The deploy's fix, run folders | met | "Step 1, the deploy, proved" |
+| 3. The ten-minute baseline, both machines' lines | met | "The baseline", the four quoted lines and the minute compared |
+| 4. The first start, the no-image case | met | "The first start", seen by the user |
+| 5. `display.ps5_resolution`, 2160p, the figures | met | "4K", the table |
+| 6. The PS button | **in part**: no pause at the menu and in a match, quoted; the pause screen in a campaign level **not tried** (no level played); the corrected start-up overlay rule not seen in a run | "The overlay" |
+| 7. Rest mode | **not made** (the user's decision) | — |
+| 8. The pad off and on | **not made** (the user's decision); the poll is written, untried | "The pads' poll" |
+| 9. Split screen | met | "Split screen" |
+| 10. The long sessions | **not made** (the user's decision): no campaign level, twenty-minute match or hour; the fixed heap has two minutes of evidence | "The leak, found and fixed" |
+| 11. "Progress" | met | this entry |
+| 12. Scope | met: everything else is in `port/ps5/` and `tools/ps5_deploy.py`; one new file, the counter, is in `port/ps5/host` | "Files" |
+
+**"Ends with"** is not met: no campaign level was played through and the
+PS button did not pause a level; the split-screen match, the 1080p and 4K
+figures and the ten-minute match are made, the twenty-minute one is not.
+The smallest run that would close items 6 and half of 10 and the "Ends
+with": a campaign level started from the menus, the PS button pressed
+once in it (the pause screen should open), and played on for the heap.
+
+**The console's state at the end of the phase:** it runs the build with
+the counter on (`PS5_ALLOC_TRACK` 1; the tree is at 0, and an upload of
+the tree's build puts it right), and `/data/halo/maps.phase6-aside` (1.8
+GB, the old maps) is still there, as FTP cannot delete what the title
+wrote.
+
+**Files.** New: `port/ps5/host/host_alloc_track_ps5.c` (the heap counter,
+off). Changed: `tools/ps5_deploy.py`; `port/ps5/host/host_main.c`
+(the queued log, `ps5_notify`, `display.ps5_resolution`, the game
+thread's scheduling in the thread checks, the phase in the identity line),
+`host_sdl_ps5.c` (the window's size from the setting, the buckets, the
+log's cost in the heartbeat, the extraction's notifications, the 2D
+renderer's heartbeat, "No" after the file dialog found no image),
+`host_sdl_ps5_input.c` (the start-up overlay, the PS button's Start press
+in a campaign level, the pads' poll, each pad's type asked once), `host_vk_screenshot_ps5.c` (the cap
+200), `host_memory.c` (the crash report writes the log at once, 2 lines),
+`ps5_host.h`, `port/ps5/README.md`; `port/linux/src/port_config.c` and
+`port/android/host/host_vk_shaders.c` (their `HALO_PS5` branches, below);
+`port/linux/README.md` (the settings table's row). Nothing else: `git
+status` names only these.
+
+**The baseline** (step 2, run `20261018-202350`, the build before the log
+fix): the console hosted Blood Gulch (`HALO_NETWORK_TEST=host:bloodgulch`,
+`HALO_TEST_INPUT=bot:1`, the game started 90 s after hosting), the user's
+Switch joined with its bot (`config.toml`'s `debug.network_test = "join"`,
+`debug.test_input = "bot:2"`, set over FTP and restored byte for byte
+after), `--run --minutes 11`, ended by the deploy at 667 s. And the figures
+of the later runs, with the log written by its own thread:
+
+| Run (folder) | Resolution, caches, log | Frames a second | Over 17 / 20 / 33 ms per 5 s | Longest | Heap |
+|---|---|---|---|---|---|
+| Ten-minute match, two machines (`202350`) | 1080p, warm, the log on the game's threads | 119.22 to 119.75 (111 windows, 65,750 frames) | 10 / 10 / 1 in every window (1,207 / 1,107 / 115 in all) | 35 to 36 ms each window; 763 ms at the map's load | 160 MB at the first minute, then +16 MB a minute: 304 MB at the ninth |
+| Hosting alone, first minute cold (`203621`) | 1080p, no caches, the log on the game's threads | 116 (6,964 frames in 12 windows) | 135 / 135 / 25 in the minute | 718 ms (the map's load) | 160 MB |
+| Hosting alone (`204143`) | 1080p, warm, the log's thread | **119.88** in every window | **0 / 0 / 0** | **8.4 ms** | 160 MB |
+| Hosting alone (`204342`) | **2160p**, warm, the log's thread | **119.88** in every window | 0 / 0 / 0 (one frame of 11.3 ms in 3 minutes) | 8.4 ms | 192 MB |
+| Split screen, two players on Rat Race (`205052`) | 1080p, warm, the log's thread | 119.88 in 50 of the match's 59 windows (118.04 once) | 0 in 47 windows; at most 3 / 2 / 2 | — | 160, then 192 to **336 MB** in 6 minutes of the match |
+
+The renderer's counters in the match: 0 draws skipped for a shader or a
+pipeline, 0 swapchain re-creations, 0 validation errors; split screen
+18,240 draws in 60 frames, 142 textures in 256 MB. The compile thread in
+the warm match: 101 shaders from the cache, 0 compiled, pipelines 0.03 to
+1.67 ms each. Direct memory's largest free block 10,728 MB at the first
+minute, 10,584 MB at the ninth (it falls with the heap).
+
+**Both machines' per-second lines agree.** One minute of the match, the
+console's ticks 7200 to 8970 against the Switch's lines 9 ticks earlier
+(each logs every 30 ticks; their clocks are sampled 0.3 s apart): 60 pairs,
+both players' positions within 0.46 world units of each other (0.24 and
+0.28 on average). The first of them:
+
+    console tick 7200 player 0: (90.419 -161.241 0.806) | player 1: (107.904 -166.946 0.645)
+    console tick 7230 player 0: (89.856 -160.637 0.131) | player 1: (106.792 -167.996 0.078)
+    Switch  tick 7191 player 0: (90.359 -161.139 0.726) | player 1: (107.580 -167.120 0.456)
+    Switch  tick 7221 player 0: (89.674 -160.463 0.129) | player 1: (106.809 -168.174 0.076)
+
+**The log's cost (step 3's buckets found it).** Every window of the
+baseline had exactly 10 frames over 17 ms and one over 33 ms: the rate of
+the shared renderer's two `vk: 60 frames` lines every 60 frames at 120 Hz,
+and of the heartbeat's own line. Timed (run `203621`, the heartbeat's
+`the log:` part): 27 or 28 lines in 5 s, nearly every one over 2 ms, the
+longest 9 to 13 ms in `sceKernelDebugOutText` and 1.2 to 3.3 ms in the
+file's `write`. So `host_main.c` now queues each line (one atomic add, no
+lock, as signal-safe as before) and a thread of the log's own writes them
+in order; lines at error level and worse, `the game exited`, the end's
+reports and a crash report (`report_crash` calls `ps5_log_sync(1)` first)
+are written at once, after what is queued, so nothing before an `_exit` is
+lost. With it (`204143`) the same match has no frame over 10 ms. The
+crash report through the queue was not tried on the console (it would
+have cost a run); the path is the synchronous one.
+
+**The cold and warm first minutes (steps 4 and 5).** Cold (`vk_cache` and
+`radv-shader-cache` removed, with the user's word, once): 113 shaders
+compiled (glslang 3.4 to 4.5 ms, `vkCreateShaderModule` 5.7 to 7.8 ms on
+average), 99 pipelines, all made at their draw (13.9 ms on average in the
+first batch, 6.6 ms in the next, 0.03 ms after), 0 failed, 0 draws
+skipped. Against the warm baseline's first minute (124 / 121 / 17, the log
+on the game's threads both times, about 120 / 120 / 12 of it the log's),
+the cold minute had about 11 more frames over 17 ms and 8 more over 33
+ms: the pipelines' first sights. Android's cold start (VULKAN.md,
+"Progress") compiles 143 shaders at 2.5 to 3.4 ms with modules of 0.7 to
+1.4 ms, and makes its first pipelines at 11.0 ms then 0.3 to 8 ms: the
+console's glslang is a little slower, its shader modules five times
+slower, its pipelines alike, so its cold hitches are not worse than
+Android's. The shared code's choice to build a pipeline at its draw is
+unchanged. The 700 ms frames in every first minute, cold or warm, are the
+map's load.
+
+**The compile thread's priority (step 4).** The game's thread, from the
+thread checks: `policy 1, priority 700; the policy's range 256 to 767`:
+FIFO (FreeBSD's 1), not `SCHED_OTHER` as the plan said, in Sony's range
+where 256 is the highest and 767 the lowest (OpenOrbis's
+`SCE_KERNEL_PRIO_FIFO_HIGHEST`, `_LOWEST` and `_DEFAULT`; the SDK fork's
+probe sets the minimum, 256, which on this scale is the *highest*). The
+branch sets the game's priority plus 32: `vk: the compile thread's
+priority 732 (it was 700; policy 1, 256 to 767): set`. **Its effect is not
+measured:** the user chose one cold run, not two, so there is no cold
+minute at 700 to set the 732 one against; the warm runs compile nothing.
+
+**4K (step 7).** `display.ps5_resolution = "2160p"` (`HALO_PS5_RESOLUTION`
+for the run): `display.ps5_resolution: "2160p" (HALO_PS5_RESOLUTION): the
+game draws at 3840x2160`, `window "Halo" (1280x960 asked, flags 0x2023):
+the stand-in, 3840x2160 fullscreen`, `screen: 852x480 drawn at 3840x2160`,
+`vk: colour target 1fe6b000, 3840x2160 (the game's 852x480)`; the
+screenshot `204342/00011817.png` is native 3840x2160 (the HUD's edges
+sharp, the game's own counter at 120). **4K holds 120**, not only 60: the
+same 119.88 and no frame over 17 ms as 1080p, with the heap 32 MB larger.
+The GPU's share is not in the counters. `config.toml` round-trips the row:
+the first run of the new guest logged `settings: added
+display.ps5_resolution (new in this version) at its default`, and the
+file kept `ps5_resolution = "1080p"` with its comment through the game's
+later rewrites, and kept the `debug.vk_*` rows.
+
+**The first start (step 6), seen by the user.** `maps/` renamed to
+`maps.phase6-aside` and the image to `….aside` (the user's word; renamed,
+not removed). The plan's no-image case needs `maps/` gone too: the game
+offers the extraction only when it finds no maps. Run `204733` (no image):
+`message box: buttons "Yes", "No"; answered 1 (button 0)`, `file dialog:
+no .iso or .xiso in /data/halo`, `notification: Halo: put the game's disc
+image (.iso or .xiso) in /data/halo over FTP and start again`, then the
+game's second question answered "No" (`for there is no disc image: the
+game ends`), `no game data: quitting`, `the game exited (0)`, `the host
+ends`. Run `204747` (the image back): `notification: Halo: extracting the
+game's maps from Halo - Combat Evolved (USA) (Rev 2).xiso.iso`, then 10 %
+(178 of 1774 MB) to 90 % (1597 MB), `heartbeat: the stand-in 2D renderer
+(the first start's progress screen, nothing drawn): 310 presents in 5.00
+s, the extraction at 1547 of 1774 MB`, `notification: Halo: the maps are
+in place (1774 MB); the game starts` at 35 s, the first frame at 36.0 s.
+The user saw every notification and the menu after. The old maps could
+not be deleted afterwards (below).
+
+**The overlay (step 8).** `overlay:` lines from run `205052`:
+
+    overlay: the system's menu is up at 244.345 s: the window's focus is lost
+    overlay: the map is ui (type 2, the menus): no pause
+    overlay: the system's menu is up at 527.710 s: the window's focus is lost
+    overlay: the map is ratrace (type 1, multiplayer: a match cannot pause): no pause
+
+The host reads the loaded map's type from the guest's `cache_file_globals`
+(`host_loader.c` finds it): the header's short at 0x60 (`reserved60` in
+`cache_files.c`; Halo's 0 solo, 1 multiplayer, 2 the main menu, as
+`scenario_definitions.h` numbers scenarios), right in both cases. In a
+campaign level it holds Start on the first pad for 100 ms (`overlay: the
+map is a10 (a campaign level): Start pressed on pad 1 ...`): **not tried**,
+since no level was played. The start-up overlay: run `201656` started with
+the flag already set (`01 00 00 00 at 0.570 s`, gone at 5.70 s) and the
+game's first frame at 0.6 s, before the first look: the plan's rule (set
+before the first frame) did not hold, so the start-up overlay is now the
+one up at the first look *or* before the first frame. Later runs started
+without it, so the corrected rule's line was not seen.
+
+**Split screen (step 11).** The user switched a second DualSense on at the
+menu, signing no one in: SDL2 sent its own event, and the console named
+it after a guest user:
+
+    SDL: gamepad added: "thelinkin3000", instance 2
+    gamepads: SDL2 lists 3 joystick(s)
+    gamepads:   joystick 1: "Invitado1", instance 2, a game controller, type 7 (PS5), GUID 0300d0424c050000e60c000011810000
+    gamepads:   joystick 2: "PS5 Remote Control", instance 0, ... left out (the console's remote control)
+    game: halo-linux: gamepads: SDL lists 2
+    game: halo-linux: gamepads: port 1 reads SDL gamepad 2 (type 6)
+
+**No second user is needed.** The two played a local match on Rat Race
+from the menus for about four minutes, at the figures in the table; the
+screenshot `205052/00054525.png` shows the two viewports and the counter
+at 120.
+
+**The pads' poll (step 10)** is in place (once a second, `SDL_JoystickUpdate`
+and the listing compared, the event made with the instance id, an event
+SDL2 sends afterwards not made twice) but was not tried: the user did not
+want the pad switched off. Whether SDL2 even drops a pad switched off
+from the Quick Menu from its listing (phase 4: no event) is still open;
+if it does not, the poll cannot see it either.
+
+**Rest mode (step 9)**: not tried, the user's decision. The README says
+what survives if it ends the title.
+
+**The `HALO_PS5` branches of the shared files:**
+
+| File | Lines | What |
+|---|---|---|
+| `port/linux/src/port_config.c` (2,177 lines; 23 added, 3 changed) | 5 | `_platform_ps5 = 32` in the platforms' enumeration, under `HALO_PS5` |
+| | 6 | `PLATFORM_VULKAN`: `_platform_android \| _platform_ps5` under `HALO_PS5`, else `_platform_android` |
+| | 3 changed | `debug.vk_present_marker`, `debug.vk_self_test`, `debug.vk_validation` take `PLATFORM_VULKAN`, so the PS5's `config.toml` keeps them (`debug.gpu_stats` is `_platform_all` already) |
+| | 6 | the `display.ps5_resolution` row, under `HALO_PS5` |
+| | 2 | `CONFIG_PLATFORM` under `HALO_PS5`: `_platform_desktop \| _platform_guest \| _platform_ps5`, before `HALO_GUEST`'s |
+| `port/android/host/host_vk_shaders.c` (1,459 lines; 16 added) | 16 | `compile_thread`'s `#else` for `HALO_PS5`: `pthread_setschedparam` to the game's priority plus 32, capped at the policy's lowest, and the line saying what it got |
+
+**The preprocessing check.** Both files preprocessed (`-E -P`) with each
+build's own command (`ninja -t commands`), before any change and after the
+last: `port_config.c` under `build/android/guest` (7,319 lines),
+`build/linux_x86_64/guest` (9,219) and `build/switch/guest` (7,464), and
+`host_vk_shaders.c` under `build/android/host` (21,110): **identical**
+(`cmp`). The macro's single-token expansion prints as the token it
+replaces. The i686 Linux build (`build/linux`, `-m32`) cannot be
+preprocessed here (no 32-bit glibc headers), as in phase 5; no other build
+compiles `host_vk_shaders.c` (the Linux host stands `host_vk_none.c` in).
+`ninja ps5` builds with `-Werror` and no warning, `ninja linux_x86_64`
+builds, the four test files pass (15, the old skip), and no weak `host_`,
+`posix_` or `ps5_` symbol stands in `eboot.elf` (72 `host_sdl_*` defined).
+
+**Step 1, the deploy, proved.** `--run --minutes 2` (`201656`), the title
+killed from another shell at 20:17:56.21 (`ps5_deploy.py kill`): `follow:
+ps5vkctl says PPSA99500 no longer runs`, the fetch done at 20:18:00.97,
+under five seconds, exit 1 (a run that did not last its minutes). The
+next `--run` (`201841`, `HALO_EXIT_AFTER=25`) made its own folder: its
+`halo.log` begins at its own start (222 lines), its `debug.txt` is the 822
+bytes it added (`from byte 210020`), nothing of `201656`'s. Every folder of
+this phase holds its own run's files only; no leftover folder was needed.
+The deploy also no longer fetches the title's own `.txt` files
+(`brokers.txt`), and a kernel log connection the server closes ends the
+follow and still fetches.
+
+**Unexpected, and what was done about it:**
+
+- **The log's lines cost the game frames** (above): fixed in `host_main.c`.
+  The shared renderer's two lines every 60 frames stay as they are.
+- **The host's heap grew by 16 MB a minute in a match with a second
+  player** (the Switch's; 32 with split screen), from 160 MB, and not when
+  the console hosted alone. Its peak is permanent (phase 0 B). Found and
+  fixed below: pacbrew's SDL2 leaks a string in every
+  `SDL_GameControllerTypeForIndex`, which the host called on every pad
+  listing.
+- **A title, PPSA99058, was running** on the console at the start (not
+  ours); killed through `ps5vkctl` with the user's word.
+- **The old maps cannot be deleted over FTP**: `DELE` of a file the title
+  wrote answers `550 Permission denied` (renaming works), so
+  `/data/halo/maps.phase6-aside` (24 files, 1.8 GB) is still on the
+  console, for the user to remove another way.
+- **The no-image case needs `maps/` gone** (the plan assumed the image's
+  absence alone would show it), and the game asks its question again
+  after a failed file dialog, forever: the host answers "No" the second
+  time, which is the game's own way out.
+- The game opens several maps at its start (its map list:
+  `c40.map`, `a30.map`, `ui.map`, `bloodgulch.map` ... at 0.6 s), so the
+  last map opened would not have said which is loaded; the header does.
+- The game draws its first frame before it first asks for events (0.6 s),
+  so the start-up overlay rule changed (above).
+
+Deviations accepted, by the user's decisions: the runs merged and cut to
+eight (the campaign level, the twenty-minute match, the hour, rest mode,
+the pad test and the second cold run not made); the Switch as the other
+machine; Rat Race for split screen.
+
+**The heap's growth, being looked for.** What the logs rule out: the
+renderer's objects (textures stay at about 145 images and 192 MB, the ring
+buffers and target images constant while the heap climbs), the amount
+drawn (hosting alone draws more, 47,000 records a frame, and holds 160 MB),
+and the network as such (split screen has no peer and grows faster). It
+goes with the other players in view: none, 0; one, 16 MB a minute; split
+screen's two views of each other, 32. `port/ps5/host/host_alloc_track_ps5.c`
+(new, a diagnostic) answers the link's wrapped allocator names itself with
+`PS5_ALLOC_TRACK` set to 1, in place of the platform layer's `heap_wrap.c`
+(its own code over `ps5_heap_*`, not theirs), records each block with its
+caller's return address in a 32 MB side table, and every minute logs the
+callers whose live bytes grew most (`alloc:` lines; the addresses go to
+`llvm-symbolizer --obj=build/ps5/host/eboot.elf`, placed by the logged
+address of `ps5_alloc_report`). It was set to 1 for the user's runs and is
+back at 0 (below); at 0 only an empty
+report is compiled and the platform's wrappers serve, as before).
+Its first build killed the title before `main` (no `halo.log`, nothing
+in the kernel log's buffer): the wrappers kept a thread-local guard, and
+the allocator is called in a title's start-up before that storage is
+there. The guard is gone (nothing the counter calls allocates through the
+wrapped names), and blocks are recorded only from `main` on
+(`ps5_alloc_start`); the title then started and ended cleanly
+(`HALO_EXIT_AFTER=30`).
+**What it found** (the user's split-screen session, two players, the log
+read from the console while it ran): one caller holds all the growth,
+`0xeb8cb4` at run time, 26.5 MB a minute in about 97,400 blocks of about
+285 bytes, none freed (157.7 MB live in 578,839 blocks after six minutes;
+every other caller flat). The title runs 0x400000 above its ELF's
+addresses (`ps5_alloc_report` logged at 0x400d60, 0xd60 in the file), so
+it is `0xab8cb4`: **`SDL_malloc_REAL`, pacbrew's SDL2's own allocator**;
+the leak is a block SDL2 makes about 13 times a frame and never frees,
+with another player in the game. Which SDL2 call makes it needs the frame
+above: `HALO_PS5_ALLOC_DEEPER` (runtime addresses) puts the blocks made
+at SDL2's three allocator functions (which keep frame pointers, as the
+wrappers here do) down to their callers.
+
+**The leak, found and fixed.** With the deeper callers (the user's second
+split-screen session): one caller, `0xe81a31` at run time, 26 to 28 MB a
+minute in about 98,000 blocks, none freed, is `CreateMappingString` in
+SDL2's `SDL_gamecontroller.c`. Of its four callers in the link
+(`SDL_GameControllerMappingForGUID`, `MappingForIndex`, `Mapping`,
+`TypeForIndex`), the host calls one: **pacbrew's SDL 2.30.12's
+`SDL_GameControllerTypeForIndex` builds the mapping string, reads its
+`type:` field and returns without freeing it** (the disassembly: no
+`SDL_free` on its path). The host called it in `is_game_pad`, once for
+each joystick SDL2 lists every time the game asks for its pads, which it
+does many times a frame: two joysticks (the pad and the remote) with the
+Switch's player, three in split screen, hence 16 and 32 MB a minute; the
+match hosted alone listed them far less. **Fixed** in
+`host_sdl_ps5_input.c`: a joystick's type is asked once per instance and
+remembered (`device_type`, 32 entries). The Switch is not affected:
+devkitPro's SDL 2.28.5 takes the type from the joystick's GUID in that
+function (no string made; checked in its `SDL_gamecontroller.o`), and the
+Switch's host does not call it. **Confirmed on the console** (the user's
+third split-screen session, the fix and the counter on): two pads and a
+match drawing about 19,600 draws a 60 frames at 119.88 frames a second,
+the host's heap 192 MB at the first minute and 192 MB at the second (the
+same session's build before the fix: 208, then 240), 22.8 MB tracked live
+in 4,656 and then 4,593 blocks, and no caller growing. `PS5_ALLOC_TRACK`
+is back at 0: the platform's wrappers serve again (`heap_wrap.o` is in
+the link map), and the file compiles to two empty functions; it stays as
+the way to look again.
+(`build.ninja` was regenerated once by mistake with cut-short arguments;
+it was regenerated with `--linux-x86-64-cc clang-22 --android-ndk
+.../r27c --linux-x86-64-movable-window --ps5`, after which ninja finds no
+changed command line in any build.)
+
+Carried into the review and phase 7: the heap's growth is fixed (above;
+a long session would confirm it over more than two minutes); the PS button's pause in a campaign level, untried; whether
+SDL2 drops a pad switched off; rest mode; the long sessions' figures;
+`maps.phase6-aside` on the console.
 
 ### Phase 5 — audit (2026-10-18)
 

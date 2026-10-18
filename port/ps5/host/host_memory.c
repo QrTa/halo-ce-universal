@@ -1101,6 +1101,8 @@ static void report_crash(int signal_number, siginfo_t *information, void *contex
 	uint64_t returns[24];
 	int count, index;
 
+	/* (the report is the last thing the title writes: every line at once) */
+	ps5_log_sync(1);
 	host_arch_context(context, &pc, &sp, &fp, &lr);
 	snprintf(line, sizeof(line), "signal %d (code %d) at address %p: pc %016llx sp %016llx fp %016llx", signal_number,
 		information->si_code, information->si_addr, (unsigned long long)pc, (unsigned long long)sp,

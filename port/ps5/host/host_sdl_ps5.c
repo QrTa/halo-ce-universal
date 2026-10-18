@@ -147,10 +147,12 @@ void host_sdl_handle_free(uint32_t handle)
 static char standin_window, standin_context, standin_renderer;
 
 /* the console's display: VideoOut's one mode is 3840x2160 at 59.94 Hz, and
-the game renders at 1080p, which phase 4's present scales (port/ps5/PS5.md,
-"Display") */
-#define DISPLAY_WIDTH 1920
-#define DISPLAY_HEIGHT 1080
+the game renders at the stand-in window's size, 1080p unless
+display.ps5_resolution says "2160p" (host_main.c reads it), which phase 4's
+present scales (port/ps5/PS5.md, "Display" and phase 6) */
+int ps5_display_width = 1920, ps5_display_height = 1080;
+#define DISPLAY_WIDTH ps5_display_width
+#define DISPLAY_HEIGHT ps5_display_height
 #define DISPLAY_RATE (60000.0f / 1001.0f)
 #define DISPLAY_ID 1
 
@@ -326,18 +328,38 @@ int host_sdl_gl_set_swap_interval(int interval)
 	return 1;
 }
 
-/* the heartbeat: frames since the last line, their mean and longest */
+/* the heartbeat: frames since the last line, their mean and longest, and how
+many took over 20 and over 33 ms (a hitch shows as a count, not only as the
+longest); when the window's frames came at over 80 a second (a 120 Hz
+display), over 10 and over 17 ms too */
 #define HEARTBEAT_NS 5000000000ull
 #define MEMORY_LINE_NS 60000000000ull
 
 static uint64_t frames_swapped;
 
+uint64_t ps5_frames_swapped(void)
+{
+	return __atomic_load_n(&frames_swapped, __ATOMIC_RELAXED);
+}
+
 static void heartbeat(uint64_t now)
 {
 	static uint64_t line_start, last_frame, longest, frames, memory_reported;
+	static unsigned over10, over17, over20, over33;
+	char buckets[96], costs[160];
+	double seconds;
 
-	if (last_frame && now - last_frame > longest)
-		longest = now - last_frame;
+	if (last_frame)
+	{
+		uint64_t frame = now - last_frame;
+
+		if (frame > longest)
+			longest = frame;
+		over10 += frame > 10000000ull;
+		over17 += frame > 17000000ull;
+		over20 += frame > 20000000ull;
+		over33 += frame > 33000000ull;
+	}
 	last_frame = now;
 	frames++;
 	if (!line_start)
@@ -348,26 +370,43 @@ static void heartbeat(uint64_t now)
 	}
 	if (now - line_start < HEARTBEAT_NS)
 		return;
+	seconds = (now - line_start) / 1e9;
+	{
+		unsigned lines, slow;
+		double klog_ms, file_ms;
+
+		/* (before this line is written, so it is not counted in itself) */
+		ps5_log_costs(&lines, &slow, &klog_ms, &file_ms);
+		snprintf(costs, sizeof(costs), "; the log: %u lines, %u over 2 ms, the longest %.2f ms to the kernel log and "
+			"%.2f ms to the file", lines, slow, klog_ms, file_ms);
+	}
+	if (frames / seconds > 80.0)
+		snprintf(buckets, sizeof(buckets), "over 10 ms %u, over 17 ms %u, over 20 ms %u, over 33 ms %u", over10,
+			over17, over20, over33);
+	else
+		snprintf(buckets, sizeof(buckets), "over 20 ms %u, over 33 ms %u", over20, over33);
 	if (now - memory_reported >= MEMORY_LINE_NS)
 	{
 		double heap, peak, direct;
 
 		ps5_memory_figures(&heap, &peak, &direct);
-		host_logf(HOST_LOG_INFO, "heartbeat: %llu frames in %.2f s (%.2f a second), mean %.2f ms, longest %.2f ms; "
-			"the host's heap %.0f MB (peak %.0f MB), direct memory's largest free block %.0f MB",
-			(unsigned long long)frames, (now - line_start) / 1e9, frames / ((now - line_start) / 1e9),
-			(now - line_start) / 1e6 / (double)frames, longest / 1e6, heap, peak, direct);
+		host_logf(HOST_LOG_INFO, "heartbeat: %llu frames in %.2f s (%.2f a second), mean %.2f ms, longest %.2f ms, "
+			"%s; the host's heap %.0f MB (peak %.0f MB), direct memory's largest free block %.0f MB%s",
+			(unsigned long long)frames, seconds, frames / seconds, (now - line_start) / 1e6 / (double)frames,
+			longest / 1e6, buckets, heap, peak, direct, costs);
+		ps5_alloc_report();
 		memory_reported = now;
 	}
 	else
 	{
-		host_logf(HOST_LOG_INFO, "heartbeat: %llu frames in %.2f s (%.2f a second), mean %.2f ms, longest %.2f ms",
-			(unsigned long long)frames, (now - line_start) / 1e9, frames / ((now - line_start) / 1e9),
-			(now - line_start) / 1e6 / (double)frames, longest / 1e6);
+		host_logf(HOST_LOG_INFO, "heartbeat: %llu frames in %.2f s (%.2f a second), mean %.2f ms, longest %.2f ms, %s%s",
+			(unsigned long long)frames, seconds, frames / seconds, (now - line_start) / 1e6 / (double)frames,
+			longest / 1e6, buckets, costs);
 	}
 	line_start = now;
 	frames = 0;
 	longest = 0;
+	over10 = over17 = over20 = over33 = 0;
 }
 
 /* The stand-in swap: until the renderer presents (host_vk_presenting, phase
@@ -621,7 +660,13 @@ struct host_message_box
 
 typedef char host_message_box_size_check[sizeof(struct host_message_box) == 92 ? 1 : -1];
 
-/* nobody is there to answer: "Yes" if a button says so, else the first */
+/* set when the file dialog found no disc image to answer with: the game asks
+its question again, and is answered "No" this time, so it quits rather than
+asking forever (sdl_platform.c's platform_offer_game_data) */
+static int no_disc_image;
+
+/* nobody is there to answer: "Yes" if a button says so, else the first; "No"
+once the file dialog has found no disc image */
 int host_sdl_show_message_box(struct host_message_box *box)
 {
 	const char *texts = (const char *)(uintptr_t)box->button_texts;
@@ -638,7 +683,7 @@ int host_sdl_show_message_box(struct host_message_box *box)
 
 		if (!end)
 			return 0;
-		if (!strcasecmp(texts + used, "Yes"))
+		if (!strcasecmp(texts + used, no_disc_image ? "No" : "Yes"))
 			chosen = index;
 		if (listed < sizeof(buttons))
 			listed += (size_t)snprintf(buttons + listed, sizeof(buttons) - listed, "%s\"%s\"", index ? ", " : "",
@@ -647,8 +692,8 @@ int host_sdl_show_message_box(struct host_message_box *box)
 	}
 	host_logf(HOST_LOG_INFO, "message box \"%s\": %s", (const char *)(uintptr_t)box->title,
 		(const char *)(uintptr_t)box->message);
-	host_logf(HOST_LOG_INFO, "message box: buttons %s; answered %d (button %d) with nobody at the console", buttons,
-		box->button_ids[chosen], chosen);
+	host_logf(HOST_LOG_INFO, "message box: buttons %s; answered %d (button %d) with nobody at the console%s", buttons,
+		box->button_ids[chosen], chosen, no_disc_image ? ", for there is no disc image: the game ends" : "");
 	box->chosen = box->button_ids[chosen];
 	return 1;
 }
@@ -689,20 +734,32 @@ int host_sdl_open_file_dialog(int filter_count, const char *filter_names, const 
 	if (folder)
 		closedir(folder);
 	if (found)
+	{
 		host_logf(HOST_LOG_INFO, "file dialog: answered %s with nobody at the console", path);
+		ps5_notify("Halo: extracting the game's maps from %s (about 1.8 GB, under a minute)", strrchr(path, '/') + 1);
+	}
 	else
 	{
 		path[0] = 0;
 		host_logf(HOST_LOG_ERROR, "file dialog: no .iso or .xiso in %s to answer with: put the game's disc image "
 			"there (port/ps5/README.md)", PS5_DATA_FOLDER);
+		if (!no_disc_image)
+			ps5_notify("Halo: put the game's disc image (.iso or .xiso) in %s over FTP and start again",
+				PS5_DATA_FOLDER);
+		no_disc_image = 1;
 	}
 	return found;
 }
 
 /* ---------- the 2D renderer (the extraction's progress screen): nothing
-drawn, its presents counted */
+drawn, its presents counted; the progress it would write is sent as
+notifications, one every 10 %, and one when it is done */
 
 static uint64_t renderer_presents;
+/* the extraction's progress, from its text: the megabytes done and in all,
+and the last tenth notified */
+static unsigned long long progress_done, progress_total;
+static int progress_tenths = -1;
 
 uint32_t host_sdl_create_renderer(uint32_t window, const char *name)
 {
@@ -723,6 +780,10 @@ void host_sdl_destroy_renderer(uint32_t renderer)
 	{
 		host_sdl_handle_free(renderer);
 		host_logf(HOST_LOG_INFO, "2D renderer: destroyed after %llu presents", (unsigned long long)renderer_presents);
+		if (progress_total && progress_done >= progress_total)
+			ps5_notify("Halo: the maps are in place (%llu MB); the game starts", progress_total);
+		else if (progress_total)
+			ps5_notify("Halo: the extraction stopped at %llu of %llu MB", progress_done, progress_total);
 	}
 }
 
@@ -759,12 +820,15 @@ int host_sdl_render_fill_rect(uint32_t renderer, const void *rectangle)
 	return is_renderer(renderer);
 }
 
-/* (what it would write: the extraction's file and its megabytes, every
-ten seconds) */
+/* (what it would write: the extraction's file and its megabytes, "<file>
+(<done> of <total> MB)" (sdl_platform.c's data_extract), logged every ten
+seconds, and a notification at every tenth) */
 int host_sdl_render_debug_text(uint32_t renderer, float x, float y, const char *text)
 {
 	static uint64_t logged_at;
 	uint64_t now = ps5_now_ns();
+	const char *figures = text ? strrchr(text, '(') : NULL;
+	unsigned long long done, total;
 
 	(void)x;
 	if (y > 50.0f && text && now - logged_at >= 10000000000ull)
@@ -772,14 +836,43 @@ int host_sdl_render_debug_text(uint32_t renderer, float x, float y, const char *
 		logged_at = now;
 		host_logf(HOST_LOG_INFO, "2D renderer: \"%s\" at %.1f s", text, ps5_seconds());
 	}
+	if (y > 50.0f && figures && sscanf(figures, "(%llu of %llu MB)", &done, &total) == 2 && total)
+	{
+		int tenths = (int)(done * 10 / total);
+
+		progress_done = done;
+		progress_total = total;
+		if (tenths > progress_tenths)
+		{
+			if (progress_tenths >= 0 && tenths < 10)
+				ps5_notify("Halo: extracting the maps: %d %% (%llu of %llu MB)", tenths * 10, done, total);
+			progress_tenths = tenths;
+		}
+	}
 	return is_renderer(renderer);
 }
 
+/* (the heartbeat's line while the 2D renderer is the screen: the game swaps
+no frames then) */
 int host_sdl_render_present(uint32_t renderer)
 {
+	static uint64_t line_start, line_presents;
+	uint64_t now = ps5_now_ns();
+
 	if (!is_renderer(renderer))
 		return 0;
 	__atomic_add_fetch(&renderer_presents, 1, __ATOMIC_RELAXED);
+	line_presents++;
+	if (!line_start)
+		line_start = now;
+	else if (now - line_start >= HEARTBEAT_NS)
+	{
+		host_logf(HOST_LOG_INFO, "heartbeat: the stand-in 2D renderer (the first start's progress screen, nothing "
+			"drawn): %llu presents in %.2f s, the extraction at %llu of %llu MB", (unsigned long long)line_presents,
+			(now - line_start) / 1e9, progress_done, progress_total);
+		line_start = now;
+		line_presents = 0;
+	}
 	return 1;
 }
 

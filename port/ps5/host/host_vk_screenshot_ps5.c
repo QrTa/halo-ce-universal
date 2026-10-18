@@ -12,9 +12,10 @@ thread of the host's, not the game's, writes the buffer to
 /data/halo/screenshots/<frame>.ppm: binary P6, the swapchain's size
 (3840x2160), the alpha dropped, BGRA turned to RGB. Only one copy is in
 flight at a time; a screenshot that comes due while the last is still
-being written waits for it. At most 20 files of a run are kept (the oldest
-deleted), and tools/ps5_deploy.py's fetch converts them to PNG and deletes
-them from the console.
+being written waits for it. At most 200 files of a run are kept (the oldest
+deleted; 24 MB each), and tools/ps5_deploy.py's fetch converts them to PNG
+and deletes them from the console, every 5 minutes during a long run
+(--minutes), so a run loses none (port/ps5/PS5.md, phase 6).
 
 The copy's cost is measured once, with two timestamps around it on the
 GPU, and logged with the file's time on the writer thread: it is the
@@ -39,7 +40,7 @@ backend's lock held, on the game's thread.
 #define B host_vkb
 
 #define FOLDER PS5_DATA_FOLDER "/screenshots"
-#define KEPT 20
+#define KEPT 200
 #define CHUNK (1024 * 1024)
 
 int ps5_screenshot_seconds;

@@ -10,13 +10,15 @@ lists it. The protocols are PS5_Vulkan's (its tools/ps5_console.py and
 docs/DEPLOYMENT.md), written again here.
 
 Usage: python3 tools/ps5_deploy.py [options] ACTION...   (in the order given)
-       python3 tools/ps5_deploy.py --run [--hold] [--timeout S]
+       python3 tools/ps5_deploy.py --run [--hold] [--timeout S] [--minutes N]
 
 Actions:
   fetch          the title's log (halo.log in /data/halo, or in the title's
-                 folder; both when both are there) and the *.txt files of the
-                 title's folder, into build/ps5/logs/<UTC time>/; and the
-                 screenshots (/data/halo/screenshots/*.ppm, HALO_PS5_SCREENSHOT),
+                 folder; both when both are there), the game's own log
+                 (/data/halo/debug.txt, which the game appends to) and the
+                 *.txt files of the title's folder, into
+                 build/ps5/logs/<UTC time>/; and the screenshots
+                 (/data/halo/screenshots/*.ppm, HALO_PS5_SCREENSHOT),
                  converted to PNG there and deleted from the console
   upload         the built title folder (build/ps5/title/<ID>), eboot.bin and
                  sce_sys/param.json last, each file's size checked after it;
@@ -32,17 +34,26 @@ Actions:
   follow         the kernel log: the backlog the server replays is skipped,
                  each line it doubles is shown once, and the host's lines
                  ("halo: "), RADV's ("[radv] ") and any fatal signal are printed
-                 until the host's
-                 last line, a fatal signal, or --timeout (180 s); the whole
+                 until the host's last line, a fatal signal, the title no
+                 longer running (ps5vkctl's status, asked every 2 s once the
+                 host's lines have begun) or --timeout (180 s); the whole
                  capture is saved
   load-ps5vkctl  PS5_Vulkan's build/ps5vkctl/ps5vkctl.elf sent to the user's
                  payload manager (itsPLK's ps5-payload-manager, port 8084):
                  an upload, then a load; then ping. Only when ps5vkctl does
                  not answer, and the manager is up
 
---run is fetch (the previous run's files first), kill if the title runs,
-upload, launch with follow started before it, then fetch. Its exit status
-is 0 only if the host's last line was seen.
+--run is kill if the title runs, upload, launch with follow started before
+it, then fetch, into a folder of its own made at the launch: nothing of an
+earlier or later run is written into it (debug.txt is fetched from where
+it stood at the launch). What an earlier run left on the console and no
+run fetched (screenshots, a halo.log no folder has) goes first into a
+folder of its own, <UTC time>-leftover. Its exit status is 0 only if the
+host's last line was seen, or with --minutes if the title ran that long.
+
+--minutes N (with --run) is a long run: it follows for N minutes from the
+launch (no --timeout), fetching the screenshots into the run's folder every
+5 minutes as it goes, then kills the title and fetches.
 """
 
 import argparse
@@ -52,6 +63,7 @@ import http.client
 import io
 import socket
 import sys
+import threading
 import time
 import urllib.parse
 from pathlib import Path
@@ -81,6 +93,13 @@ FATAL_SIGNAL = "# A user thread receives a fatal signal"
 # prefix (port/ps5/host/host_main.c)
 RADV_PREFIX = "[radv] "
 SCREENSHOTS = f"{DATA_FOLDER}/screenshots"
+# the game's own log, which it appends to at every start (source/cseries/errors.c)
+GAME_LOG = "debug.txt"
+# how often the follower asks ps5vkctl whether the title still runs, once
+# the host's lines have begun; and how often a long run fetches the
+# screenshots
+STATUS_SECONDS = 2.0
+SCREENSHOT_FETCH_SECONDS = 300.0
 
 
 class DeployError(Exception):
@@ -220,8 +239,9 @@ def title_folder(args: argparse.Namespace) -> str:
     return f"/data/homebrew/{args.title}"
 
 
-def new_log_folder(args: argparse.Namespace) -> Path:
+def new_log_folder(args: argparse.Namespace, label: str = "") -> Path:
     stamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%d-%H%M%S")
+    stamp += f"-{label}" if label else ""
     folder = Path(args.logs) / stamp
     suffix = 1
     while folder.exists():
@@ -231,7 +251,44 @@ def new_log_folder(args: argparse.Namespace) -> Path:
     return folder
 
 
-def action_fetch(args: argparse.Namespace, folder: Optional[Path] = None) -> int:
+def ftp_size(ftp: ftplib.FTP, folder: str, name: str) -> Optional[int]:
+    """a file's size, None if there is no such file"""
+    try:
+        ftp.cwd(folder)
+        return ftp.size(name)
+    except ftplib.error_perm:
+        return None
+
+
+def ftp_read(ftp: ftplib.FTP, folder: str, name: str, offset: int = 0) -> bytes:
+    """a file from offset on: REST when the server takes it, else the whole
+    file read and its start dropped"""
+    data = io.BytesIO()
+    ftp.cwd(folder)
+    try:
+        ftp.retrbinary(f"RETR {name}", data.write, rest=offset if offset else None)
+        return data.getvalue()
+    except (ftplib.error_perm, ftplib.error_reply):
+        if not offset:
+            raise
+    data = io.BytesIO()
+    ftp.retrbinary(f"RETR {name}", data.write)
+    return data.getvalue()[offset:]
+
+
+def game_log_size(args: argparse.Namespace) -> int:
+    """debug.txt's size now (0 if there is none): where a run's part of it
+    starts"""
+    ftp = ftp_open(args)
+    try:
+        return ftp_size(ftp, DATA_FOLDER, GAME_LOG) or 0
+    finally:
+        ftp_close(ftp)
+
+
+def action_fetch(args: argparse.Namespace, folder: Optional[Path] = None, game_log_from: int = 0) -> int:
+    """the logs and screenshots into folder (a new one if None); debug.txt
+    from game_log_from on, the part a run added"""
     folder = folder or new_log_folder(args)
     ftp = ftp_open(args)
     fetched = []
@@ -240,16 +297,22 @@ def action_fetch(args: argparse.Namespace, folder: Optional[Path] = None) -> int
         title_files = ftp_files(ftp, title_folder(args)) or []
         if "halo.log" in title_files:
             wanted.append((title_folder(args), "halo.log", "app0-halo.log"))
-        # (a run's reports; not the title's own NOTICE.txt and hold.txt)
+        # (a run's reports; not the title's own files, such as NOTICE.txt and
+        # brokers.txt, nor the deploy's hold.txt and environment.txt)
+        built = {path.name for path in Path(args.title_dir).glob("*.txt")}
         wanted += [(title_folder(args), name, name) for name in title_files
-                   if name.endswith(".txt") and name not in ("NOTICE.txt", "hold.txt")]
-        if "halo.log" in (ftp_files(ftp, DATA_FOLDER) or []):
+                   if name.endswith(".txt") and name not in built | {"NOTICE.txt", "hold.txt", "environment.txt"}]
+        data_files = ftp_files(ftp, DATA_FOLDER) or []
+        if "halo.log" in data_files:
             wanted.append((DATA_FOLDER, "halo.log", "halo.log"))
         for remote_folder, name, local in wanted:
-            ftp.cwd(remote_folder)
-            with (folder / local).open("wb") as handle:
-                ftp.retrbinary(f"RETR {name}", handle.write)
+            (folder / local).write_bytes(ftp_read(ftp, remote_folder, name))
             fetched.append(f"{remote_folder}/{name}")
+        if GAME_LOG in data_files:
+            part = ftp_read(ftp, DATA_FOLDER, GAME_LOG, game_log_from)
+            (folder / GAME_LOG).write_bytes(part)
+            fetched.append(f"{DATA_FOLDER}/{GAME_LOG}" + (f" (from byte {game_log_from}: {len(part)} bytes)"
+                                                         if game_log_from else ""))
         shots = fetch_screenshots(ftp, folder)
     finally:
         ftp_close(ftp)
@@ -257,6 +320,31 @@ def action_fetch(args: argparse.Namespace, folder: Optional[Path] = None) -> int
     if shots:
         say(f"fetched {len(shots)} screenshots: {', '.join(shots)}")
     return 0
+
+
+def fetch_leftovers(args: argparse.Namespace) -> None:
+    """what an earlier run left on the console and no run's folder has: the
+    screenshots, and halo.log when the newest folder's copy differs (a run
+    stopped from the console, or killed before its fetch); into a folder
+    <UTC time>-leftover, made only when there is something"""
+    ftp = ftp_open(args)
+    try:
+        shots = [name for name in ftp_files(ftp, SCREENSHOTS) or [] if name.endswith(".ppm")]
+        log = ftp_read(ftp, DATA_FOLDER, "halo.log") if "halo.log" in (ftp_files(ftp, DATA_FOLDER) or []) else b""
+        folders = sorted(path for path in Path(args.logs).glob("2*") if path.is_dir()) \
+            if Path(args.logs).is_dir() else []
+        newest = next((path / "halo.log" for path in reversed(folders) if (path / "halo.log").is_file()), None)
+        log_fetched = not log or (newest is not None and newest.read_bytes() == log)
+        if not shots and log_fetched:
+            return
+        folder = new_log_folder(args, "leftover")
+        if not log_fetched:
+            (folder / "halo.log").write_bytes(log)
+        saved = fetch_screenshots(ftp, folder)
+    finally:
+        ftp_close(ftp)
+    say(f"leftovers of an earlier run into {folder}: " + ", ".join(
+        (["halo.log"] if not log_fetched else []) + ([f"{len(saved)} screenshots"] if saved else [])))
 
 
 def fetch_screenshots(ftp: ftplib.FTP, folder: Path) -> List[str]:
@@ -353,11 +441,12 @@ def action_upload(args: argparse.Namespace) -> int:
 # ---------- the kernel log
 
 def klog_lines(connection: socket.socket, args: argparse.Namespace, until: float,
-               idle: Optional[float] = None):
+               idle: Optional[float] = None, ticks: bool = False):
     """the kernel log's lines as they come, until the monotonic time until;
     with idle, also as soon as the server has said nothing for that long (the
-    way the replayed backlog is told from the run). A connection the server
-    closes ends the lines."""
+    way the replayed backlog is told from the run); with ticks, None after
+    each second without a line, so the caller can look at other things. A
+    connection the server closes ends the lines."""
     rest = b""
     connection.settimeout(idle if idle is not None else 1.0)
     while time.monotonic() < until:
@@ -366,6 +455,8 @@ def klog_lines(connection: socket.socket, args: argparse.Namespace, until: float
         except socket.timeout:
             if idle is not None:
                 return
+            if ticks:
+                yield None
             continue
         if not data:
             raise DeployError(f"klogsrv at {args.host}:{args.klog_port} closed the connection")
@@ -377,9 +468,16 @@ def klog_lines(connection: socket.socket, args: argparse.Namespace, until: float
             cut = rest.find(b"\n")
 
 
+# follow's results
+FOLLOW_LAST_LINE, FOLLOW_SIGNAL, FOLLOW_TIMEOUT, FOLLOW_GONE, FOLLOW_MINUTES = 0, 1, 2, 3, 4
+
+
 def action_follow(args: argparse.Namespace, folder: Optional[Path] = None,
-                  on_ready: Optional[Callable[[], None]] = None) -> int:
-    """0 when the host's last line arrives, 1 on a fatal signal, 2 at the
+                  on_ready: Optional[Callable[[], None]] = None, minutes: float = 0.0) -> int:
+    """FOLLOW_LAST_LINE when the host's last line arrives, FOLLOW_SIGNAL on a
+    fatal signal, FOLLOW_GONE when ps5vkctl says the title no longer runs,
+    FOLLOW_TIMEOUT at --timeout; with minutes, FOLLOW_MINUTES when that long
+    has passed since on_ready (the title still running) instead of the
     timeout"""
     folder = folder or new_log_folder(args)
     capture = folder / "klog.txt"
@@ -387,7 +485,7 @@ def action_follow(args: argparse.Namespace, folder: Optional[Path] = None,
         connection = socket.create_connection((args.host, args.klog_port), timeout=10)
     except OSError as error:
         raise DeployError(f"klogsrv at {args.host}:{args.klog_port} did not answer ({error})") from error
-    status = 2
+    status = FOLLOW_TIMEOUT
     with connection, capture.open("w", encoding="utf-8", newline="\n") as log_file:
         # the server replays its buffer to a new connection: that is what
         # arrives before it first falls quiet (phase 0 B measured the replay in
@@ -397,9 +495,12 @@ def action_follow(args: argparse.Namespace, folder: Optional[Path] = None,
             log_file.write(line + "\n")
             backlog += 1
         log_file.write("---- the backlog ends; the run follows ----\n")
-        say(f"klog {args.host}:{args.klog_port}: {backlog} backlog lines skipped; following for {args.timeout:.0f} s")
+        duration = minutes * 60.0 if minutes else args.timeout
+        say(f"klog {args.host}:{args.klog_port}: {backlog} backlog lines skipped; following for {duration:.0f} s")
         if on_ready:
             on_ready()
+        until = time.monotonic() + duration
+        next_status = 0.0
 
         # the server has been seen to send each line twice (phase 0 B): a line
         # is shown when it first comes, and one later copy of it is let pass
@@ -407,7 +508,33 @@ def action_follow(args: argparse.Namespace, folder: Optional[Path] = None,
         seen_host = False
         in_signal = False
         signal_lines = 0
-        for line in klog_lines(connection, args, time.monotonic() + args.timeout):
+        lines = klog_lines(connection, args, until, ticks=True)
+        while True:
+            # (a connection the server closes, as rest mode may, ends the follow
+            # as the title's going does; the fetch is tried after)
+            try:
+                line = next(lines)
+            except StopIteration:
+                break
+            except DeployError as error:
+                say(f"follow: {error}")
+                status = FOLLOW_GONE
+                break
+            # (once the host has begun, whether the title still runs: a run
+            # killed or ended without its last line ends the follow too)
+            if seen_host and time.monotonic() >= next_status:
+                next_status = time.monotonic() + STATUS_SECONDS
+                try:
+                    running = title_running(args)
+                except DeployError as error:
+                    say(f"follow: {error}")
+                    running = True
+                if not running:
+                    say(f"follow: ps5vkctl says {args.title} no longer runs")
+                    status = FOLLOW_GONE
+                    break
+            if line is None:
+                continue
             log_file.write(line + "\n")
             at = line.find("halo: ")
             radv = line.find(RADV_PREFIX)
@@ -435,16 +562,19 @@ def action_follow(args: argparse.Namespace, folder: Optional[Path] = None,
                 if text.startswith("# dynamic libraries") or signal_lines > 40:
                     in_signal = False
                     if seen_host:
-                        status = 1
+                        status = FOLLOW_SIGNAL
                         break
                 continue
             seen_host = True
             say(text)
             if text.startswith(HOST_LAST_LINES):
-                status = 0
+                status = FOLLOW_LAST_LINE
                 break
             log_file.flush()
-    if status == 2:
+    if status == FOLLOW_TIMEOUT and minutes:
+        status = FOLLOW_MINUTES
+        say(f"follow: {minutes:g} minutes have passed")
+    elif status == FOLLOW_TIMEOUT:
         say(f"follow: no last line from the host within {args.timeout:.0f} s")
     say(f"klog capture: {capture}")
     return status
@@ -452,35 +582,67 @@ def action_follow(args: argparse.Namespace, folder: Optional[Path] = None,
 
 # ---------- the whole loop
 
+def kill_and_wait(args: argparse.Namespace) -> None:
+    if action_kill(args) != 0:
+        raise DeployError(f"{args.title} could not be killed")
+    for _ in range(20):
+        if not title_running(args):
+            return
+        time.sleep(0.5)
+
+
+def screenshot_fetcher(args: argparse.Namespace, folder: Path, stop: threading.Event) -> None:
+    """a long run's screenshots into its folder every SCREENSHOT_FETCH_SECONDS,
+    so the console's cap loses none (a thread of its own: the follower goes
+    on reading the kernel log meanwhile)"""
+    while not stop.wait(SCREENSHOT_FETCH_SECONDS):
+        try:
+            ftp = ftp_open(args)
+            try:
+                saved = fetch_screenshots(ftp, folder)
+            finally:
+                ftp_close(ftp)
+            say(f"(fetched {len(saved)} screenshots into {folder.name} during the run)")
+        except (DeployError, ftplib.Error, OSError) as error:
+            say(f"(the screenshots could not be fetched during the run: {error})")
+
+
 def action_run(args: argparse.Namespace) -> int:
     started = time.monotonic()
-    say("-- the previous run's files")
-    action_fetch(args)
     if title_running(args):
         say(f"-- {args.title} is running: kill")
-        if action_kill(args) != 0:
-            raise DeployError(f"{args.title} could not be killed")
-        for _ in range(20):
-            if not title_running(args):
-                break
-            time.sleep(0.5)
+        kill_and_wait(args)
+    fetch_leftovers(args)
     say("-- upload")
     action_upload(args)
+    game_log_from = game_log_size(args)
     say("-- launch and follow")
     folder = new_log_folder(args)
     launched = []
+    stop = threading.Event()
+    fetcher = threading.Thread(target=screenshot_fetcher, args=(args, folder, stop), daemon=True)
 
     def launch() -> None:
         launched.append(time.monotonic())
         if action_launch(args) != 0:
             raise DeployError(f"{args.title} was not launched")
+        if args.minutes:
+            fetcher.start()
 
-    status = action_follow(args, folder, on_ready=launch)
+    try:
+        status = action_follow(args, folder, on_ready=launch, minutes=args.minutes)
+    finally:
+        stop.set()
+        if fetcher.is_alive():
+            fetcher.join()
+    if status in (FOLLOW_MINUTES, FOLLOW_TIMEOUT) and title_running(args):
+        say(f"-- {args.title} still runs: kill")
+        kill_and_wait(args)
     say("-- this run's files")
-    action_fetch(args, folder)
+    action_fetch(args, folder, game_log_from)
     say(f"--run: {time.monotonic() - started:.1f} s in all, {time.monotonic() - launched[0]:.1f} s from the launch"
         if launched else f"--run: {time.monotonic() - started:.1f} s")
-    return 0 if status == 0 else 1
+    return 0 if status == FOLLOW_LAST_LINE or (status == FOLLOW_MINUTES and args.minutes) else 1
 
 
 ACTIONS = {
@@ -509,6 +671,9 @@ def main() -> int:
     parser.add_argument("--title-dir", default=str(ROOT / "build" / "ps5" / "title" / DEFAULT_TITLE))
     parser.add_argument("--logs", default=str(ROOT / "build" / "ps5" / "logs"))
     parser.add_argument("--timeout", type=float, default=180.0, help="follow's, in seconds (default 180)")
+    parser.add_argument("--minutes", type=float, default=0.0,
+                        help="with --run: follow this long from the launch, fetching the screenshots every 5 "
+                             "minutes, then kill the title and fetch")
     parser.add_argument("--hold", action="store_true", help="upload puts hold.txt in the title's folder")
     parser.add_argument("--force", action="store_true", help="upload while the title runs")
     parser.add_argument("--env", action="append", default=[], metavar="NAME=VALUE",
@@ -517,6 +682,8 @@ def main() -> int:
     args = parser.parse_args()
     if not args.run and not args.actions:
         parser.error("name an action, or --run")
+    if args.minutes and not args.run:
+        parser.error("--minutes is --run's")
     bad = [setting for setting in args.env if "=" not in setting or setting.startswith("=") or "\n" in setting]
     if bad:
         parser.error(f"--env takes NAME=VALUE, not {', '.join(bad)}")
