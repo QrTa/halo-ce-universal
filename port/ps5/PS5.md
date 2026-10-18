@@ -16,7 +16,7 @@ Status: phase 0, part A is done (the probes: memory, the title, pad, audio,
 RADV, the guest's CPU side up to its first SDL call; `PS5_FINDINGS.md`).
 Phase 0, part B is done and reviewed (the host, SDL2 and glslang probes,
 "Progress"); every "(to confirm)" row of "Decisions" is settled. Phase 1 is
-next, to be written out.
+written out in detail and ready to be handed over.
 Nothing of the port itself exists yet; the probes are in `port/ps5/probe`.
 
 ---
@@ -121,6 +121,10 @@ rename):
 | `port/ps5/host/host_vk_driver_ps5.c` | `port/android/host/host_vk_driver.c` | RADV linked in: its ICD entry point `vk_icdGetInstanceProcAddr` called directly (the archive has no `vkGetInstanceProcAddr`), the driver's name for the log |
 | `port/ps5/host/host_vk_present_ps5.c` | `port/android/host/host_vk_present.c` | the surface through `VK_KHR_display` on VideoOut, the FIFO swapchain, the letterboxed blit, re-creation |
 | `port/ps5/host/host_update_none.c` | — | `host_update_*` unavailable |
+| `port/ps5/host/host_bootstrap.c`, `host_bootstrap.S` | the guest probe's section 6 | **temporary** (phase 1): the ranges, the loader, the thunks and the trivial answers that prove the build pipeline; phase 2 deletes them |
+| `port/ps5/host/host_libc_extra.c` | the SDL2 probe's `libc_extra.c` | what pacbrew's archives want of libc and no system module exports (`___mb_cur_max`) |
+| `tools/ps5_title.sh` | `port/ps5/probe/title/build.sh` | the title's link (`radv-link.sh` sourced, `prospero-lld`, `ps5-native-tool link`) and signing as a script the ninja rules call |
+| `tools/test_ps5_build.py` | `tools/test_linux_guest_build.py` | the configure test: not asked for, unavailable with a reason, generated against a fake checkout |
 | `port/ps5/sce_sys/param.json`, `icon0.png` | the probes' | a title ID of our own (PPSA and five digits), the name, the icon from the Android master |
 | `port/ps5/README.md` | `port/switch/README.md` | requirements, building, installing, game data, settings, how the port operates |
 
@@ -528,36 +532,324 @@ with the two rows that are theirs to decide.
 
 ## Phase 1 — the build and the deploy
 
-`ninja ps5` and one command to run it on the console. `tools/ps5_build.py`
-after `tools/switch_build.py`: the x32 guest from
-`tools/linux_guest_build.py`'s target with the movable window and
-`vulkan=True`; the host compiled with the SDK fork's clang (clang 22 under
-it, as `probe/vk/build.sh` does, so Mesa's entry points link), linked as
-the phase 0 B probes were linked, together: PS5_Vulkan's RADV link recipe
-(`radv-link.sh`, sourced where it is: its linker script, libc++, the
-platform layer's libc bindings and allocator wraps, the AGC stubs), RADV's
-archive whole, glslang's two archives whole, pacbrew's SDL2 with its
-transitive archives and the `___mb_cur_max` the host provides, and
-`libps5platform.a`; through `ps5-native-tool` into a fake-signed
-`eboot.bin`; `param.json` with a title ID of our own, the icon, `libc.prx`;
-the image beside the eboot. `configure.py` gets the options that name the
-PS5_Vulkan checkout, PS5_Mesa and the LLVM, and `ninja ps5` says plainly
-what is missing when it cannot build. `tools/ps5_deploy.py` uploads the
-title (`eboot.bin` and `param.json` last), starts, stops and restarts it
-through `ps5vkctl` (loaded once per boot through the user's payload
-manager, as "Testing" says), reads the kernel log while it runs, and fetches
-the report and log files **before** any relaunch (phase 0 B lost a run's
-file that way). It tries `kill` on a running title, which phase 0 B did not.
+Written to be picked up by an agent that has not seen the work so far. Read
+first, in this order: this plan's "Decisions", "Where the port lives",
+"Files" and "How this plan is worked", then phase 0 B's entry under
+"Progress" whole (what the console does and does not do, and the pins);
+`PS5_FINDINGS.md`'s "Building a title" and "Building the Vulkan driver";
+`port/ps5/probe/title/build.sh` and the three `build-extra.sh` under
+`port/ps5/probe/host`, `sdl2` and `glslang` (the title's compile, link and
+packaging, and the three link recipes this phase joins into one);
+`tools/switch_build.py` whole (the model: a guest image and a host built
+with another toolchain, packaged for a console) and `tools/switch_deploy.py`;
+`tools/linux_guest_build.py` (`_generate`: how the x32 guest is asked for
+and how its host is built) and `generate_guest_image`'s docstring and
+`vulkan` branch in `tools/android_build.py`; `port/ps5/probe/guest/main.c`
+(sections 4 and 6: the ranges, the ELF loader, the thunks and the trivial
+answers, which the bootstrap host grows from) with `guest_probe.S`;
+`port/linux/host/host_main.c` and `port/switch/host/host_main.c` (the two
+entry points' shape); PS5_Vulkan's `tools/ps5_console.py`
+(`ps5vkctl_command`, `deploy_payload`, `capture_runs`) and
+`docs/DEPLOYMENT.md`; `tools/test_linux_guest_build.py` (the shape of a
+configure test). The work is reviewed against the acceptance list at the
+end of this phase.
 
-The host in this phase is the smallest that proves the pipeline: the
-guest probe's section 6 as a host (`host_main.c`, `host_mman.c`'s ranges,
-the import thunks pointed at the real host's table with every unanswered
-import reported), so the title built by `ninja ps5` reaches
-`host_sdl_get_base_path` as the probe did.
+### What this phase is, and is not
+
+- **It is** `ninja ps5`: the x32 guest with the Vulkan renderer and the
+  movable window, a host compiled and linked with PS5_Vulkan's toolchain
+  and the three link recipes together, packaged as a title with an identity
+  of its own; `tools/ps5_deploy.py`, which installs, starts, follows and
+  fetches a run from one shell; a test of the build's configure; the first
+  `port/ps5/README.md`; and a **bootstrap host** that proves the pipeline
+  end to end on the console.
+- **It is not** the host. The bootstrap host's loader, thunks and import
+  answers are the guest probe's section 6 moved into one file,
+  `host_bootstrap.c`, which says at its top that phase 2 replaces it with
+  the Android host's loader and the real import table. Only `host_main.c`
+  (the title's start-up and log) is written to stay.
+- **Nothing changes** under `port/android`, `port/linux`, `port/switch`,
+  `source` or the probes. `configure.py` gains the PS5's options and one
+  call; `tools/` gains the PS5's scripts. Nothing of PS5_Vulkan's, the SDK
+  fork's, pacbrew's or glslang's is copied in: the build sources
+  `radv-link.sh` and calls the fork's tools where they are, compiles
+  PS5_Vulkan's `tooling/native/*.cpp` and its AGC stub sources from its
+  tree, and pins the checkouts by commit.
+- **Full link from the start.** RADV's archive, glslang's archives and
+  pacbrew's SDL2 go into this phase's link although the bootstrap host
+  barely calls them, because the three recipes have been proved one at a
+  time and never together; a symbol clash between them is this phase's to
+  find, not phase 4's.
+
+### Files
+
+| File | What |
+|---|---|
+| `tools/ps5_build.py` | `generate_ps5_build(n, sln)` and `ps5_configure_inputs()`, called from `configure.py` as the Switch's are. The pins as constants at the top: `PS5_VULKAN_COMMIT`, `PS5_PAYLOAD_SDK_REVISION`, `PS5_MESA_COMMIT`, `PACBREW_VERSION` and its SHA-256, `GLSLANG_TAG` (imported from `android_build`), with the values phase 0 B recorded. The guest image, glslang's build, the `ps5-native-tool` build, the host's compile, the link and the packaging as ninja rules (below). |
+| `tools/ps5_title.sh` | the shell the ninja rules call for what is a bash recipe: `link` (sources `radv-link.sh`, runs `prospero-lld`, then `ps5-native-tool link` with the AGC stubs) and `self` (`ps5-native-tool self --sign`), grown from `probe/title/build.sh`'s lines, taking its inputs and outputs as arguments so ninja owns the dependencies. The probes keep their own `build.sh`; they are not changed. |
+| `tools/ps5_deploy.py` | upload, launch, kill, restart, status, follow the kernel log, fetch a run's files; `--run` does the whole loop (below) |
+| `tools/test_ps5_build.py` | the configure test (below) |
+| `configure.py` | `--ps5` (generate the build, as `--linux-x86-64` does for its target), `--ps5-vulkan PATH` (the PS5_Vulkan checkout; default `$PS5_VULKAN`, then `~/projects/ps5-deps/PS5_Vulkan`), `--ps5-mesa PATH` (default beside it, `PS5_Mesa`), `--ps5-llvm-config PATH` (default `/usr/bin/llvm-config-22`), `--ps5-hostdeps ENV` (default `~/projects/ps5-deps/hostdeps/env.sh`, sourced by the rules that need meson's and LLVM's tools), `--ps5-guest-cc` (default `clang`, as `--linux-x86-64-cc`); the settings go into `sln` with the `ps5_` prefix |
+| `port/ps5/host/host_main.c` | the title's entry point, written to stay: `ps5_fp_ieee()`, the log (a file and the kernel log), the data folder, the build's identity logged, then the bootstrap (this phase) or the Android host's start-up (phase 2) |
+| `port/ps5/host/host_bootstrap.c`, `host_bootstrap.S` | **temporary**: the guest's ranges as direct memory, `/app0/halo_guest.elf` loaded where it is linked, every import a thunk into `import_dispatch`, the probe's trivial answers, a stop at the first import not answered. The probe's code, moved and trimmed; the header comment says phase 2 deletes both files |
+| `port/ps5/sce_sys/param.json` | the title: `titleId` **PPSA99500**, `contentId` `UP9000-PPSA99500_00-HALOCOMBATEVOLVE`, `titleName` "Halo: Combat Evolved", the other fields as the probes' (`downloadDataSize` 256 kept) |
+| `port/ps5/sce_sys/icon0.png` | 512x512, made once from `port/assets/icon/opence-icon.png` with Pillow (the command in a comment in `ps5_build.py`), committed as the Switch's `icon.jpg` is |
+| `port/ps5/README.md` | first version: requirements, building, installing, running a build, where the log is; grows with each phase |
+
+### The build (`ninja ps5`)
+
+`generate_ps5_build` follows `tools/linux_guest_build.py`'s shape: it is
+generated only when asked for (`--ps5`, or `--ps5-vulkan`, or the sources
+already fetched under `build/ps5/third_party`), it writes itself aside and,
+on any failure to generate, leaves a `ps5` target that stops with the
+reason (`_unavailable`'s pattern), never configure.py. The reasons it
+checks, each a plain sentence: no PS5_Vulkan checkout at the path; no SDK
+fork under its `.deps/native/ps5-payload-sdk` (say to run its
+`tools/setup-native-dependencies.sh`); no PS5_Mesa beside it; no RADV
+release archive (say to run `port/ps5/probe/vk/build.sh`, which builds it,
+or PS5_Vulkan's `tools/build-radv.sh release` with clang 22); no hostdeps
+environment; no `GL/glcorearb.h` (the desktop guest's GL stubs need it, as
+`linux_x86_64`'s do); a checkout whose `HEAD` is not the pinned commit is a
+**warning** printed by configure.py, not a stop. All paths in the build file
+are absolute, as the Switch's are (its comment says why).
+
+1. **The guest image.** `generate_guest_image(n, sln, config, arch=X32,
+   prefix="ps5", label="PS5", build=Path("build/ps5"),
+   third_party=Path("build/ps5/third_party"), ...)` with the x32 target's
+   tools and flags as `linux_guest_build._generate` passes them for
+   `linux_x86_64` (the compiler's `llvm-ar`, `ld.lld`, `llvm-objdump` with
+   its version suffix; `environment="gnu"`; `extra_runtime` the desktop's
+   `guest_desktop.c`; `extra_imports` `port/linux/host/host_imports.list`;
+   `updater_cflags` as there), `platform_defines=["-DHALO_MOVABLE_WINDOW=1"]`
+   (the desktop's code paths: no `HALO_ANDROID`, no `HALO_GLES`),
+   `desktop_gl=True` and **`vulkan=True`**. The title takes the result's
+   `vk_image` (`build/ps5/halo_guest_vk.elf`) as its `halo_guest.elf`; the
+   GL image the generator also links is a by-product and is not packaged.
+   The guest is thus the `ninja linux_x86_64` guest with the window movable
+   and the Vulkan renderer, built from the same sources into `build/ps5`,
+   so the PC build goes on testing the sources. `fetch_third_party` fetches
+   musl and SDL3 for it as `linux_x86_64` does.
+
+2. **glslang**, as `port/ps5/probe/glslang/build-extra.sh` builds it, as a
+   ninja rule: the clone at `GLSLANG_TAG` (the Android build's clone reused
+   when it is there at that tag, else `build/ps5/third_party/glslang`),
+   CMake with the fork's `toolchain/prospero.cmake` and the probe's options,
+   `ninja glslang glslang-default-resource-limits`, outputs
+   `build/ps5/glslang/glslang/libglslang.a` and
+   `libglslang-default-resource-limits.a`.
+
+3. **pacbrew's SDL2**, resolved at configure time (only when the build is
+   generated): `setup-pacbrew-dependencies.sh --resolve sdl2`, which fetches
+   the pinned sysroot once (346 MB, into PS5_Vulkan's `.deps/pacbrew`) and
+   answers the include folders and the archives in link order, as the SDL2
+   probe's `build-extra.sh` reads them.
+
+4. **`ps5-native-tool`**, built from PS5_Vulkan's `tooling/native/*.cpp`
+   with the system's `clang++` as `probe/title/build.sh` builds it, as a
+   rule with those sources as inputs.
+
+5. **The host's compile.** Rule `ps5_host_cc`: `PS5_PAYLOAD_SDK=<sdk> sh
+   <vulkan>/tooling/prospero-clang18`, with `LLVM_CONFIG` set to
+   `--ps5-llvm-config` (clang 22: Mesa's weak entry points, `PS5_FINDINGS.md`),
+   `-MMD` for ninja's dependencies, flags as `build.sh`'s (`-std=c11 -O2 -g
+   -Wall -Wextra -Werror -ffunction-sections -fdata-sections`) plus
+   `-DHALO_PS5=1`, `-I port/ps5/host -I port/android/include -I
+   port/android/host -isystem <PS5_Mesa>/include` (Vulkan's headers), the
+   SDL2 include folders as `-isystem`, and `-I <glslang source>`. The
+   `.S` files are assembled with the same wrapper. PS5_Vulkan's
+   `app_crt.cpp` and `app_cpp_runtime.cpp` compile as C++20 as `build.sh`
+   does. The AGC stub libraries (`libSceAgc.so`, `libSceAgcDriver.so`) are
+   compiled from PS5_Vulkan's `vendor/ps5/sdk/stubs/*.c` as the host
+   probe's `build-extra.sh` does, as rules.
+
+6. **The link**, `tools/ps5_title.sh link`: sources `radv-link.sh`, calls
+   `radv_link_recipe`, and runs `prospero-lld` with the recipe's linker
+   script, `--eh-frame-hdr`, `--version-script app-symbols.map`,
+   `--exclude-libs=ALL`, `-e _start`, the C runtime objects, the host's
+   objects, the recipe's flags (the `--wrap`s and `--defsym`s), the AGC
+   stubs, the recipe's inputs (RADV's archive whole, libc++), glslang's two
+   archives whole, SDL2's archives, `libps5platform.a`, `--as-needed` the
+   SDK's `.so` files; then `ps5-native-tool link --stub` the AGC stubs
+   `--module-sdk 0x02000009 --companion-sdk 0x08050001`. The host
+   provides `___mb_cur_max` (the SDL2 probe's `libc_extra.c`, moved to
+   `port/ps5/host/host_libc_extra.c` and kept). To prove SDL2 is really in
+   the link, `host_main.c` logs `SDL_GetVersion`'s answer; to prove RADV
+   and glslang, it logs `vk_icdGetInstanceProcAddr(NULL, "vkCreateInstance")`
+   being non-null and `glslang_initialize_process`'s return, then
+   `glslang_finalize_process` (nothing more of either in this phase).
+
+7. **The package**, `build/ps5/title/PPSA99500/`: `eboot.bin` from
+   `tools/ps5_title.sh self` (`--sign --magic 0x1D3D154F`, then
+   `--inspect` as `build.sh` does), `sce_sys/param.json` and `icon0.png`
+   copied from `port/ps5/sce_sys`, `sce_module/libc.prx` from PS5_Vulkan's
+   `runtime/` after its sha256 check (built by its `tools/rebuild-libc.sh`
+   if absent), `halo_guest.elf` (the Vulkan image), and `NOTICE.txt`, a
+   first version of phase 7's notice: the pins, the repositories and their
+   URLs, written by `ps5_build.py` from its constants at configure time.
+   The phony target `ps5` depends on all of them.
+
+8. **Log the pins.** `host_main.c` logs the build's git hash (as the Linux
+   host does for the game; look for how the desktop's host learns it, or
+   pass `-DHALO_PS5_BUILD=\"<hash>\"` from the build), the system software,
+   and the pins compiled in as a string, so a report names what ran.
+
+### The bootstrap host
+
+`host_main.c`, in this order: `ps5_fp_ieee()`; the log sink: a line goes to
+`/data/halo/halo.log` if `/data/halo` exists (else `/app0/halo.log`, and the
+log's first line says which), `chmod 0666` on creation, flushed per line (a
+crash leaves everything up to it), and to the kernel log
+(`sceKernelDebugOutText`, prefixed `halo: `), with a notification at start
+and at the end as the probes do; the build's identity and the pins; the
+three link proofs of step 6; `/data/halo` found or not (and what is in it,
+one line); then `host_bootstrap_run()`. A `--hold` for the deploy's kill
+test: if `/app0/hold.txt` exists the host sleeps 120 s after its last line
+before ending, so a running title can be killed from the PC.
+
+`host_bootstrap.c`: the guest probe's `map_direct`, `reserve_exactly`, the
+window's placement loop, the pool, `load_guest`, the thunks and
+`import_dispatch` (in `host_bootstrap.S`, the probe's `guest_probe.S`
+trimmed to it), `guest_system_call` and the trivial imports, the 60 s
+limit, the fault report with its registers. Trimmed of the probe's
+sections 1 to 5 and their report. Its last line is `bootstrap: the first
+import not answered: <name>(...)` or the fault. A `/app0/halo_guest.elf`
+that is not an x32 image is said so and ends the run.
+
+The host ends with `_exit(0)` and the kernel log's `SIGSYS` (phase 0 B;
+phase 2 looks at it); the deploy's follower treats the host's own last line
+as the end, not the signal.
+
+### The deploy (`tools/ps5_deploy.py`)
+
+Defaults from `tools/switch_deploy.py`'s shape and PS5_Vulkan's
+`ps5_console.py`'s protocol (read, not copied): `--host 192.168.2.157`,
+`--ftp-port 2121`, `--ctl-port 9111`, `--klog-port 3232`, `--manager-port
+8084`, `--title PPSA99500`, `--title-dir build/ps5/title/PPSA99500`,
+`--logs build/ps5/logs`. Actions, one or more in the order given:
+
+- `fetch`: `/data/homebrew/<ID>/halo.log` if there, else `/data/halo/halo.log`
+  (the host says which it wrote; fetch both when both exist), plus any
+  `*.txt` report in the title's folder, into `build/ps5/logs/<UTC stamp>/`;
+  prints the folder.
+- `upload`: every file of the title folder over FTP (`--ftp-create-dirs`'s
+  equivalent in `ftplib`: make `sce_sys` and `sce_module`), `eboot.bin` and
+  `sce_sys/param.json` last, each size compared after the transfer as
+  `switch_deploy.py` does (an FTP download of `eboot.bin` is the decrypted
+  ELF, `PS5_FINDINGS.md`: compare the others by size, the eboot against the
+  unsigned ELF's size or not at all). Refuses while `status` says the
+  title is running, unless `--force`.
+- `status`, `launch`, `kill`, `restart`: one command to `ps5vkctl` each,
+  one connection a command, the answer printed; a `launch` of a title that
+  `status` says is running is refused; `kill` only of the title named.
+- `follow [--timeout S]`: connects to klogsrv, skips the replayed backlog
+  as `capture_runs` does, de-duplicates the doubled lines (phase 0 B:
+  klogsrv sends each line twice), prints the `halo: ` lines and any fatal
+  signal block, and returns when the host's last line arrives (the
+  bootstrap's "first import not answered" or "ends" line), on a fatal
+  signal after it, or at the timeout (default 180 s). The whole capture is
+  saved beside the fetched files.
+- `--run`: `fetch` (the previous run's files first: phase 0 B lost one),
+  `kill` if running, `upload`, `launch` with `follow` started before it,
+  then `fetch`. Exit status 0 only if the host's last line was seen.
+- `load-ps5vkctl`: when `ping` gets no answer: PS5_Vulkan's
+  `build/ps5vkctl/ps5vkctl.elf` (built by its `tools/build-ps5vkctl.sh`,
+  which needs `PS5_PAYLOAD_SDK` pointed at a payload SDK: the fork works,
+  say if it did not) sent to the user's payload manager (itsPLK's
+  ps5-payload-manager 0.5.2 on port 8084: an upload, then a load; phase 0 B
+  did it by hand and did not record the requests, so read the manager's
+  protocol from its source or its web page and record the exact requests
+  under "Progress"), then `ping` again. Done only when the user says the
+  manager is up.
+
+Every action prints what it does in one line each; errors name the host and
+port that did not answer. The user is told before anything is launched when
+a person is needed at the console; nothing in this phase needs one.
+
+### The test (`tools/test_ps5_build.py`)
+
+After `tools/test_linux_guest_build.py`: in a temporary tree with
+`port/linux/port.json` and fake GL headers, (1) not asked for, configure
+writes no `ps5` build and fetches nothing; (2) asked for with a
+`--ps5-vulkan` path that does not exist, the `ps5` target is unavailable
+with a reason naming the path, and configure succeeds; (3) asked for with a
+fake checkout tree holding the files the generator checks (the SDK fork's
+`.ps5-sdk-revision`, the native tooling sources' names, the RADV archive, a
+`PS5_Mesa/include/vulkan/vulkan.h`), with the fetches and the pacbrew
+resolution monkeypatched, the build file names `halo_guest_vk.elf`, the
+host objects, the link, `eboot.bin`, `param.json`, `icon0.png`, `libc.prx`
+and `NOTICE.txt`; (4) a fake checkout whose `HEAD` differs from the pin
+prints the warning and still generates. Added to `AGENTS.md`'s testing list
+in phase 7, not now.
+
+### The compile survey, for phase 2
+
+Not a build step and not blocking: with the host's compile flags of step 5,
+compile each file of `port/android/host/*.c` (less `host_main.c`,
+`host_touch.c`, the `host_vk*` files), `port/linux/host/host_desktop.c` and
+`host_main.c`, and `port/linux/src/posix_files.c`, with `-fsyntax-only`,
+and write under "Progress" a table: the file, compiles or not, the first
+error if not (a missing header, a Linux-only call, a type). That is what
+phase 2 is written from.
+
+### Testing on the console
+
+1. `python3 configure.py --ps5` (the other options at their defaults), then
+   `ninja ps5`, from a clean `build/ps5` (`rm -rf build/ps5` first: the
+   phase 0 B probes' `build/ps5/probe` and `glslang` folders are not this
+   build's). Note the time of the first build and of a null rebuild.
+2. `python3 tools/ps5_deploy.py --run`. The user has `/data/halo` on the
+   console already (empty, from phase 0 B). Expected in the log: the
+   identity lines, the three link proofs, `/data/halo` found, the ranges,
+   the image's segments and header, the start-up's host calls as the guest
+   probe's run 3 printed them, and `bootstrap: the first import not
+   answered: host_sdl_get_base_path(...)`, within a few seconds of the
+   launch. (The Vulkan image's start-up is the GL image's up to that call;
+   if it stops earlier or elsewhere, that is the result to report, not to
+   fix in this phase.)
+3. `--run` again, so the relaunch path (fetch, then kill-if-running, upload,
+   launch) is seen once with a previous run's files in place.
+4. The kill test: put `hold.txt` in the title's folder over FTP (the deploy
+   gets a `--hold` that does), `--run` with `follow`'s timeout short, then
+   `status` (running) and `kill`, then `status` (idle). Record the answers.
+5. `ninja linux_x86_64` still builds, and `python3 -m pytest -q
+   tools/test_ps5_build.py tools/test_linux_guest_build.py
+   tools/test_guest_layout.py` passes.
+
+### Acceptance
+
+The review checks each of these:
+
+1. `python3 configure.py --ps5 && ninja ps5` builds the title from a clean
+   `build/ps5` on this machine; `python3 configure.py` without `--ps5`
+   generates no PS5 build and prints nothing about it; `--ps5-vulkan
+   /nonexistent` gives an unavailable `ps5` target and a successful
+   configure. `ninja linux_x86_64` builds, and the three tests pass.
+2. The eboot's ELF (`build/ps5/host/eboot.elf`, before signing) defines
+   `vk_icdGetInstanceProcAddr`, `glslang_initialize_process` and
+   `SDL_GetVersion` (`llvm-nm` from the SDK), and the console's log shows
+   the three link proofs.
+3. One `tools/ps5_deploy.py --run` installs, starts, follows and fetches,
+   and the fetched log ends at the game's first SDL import, as the guest
+   probe's run 3 did. The run's files are under `build/ps5/logs/`.
+4. The relaunch path fetched the previous run's files first; `kill` of a
+   running title was tried and its answers recorded.
+5. "Progress" has: the pins and the checkouts' actual commits, the eboot's
+   size, the first build's and a rebuild's times, a deploy's time, the
+   payload manager's requests (if `load-ps5vkctl` was needed), the compile
+   survey's table, and anything unexpected.
+6. Nothing changed outside `tools/ps5_build.py`, `tools/ps5_title.sh`,
+   `tools/ps5_deploy.py`, `tools/test_ps5_build.py`, `configure.py` and
+   `port/ps5/` (the probes untouched); nothing of PS5_Vulkan's, the fork's,
+   pacbrew's or glslang's copied in.
+7. `port/ps5/README.md` says how to build, install and run what exists,
+   and no more.
+
+Don't commit; the review does that. Record anything unexpected under
+"Progress", even if it was dealt with.
 
 **Ends with:** `ninja ps5 && python3 tools/ps5_deploy.py --run` builds,
 installs and starts the title from one shell, and its log shows the game's
-start-up to the first SDL call. `port/ps5/README.md` says how.
+start-up to the first SDL call.
 
 ## Phase 2 — the host's core, no graphics
 
