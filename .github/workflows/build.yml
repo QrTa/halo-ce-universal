@@ -553,7 +553,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends git python3 python3-pip python3-pytest python3-mako python3-yaml \
-            python3-packaging ninja-build cmake make pkg-config rsync wget unzip zip util-linux bison flex \
+            python3-packaging ninja-build cmake make pkg-config rsync wget unzip zip util-linux bison flex ccache \
             glslang-tools spirv-tools clang-18 lld-18 llvm-18-dev libclang-18-dev libclc-18 libclc-18-dev \
             libllvmspirvlib-18-dev llvm-spirv-18 libgl-dev libgles-dev zlib1g-dev libzstd-dev
           curl -fsSL https://apt.llvm.org/llvm.sh -o llvm.sh
@@ -567,7 +567,7 @@ jobs:
       - name: Check the toolchain
         run: |
           missing=0
-          for tool in clang-22 llvm-config-22 ld.lld-22 llvm-ar-22 clang-18 clang++-18 \
+          for tool in clang-22 llvm-config-22 ld.lld-22 llvm-ar-22 clang-18 clang++-18 ccache \
             /usr/lib/llvm-18/bin/llvm-config llvm-spirv-18 glslangValidator meson ninja cmake rsync wget unzip \
             flock bison flex; do
             if command -v "$tool" > /dev/null; then
@@ -630,6 +630,12 @@ jobs:
 
       - uses: actions/cache@v4
         with:
+          path: .ccache
+          key: ccache-ps5-${{ github.sha }}
+          restore-keys: ccache-ps5-
+
+      - uses: actions/cache@v4
+        with:
           path: ${{ env.PS5_DEPS }}/PS5_Vulkan/.deps/native
           key: ps5-native-${{ steps.pins.outputs.vulkan }}-${{ steps.pins.outputs.sdk }}-${{ steps.pins.outputs.mesa }}
 
@@ -686,6 +692,9 @@ jobs:
 
       - name: Test
         run: python3 -m pytest -q tools/test_ps5_build.py tools/test_ps5_host.py
+
+      - name: Compile cache
+        run: ccache --show-stats
 
       - uses: actions/upload-artifact@v4
         with:
