@@ -27,7 +27,7 @@ are moved to the end of phase 4, to be made with the picture. Phase 4 is
 done and reviewed: the game draws through the Android port's Vulkan
 renderer on RADV, the menus and campaign levels on the TV as on Android, at
 59.94 or 119.88 frames a second, with phase 3's runs made with the user at
-the console ("Progress"). Phase 5, the network (the phases were swapped), is done and reviewed: the console hosts and joins system link games and joins internet games through the brokers and the tunnel, and downloads shared maps. Phase 6 is done and reviewed: the console holds 119.88 frames a second in a match at 1080p and at native 4K and in split screen, the first start is seen on the TV, and the heap no longer grows; the campaign level, the PS button's pause in a level, rest mode and the long sessions were left out by the user's decision. Phase 7 is done and reviewed: the menus are the PS5's, the maximum resolution switches between 4K, 1440p and 1080p in play and is held to the display's mode, the DualSense's gyroscope aims (the user: "very smooth"), and voice chat speaks through the pad's microphone; the campaign level with the PS button, split-screen gyro, rest mode and the pad test were left out by the user's decision. The branch sits on main's Build 104. Phase 8, for players, is next, to be written out. The probes are
+the console ("Progress"). Phase 5, the network (the phases were swapped), is done and reviewed: the console hosts and joins system link games and joins internet games through the brokers and the tunnel, and downloads shared maps. Phase 6 is done and reviewed: the console holds 119.88 frames a second in a match at 1080p and at native 4K and in split screen, the first start is seen on the TV, and the heap no longer grows; the campaign level, the PS button's pause in a level, rest mode and the long sessions were left out by the user's decision. Phase 7 is done and reviewed: the menus are the PS5's, the maximum resolution switches between 4K, 1440p and 1080p in play and is held to the display's mode, the DualSense's gyroscope aims (the user: "very smooth"), and voice chat speaks through the pad's microphone; the campaign level with the PS button, split-screen gyro, rest mode and the pad test were left out by the user's decision. The branch sits on main's Build 104. Phase 8, for players (the player's README, the title as a zip in the GitHub release with its notice and licences, CI building it from the pinned toolchain, the player's data folder theirs over FTP, and the long session's figures), is written out and awaits its implementer. The probes are
 in `port/ps5/probe`.
 
 ---
@@ -2654,30 +2654,244 @@ heard both ways; and rest mode's and the pad's results recorded.
 
 ## Phase 8 — for players
 
-`port/ps5/README.md` complete (requirements: the jailbreak and homebrew
-environment the port was proved on; installing: the title folder over FTP,
-`/data/halo` and the disc image; settings; what the port does not have;
-how it operates), the release's title folder as a zip in the release, how
-the build machine is set up (PS5_Vulkan, its SDK fork, the host tools;
-whether CI can do it or a documented machine builds it), the licence
-notice for the PS5 build, `AGENTS.md`'s layout table and `CHANGELOG.md`.
+(The release phase, phase 7 until 2026-10-18. What phases 6 and 7 carried
+here is folded in below. The user reports, on 2026-10-19, four of the
+carried items tried by hand and working, and they are dropped: the PS
+button's pause in a campaign level, rest mode, voice heard on the other
+machine, and a headset in the pad.)
 
-The notice (a file in the title folder and in the release's zip, generated
-by `tools/ps5_build.py` from its pins) says that the PS5 build is a work
-under the GPL-3.0-or-later as a whole, and names every part of its source
-and where to get it: this repository at the release's commit; PS5_Vulkan
-(`github.com/mpereiraesaa/PS5_Vulkan`), PS5_PayloadSDK
-(`github.com/mihawk-99/PS5_PayloadSDK`) and PS5_Mesa, each at the commit
-the build pinned, with its licence as its repository states it; and the
-payload SDK release (`ps5-payload-dev/sdk` v0.42) the fork is built on. A
-release that changes a pin changes the notice.
+Written to be picked up by an agent that has not seen the work so far. Read
+first, in this order: this plan's "Decisions" (the licensing row above
+all), "Where the port lives" and "How this plan is worked"; phase 7's audit
+under "Progress" (what it carried here); then the code. `tools/ps5_build.py`
+whole (the pins at its head, `notice_text`, the build stamp `ps5_build.h`,
+`OWN_STUBS` and the AGC stubs, the title folder's contents, what the host
+links: `POSIX_FILES`, the miniupnpc and mbedTLS sources, glslang, pacbrew's
+archives, RADV's recipe through `tools/ps5_title.sh`), `tools/ps5_deploy.py`
+whole, `tools/ci_build.py` (`OUTPUTS`, the licence files each release
+carries), `.github/workflows/build.yml` (the Switch job as the model for a
+console's: its toolchain check, its caches, its two configurations; the
+`release` job: `needs`, the Package step that zips each `halo-*` artifact,
+the Publish step; the site job's download links), `port/ps5/README.md`
+whole, `port/switch/README.md` ("Requirements", "Build and install", "Game
+data": a player's README for a console), `AGENTS.md`'s layout table and its
+list of the guests' tests, `CHANGELOG.md`'s head, `port/third_party/*/README*`
+(each library's licence) and PS5_Vulkan's `NOTICE.md` and
+`tools/setup-native-dependencies.sh` (what the toolchain is made of and
+how: the SDK fork exported at a revision over the public SDK's v0.42
+release, zlib, pacbrew), `port/ps5/probe/vk/build.sh` (RADV's archive
+built from PS5_Mesa: meson, LLVM 18 with libclc and the SPIR-V translator,
+glslang on the path, clang 22 for the compile), `port/ps5/host/host_main.c`
+(`open_folder`, the log's 0666, `pass_settings`) and `host_syscall.c`
+(`guest_umask`, `openat`, `mkdirat`).
 
-It also takes what phases 6 and 7 leave for it: a long session (an hour
-at the menu, twenty minutes in a match) to confirm the heap holds; the
-compile thread's priority's effect, cold against cold; internet hosting
-and UPnP from behind the user's router; the console's chores (the tree's
-own build uploaded in place of the diagnostic one, `maps.phase6-aside`
-removed); and which firmware versions were proved.
+### What this phase is, and is not
+
+- **It is** what lets someone who did not build it install and play: a
+  README written for that person; the title as a zip in the GitHub release
+  beside the Android and Switch builds, with its notice and licences; the
+  build made by CI from the pinned toolchain, or by the documented machine
+  if a runner cannot; the licence notice complete, naming this repository
+  at the release's commit and every part of the title; `AGENTS.md` and
+  `CHANGELOG.md`; the player's data folder theirs over FTP (what the title
+  writes made writable, so a player can delete the maps or edit the
+  settings file); and the measurements and chores phases 6 and 7 left: the
+  long session's heap, the console's output at 1080p against the maximum
+  resolution, the pad switched off and on, a second player's gyro, internet
+  hosting from behind the user's router if a second network allows, the
+  probe titles and the old maps folder removed from the console, and the
+  whole run once more from a fresh install, from the zip.
+- **It is not** new features, new rendering work, keyboard and mouse, a
+  picture for the first start, or a self-updater (a console title is
+  updated by installing it again; the README says so).
+- **Shared code is used as it is.** No shared source file changes in this
+  phase. `.github/workflows/build.yml`, `tools/ci_build.py`, `AGENTS.md`,
+  `CHANGELOG.md` and the READMEs change as the Files table says; nothing of
+  PS5_Vulkan, its SDK fork, PS5_Mesa, pacbrew or glslang is copied into the
+  repository (the CI job clones and builds them at their pins, as the build
+  machine does).
+
+### Decisions of this phase
+
+- **CI builds the title.** A `ps5` job in `build.yml`, the Switch job's
+  shape: Ubuntu 24.04, clang 22 from apt.llvm.org (as the `linux-x86_64`
+  job installs it) for the guest, the host and RADV; clang 18, LLVM 18's
+  development files, libclc, the SPIR-V translator and meson from apt and
+  pip for the SDK fork's wrappers and the Mesa build; PS5_Vulkan,
+  PS5_PayloadSDK and PS5_Mesa cloned at `tools/ps5_build.py`'s pins (the
+  job reads the pins from the script, so a pin changed in one place changes
+  the job), set up by PS5_Vulkan's own `tools/setup-native-dependencies.sh`
+  and RADV built by its `tools/build-radv.sh release`; `actions/cache`
+  keyed by the pins for `.deps/native` (the SDK export, zlib, RADV's
+  archive, 300 MB) and `.deps/pacbrew` (346 MB), so the Mesa build and the
+  downloads are paid once per pin; then `configure.py --ps5` and `ninja
+  ps5`, release and debug as the others. The artifact is `halo-ps5-release`
+  (and `-debug`), which the `release` job zips as it zips the others into
+  `halo-ps5-release.zip`; `release` gains `ps5` in `needs`; the site job's
+  download line gains the PS5. **Why:** every other build is released this
+  way, the toolchain is pinned by commit already, and a runner that builds
+  Mesa once in twenty minutes and caches it is cheaper than a machine
+  nobody else has. **The fallback, if the job cannot be made to pass in a
+  day's work** (a runner's time, the cache's size, a tool apt lacks): the
+  zip is built on the documented machine by `tools/ci_build.py ps5 release`
+  and attached to the release by hand, the README says so, and the job is
+  left in the workflow as `if: false` with the reason in a comment, as the
+  Linux and Windows jobs are. Either way `tools/ci_build.py` learns `ps5`.
+- **The zip** is `halo-ps5-release.zip`, holding `PPSA99500/` (the title
+  folder as `ninja ps5` makes it: `eboot.bin`, `sce_sys/`, `sce_module/`,
+  `halo_guest.elf`, `brokers.txt`, `NOTICE.txt`), a `README.txt` for the
+  player (installing and the first start, in twenty lines, pointing at
+  `port/ps5/README.md` for the rest), `COPYING` (the GPL-3.0 text, since
+  the title is a GPL work as a whole) and `licenses/` with the texts whose
+  licences ask for them (what `tools/ci_build.py` already copies for the
+  other releases, opus's and lucide's, and the PS5's own: pacbrew's SDL2
+  (zlib), musl (MIT), mbedTLS (Apache-2.0), miniupnpc (BSD), tomlc17,
+  glslang's (its several), Mesa's (MIT) and whatever else the link map
+  shows linked; the implementer enumerates from `tools/ps5_build.py`'s
+  source lists and `eboot.elf.map`, and says which files were left out and
+  why).
+- **The notice** (`NOTICE.txt`, `notice_text` in `tools/ps5_build.py`)
+  says: the title is a work under the GPL-3.0-or-later as a whole; its
+  source is this repository at the commit named (the URL, and the build
+  stamp's commit, which `ps5_build.h` already records; a dirty tree says
+  so), PS5_Vulkan, PS5_PayloadSDK and PS5_Mesa at their pinned commits
+  with each licence as its repository states it (GPL-3.0-or-later,
+  GPL-3.0-or-later, Mesa's MIT with PS5_Vulkan's additions under its
+  licence: the implementer reads PS5_Mesa's `licenses/` and says what it
+  found), the public payload SDK release the fork is built on (v0.42, its
+  SHA-256 as PS5_Vulkan's `NOTICE.md` gives it) and zlib 1.3.2 if the link
+  map shows it in the title, pacbrew's archive by version and SHA-256,
+  glslang by tag, and the libraries of `port/third_party` the host links,
+  each with its licence's name. The text names where each is got. A
+  release that changes a pin changes the notice, since the notice is made
+  from the pins at every build (`ps5_notice` rule).
+- **The player's folder is theirs.** The host makes what the title writes
+  under `/data/halo` world-writable: the guest's umask is 0 for the files
+  and folders it creates (`host_syscall.c`), and at the start the host
+  walks `/data/halo`, its `maps/`, `save/`, `screenshots/`, `custom_maps/`
+  and the caches, making a folder 0777 and a file 0666 where they are not,
+  counting what it changed in one log line. So the console's FTP server,
+  which sees and changes only what everyone may, can delete the maps (to
+  extract them again), edit `config.toml`, or remove a folder the title
+  left (phase 6's `maps.phase6-aside`, which this closes). The README says
+  so. **Why not** a removal command in the deploy: a player has no deploy.
+
+### Files
+
+| File | What |
+|---|---|
+| `.github/workflows/build.yml` | the `ps5` job (above): the toolchain check first (each tool named, as the Switch job checks the image), the pins read from `tools/ps5_build.py`, the three clones, the SDK and RADV set-ups under `actions/cache`, pacbrew cached, debug and release through `tools/ci_build.py ps5`, the two artifacts; `release`'s `needs` and the site's download links; the file's head comment names the PS5 |
+| `tools/ci_build.py` | `ps5` in `OUTPUTS`: the title folder copied whole into `dist/halo-ps5-<config>/PPSA99500/`, plus `README.txt`, `COPYING` and `licenses/` (above); `ninja ps5` under the configuration |
+| `tools/ps5_build.py` | `notice_text` complete (above); the repository's URL and commit from the build stamp; `COPYING` and the licence texts' sources listed for `ci_build.py` (a `RELEASE_LICENSES` table: source path, name in the zip, why) |
+| `port/ps5/release/README.txt` | the player's twenty lines: what the console needs (etaHEN, ShadowMountPlus, an FTP server such as ftpsrv), copy `PPSA99500` to `/data/homebrew` and the disc image to `/data/halo` over FTP, start it from the home screen, the first start's notifications, where the settings are, that it is updated by installing it again, where the full README is |
+| `port/ps5/README.md` | rewritten for a player first and a developer second: Requirements (the console: firmware proved, 13.59 here and PS5_Vulkan's 12.02 to 12.70; the homebrew environment; a 4K or 1080p display, 120 Hz if the TV takes it), Installing from the release (no PC tools: FTP alone), Game data, Settings (the menus as the PS5's: the maximum resolution, Gyro Aim, voice chat; `config.toml` over FTP), What the port does not have, How it operates (the log, the picture, the pad and the sound, the network: today's sections, kept), and then Building (the toolchain, CI or the machine, the pins) and Developing (the deploy, the probes, the figures); rest mode and the PS button's pause stated as tried by the user (one sentence each, asked of the user: what rest mode did and what came back) |
+| `port/ps5/host/host_main.c`, `host_syscall.c` | the player's folder made theirs (above); the start-up walk's one log line |
+| `AGENTS.md` | a `port/ps5/` row in the layout table (the host files, the probes, the stubs, the import list, the plan), `tools/` gains `ps5_build.py`, `ps5_deploy.py`, `ps5_title.sh`, the guests' tests list gains `test_ps5_build.py` and `test_ps5_host.py`, the build table gains `ninja ps5` |
+| `CHANGELOG.md` | under the next build: the PS5 port in the voice of the file's other entries (what a player gets: the title, 4K at 120 Hz, split screen, gyro aim, voice, system link and internet play, map sharing; what it needs) |
+| `port/ps5/PS5.md` | the status line at the end: what was released, the figures of the long session, and what remains open for whoever comes next (a "What next" list after "Progress") |
+
+### The work, in order
+
+1. **The notice and the zip's contents, on the machine first.** `notice_text`
+   complete, the licence texts found and listed, `tools/ci_build.py ps5
+   release` making `dist/halo-ps5-release/` with the layout above, zipped
+   by hand as the release job would; `README.txt` written. Check the
+   notice against the link map: every archive and source tree in the
+   title is named, nothing named is absent.
+
+2. **The CI job.** Written as the decision says and pushed on this branch
+   (the workflow runs for a branch push: "Build main from its tags only"
+   stops main's pushes, not a branch's), the first run paying the Mesa
+   build; the artifact downloaded and compared with the machine's zip
+   (the same files; `eboot.bin` differs by the build stamp and the
+   compiler's run alone). The cache hit on a second run shown (the job's
+   time with and without). If a day's work does not get the job green,
+   the fallback, said plainly under "Progress" with the last error.
+
+3. **The player's folder** made theirs (host_main.c, host_syscall.c); on
+   the console: the start-up line's count, then over FTP the user deletes
+   `/data/halo/maps.phase6-aside` and edits a line of `config.toml` (the
+   stale `display.ps5_resolution` line, which goes), and the game runs on.
+   At the user's word the two probe titles, `PPSA99106` and `PPSA99107`,
+   are deleted from `/data/homebrew` over FTP as phase 0's were, their
+   sources and reports staying in the tree.
+
+4. **The measurements**, each a run the user starts, each cut at the user's
+   word: the console's video output set to 1080p (Settings, Screen and
+   Video) and the rule's log line with 2160P set, then back to 4K; the
+   long session, `--run --minutes 60` at the main menu (the heap every
+   minute: it must be flat after the first minutes) and `--run --minutes
+   21` in a match with the user's other machine (phase 6's baseline table
+   beside it: the buckets, the heap, the compile thread's totals, and the
+   first cold minute against phase 6's cold minute, which stands in for
+   the compile priority's test); the pad switched off and on at the menu
+   and in a level (the `gamepads:` lines); a second player's gyro in a
+   split-screen match (one minute: each pad's `gyro:` figures); and, if the
+   user has a second network (a phone's hotspot for the other machine),
+   internet hosting from the console behind the router (UPnP's line in the
+   log, the other machine joining through the brokers). Any of these the
+   user declines is recorded as declined.
+
+5. **The READMEs, `AGENTS.md`, `CHANGELOG.md`**, as the Files table says.
+   The player's README is read by the user before it is accepted: they
+   install from it (step 6).
+
+6. **The whole run from the zip.** The data folder emptied but for the disc
+   image, `/data/homebrew/PPSA99500` removed, then the zip's `PPSA99500`
+   copied over FTP by the user following `README.txt` alone (no deploy):
+   the first start's notifications, the menu, a campaign level started, a
+   match hosted and joined by the other machine, the maximum resolution
+   switched, a word spoken. The deploy then fetches the run's log for the
+   record. The same zip is what the release carries.
+
+7. **The release.** At the user's word, the branch merged to main and a tag
+   pushed (`v<number>`, the number above the last release's), or the user
+   does both; the release's `halo-ps5-release.zip` downloaded and its
+   `NOTICE.txt` and `README.txt` read once more; the Android and Switch
+   zips of the same release unchanged in content from the previous
+   release's but for main's own changes (the implementer compares their
+   file lists). The plan's status line written last.
+
+### Acceptance
+
+The review checks each of these:
+
+1. `ninja ps5`, `ninja linux_x86_64` and `ninja switch` build; the test
+   files pass (the i686 ones excepted, as before); no shared source file
+   changed (`git diff --stat` against the phase's start shows only the
+   files the table names, `port/ps5/` and the workflow).
+2. The notice: every archive and source tree the link map shows is named
+   with its origin and licence, this repository at the commit, the SDK
+   release and its SHA-256, and the GPL statement; `COPYING` and the
+   licence texts are in the zip; the notice changes when a pin is changed
+   in a scratch build (shown).
+3. The CI job green on this branch with its artifact matching the
+   machine's zip, and the cache hit shown; or the fallback recorded with
+   its reason and the job left `if: false`.
+4. The player's folder: the start-up line's count, the user's deletion of
+   `maps.phase6-aside` and edit of `config.toml` over FTP; the probe
+   titles gone at the user's word.
+5. The measurements under "Progress" with their figures (the 1080p output's
+   rule line, the hour's heap, the match's table, the pad lines, the
+   split-screen gyro figures, internet hosting's lines or "no second
+   network"), each declined one named.
+6. The READMEs read by the user and followed for the install of step 6;
+   `README.txt` is twenty lines or so and enough on its own; `AGENTS.md`
+   and `CHANGELOG.md` as the table says.
+7. The whole run from the zip, recorded with its log.
+8. The release made (or ready: the branch merged, the tag the user's to
+   push), its PS5 zip read back, the other zips unchanged in kind.
+9. Nothing of PS5_Vulkan, its SDK fork, PS5_Mesa, pacbrew or glslang in
+   the repository: the workflow clones them; `git grep` for their file
+   names finds only the names.
+
+Don't commit; the review does that. Record anything unexpected under
+"Progress", even if it was dealt with.
+
+**Ends with:** a GitHub release whose `halo-ps5-release.zip` a stranger
+installs over FTP from its `README.txt` and plays, with the notice that
+names what it is made of and where to get it; and the plan's last status
+line.
 
 ---
 
@@ -2835,6 +3049,9 @@ compile priority's effect (phase 6's); internet hosting from behind the
 user's router; the console's chores (the two probe titles, the stale
 setting line, `maps.phase6-aside`); and the whole run once more from a
 fresh install.
+(On 2026-10-19 the user reported four of these tried by hand and working:
+the PS button's pause in a campaign level, rest mode, voice heard on the
+other machine, and a headset in the pad. Phase 8 drops them.)
 
 ### Phase 7 — the console's own features (2026-10-18)
 
