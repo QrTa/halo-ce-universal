@@ -2950,7 +2950,9 @@ the stage has a texture, and so a sampler; whether the texture has mip levels;
 whether it is a high-res HUD texture */
 struct stage_sampling
 {
-	BOOL sampled, mipmapped, hires;
+	/* (rendered: a render target, or its mip chain's composite, which
+	display.anisotropic_filtering leaves alone) */
+	BOOL sampled, mipmapped, hires, rendered;
 };
 
 /* bind_textures' decisions for the key and the record (d3d8_gl.c): a stage
@@ -3005,6 +3007,7 @@ static void key_textures(struct nv2a_pixel_shader_key *key, struct stage_samplin
 				target->target.width == description.width && target->target.height == description.height)
 				composite = mip_composite_get(&description, texture->Data);
 			sampling[stage].mipmapped = composite != 0;
+			sampling[stage].rendered = TRUE;
 			device.draw.textures[stage].kind = composite ? D3D11_BACKEND_TEXTURE_COMPOSITE : D3D11_BACKEND_TEXTURE_TARGET;
 			device.draw.textures[stage].handle = composite ? composite : target->backend_target;
 			if (description.linear)
@@ -3956,11 +3959,42 @@ static void rasterizer_description(struct d3d11_backend_rasterizer *rasterizer)
 	rasterizer->multisample = target_samples > 1;
 }
 
+/* display.anisotropic_filtering (d3d8_gl.c's): the most texels along a
+pixel's footprint that a texture with mip levels is sampled with where the
+game filters it linearly, 0 or 1 for the game's own filtering. The Xbox game
+asks for none (it never sets D3DTEXF_ANISOTROPIC or D3DTSS_MAXANISOTROPY), so
+the floors, walls and terrain seen at a grazing angle blur toward their
+smaller mip levels. At most Direct3D 11's 16, which every feature level
+takes. */
+#define ANISOTROPY_MAXIMUM 16 /* (D3D11_REQ_MAXANISOTROPY: this unit sees the Xbox SDK) */
+
+static long anisotropic_level = -1;
+static unsigned long anisotropic_level_read_at;
+
+static DWORD anisotropic_filtering(void)
+{
+	if (anisotropic_level < 0 || anisotropic_level_read_at != config_changes())
+	{
+		long level = config_integer("display.anisotropic_filtering");
+
+		anisotropic_level_read_at = config_changes();
+		if (level > ANISOTROPY_MAXIMUM)
+			level = ANISOTROPY_MAXIMUM;
+		if (level < 1)
+			level = 1;
+		if (level != anisotropic_level)
+			platform_log("anisotropic filtering: %ldx (Direct3D 11's most %dx)", level, ANISOTROPY_MAXIMUM);
+		anisotropic_level = level;
+	}
+	return (DWORD)anisotropic_level;
+}
+
 /* configure_sampler's inputs (d3d8_gl.c): the stage's state, or the
-high-res HUD texture's filtering */
+high-res HUD texture's filtering; rendered: a render target the game draws
+into */
 #define SAMPLER_STATE_WORDS 11
 
-static void sampler_inputs(int stage, BOOL mipmapped, BOOL hires, DWORD inputs[SAMPLER_STATE_WORDS])
+static void sampler_inputs(int stage, BOOL mipmapped, BOOL hires, BOOL rendered, DWORD inputs[SAMPLER_STATE_WORDS])
 {
 	DWORD *state = D3D__TextureState[stage];
 
@@ -3975,6 +4009,19 @@ static void sampler_inputs(int stage, BOOL mipmapped, BOOL hires, DWORD inputs[S
 	inputs[8] = state[D3DTSS_MAXANISOTROPY];
 	inputs[9] = state[D3DTSS_BORDERCOLOR];
 	inputs[10] = hires;
+	/* (display.anisotropic_filtering, over the game's linear filtering of
+	the maps' textures with mip levels; not of what the game renders, the
+	water's ripples, whose finer levels seen far off are noise. Direct3D
+	11's anisotropic filter is linear in magnification too, where GL's
+	keeps the game's: a stage that magnifies by points keeps its filters) */
+	if (!hires && mipmapped && !rendered && inputs[1] != D3DTEXF_NONE &&
+		(inputs[0] == D3DTEXF_LINEAR || inputs[0] == D3DTEXF_ANISOTROPIC) && inputs[2] != D3DTEXF_POINT &&
+		anisotropic_filtering() > 1)
+	{
+		inputs[0] = D3DTEXF_ANISOTROPIC;
+		if (inputs[8] < anisotropic_filtering())
+			inputs[8] = anisotropic_filtering();
+	}
 }
 
 /* sampler_parameters (d3d8_gl.c) as a description: the minification
@@ -4075,7 +4122,7 @@ static void draw_states(const struct stage_sampling sampling[D3DTSS_MAXSTAGES], 
 			device.draw.samplers[stage] = 0;
 			continue;
 		}
-		sampler_inputs(stage, sampling[stage].mipmapped, sampling[stage].hires, inputs);
+		sampler_inputs(stage, sampling[stage].mipmapped, sampling[stage].hires, sampling[stage].rendered, inputs);
 		if (!state_objects.sampler_made[stage] || !words_equal(inputs, state_objects.sampler_inputs[stage],
 			sizeof(inputs)))
 		{
