@@ -38,6 +38,7 @@ are the shared generator's (tools/android_build.py, generate_guest_image),
 which names them from the repository, as the other ports' do.
 """
 
+import hashlib
 import io
 import json
 import os
@@ -50,7 +51,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from .android_build import GLSLANG_DIR as ANDROID_GLSLANG_DIR
-from .android_build import GLSLANG_TAG, GLSLANG_URL, MUSL_VERSION, fetch_third_party, generate_guest_image
+from .android_build import GLSLANG_TAG, GLSLANG_URL, MUSL_URL, MUSL_VERSION, fetch_third_party, generate_guest_image
 from .guest_arch import X32
 from .linux_build import MBEDTLS_DIR, MINIUPNPC_DEFINES, MINIUPNPC_DIR, miniupnpc_sources, updater_defines
 from .ninja_syntax import Writer, escape
@@ -70,6 +71,18 @@ PS5_MESA_URL = "https://github.com/mpereiraesaa/PS5_Mesa"
 PACBREW_VERSION = "v0.40.2"
 PACBREW_SHA256 = "a85f65de418a8e6a898c6c3e3c870d50fff7618a200e4dd59ea9692af6ecec4d"
 PACBREW_URL = f"https://github.com/ps5-payload-dev/pacbrew-repo/releases/download/{PACBREW_VERSION}/ps5-payload-dev.tar.gz"
+# (the public payload SDK release the fork is installed over, as the fork's
+# platform/tools/setup-sdk.sh fetches and checks it)
+PS5_SDK_RELEASE = "v0.42"
+PS5_SDK_RELEASE_SHA256 = "8cfbc7cd5811e719eb4f0c47eea668d3dc7b40bc8ab11c4a5031d40c23ec02da"
+PS5_SDK_RELEASE_URL = f"https://github.com/ps5-payload-dev/sdk/releases/download/{PS5_SDK_RELEASE}/ps5-payload-sdk.zip"
+# (and the zlib meson fetches into RADV's archive by PS5_Mesa's wrap, for
+# the shader cache: subprojects/zlib.wrap)
+RADV_ZLIB_VERSION = "1.3.1"
+
+# this repository, which the notice names at the build's commit, and which
+# the updater asks for releases (port/ps5/host/host_update_ps5.c)
+REPOSITORY_URL = "https://github.com/thelinkin3000/halo-ce-universal"
 
 TITLE_ID = "PPSA99500"
 PORT_DIR = Path("port/ps5")
@@ -221,31 +234,161 @@ def resolve_pacbrew(vulkan: Path) -> Dict[str, Any]:
     return json.loads(result.stdout)
 
 
-def notice_text() -> str:
-    """NOTICE.txt: what the title is built from, and where its source is"""
+def this_commit() -> str:
+    """the commit the title is built from, in full, "+changes" after it when
+    the tree has changes not committed (tools/android_build_stamp.py's rule)"""
+    try:
+        head = subprocess.run(["git", "rev-parse", "HEAD"], capture_output=True, text=True, check=True).stdout.strip()
+        dirty = subprocess.run(["git", "status", "--porcelain", "--untracked-files=no"], capture_output=True,
+                               text=True, check=True).stdout.strip()
+    except (subprocess.CalledProcessError, OSError):
+        return "unknown (not built from a git checkout)"
+    return head + (" +changes (built from a tree with changes not committed)" if dirty else "")
+
+
+def notice_text(commit: str) -> str:
+    """NOTICE.txt: what the title is built from, under which licences, and
+    where its source is; made from the pins at every build (ps5_notice)"""
     return f"""Halo: Combat Evolved for the PS5 ({TITLE_ID})
 
-This title is built from this repository and from the following, at the
-commits named. They are GPL-3.0-or-later (glslang is under its own licences,
-named in its repository); the title is a GPL work as a whole, and its source
-is all of them at these commits.
+This title is a work under the GNU General Public License, version 3 or
+(at your option) any later version, as a whole: it is linked with parts
+that are GPL-3.0-or-later. COPYING, beside this title's folder in the
+release, is that licence. Its source is this repository and the three
+repositories below, at the commits named, which build it as their READMEs
+and the repository's port/ps5/README.md say. The licence texts the parts
+ask to be carried are in the release's licenses/ folder.
 
-- PS5_Vulkan {PS5_VULKAN_COMMIT}
+This repository (the game's port, the PS5 host; CC0-1.0, its parts under
+their own licences, below)
+  {REPOSITORY_URL}
+  commit {commit}
+
+Built from, at their pins (tools/ps5_build.py):
+
+- PS5_Vulkan {PS5_VULKAN_COMMIT}, GPL-3.0-or-later
   {PS5_VULKAN_URL}
-  (its C runtime, linker script, title tools, AGC stub sources, link recipe
-  and runtime/libc.prx)
-- PS5_PayloadSDK (PS5_Vulkan's fork of the payload SDK) {PS5_PAYLOAD_SDK_REVISION}
+  (the title's C runtime, linker script and title tools, the AGC stub
+  sources, the link recipe, and sce_module/libc.prx; its parts from the
+  ps5-native-app-boilerplate by BlackBearReloaded, GPL-3.0-or-later)
+- PS5_PayloadSDK {PS5_PAYLOAD_SDK_REVISION}, GPL-3.0-or-later
   {PS5_PAYLOAD_SDK_URL}
-  (the platform layer, libc++ and the system's stub libraries)
-- PS5_Mesa {PS5_MESA_COMMIT}
+  (PS5_Vulkan's fork of the payload SDK: its PS5 platform layer,
+  libps5platform.a, and the system's stub libraries; installed over the
+  public payload SDK {PS5_SDK_RELEASE}, GPL-3.0-or-later,
+  {PS5_SDK_RELEASE_URL}
+  SHA-256 {PS5_SDK_RELEASE_SHA256}, whose libc++, libc++abi and libunwind
+  are linked: LLVM's, Apache-2.0 WITH LLVM-exception)
+- PS5_Mesa {PS5_MESA_COMMIT}, Mesa's licences (MIT for
+  the most part; PS5_Mesa's own files MIT)
   {PS5_MESA_URL}
-  (RADV, the Vulkan driver, and Vulkan's headers)
+  (RADV, the Vulkan driver, with Mesa's runtime, NIR, ACO and util, into
+  which it builds BLAKE3, CC0-1.0 or Apache-2.0, Berkeley SoftFloat 3e's
+  functions, BSD-3-Clause, and zlib {RADV_ZLIB_VERSION}, the zlib licence, fetched by
+  its subprojects/zlib.wrap; licenses/Mesa/ holds the licence texts
+  PS5_Mesa's licenses/ folder has)
+
+Fetched by the build, at their versions:
+
 - pacbrew {PACBREW_VERSION}, SHA-256 {PACBREW_SHA256}
   {PACBREW_URL}
-  (SDL2 2.30.12 and the libraries it brings)
-- glslang {GLSLANG_TAG}
+  (SDL 2.30.12, the zlib licence, and GNU libiconv, LGPL-2.1-or-later,
+  which SDL2 links)
+- glslang {GLSLANG_TAG}, BSD-3-Clause, MIT and the other licences of its
+  LICENSE.txt
   {GLSLANG_URL}
+- musl {MUSL_VERSION}, MIT (the game's C library)
+  {MUSL_URL}
+- Clang's builtins (compiler-rt), Apache-2.0 WITH LLVM-exception
+
+In this repository (port/third_party, port/assets), each with its
+licence's text in licenses/ under its name:
+
+- Mbed TLS, Apache-2.0 (internet play's DTLS, the updater's HTTPS)
+- miniupnpc, BSD-3-Clause (internet play's UPnP)
+- Opus, BSD-3-Clause (voice chat)
+- Expat, MIT (the menus' XML)
+- kcp, MIT; Monocypher, CC0-1.0 or BSD-2-Clause (the network)
+- tomlc17, MIT (config.toml)
+- zlib, the zlib licence; musl's maths, MIT
+- stb_truetype and stb_vorbis, public domain or MIT
+- SMAA, MIT (anti-aliasing)
+- extract-xiso, a BSD licence (reading the disc image)
+- Overpass, SIL Open Font License 1.1 (the text); Lucide's icons, ISC
 """
+
+
+# What the release carries beside the title (tools/ci_build.py ps5): the
+# player's README.txt, COPYING and licenses/, which ninja ps5 makes in
+# build/ps5/release. Each row: where the text is (a root, then the path
+# under it: "repo" this repository, "vulkan" the PS5_Vulkan checkout,
+# "mesa" PS5_Mesa's, "glslang" glslang's, "musl" the fetched musl's,
+# "pacbrew" pacbrew's prefix, "system" the build machine's), its name in
+# the release, its SHA-256 when the text must be exactly that one (None:
+# any), and why it is carried. Left out, with the reason: LLVM's libc++,
+# libc++abi, libunwind and builtins (Apache-2.0 WITH LLVM-exception, whose
+# exception asks no notice of a binary), the SDL3 headers the host's SDL
+# layer is compiled against (constants and layouts, no SDL3 code is in the
+# title), and the fonts and assets the guest does not embed (OpenCE, which
+# draws the menus' title pictures before the build, and Newtown, its source).
+GPL3_SHA256 = "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986"
+LGPL21_SHA256 = "dc626520dcd53a22f727af3ee42c770e56c97a64fe3adb063799d8ab032fe551"
+RELEASE_LICENSES = (
+    # (the title is a GPL work as a whole: PS5_Vulkan's LICENSE is the GPL's
+    # text, word for word)
+    ("vulkan", "LICENSE", "COPYING", GPL3_SHA256, "the GPL-3.0, the title's licence as a whole"),
+    ("system", "/usr/share/common-licenses/LGPL-2.1", "licenses/libiconv-LGPL-2.1.txt", LGPL21_SHA256,
+     "GNU libiconv (pacbrew), linked by SDL2"),
+    ("pacbrew", "share/licenses/SDL2/LICENSE.txt", "licenses/SDL2-LICENSE.txt", None, "SDL2 (pacbrew)"),
+    ("glslang", "LICENSE.txt", "licenses/glslang-LICENSE.txt", None, "glslang, the shader compiler"),
+    ("musl", "COPYRIGHT", "licenses/musl-COPYRIGHT.txt", None, "musl, the game's C library"),
+    ("mesa", "licenses/MIT", "licenses/Mesa/MIT", None, "Mesa (RADV)"),
+    ("mesa", "licenses/Apache-2.0", "licenses/Mesa/Apache-2.0", None, "Mesa (RADV): BLAKE3's"),
+    ("mesa", "licenses/BSL-1.0", "licenses/Mesa/BSL-1.0", None, "Mesa (RADV)"),
+    ("mesa", "licenses/SGI-B-2.0", "licenses/Mesa/SGI-B-2.0", None, "Mesa (RADV)"),
+    ("mesa", "licenses/GPL-1.0-or-later", "licenses/Mesa/GPL-1.0-or-later", None, "Mesa (RADV)"),
+    ("mesa", "licenses/GPL-2.0-only", "licenses/Mesa/GPL-2.0-only", None, "Mesa (RADV): the kernel's headers"),
+    ("mesa", "licenses/exceptions/Linux-Syscall-Note", "licenses/Mesa/Linux-Syscall-Note", None,
+     "Mesa (RADV): the kernel's headers"),
+    # (SoftFloat's licence is the head of the file that adapts it)
+    ("mesa", "src/util/softfloat.c", "licenses/Mesa/Berkeley-SoftFloat-3e.txt", None,
+     "Berkeley SoftFloat 3e's functions in Mesa's util"),
+    ("repo", "port/third_party/zlib/LICENSE", "licenses/zlib-LICENSE.txt", None,
+     "zlib, in the game and in RADV's archive"),
+    ("repo", "port/third_party/mbedtls/LICENSE", "licenses/mbedtls-LICENSE.txt", None, "Mbed TLS"),
+    ("repo", "port/third_party/miniupnpc/LICENSE", "licenses/miniupnpc-LICENSE.txt", None, "miniupnpc"),
+    ("repo", "port/third_party/opus/COPYING", "licenses/opus-COPYING.txt", None, "Opus"),
+    ("repo", "port/third_party/expat/COPYING", "licenses/expat-COPYING.txt", None, "Expat"),
+    ("repo", "port/third_party/kcp/LICENSE", "licenses/kcp-LICENSE.txt", None, "kcp"),
+    ("repo", "port/third_party/monocypher/LICENCE.md", "licenses/monocypher-LICENCE.md", None, "Monocypher"),
+    ("repo", "port/third_party/tomlc17/LICENSE", "licenses/tomlc17-LICENSE.txt", None, "tomlc17"),
+    ("repo", "port/third_party/musl-math/COPYRIGHT", "licenses/musl-math-COPYRIGHT.txt", None, "musl's maths"),
+    ("repo", "port/third_party/stb/LICENSE", "licenses/stb-LICENSE.txt", None, "stb_truetype"),
+    ("repo", "port/third_party/stb_vorbis/LICENSE", "licenses/stb_vorbis-LICENSE.txt", None, "stb_vorbis"),
+    ("repo", "port/third_party/smaa/LICENSE", "licenses/smaa-LICENSE.txt", None, "SMAA"),
+    ("repo", "port/third_party/extract-xiso/LICENSE.TXT", "licenses/extract-xiso-LICENSE.txt", None, "extract-xiso"),
+    ("repo", "port/assets/fonts/Overpass-OFL.txt", "licenses/Overpass-OFL.txt", None, "Overpass"),
+    ("repo", "port/assets/icons/lucide/LICENSE", "licenses/lucide-LICENSE.txt", None, "Lucide's icons"),
+)
+# the player's README, at the release's top beside the title's folder
+RELEASE_README = PORT_DIR / "release" / "README.txt"
+
+
+def release_license_sources(roots: Dict[str, Path]) -> List[tuple]:
+    """RELEASE_LICENSES with each source's path: (source, name, SHA-256)"""
+    rows = []
+    for root, path, name, sha256, _ in RELEASE_LICENSES:
+        rows.append((Path(path) if root == "system" else roots[root] / path, name, sha256))
+    return rows
+
+
+def license_excerpt(text: str) -> str:
+    """the licence at the head of a source file: its first comment, the
+    comment's marks taken off"""
+    start = text.index("/*")
+    end = text.index("*/", start)
+    lines = text[start + 2:end].splitlines()
+    return "\n".join(re.sub(r"^ ?\* ?", "", line).rstrip() for line in lines).strip() + "\n"
 
 
 def pins_text() -> str:
@@ -297,7 +440,8 @@ def _generate(n: Writer, sln: Any, config_path: Path) -> None:
     vulkan = vulkan.expanduser().resolve()
     mesa = Path(getattr(sln, "ps5_mesa", None) or vulkan.parent / "PS5_Mesa").expanduser().resolve()
     llvm_config = Path(getattr(sln, "ps5_llvm_config", None) or DEFAULT_LLVM_CONFIG).expanduser()
-    hostdeps = Path(getattr(sln, "ps5_hostdeps", None) or DEFAULT_HOSTDEPS).expanduser().resolve()
+    hostdeps = Path(getattr(sln, "ps5_hostdeps", None) or os.environ.get("PS5_HOSTDEPS")
+                    or DEFAULT_HOSTDEPS).expanduser().resolve()
 
     if not vulkan.is_dir():
         raise RuntimeError(f"no PS5_Vulkan checkout at {vulkan} (configure.py --ps5-vulkan, or PS5_VULKAN)")
@@ -321,8 +465,8 @@ def _generate(n: Writer, sln: Any, config_path: Path) -> None:
         raise RuntimeError(f"no RADV release archive at {archive}: run port/ps5/probe/vk/build.sh, which builds it, "
                            f"or LLVM_CONFIG={llvm_config} bash {vulkan / 'tools' / 'build-radv.sh'} release (clang 22)")
     if not hostdeps.is_file():
-        raise RuntimeError(f"no hostdeps environment at {hostdeps} (configure.py --ps5-hostdeps): the script that "
-                           "puts meson's and LLVM's tools on the path")
+        raise RuntimeError(f"no hostdeps environment at {hostdeps} (configure.py --ps5-hostdeps, or PS5_HOSTDEPS): "
+                           "the script that puts meson's and LLVM's tools on the path")
     missing = [name for name in GL_HEADER_NAMES if not (GL_HEADERS / name).is_file()]
     if missing:
         raise RuntimeError(f"no {', '.join(missing)} in {GL_HEADERS} (libgl-dev, libgles-dev): the desktop guest's "
@@ -614,14 +758,30 @@ def _generate(n: Writer, sln: Any, config_path: Path) -> None:
     n.build(outputs=guest_image, rule="ps5_copy", inputs=guest["vk_image"], implicit=[guest["vk_checked"]])
     notice = title / "NOTICE.txt"
     n.rule(name="ps5_notice", command=f"{python} -m tools.ps5_build notice $out", description="PS5 NOTICE $out")
-    n.build(outputs=notice, rule="ps5_notice", implicit=[root / "tools" / "ps5_build.py"])
+    # (made again when the commit changes: the stamp is rewritten only then)
+    n.build(outputs=notice, rule="ps5_notice", implicit=[root / "tools" / "ps5_build.py", build_stamp])
+
+    # what the release carries beside the title (tools/ci_build.py ps5): the
+    # player's README, COPYING and the licence texts, in build/ps5/release
+    release = build / "release"
+    roots = {"repo": root, "vulkan": vulkan, "mesa": mesa, "glslang": glslang_source,
+             "musl": root / THIRD_PARTY / f"musl-{MUSL_VERSION}",
+             "pacbrew": vulkan / ".deps" / "pacbrew" / PACBREW_VERSION / "sysroot" / "user" / "homebrew"}
+    n.rule(name="ps5_license", command=f"{python} -m tools.ps5_build license $in $out $sha256",
+           description="PS5 LICENSE $out")
+    release_files = [release / "README.txt"]
+    n.build(outputs=release_files[0], rule="ps5_copy", inputs=root / RELEASE_README)
+    for source, name, sha256 in release_license_sources(roots):
+        n.build(outputs=release / name, rule="ps5_license", inputs=source, implicit=[root / "tools" / "ps5_build.py"],
+                variables={"sha256": sha256 or "-"})
+        release_files.append(release / name)
 
     # internet play's brokers, which the host writes beside config.toml at
     # each start (port/ps5/host/host_net_ps5.c)
     brokers = title / "brokers.txt"
     n.build(outputs=brokers, rule="ps5_copy", inputs=root / "port" / "assets" / "network" / "brokers.txt")
 
-    n.build(outputs="ps5", rule="phony", inputs=[eboot, param, icon, libc, guest_image, notice, brokers])
+    n.build(outputs="ps5", rule="phony", inputs=[eboot, param, icon, libc, guest_image, notice, brokers, *release_files])
     n.newline()
 
 
@@ -655,11 +815,23 @@ if __name__ == "__main__":
     # python3 -m tools.ps5_build notice <file>: NOTICE.txt, from the pins above
     if len(sys.argv) == 3 and sys.argv[1] == "notice":
         Path(sys.argv[2]).parent.mkdir(parents=True, exist_ok=True)
-        Path(sys.argv[2]).write_text(notice_text(), encoding="utf-8")
+        Path(sys.argv[2]).write_text(notice_text(this_commit()), encoding="utf-8")
+    # python3 -m tools.ps5_build license <source> <file> <sha256 or ->: a
+    # licence text for the release, checked when it must be that text, and
+    # taken from a source file's head when it is one (SoftFloat's)
+    elif len(sys.argv) == 5 and sys.argv[1] == "license":
+        data = Path(sys.argv[2]).read_bytes()
+        if sys.argv[4] != "-" and hashlib.sha256(data).hexdigest() != sys.argv[4]:
+            sys.exit(f"{sys.argv[2]} is not the licence text it should be (SHA-256 {sys.argv[4]})")
+        if sys.argv[2].endswith(".c"):
+            data = license_excerpt(data.decode("utf-8")).encode("utf-8")
+        Path(sys.argv[3]).parent.mkdir(parents=True, exist_ok=True)
+        Path(sys.argv[3]).write_bytes(data)
     # python3 -m tools.ps5_build stubs <host_import_table.c> <file>: the weak import stubs
     elif len(sys.argv) == 4 and sys.argv[1] == "stubs":
         Path(sys.argv[3]).parent.mkdir(parents=True, exist_ok=True)
         Path(sys.argv[3]).write_text(import_stubs_text(Path(sys.argv[2]).read_text(encoding="utf-8")),
                                      encoding="utf-8")
     else:
-        sys.exit("usage: python3 -m tools.ps5_build notice <file>, or stubs <host_import_table.c> <file>")
+        sys.exit("usage: python3 -m tools.ps5_build notice <file>, license <source> <file> <sha256>, "
+                 "or stubs <host_import_table.c> <file>")

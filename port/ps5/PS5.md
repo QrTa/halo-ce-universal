@@ -78,7 +78,7 @@ settles the ones it names.
 | Game data | **`/data/halo`**, a folder the user fills over FTP: the disc image, from which the first start extracts `maps/` as the desktop build does (`sdl_platform.c`, `xiso.c`). The desktop asks through a message box and a file picker; on the PS5 the host answers the message box "Yes" and the picker with the `.iso` or `.xiso` it finds in `/data/halo`, so the extraction runs with no change to the guest and no screen (phase 2), and phase 6 only adds a progress display. `config.toml`, `save/` and the caches are beside the maps. `/app0` (the title's folder) holds only the build. |
 | Display | VideoOut's one mode, **3840x2160 at 59.94 Hz**, as the swapchain; the game renders at its `display` width (1080p by default) and the present blits and scales, as Android's does. Native 4K is a setting to try in phase 6. |
 | Logs | **A file in the data folder** (`halo.log`, as the Switch) and the kernel log (`sceKernelDebugOutText`, read with klogsrv on port 3232); faults reported with their registers as the Linux host does. |
-| Self-updater | **None**: `host_update_*` answer "unavailable", as a build without it. |
+| Self-updater | **The host's own, from phase 8** (the user's word, 2026-10-19), the Switch's design: a numbered release build asks GitHub for the latest release on a thread of its own while the game runs, downloads `halo-ps5-release.zip`, puts the title's files in place in `/app0` and tells the player by notification to close the game and start it again. The guest's own updater (`updater.c`) is built without a number and never looks; `host_update_*` stay "unavailable" to it. Until phase 8: none. |
 | Networking | **Phase 5**, before the rest of play (swapped with it on 2026-10-18: a match is the busiest case and the headless network test measures it unattended): FreeBSD sockets through the host's system calls, the Switch's `host_net.c` the model. |
 | Licensing | PS5_Vulkan and its SDK fork are GPL-3.0-or-later; RADV comes from PS5_Mesa, whose licence (Mesa's, and PS5_Vulkan's additions) phase 8 reads and names. **Nothing of theirs is copied into this repository**; they are a build dependency at pinned commits, and the PS5 build is a GPL work as a whole. Its source is this repository **and** those three at their pinned commits: a released binary ships with a notice naming each repository, its commit and where to get it, and the pins in `tools/ps5_build.py` are what the notice is generated from. |
 | Testing | **The user's console** (192.168.2.157, system software 13.59) is what every phase is accepted on. Runs are started through **`ps5vkctl`** (PS5_Vulkan's resident payload, port 9111), which the user approved on 2026-10-17 after phase 0 B's item 9 proved it. It is loaded once per console boot through the user's payload manager (itsPLK's, port 8084: `/manage:upload`, then `/loadpayload:`), since the console's ELF loader on 9021 only takes local connections. Phase 1's deploy uploads, then launches and kills through it. A run that needs the user's hands (the pad, the PS button) is still announced first, so the user is at the console. |
@@ -2658,7 +2658,11 @@ heard both ways; and rest mode's and the pad's results recorded.
 here is folded in below. The user reports, on 2026-10-19, four of the
 carried items tried by hand and working, and they are dropped: the PS
 button's pause in a campaign level, rest mode, voice heard on the other
-machine, and a headset in the pad.)
+machine, and a headset in the pad. On 2026-10-19 the user also chose the
+release's form, after a look at how PS5 homebrew is distributed for
+firmware up to 13.60, "Progress" has it: the title folder in a zip, and the
+title updating itself, which this phase had excluded; the updater is step
+4 below.)
 
 Written to be picked up by an agent that has not seen the work so far. Read
 first, in this order: this plan's "Decisions" (the licensing row above
@@ -2700,10 +2704,13 @@ glslang on the path, clang 22 for the compile), `port/ps5/host/host_main.c`
   resolution, the pad switched off and on, a second player's gyro, internet
   hosting from behind the user's router if a second network allows, the
   probe titles and the old maps folder removed from the console, and the
-  whole run once more from a fresh install, from the zip.
+  whole run once more from a fresh install, from the zip; and the title's
+  updater (the user's word, 2026-10-19), so a player installs once over
+  FTP and then takes each release from the console.
 - **It is not** new features, new rendering work, keyboard and mouse, a
-  picture for the first start, or a self-updater (a console title is
-  updated by installing it again; the README says so).
+  picture for the first start, an image format for the release (`.ffpkg`,
+  `.ffpfsc`: the folder zip is what every ShadowMountPlus takes), or a fake
+  PKG (PS5 apps install through the package installer only up to 11.60).
 - **Shared code is used as it is.** No shared source file changes in this
   phase. `.github/workflows/build.yml`, `tools/ci_build.py`, `AGENTS.md`,
   `CHANGELOG.md` and the READMEs change as the Files table says; nothing of
@@ -2727,7 +2734,8 @@ glslang on the path, clang 22 for the compile), `port/ps5/host/host_main.c`
   downloads are paid once per pin; then `configure.py --ps5` and `ninja
   ps5`, release and debug as the others. The artifact is `halo-ps5-release`
   (and `-debug`), which the `release` job zips as it zips the others into
-  `halo-ps5-release.zip`; `release` gains `ps5` in `needs`; the site job's
+  `halo-ps5-release.zip`, stored (`zip -0`) as the Switch's is, for the
+  updater; `release` gains `ps5` in `needs`; the site job's
   download line gains the PS5. **Why:** every other build is released this
   way, the toolchain is pinned by commit already, and a runner that builds
   Mesa once in twenty minutes and caches it is cheaper than a machine
@@ -2739,7 +2747,8 @@ glslang on the path, clang 22 for the compile), `port/ps5/host/host_main.c`
   Linux and Windows jobs are. Either way `tools/ci_build.py` learns `ps5`.
 - **The zip** is `halo-ps5-release.zip`, holding `PPSA99500/` (the title
   folder as `ninja ps5` makes it: `eboot.bin`, `sce_sys/`, `sce_module/`,
-  `halo_guest.elf`, `brokers.txt`, `NOTICE.txt`), a `README.txt` for the
+  `halo_guest.elf`, `brokers.txt`, `NOTICE.txt`, `certificates.pem`), a
+  `README.txt` for the
   player (installing and the first start, in twenty lines, pointing at
   `port/ps5/README.md` for the rest), `COPYING` (the GPL-3.0 text, since
   the title is a GPL work as a whole) and `licenses/` with the texts whose
@@ -2775,17 +2784,88 @@ glslang on the path, clang 22 for the compile), `port/ps5/host/host_main.c`
   extract them again), edit `config.toml`, or remove a folder the title
   left (phase 6's `maps.phase6-aside`, which this closes). The README says
   so. **Why not** a removal command in the deploy: a player has no deploy.
+- **The title updates itself** (the user's word, 2026-10-19), in
+  `port/ps5/host/host_update_ps5.c` in place of `host_update_none.c`, the
+  Switch's `host_update.c` the model:
+  - **Who looks.** A build of a release tag knows its number
+    (`HALO_BUILD_NUMBER`, which `tools/ci_build.py` sets and
+    `updater_defines` passes: the host is given it); any other build has
+    none and never looks. `update.auto = false` in `/data/halo/config.toml`
+    turns it off (the key the other platforms read). The guest's own
+    updater (`port/linux/src/updater.c`, compiled into the desktop guest)
+    is built for the PS5 with no number, so it never looks: it would ask
+    for `halo-linux-x86_64-release.zip`, open a window and start a new
+    executable, none of which the console does, and `host_update_*` keep
+    answering it "unavailable".
+  - **When.** On a host thread of its own once the guest has started and
+    the network is up, so the game is never held: the menu comes up as
+    always, the check and the download go on beside it.
+  - **The check.** `https://api.github.com/repos/thelinkin3000/halo-ce-universal/releases/latest`,
+    its `tag_name` (`build-<number>`), as `updater.c` reads it; a number
+    above the build's is an update.
+  - **The download.** `halo-ps5-<release|debug>.zip` of that release,
+    through `posix_update.c`'s `update_download` used as it is (HTTPS with
+    Mbed TLS, redirects followed, the certificate and host name always
+    checked), into `/data/halo/update.partial.zip`. The console has no
+    certificate bundle, so the title carries the roots its hosts' chains
+    end at (`certificates.pem` in the title folder, the roots read off
+    the hosts' chains when written, each named in the file) and the host
+    sets `SSL_CERT_FILE` to it before the first download, which
+    `posix_update.c` takes when no system bundle exists. Mbed TLS's
+    `mbedtls_net_connect` looks the host up with `getaddrinfo`, which the
+    platform layer refuses a title: `net_sockets.c` is compiled with
+    `-Dgetaddrinfo=ps5_getaddrinfo -Dfreeaddrinfo=ps5_freeaddrinfo`, an
+    IPv4 lookup over `ps5_net_resolve_ipv4` in `host_net_ps5.c`, the
+    library unedited (as miniupnpc's names are answered).
+  - **The install.** The zip is stored, not deflated (`zip -0`, as the
+    Switch's: the release job's Package step), so it is read entry by
+    entry with no inflater: each entry under `PPSA99500/` is written to
+    `/app0/<path>.new` (folders made) and checked against its CRC; only
+    when every one has arrived intact are they renamed into place, a
+    stamp (`/app0/update.txt`, the build's number) written first and
+    removed last, `eboot.bin` renamed last of the files. Nothing of the
+    title is read again in a session once the guest is loaded (the host,
+    the guest image and `libc.prx` are in memory, `param.json` is the
+    system's at launch), so everything goes in place at once. A start that
+    finds the stamp (a session closed halfway through the renames) puts
+    the remaining `.new` files in place before it loads the guest and says
+    so. Files the title writes are 0666 and folders 0777, as the player's
+    folder (above), so the FTP server can still replace them by hand. The
+    zip is deleted after; a failure deletes the `.new` files and the zip
+    and leaves the title as it was.
+  - **What the player sees.** Notifications, as the first start's
+    extraction shows its progress: "Downloading build N", one every
+    quarter, "Build N is installed: close the game and start it again to
+    use it", or "The update did not finish: <reason>". A title cannot
+    restart itself, and the new host and the new guest must start
+    together, so the session goes on on the old build until the player
+    closes it (the Switch's choice). Nothing asks first: the console has
+    no dialog the host can answer from the pad (the message boxes are
+    notifications), and the user asked for updates to be automatic;
+    `update.auto` is the way out, and the README says so.
+  - **How it is tested.** The pure parts (the stored zip's walk, the
+    stamp's recovery, the version's parse) in `port/ps5/tests` through
+    `tools/test_ps5_host.py`, on the PC; on the console before the
+    release, a build numbered below the last release (build-104 has no PS5
+    zip) shows the check and the failure path ("GitHub answered 404",
+    nothing changed in `/app0`); after the release (step 8), a build
+    numbered one below it, installed from its zip, updates itself from
+    the live release and starts as the new build.
 
 ### Files
 
 | File | What |
 |---|---|
-| `.github/workflows/build.yml` | the `ps5` job (above): the toolchain check first (each tool named, as the Switch job checks the image), the pins read from `tools/ps5_build.py`, the three clones, the SDK and RADV set-ups under `actions/cache`, pacbrew cached, debug and release through `tools/ci_build.py ps5`, the two artifacts; `release`'s `needs` and the site's download links; the file's head comment names the PS5 |
+| `.github/workflows/build.yml` | the `ps5` job (above): the toolchain check first (each tool named, as the Switch job checks the image), the pins read from `tools/ps5_build.py`, the three clones, the SDK and RADV set-ups under `actions/cache`, pacbrew cached, debug and release through `tools/ci_build.py ps5`, the two artifacts; `release`'s `needs`, its Package step storing `halo-ps5*` as it stores the Switch's, and the notify job's download links and PS5 field; the file's head comment names the PS5 and its updater |
 | `tools/ci_build.py` | `ps5` in `OUTPUTS`: the title folder copied whole into `dist/halo-ps5-<config>/PPSA99500/`, plus `README.txt`, `COPYING` and `licenses/` (above); `ninja ps5` under the configuration |
-| `tools/ps5_build.py` | `notice_text` complete (above); the repository's URL and commit from the build stamp; `COPYING` and the licence texts' sources listed for `ci_build.py` (a `RELEASE_LICENSES` table: source path, name in the zip, why) |
-| `port/ps5/release/README.txt` | the player's twenty lines: what the console needs (etaHEN, ShadowMountPlus, an FTP server such as ftpsrv), copy `PPSA99500` to `/data/homebrew` and the disc image to `/data/halo` over FTP, start it from the home screen, the first start's notifications, where the settings are, that it is updated by installing it again, where the full README is |
-| `port/ps5/README.md` | rewritten for a player first and a developer second: Requirements (the console: firmware proved, 13.59 here and PS5_Vulkan's 12.02 to 12.70; the homebrew environment; a 4K or 1080p display, 120 Hz if the TV takes it), Installing from the release (no PC tools: FTP alone), Game data, Settings (the menus as the PS5's: the maximum resolution, Gyro Aim, voice chat; `config.toml` over FTP), What the port does not have, How it operates (the log, the picture, the pad and the sound, the network: today's sections, kept), and then Building (the toolchain, CI or the machine, the pins) and Developing (the deploy, the probes, the figures); rest mode and the PS button's pause stated as tried by the user (one sentence each, asked of the user: what rest mode did and what came back) |
-| `port/ps5/host/host_main.c`, `host_syscall.c` | the player's folder made theirs (above); the start-up walk's one log line |
+| `tools/ps5_build.py` | the host given `HALO_BUILD_NUMBER` and the flavour, the guest's updater none; `posix_update.c` in `POSIX_FILES`; `net_sockets.c` with the lookup's two names; `certificates.pem` in the title; `notice_text` complete (above); the repository's URL and commit from the build stamp; `COPYING` and the licence texts' sources listed for `ci_build.py` (a `RELEASE_LICENSES` table: source path, name in the zip, why) |
+| `port/ps5/release/README.txt` | the player's twenty lines: what the console needs (system software 13.60 or lower, jailbroken: Relapse or another kernel exploit, kstuff; ShadowMountPlus 1.7beta5 or later; an FTP server such as ftpsrv; etaHEN as what was tested here, not required), copy `PPSA99500` to `/data/homebrew` and the disc image to `/data/halo` over FTP, start it from the home screen, the first start's notifications, where the settings are, that it updates itself (close and start it again when told; `update.auto = false` to stop it) and can be updated by hand by installing it again, where the full README is |
+| `port/ps5/README.md` | rewritten for a player first and a developer second: Requirements (the console: firmware proved, 13.59 here and PS5_Vulkan's 12.02 to 12.70; the homebrew environment; a 4K or 1080p display, 120 Hz if the TV takes it), Installing from the release (no PC tools: FTP alone), Updates (automatic, the notifications, `update.auto`, by hand), Game data, Settings (the menus as the PS5's: the maximum resolution, Gyro Aim, voice chat; `config.toml` over FTP), What the port does not have, How it operates (the log, the picture, the pad and the sound, the network: today's sections, kept), and then Building (the toolchain, CI or the machine, the pins) and Developing (the deploy, the probes, the figures); rest mode and the PS button's pause stated as tried by the user (one sentence each, asked of the user: what rest mode did and what came back) |
+| `port/ps5/host/host_main.c`, `host_syscall.c` | the player's folder made theirs (above); the start-up walk's one log line; the updater's thread started, and an interrupted install finished, before the guest loads |
+| `port/ps5/host/host_update_ps5.c` (in place of `host_update_none.c`) | the updater (above): the check, the download through `posix_update.c`, the stored zip's walk, the install and its stamp, the notifications; `host_update_*` still "unavailable" to the guest |
+| `port/ps5/host/host_net_ps5.c` | `ps5_getaddrinfo` and `ps5_freeaddrinfo` (IPv4, over the resolver) for Mbed TLS's `net_sockets.c` |
+| `port/ps5/release/certificates.pem` | the roots the update's hosts chain to (github.com, api.github.com, the release download host), each named, with the date they were read; copied into the title folder by `ninja ps5` |
+| `port/ps5/tests/`, `tools/test_ps5_host.py` | the updater's pure parts tested on the PC |
 | `AGENTS.md` | a `port/ps5/` row in the layout table (the host files, the probes, the stubs, the import list, the plan), `tools/` gains `ps5_build.py`, `ps5_deploy.py`, `ps5_title.sh`, the guests' tests list gains `test_ps5_build.py` and `test_ps5_host.py`, the build table gains `ninja ps5` |
 | `CHANGELOG.md` | under the next build: the PS5 port in the voice of the file's other entries (what a player gets: the title, 4K at 120 Hz, split screen, gyro aim, voice, system link and internet play, map sharing; what it needs) |
 | `port/ps5/PS5.md` | the status line at the end: what was released, the figures of the long session, and what remains open for whoever comes next (a "What next" list after "Progress") |
@@ -2816,7 +2896,15 @@ glslang on the path, clang 22 for the compile), `port/ps5/host/host_main.c`
    are deleted from `/data/homebrew` over FTP as phase 0's were, their
    sources and reports staying in the tree.
 
-4. **The measurements**, each a run the user starts, each cut at the user's
+4. **The updater**, as the decision says: its tests on the PC first; then
+   on the console a build given a number below the last release
+   (`HALO_BUILD_NUMBER=103`, configured by hand): the check's log line
+   (build-104 is the latest), the download's 404 for its missing PS5 zip,
+   the notification, `/app0` unchanged (its listing before and after);
+   and a build given 104 itself: "this is the latest". The successful
+   update waits for the release (step 8).
+
+5. **The measurements**, each a run the user starts, each cut at the user's
    word: the console's video output set to 1080p (Settings, Screen and
    Video) and the rule's log line with 2160P set, then back to 4K; the
    long session, `--run --minutes 60` at the main menu (the heap every
@@ -2832,11 +2920,11 @@ glslang on the path, clang 22 for the compile), `port/ps5/host/host_main.c`
    log, the other machine joining through the brokers). Any of these the
    user declines is recorded as declined.
 
-5. **The READMEs, `AGENTS.md`, `CHANGELOG.md`**, as the Files table says.
+6. **The READMEs, `AGENTS.md`, `CHANGELOG.md`**, as the Files table says.
    The player's README is read by the user before it is accepted: they
-   install from it (step 6).
+   install from it (step 7).
 
-6. **The whole run from the zip.** The data folder emptied but for the disc
+7. **The whole run from the zip.** The data folder emptied but for the disc
    image, `/data/homebrew/PPSA99500` removed, then the zip's `PPSA99500`
    copied over FTP by the user following `README.txt` alone (no deploy):
    the first start's notifications, the menu, a campaign level started, a
@@ -2844,13 +2932,17 @@ glslang on the path, clang 22 for the compile), `port/ps5/host/host_main.c`
    switched, a word spoken. The deploy then fetches the run's log for the
    record. The same zip is what the release carries.
 
-7. **The release.** At the user's word, the branch merged to main and a tag
+8. **The release.** At the user's word, the branch merged to main and a tag
    pushed (`v<number>`, the number above the last release's), or the user
    does both; the release's `halo-ps5-release.zip` downloaded and its
    `NOTICE.txt` and `README.txt` read once more; the Android and Switch
    zips of the same release unchanged in content from the previous
    release's but for main's own changes (the implementer compares their
-   file lists). The plan's status line written last.
+   file lists). Then the update from it: the zip of a build numbered one
+   below the release, made on the machine, installed over FTP, started;
+   the log's check, download and install, the notification, the title
+   closed and started by the user, and its log saying the release's
+   number. The plan's status line written last.
 
 ### Acceptance
 
@@ -2875,7 +2967,7 @@ The review checks each of these:
    rule line, the hour's heap, the match's table, the pad lines, the
    split-screen gyro figures, internet hosting's lines or "no second
    network"), each declined one named.
-6. The READMEs read by the user and followed for the install of step 6;
+6. The READMEs read by the user and followed for the install of step 7;
    `README.txt` is twenty lines or so and enough on its own; `AGENTS.md`
    and `CHANGELOG.md` as the table says.
 7. The whole run from the zip, recorded with its log.
@@ -2884,14 +2976,18 @@ The review checks each of these:
 9. Nothing of PS5_Vulkan, its SDK fork, PS5_Mesa, pacbrew or glslang in
    the repository: the workflow clones them; `git grep` for their file
    names finds only the names.
+10. The updater: its tests pass; the console's runs of step 4 (the 404
+   leaving `/app0` as it was, "this is the latest") and of step 8 (a build
+   updated from the release and started as it) recorded with their logs;
+   the guest's updater built with no number; the PS5 zip stored.
 
 Don't commit; the review does that. Record anything unexpected under
 "Progress", even if it was dealt with.
 
 **Ends with:** a GitHub release whose `halo-ps5-release.zip` a stranger
-installs over FTP from its `README.txt` and plays, with the notice that
-names what it is made of and where to get it; and the plan's last status
-line.
+installs over FTP from its `README.txt` and plays, which then takes the
+next release by itself, with the notice that names what it is made of and
+where to get it; and the plan's last status line.
 
 ---
 
@@ -2939,6 +3035,51 @@ As the deko3d and Vulkan plans were, on purpose:
 ---
 
 ## Progress
+
+### Phase 8 — for players (2026-10-19)
+
+**Before the work: how PS5 homebrew is distributed for 13.60** (asked by
+the user first; read on 2026-10-19 from the projects' pages and the
+scene's reports).
+
+- **Firmware.** Relapse (an exploit chain public in early October 2026:
+  WebKit in the console's browser, then the kernel; the ELF loader on
+  9021) covers 7.00 to 13.60, PS5 and PS5 Pro; nothing covers 14.00. It
+  does not survive a reboot. What is loaded after it: kstuff (kstuff-lite
+  1.07 or later), then ShadowMountPlus, then, optionally, etaHEN. The
+  user's console is on 13.59, inside the range.
+- **Fake PKGs** of PS5 applications are documented only up to 11.60
+  (kstuff-lite 1.11's notes); a payload running on a firmware does not
+  mean the package installer takes fake PKGs there. Not a release format.
+- **ShadowMountPlus** (drakmor; 1.7beta5-fix1 the latest) supports
+  firmware up to 13.60 and registers each title on 12.00 and later through
+  its TitleDir bridge. It scans `/data/homebrew`, `/data/etaHEN/games`
+  and `/mnt/usbN/homebrew`, and takes a plain folder, `.ffpkg` (a UFS2
+  image, its recommended format), `.exfat`, and `.ffpfs`/`.ffpfsc`
+  (experimental). 1.7beta5 repaired an install hook that could be lost
+  after a game's launch or rest mode. Its 1.7beta5 notes say "Use the
+  latest version of kstuff and do not use EtaHEN", without a reason;
+  this console runs etaHEN with it and has throughout the port.
+- **PS5_Vulkan's own releases** attach a ZIP of the title folder, a
+  `.ffpfsc` and their `SHA256SUMS`; its `.ffpkg` (UFS2Tool) was proved on
+  6.02 and 12.70.
+
+**The user's decisions:** the release is the title folder in a zip
+(installed over FTP into `/data/homebrew`, which every ShadowMountPlus
+takes and no PC tool is needed for), not an image or a package; and the
+title updates itself. The plan was amended for both before step 1: the
+updater's decision and step 4, the README's requirements (13.60 or lower,
+kstuff, ShadowMountPlus 1.7beta5 or later, an FTP server; etaHEN what was
+tested, not required), the Files table and acceptance item 10. The
+updater's design is the Switch's, run on a host thread while the game
+plays, with notifications and no question asked: the console has no
+dialog the host can answer from the pad.
+
+Sources: Tom's Hardware, "New PS5 Relapse jailbreak ... unlocks firmware
+13.60"; GBAtemp, "Relapse PS5 kernel exploit brings homebrew to firmware
+7.00-13.60"; SuperPSX's Relapse guide and its folder dump/FFPKG guide;
+github.com/drakmor/ShadowMountPlus/releases; github.com/deox1111/ps5-library
+(the fake PKG limit); PS5_Vulkan's `docs/FFPKG.md` and `docs/DEPLOYMENT.md`.
 
 ### Phase 7 — audit (2026-10-19)
 

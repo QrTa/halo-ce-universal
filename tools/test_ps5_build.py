@@ -156,7 +156,24 @@ def test_checkout_off_its_pin_is_a_warning(repository, tmp_path, capsys):
 
 
 def test_notice_names_every_pin():
-    text = ps5_build.notice_text()
+    text = ps5_build.notice_text("0123456789abcdef0123456789abcdef01234567")
     for pin in (ps5_build.PS5_VULKAN_COMMIT, ps5_build.PS5_PAYLOAD_SDK_REVISION, ps5_build.PS5_MESA_COMMIT,
-                ps5_build.PACBREW_VERSION, ps5_build.PACBREW_SHA256, ps5_build.GLSLANG_TAG):
+                ps5_build.PACBREW_VERSION, ps5_build.PACBREW_SHA256, ps5_build.GLSLANG_TAG,
+                ps5_build.PS5_SDK_RELEASE, ps5_build.PS5_SDK_RELEASE_SHA256, ps5_build.REPOSITORY_URL,
+                "0123456789abcdef0123456789abcdef01234567", "GPL-3.0-or-later"):
         assert pin in text
+
+
+def test_release_licenses_are_named_once():
+    # every licence text the release carries has a name of its own, and the
+    # ones in this repository are there
+    names = [name for _, _, name, _, _ in ps5_build.RELEASE_LICENSES]
+    assert len(names) == len(set(names)) and "COPYING" in names
+    for root, path, _, _, _ in ps5_build.RELEASE_LICENSES:
+        if root == "repo":
+            assert (ROOT / path).is_file(), path
+
+
+def test_license_excerpt_is_the_head_comment():
+    text = "/*\n * Licence line one\n *\n * line two\n */\nint code;\n/* not this */\n"
+    assert ps5_build.license_excerpt(text) == "Licence line one\n\nline two\n"

@@ -8,6 +8,7 @@
     python tools/ci_build.py linux_x86_64 release  (on a 64-bit x86 computer)
     python tools/ci_build.py linux profile
     python tools/ci_build.py web release
+    python tools/ci_build.py ps5 release
 
 Builds are portable (any x86-64 processor; any ARMv8.0 one for
 linux_arm64 and android), so they run on other computers. Debug builds skip link-time and profile-guided optimisation,
@@ -24,6 +25,11 @@ The web build (port/web/README.md) needs Emscripten (emcc on the PATH, as
 emsdk_env.sh puts it); dist/halo-web-<config>/ is the whole site, which a
 static host serves as it is: the workflow publishes the release build's to
 GitHub Pages.
+
+The PS5 build (port/ps5/README.md) needs PS5_Vulkan's toolchain, set up as
+its README and tools/ps5_build.py say; dist/halo-ps5-<config>/ is the
+release as a player installs it: the title's folder, PPSA99500/, and beside
+it README.txt, COPYING and licenses/ (tools/ps5_build.py's RELEASE_LICENSES).
 """
 
 import argparse
@@ -53,6 +59,7 @@ OUTPUTS = {
     # start.
     "switch": ["build/switch/halo.nro", "build/switch/halo_guest.elf"],
     "web": [],  # the site, below
+    "ps5": [],  # the title's folder and what goes beside it, below
 }
 APKS = {
     "debug": "port/android/app/build/outputs/apk/debug/app-debug.apk",
@@ -82,6 +89,10 @@ def main() -> int:
         # (not this computer's default build, which configure.py generates
         # only when asked)
         configure.append("--linux-x86-64")
+    if args.platform == "ps5":
+        # (the same: the checkouts are configure.py's defaults, or
+        # PS5_VULKAN's)
+        configure.append("--ps5")
     launcher = os.environ.get("CI_COMPILER_LAUNCHER")
     if launcher:
         configure += ["--compiler-launcher", launcher]
@@ -103,6 +114,18 @@ def main() -> int:
             shutil.rmtree(dist)
         shutil.copytree(ROOT / "build/web/site", dist)
         print(f"build/web/site -> {dist.relative_to(ROOT)}", flush=True)
+        return 0
+    if args.platform == "ps5":
+        # the title's folder whole, and the release's README, COPYING and
+        # licenses/ beside it (tools/ps5_build.py: the brokers, the notice and
+        # the rest are in the folder, the licences in licenses/)
+        run(["ninja", "ps5"])
+        dist = ROOT / "dist" / f"halo-ps5-{args.config}"
+        if dist.exists():
+            shutil.rmtree(dist)
+        shutil.copytree(ROOT / "build/ps5/title/PPSA99500", dist / "PPSA99500")
+        shutil.copytree(ROOT / "build/ps5/release", dist, dirs_exist_ok=True)
+        print(f"build/ps5/title/PPSA99500, build/ps5/release -> {dist.relative_to(ROOT)}", flush=True)
         return 0
     if args.platform == "android":
         # the native part, then the app around it (Gradle's variant of the
