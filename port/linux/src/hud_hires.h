@@ -114,5 +114,9 @@ unsigned char *hud_hires_png_pixels(const void *png, unsigned long size, unsigne
 long hud_hires_upscale_at(unsigned long address, long width, long height);
 unsigned int hud_hires_upscale_texture(const unsigned char *bgra, unsigned long width,
 	unsigned long height, long kind, unsigned long *levels);
+/* hud_hires_upscale_texture's pixels (malloc'd, RGBA red first, rows top
+down, four times the size each way), for the texture caches that make their
+own (xbox_textures_d3d11.c); NULL if they could not be made */
+unsigned char *hud_hires_upscale_rgba(const unsigned char *bgra, unsigned long width, unsigned long height, long kind);
 
 #endif

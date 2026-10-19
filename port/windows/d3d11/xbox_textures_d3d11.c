@@ -864,6 +864,17 @@ struct texture_entry
 	unsigned long menu_serial;
 	uint32_t menu_texture;
 	unsigned long menu_levels;
+	/* the high-res texture drawn for it as a placeholder (the gameplay
+	buttons' and the sprites': hud_hires_placeholder_asset), or -1, as of
+	placeholder_serial (0: never asked) */
+	unsigned long placeholder_serial;
+	long placeholder_asset;
+	/* an original HUD sheet without a redraw, interpolated four times larger
+	(hud_hires_upscale_at), and its levels; 0 if none, as of the upload that
+	checked (hud_upscale_checked) */
+	uint32_t hud_upscale;
+	unsigned long hud_upscale_levels;
+	BOOL hud_upscale_checked;
 };
 
 #define TEXTURE_BUCKET_COUNT 4096
@@ -934,6 +945,42 @@ static uint32_t png_texture(const void *png, unsigned long size, unsigned long *
 
 	if (!pixels)
 		return 0;
+	*levels = 1;
+	for (largest = width > height ? width : height; largest > 1; largest >>= 1)
+		(*levels)++;
+	memset(&description, 0, sizeof(description));
+	description.kind = D3D11_BACKEND_TEXTURE_KIND_2D;
+	description.format = D3D11_BACKEND_TEXTURE_FORMAT_RGBA8;
+	description.width = (uint32_t)width;
+	description.height = (uint32_t)height;
+	description.depth = 1;
+	description.levels = (uint32_t)*levels;
+	description.generate_mips = *levels > 1;
+	texture = d3d11_backend_texture_create(&description);
+	if (texture)
+	{
+		d3d11_backend_texture_write(texture, 0, 0, pixels, (uint32_t)(width * 4), (uint32_t)(width * height * 4), NULL);
+		d3d11_backend_texture_generate_mips(texture);
+	}
+	free(pixels);
+	return texture;
+}
+
+/* an original HUD sheet interpolated four times larger, from its texels in
+BGRA (hud_hires_upscale_rgba: hud_hires_upscale_texture's pixels, which GL
+uploads), with all its mip levels: its handle, or 0 */
+static uint32_t hud_upscale_texture(const unsigned char *bgra, unsigned long width, unsigned long height, long kind,
+	unsigned long *levels)
+{
+	unsigned char *pixels = hud_hires_upscale_rgba(bgra, width, height, kind);
+	struct d3d11_backend_texture description;
+	unsigned long largest;
+	uint32_t texture;
+
+	if (!pixels)
+		return 0;
+	width *= 4;
+	height *= 4;
 	*levels = 1;
 	for (largest = width > height ? width : height; largest > 1; largest >>= 1)
 		(*levels)++;
@@ -1134,6 +1181,28 @@ static void texture_entry_result(struct texture_entry *entry, struct xgpu_d3d11_
 			return;
 		}
 	}
+	/* (a high-res texture drawn for some sprites, for the placeholder the
+	game draws them from: hud_hires.h; looked up again only when the
+	placeholders have changed, as xbox_textures_vk.c does) */
+	if (entry->placeholder_serial != hud_hires_placeholder_serial())
+	{
+		entry->placeholder_serial = hud_hires_placeholder_serial();
+		entry->placeholder_asset = hud_hires_placeholder_asset(entry->data);
+	}
+	if (entry->placeholder_asset >= 0)
+	{
+		unsigned long levels;
+		uint32_t texture = hud_texture(entry->placeholder_asset, &levels);
+
+		if (texture)
+		{
+			result->description.levels = levels;
+			result->description.hires = TRUE;
+			result->handle = texture;
+			result->kind = D3D11_BACKEND_TEXTURE_KIND_2D;
+			return;
+		}
+	}
 	if (entry->override >= 0)
 	{
 		unsigned long levels;
@@ -1146,6 +1215,41 @@ static void texture_entry_result(struct texture_entry *entry, struct xgpu_d3d11_
 			result->description.hires_coverage = hud_hires_override_coverage(entry->override);
 			result->description.hires_point_threshold = hud_hires_override_point_threshold(entry->override);
 			result->handle = texture;
+			result->kind = D3D11_BACKEND_TEXTURE_KIND_2D;
+			return;
+		}
+	}
+	/* These sheets keep the map's art and coordinates, decoded through the
+	normal format reader; the HUD module owns only the interpolation
+	(xbox_textures.c's) */
+	if (config_boolean("display.high_res_hud"))
+	{
+		if (!entry->hud_upscale_checked)
+		{
+			long kind = hud_hires_upscale_at(entry->address, entry->description.width, entry->description.height);
+
+			entry->hud_upscale_checked = TRUE;
+			if (entry->size && !entry->description.compressed && entry->kind == D3D11_BACKEND_TEXTURE_KIND_2D &&
+				format_information(entry->description.format).kind != _texel_p8 &&
+				entry->description.width <= 256 && entry->description.height <= 256 &&
+				kind &&
+				custom_edition_texels_order(entry->address) == _custom_edition_channels_xbox &&
+				platform_is_contiguous((void *)entry->address) &&
+				platform_is_contiguous((void *)(entry->address + entry->size - 1)))
+			{
+				unsigned long *pixels = malloc(entry->description.width * entry->description.height * 4);
+
+				if (pixels && decode_level(&entry->description, 0, (const unsigned char *)entry->address, NULL, pixels))
+					entry->hud_upscale = hud_upscale_texture((const unsigned char *)pixels, entry->description.width,
+						entry->description.height, kind, &entry->hud_upscale_levels);
+				free(pixels);
+			}
+		}
+		if (entry->hud_upscale)
+		{
+			result->description.hires = TRUE;
+			result->description.levels = entry->hud_upscale_levels;
+			result->handle = entry->hud_upscale;
 			result->kind = D3D11_BACKEND_TEXTURE_KIND_2D;
 			return;
 		}
@@ -1259,6 +1363,12 @@ void xgpu_d3d11_texture_get(const DWORD *resource, const D3DCOLOR *palette, stru
 		if (!entry->generation)
 			entry->generation = 1;
 		/* (which bitmap is here may have changed with the pixels) */
+		if (entry->hud_upscale)
+		{
+			d3d11_backend_texture_free(entry->hud_upscale);
+			entry->hud_upscale = 0;
+		}
+		entry->hud_upscale_checked = FALSE;
 		entry->override = -1;
 		if (entry->size && !palettized && !entry->description.cube_map && entry->description.depth == 1)
 		{
@@ -1342,6 +1452,8 @@ void xgpu_d3d11_texture_cache_begin_frame(void)
 			{
 				*link = entry->next;
 				d3d11_backend_texture_free(entry->texture);
+				if (entry->hud_upscale)
+					d3d11_backend_texture_free(entry->hud_upscale);
 				texture_drop_serial++;
 				free(entry);
 			}
