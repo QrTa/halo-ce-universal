@@ -861,9 +861,21 @@ static long guest_uname(uint64_t address)
 
 /* ---------- dispatch */
 
-/* the guest's umask: the console's kernel keeps none for a title
-(ps5platform/libc.h), so the guest's is only remembered */
-static uint32_t guest_umask = 022;
+/* the guest's umask: the console's kernel keeps none a title can set
+(ps5platform/libc.h), so the guest's is only remembered; what the guest
+makes in the data folder is the player's (below), 0 as the mask, as the
+plan has it */
+static uint32_t guest_umask = 0;
+
+/* A file or folder the guest makes in the data folder is made open to the
+console's FTP server, which sees only what everyone may: a file 0666, a
+folder 0777, whatever mode the game asked for and the kernel's mask left
+(host_main.c's open_player_folder does the same at the start for what is
+there). */
+static int in_data_folder(const char *path)
+{
+	return !strncmp(path, PS5_DATA_FOLDER "/", sizeof(PS5_DATA_FOLDER)) || !strcmp(path, PS5_DATA_FOLDER);
+}
 
 static int times_logged, rusage_logged, statfs_logged;
 
@@ -888,7 +900,13 @@ static long long guest_call(long long number, long long a, long long b, long lon
 		if (!path)
 			return error;
 		note_file(path, flags);
-		return result_of(openat((int)a, path, (int)flags, (mode_t)(uint32_t)d));
+		{
+			int fd = openat((int)a, path, (int)flags, (mode_t)(uint32_t)d);
+
+			if (fd >= 0 && (flags & O_CREAT) && (path[0] != '/' || in_data_folder(path)))
+				fchmod(fd, 0666);
+			return result_of(fd);
+		}
 	}
 	case GUEST_SYS_close:
 		directory_forget((int)a);
@@ -990,7 +1008,11 @@ static long long guest_call(long long number, long long a, long long b, long lon
 		path = path_of((int)a, (uint64_t)b, buffer, &error);
 		if (!path)
 			return error;
-		return result_of(mkdirat((int)a, path, (mode_t)(uint32_t)c));
+		if (mkdirat((int)a, path, (mode_t)(uint32_t)c) != 0)
+			return -ps5_errno_out(errno);
+		if (path[0] != '/' || in_data_folder(path))
+			fchmodat((int)a, path, 0777, 0);
+		return 0;
 	case GUEST_SYS_unlinkat:
 	{
 		int empty_path;

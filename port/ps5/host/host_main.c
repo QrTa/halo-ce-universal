@@ -917,6 +917,83 @@ static int switch_set(const char *name)
 	return number > 0 ? number : 0;
 }
 
+/* ---------- the player's folder, theirs over FTP
+
+The console's FTP server sees and changes only what everyone may, and what
+the title makes is the title's, with the mode the kernel's mask leaves it.
+So that a player can delete the maps (to have them extracted again), edit
+config.toml or remove a folder the title left, everything under the data
+folder is made 0666 (a file) or 0777 (a folder) where it is not: here,
+once, for what earlier builds made, and as the guest makes each file and
+folder (host_syscall.c). What the title cannot change (the player's own
+files, put there over FTP) is left and counted. */
+
+struct folder_walk
+{
+	int folders, files, changed, refused, unread;
+};
+
+static void walk_player_folder(const char *path, int depth, struct folder_walk *walk)
+{
+	DIR *folder;
+	struct dirent *entry;
+
+	if (depth > 8 || !(folder = opendir(path)))
+		return;
+	while ((entry = readdir(folder)))
+	{
+		char child[1024];
+		struct stat status;
+		mode_t wanted;
+
+		if (!strcmp(entry->d_name, ".") || !strcmp(entry->d_name, ".."))
+			continue;
+		/* (no flags: the platform layer's fstatat; the data folder has no
+		symbolic links) */
+		if ((size_t)snprintf(child, sizeof(child), "%s/%s", path, entry->d_name) >= sizeof(child) ||
+			fstatat(AT_FDCWD, child, &status, 0) != 0)
+		{
+			walk->unread++;
+			continue;
+		}
+		if (S_ISDIR(status.st_mode))
+		{
+			walk->folders++;
+			wanted = 0777;
+		}
+		else if (S_ISREG(status.st_mode))
+		{
+			walk->files++;
+			wanted = 0666;
+		}
+		else
+		{
+			continue;
+		}
+		if ((status.st_mode & wanted) != wanted)
+		{
+			if (fchmodat(AT_FDCWD, child, (status.st_mode & 07777) | wanted, 0) == 0)
+				walk->changed++;
+			else
+				walk->refused++;
+		}
+		if (S_ISDIR(status.st_mode))
+			walk_player_folder(child, depth + 1, walk);
+	}
+	closedir(folder);
+}
+
+static void open_player_folder(void)
+{
+	struct folder_walk walk = { 0 };
+	uint64_t start = ps5_now_ns();
+
+	walk_player_folder(PS5_DATA_FOLDER, 0, &walk);
+	ps5_log(PS5_DATA_FOLDER ": open to FTP: %d folders and %d files, %d made 0777 or 0666 now, %d the title "
+		"cannot change, %d not read (%.1f ms)", walk.folders, walk.files, walk.changed, walk.refused, walk.unread,
+		(ps5_now_ns() - start) / 1e6);
+}
+
 /* a folder FTP can list (0777: the console's FTP server sees only what
 everyone may), made before the renderer makes it 0770 */
 static void open_folder(const char *path)
@@ -1001,6 +1078,7 @@ int main(void)
 	}
 	if (!is_folder(PS5_DATA_FOLDER "/save") && mkdir(PS5_DATA_FOLDER "/save", 0777) != 0)
 		ps5_log(PS5_DATA_FOLDER "/save: cannot be made (%s)", strerror(errno));
+	open_player_folder();
 	/* (the game's own relative paths are made absolute on the data folder,
 	host_syscall.c; this is for the host's file helpers, posix_files.c) */
 	if (chdir(PS5_DATA_FOLDER) != 0)

@@ -647,12 +647,20 @@ jobs:
       # The tools on the path the way the build machine's hostdeps script puts
       # them (configure.py --ps5-hostdeps, PS5_HOSTDEPS): LLVM 18's first,
       # whose llvm-config, clang and libclc the native half of the Mesa build
-      # finds by name; the console's half is clang 22's (LLVM_CONFIG).
+      # finds by name; the console's half is clang 22's (LLVM_CONFIG, by its
+      # full path). Meson looks for llvm-config under its versioned names too
+      # and takes the newest, which would be 22's, with no SPIR-V translator
+      # of its version: those names are LLVM 18's here.
       - name: Set up the SDK fork and RADV
         run: |
-          cat > "$PS5_DEPS/hostdeps.sh" <<'EOF'
-          export PATH=/usr/lib/llvm-18/bin:$PATH
+          mkdir -p "$PS5_DEPS/llvm-18-names"
+          for version in 19 20 21 22 23 24; do
+            ln -sf /usr/lib/llvm-18/bin/llvm-config "$PS5_DEPS/llvm-18-names/llvm-config-$version"
+          done
+          cat > "$PS5_DEPS/hostdeps.sh" <<EOF
+          export PATH=$PS5_DEPS/llvm-18-names:/usr/lib/llvm-18/bin:\$PATH
           EOF
+          cat "$PS5_DEPS/hostdeps.sh"
           echo "PS5_HOSTDEPS=$PS5_DEPS/hostdeps.sh" >> "$GITHUB_ENV"
           echo "PS5_VULKAN=$PS5_DEPS/PS5_Vulkan" >> "$GITHUB_ENV"
           . "$PS5_DEPS/hostdeps.sh"
