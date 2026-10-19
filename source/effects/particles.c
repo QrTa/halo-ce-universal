@@ -628,6 +628,19 @@ static boolean particle_update_frame_time(
 	return result;
 }
 
+/* port: the rise of the particles particle_new makes (particles_port_rise),
+and of those it made rising: one speed for them all */
+static real particles_port_rise_speed;
+static real particles_port_risen_speed;
+
+void particles_port_rise(
+	real speed)
+{
+	particles_port_rise_speed = speed;
+	if (speed > 0.0f)
+		particles_port_risen_speed = speed;
+}
+
 static boolean particle_update_physics(
 	long particle_index,
 	real dt)
@@ -635,6 +648,12 @@ static boolean particle_update_physics(
 	struct particle_datum *particle = particle_get(particle_index);
 	struct particle_definition *definition = particle_definition_get(particle->definition_index);
 
+	/* port: a rising particle climbs against its gravity */
+	if (TEST_FLAG(particle->flags, _particle_datum_port_rises_bit) &&
+		particle->translational_velocity.k < particles_port_risen_speed)
+	{
+		particle->translational_velocity.k = particles_port_risen_speed;
+	}
 	if (!TEST_FLAG(particle->flags, _particle_datum_at_rest_bit))
 	{
 		boolean settled = FALSE;
@@ -893,6 +912,7 @@ void particle_new(
 		data->dont_draw_third_person);
 	SET_FLAG(particle->flags, _particle_datum_attached_to_local_player_bit,
 		data->attached_to_local_player);
+	SET_FLAG(particle->flags, _particle_datum_port_rises_bit, particles_port_rise_speed > 0.0f);
 
 	particle->definition_index = data->definition_index;
 	particle->local_player_index = (byte)data->local_player_index;

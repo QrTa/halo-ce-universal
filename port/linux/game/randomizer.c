@@ -21,6 +21,11 @@ is on. A weapon a script names is left where it was.
 Off unless game.randomizer is on, and only for the ten campaign levels. A
 multiplayer game that is not co-op is not randomized. A client uses the
 setup the host advertised, not its own.
+
+The same copying brings in the skull the enemies carry when skulls are to
+be found (skulls.c): a multiplayer map's oddball, which no campaign map
+has, read from maps/skulls.pack (else that map), with the randomizer on or
+off. Each map read is a donor of one pack or the other.
 */
 
 #include <stdio.h>
@@ -242,7 +247,9 @@ struct donor
 	long file_length;
 	long tag_offset;
 	int compressed;
-	/* pixels and samples come from randomizer.pack, not this map file */
+	/* the pack this map is read from, when it has it, and whether its
+	pixels and samples come from there, not this map file */
+	struct pack *pack;
 	int from_pack;
 	struct pack_span *spans;
 	long span_count;
@@ -331,10 +338,20 @@ typedef char randomizer_tag_table_size[
 
 static struct donor donors[DONOR_COUNT];
 static int donor_count;
-static HANDLE pack_file;
-static struct pack_entry pack_entries[DONOR_COUNT];
-static int pack_entry_count;
-static int pack_state;
+/* a pack of maps' tags and pixels: randomizer.pack's of the campaign maps,
+skulls.pack's of the map the skulls are copied from (randomizer_pack.c) */
+struct pack
+{
+	char const *file_name;
+	HANDLE file;
+	struct pack_entry entries[DONOR_COUNT];
+	int entry_count;
+	/* 1 open, -1 not there (the maps are read instead), 0 not tried */
+	int state;
+};
+
+static struct pack randomizer_pack = { "randomizer.pack" };
+static struct pack skulls_pack = { "skulls.pack" };
 static struct wanted *wanted;
 static long wanted_count;
 static struct copied_tag copied[IMPORT_MAX];
@@ -1432,44 +1449,44 @@ static int inflate_span(HANDLE file, long start, long size, unsigned char *desti
 	return produced >= end;
 }
 
-static int pack_read_u32(long at, unsigned long *value)
+static int pack_read_u32(struct pack *pack, long at, unsigned long *value)
 {
 	unsigned char bytes[4];
 	DWORD got = 0;
 
-	if (!donor_file_at(pack_file, at) || !ReadFile(pack_file, bytes, 4, &got, NULL) || got != 4)
+	if (!donor_file_at(pack->file, at) || !ReadFile(pack->file, bytes, 4, &got, NULL) || got != 4)
 		return 0;
 	memcpy(value, bytes, 4);
 
 	return 1;
 }
 
-static void pack_close(void)
+static void pack_close(struct pack *pack)
 {
-	if (pack_file && pack_file != INVALID_HANDLE_VALUE)
-		CloseHandle(pack_file);
-	pack_file = NULL;
-	pack_entry_count = 0;
-	pack_state = 0;
+	if (pack->file && pack->file != INVALID_HANDLE_VALUE)
+		CloseHandle(pack->file);
+	pack->file = NULL;
+	pack->entry_count = 0;
+	pack->state = 0;
 }
 
 /* each map the pack has is still the map in maps/. One that was replaced
 (another disc's, or a fresh copy) would have its pixels read at the old
 offsets */
-static int pack_matches_maps(void)
+static int pack_matches_maps(struct pack *pack)
 {
 	int index;
 
-	for (index = 0; index < pack_entry_count; index++)
+	for (index = 0; index < pack->entry_count; index++)
 	{
-		struct pack_entry *entry = pack_entries + index;
+		struct pack_entry *entry = pack->entries + index;
 		long file_length, tag_offset, tag_size;
 
 		if (!randomizer_pack_map_header(entry->name, &file_length, &tag_offset, &tag_size, NULL))
 			continue;
 		if (file_length != entry->file_length || tag_offset != entry->tag_offset || tag_size != entry->tag_size)
 		{
-			error(_error_silent, "randomizer: %s.map is not the one in the pack", entry->name);
+			error(_error_silent, "randomizer: %s.map is not the one in %s", entry->name, pack->file_name);
 			return 0;
 		}
 	}
@@ -1477,10 +1494,10 @@ static int pack_matches_maps(void)
 	return 1;
 }
 
-/* maps/randomizer.pack: 'rpak', version 1, then one 32-byte record per map
-(8-byte name, file length, tag offset, tag size, where the tag bytes are,
-how many resource spans, where that table is) */
-static int pack_load(char const *path)
+/* a pack: 'rpak', version 1, then one 32-byte record per map (8-byte name,
+file length, tag offset, tag size, where the tag bytes are, how many
+resource spans, where that table is) */
+static int pack_load(struct pack *pack, char const *path)
 {
 	unsigned long magic = 0;
 	unsigned long version = 0;
@@ -1488,31 +1505,31 @@ static int pack_load(char const *path)
 	unsigned long index;
 	DWORD open_error;
 
-	pack_file = CreateFileA(path, GENERIC_READ, 0, NULL, OPEN_EXISTING, 0, NULL);
-	if (pack_file == INVALID_HANDLE_VALUE)
+	pack->file = CreateFileA(path, GENERIC_READ, 0, NULL, OPEN_EXISTING, 0, NULL);
+	if (pack->file == INVALID_HANDLE_VALUE)
 	{
 		open_error = GetLastError();
 		error(_error_silent, "randomizer: no %s (error %lu)", path, (unsigned long)open_error);
-		pack_file = NULL;
+		pack->file = NULL;
 		return 0;
 	}
-	if (!pack_read_u32(0, &magic) || !pack_read_u32(4, &version) || !pack_read_u32(8, &count) ||
+	if (!pack_read_u32(pack, 0, &magic) || !pack_read_u32(pack, 4, &version) || !pack_read_u32(pack, 8, &count) ||
 		magic != 'rpak' || version != 1 || count > (unsigned long)DONOR_COUNT)
 	{
 		error(_error_silent, "randomizer: %s is not a randomizer pack", path);
-		pack_close();
+		pack_close(pack);
 		return 0;
 	}
 	for (index = 0; index < count; index++)
 	{
 		unsigned char record[32];
-		struct pack_entry *entry = pack_entries + index;
+		struct pack_entry *entry = pack->entries + index;
 		long at = 12 + (long)index * 32;
 
-		if (!donor_file_at(pack_file, at) || !donor_file_read(pack_file, record, sizeof(record)))
+		if (!donor_file_at(pack->file, at) || !donor_file_read(pack->file, record, sizeof(record)))
 		{
 			error(_error_silent, "randomizer: %s directory is short", path);
-			pack_close();
+			pack_close(pack);
 			return 0;
 		}
 		memset(entry, 0, sizeof(*entry));
@@ -1524,10 +1541,10 @@ static int pack_load(char const *path)
 		memcpy(&entry->resource_count, record + 24, 4);
 		memcpy(&entry->resources_at, record + 28, 4);
 	}
-	pack_entry_count = (int)count;
-	if (!pack_matches_maps())
+	pack->entry_count = (int)count;
+	if (!pack_matches_maps(pack))
 	{
-		pack_close();
+		pack_close(pack);
 		return 0;
 	}
 
@@ -1536,37 +1553,37 @@ static int pack_load(char const *path)
 
 /* the pack (written at the main menu: randomizer_pack.c). Not there, or no
 longer the maps', and the maps are read instead */
-static int pack_open(void)
+static int pack_open(struct pack *pack)
 {
 	char path[512];
 
-	if (pack_state == 1)
+	if (pack->state == 1)
 		return 1;
-	if (pack_state < 0)
+	if (pack->state < 0)
 		return 0;
-	snprintf(path, sizeof(path), "%srandomizer.pack", cache_files_map_directory());
-	if (!pack_load(path))
+	snprintf(path, sizeof(path), "%s%s", cache_files_map_directory(), pack->file_name);
+	if (!pack_load(pack, path))
 	{
 		error(_error_silent, "randomizer: reading the maps instead of %s", path);
-		pack_state = -1;
+		pack->state = -1;
 		return 0;
 	}
-	pack_state = 1;
-	error(_error_silent, "randomizer: using %s (%d maps)", path, pack_entry_count);
+	pack->state = 1;
+	error(_error_silent, "randomizer: using %s (%d maps)", path, pack->entry_count);
 
 	return 1;
 }
 
-static struct pack_entry *pack_find(char const *leaf)
+static struct pack_entry *pack_find(struct pack *pack, char const *leaf)
 {
 	int index;
 
-	if (!pack_open())
+	if (!pack || !pack_open(pack))
 		return NULL;
-	for (index = 0; index < pack_entry_count; index++)
+	for (index = 0; index < pack->entry_count; index++)
 	{
-		if (!_stricmp(pack_entries[index].name, leaf))
-			return pack_entries + index;
+		if (!_stricmp(pack->entries[index].name, leaf))
+			return pack->entries + index;
 	}
 
 	return NULL;
@@ -1597,8 +1614,8 @@ static int pack_read_tags(struct donor *donor, struct pack_entry *entry)
 				error(_error_silent, "randomizer: no room for %s.map's pack ranges", donor->leaf);
 				return 0;
 			}
-			if (!donor_file_at(pack_file, entry->resources_at) ||
-				!donor_file_read(pack_file, donor->spans, span_bytes))
+			if (!donor_file_at(donor->pack->file, entry->resources_at) ||
+				!donor_file_read(donor->pack->file, donor->spans, span_bytes))
 			{
 				error(_error_silent, "randomizer: could not read %s.map's pack ranges", donor->leaf);
 				free(donor->spans);
@@ -1616,14 +1633,15 @@ static int pack_read_tags(struct donor *donor, struct pack_entry *entry)
 		error(_error_silent, "randomizer: no room for %s.map's packed tags (%ld bytes)", donor->leaf, entry->tag_size);
 		return 0;
 	}
-	if (!donor_file_at(pack_file, entry->tags_at) ||
-		!donor_file_read(pack_file, donor->bytes, (unsigned long)entry->tag_size))
+	if (!donor_file_at(donor->pack->file, entry->tags_at) ||
+		!donor_file_read(donor->pack->file, donor->bytes, (unsigned long)entry->tag_size))
 	{
 		error(_error_silent, "randomizer: could not read %s.map's packed tags", donor->leaf);
 		donor_bytes_free(donor);
 		return 0;
 	}
-	error(_error_silent, "randomizer: %s.map from randomizer.pack (%ld byte tags)", donor->leaf, entry->tag_size);
+	error(_error_silent, "randomizer: %s.map from %s (%ld byte tags)", donor->leaf, donor->pack->file_name,
+		entry->tag_size);
 
 	return 1;
 }
@@ -1664,8 +1682,9 @@ static long pack_copy(struct donor *donor, long offset, long size, void *buffer)
 {
 	unsigned char *out = buffer;
 	long filled = 0;
+	HANDLE file = donor->pack ? donor->pack->file : NULL;
 
-	if (!donor->spans || donor->span_count <= 0 || !pack_file || pack_file == INVALID_HANDLE_VALUE)
+	if (!donor->spans || donor->span_count <= 0 || !file || file == INVALID_HANDLE_VALUE)
 		return 0;
 	while (size > 0)
 	{
@@ -1695,8 +1714,8 @@ static long pack_copy(struct donor *donor, long offset, long size, void *buffer)
 			have = size;
 		if (span->data_at < 0 || into < 0)
 			return filled;
-		if (!donor_file_at(pack_file, span->data_at + into) ||
-			!donor_file_read(pack_file, out, (unsigned long)have))
+		if (!donor_file_at(file, span->data_at + into) ||
+			!donor_file_read(file, out, (unsigned long)have))
 			return filled;
 		offset += have;
 		size -= have;
@@ -1725,10 +1744,10 @@ static int load_donor_bytes(struct donor *donor)
 
 	if (donor->bytes)
 		return 1;
-	packed = pack_find(donor->leaf);
+	packed = pack_find(donor->pack, donor->leaf);
 	if (packed)
 	{
-		snprintf(path, sizeof(path), "%srandomizer.pack", cache_files_map_directory());
+		snprintf(path, sizeof(path), "%s%s", cache_files_map_directory(), donor->pack->file_name);
 		if (!pack_read_tags(donor, packed))
 			return 0;
 	}
@@ -1832,12 +1851,13 @@ static void release_donor_blob(struct donor *donor)
 	}
 }
 
-static int open_donor(struct donor *donor, char const *leaf)
+static int open_donor(struct donor *donor, char const *leaf, struct pack *pack)
 {
 	long index;
 
 	memset(donor, 0, sizeof(*donor));
 	snprintf(donor->leaf, sizeof(donor->leaf), "%s", leaf);
+	donor->pack = pack;
 	if (!load_donor_bytes(donor))
 		return 0;
 	/* malloc, not calloc: free() is the debug allocator, and a block it did
@@ -1898,7 +1918,8 @@ static void donors_close(void)
 		}
 	}
 	donor_count = 0;
-	pack_close();
+	pack_close(&randomizer_pack);
+	pack_close(&skulls_pack);
 }
 
 static void remember_import(long absolute, short donor_index)
@@ -2706,15 +2727,9 @@ static void wanted_free(void)
 	alias_count = 0;
 }
 
-static void import_campaign(char const *leaf)
+/* the lists a level's copying gathers into; 0 when there is no room */
+static int gather_begin(void)
 {
-	int level;
-
-	/* (a pool of weapons other than the level's needs them copied too) */
-	if (!current.enemies && !(current.pickups && current.pickup_pool != WEAPON_POOL_ANY) &&
-		!(current.weapons && current.weapon_pool != WEAPON_POOL_ANY))
-		return;
-	error(_error_silent, "randomizer: reading actors and weapons from the other campaign maps");
 	walk_steps = 0;
 	wanted_full = 0;
 	alias_count = 0;
@@ -2724,10 +2739,25 @@ static void import_campaign(char const *leaf)
 	if (!wanted || !wanted_slots || !aliases)
 	{
 		error(_error_silent, "randomizer: no room to gather tags");
-		return;
+		return 0;
 	}
 	memset(wanted, 0, WANTED_MAX * sizeof(*wanted));
 	memset(wanted_slots, 0, WANTED_SLOTS * sizeof(*wanted_slots));
+
+	return 1;
+}
+
+/* the randomizer's: each other campaign map's actors and weapons the
+setup's pools take */
+static void gather_campaign(char const *leaf)
+{
+	int level;
+
+	/* (a pool of weapons other than the level's needs them copied too) */
+	if (!current.enemies && !(current.pickups && current.pickup_pool != WEAPON_POOL_ANY) &&
+		!(current.weapons && current.weapon_pool != WEAPON_POOL_ANY))
+		return;
+	error(_error_silent, "randomizer: reading actors and weapons from the other campaign maps");
 	for (level = 0; level < 10 && donor_count < DONOR_COUNT; level++)
 	{
 		char const *path = main_get_solo_level_name(level);
@@ -2737,7 +2767,7 @@ static void import_campaign(char const *leaf)
 		if (!_stricmp(other, leaf))
 			continue;
 		error(_error_silent, "randomizer: %s.map", other);
-		if (!open_donor(donor, other))
+		if (!open_donor(donor, other, &randomizer_pack))
 		{
 			close_donor_bytes(donor);
 			continue;
@@ -2747,8 +2777,41 @@ static void import_campaign(char const *leaf)
 		seed_donor(donor);
 		release_donor_blob(donor);
 	}
-	import_wanted();
-	error(_error_silent, "randomizer: copied %ld tags", copied_count);
+}
+
+/* the skulls': the skull the enemies carry to be found, a multiplayer map's
+oddball, which no campaign map has (skulls.c). Its pixels and samples are
+skulls.pack's (randomizer_pack.c), else the map's */
+#define SKULL_DONOR "wizard"
+
+static void gather_skull(void)
+{
+	struct donor *donor = donors + donor_count;
+	long index;
+
+	if (donor_count >= DONOR_COUNT || tag_loaded(WEAPON_DEFINITION_TAG, SKULLS_CARRIED_TAG) != NONE)
+		return;
+	error(_error_silent, "randomizer: reading the skull from %s.map", SKULL_DONOR);
+	if (!open_donor(donor, SKULL_DONOR, &skulls_pack))
+	{
+		close_donor_bytes(donor);
+		return;
+	}
+	donor_count++;
+	for (index = 0; index < donor->count; index++)
+	{
+		struct randomizer_tag_instance *instance = donor->instances + index;
+		char const *name = instance_name(donor, instance);
+
+		if (instance->group_tag == WEAPON_DEFINITION_TAG && name && !_stricmp(name, SKULLS_CARRIED_TAG))
+		{
+			want_root(donor, index);
+			break;
+		}
+	}
+	if (index == donor->count)
+		error(_error_silent, "randomizer: %s.map has no %s", SKULL_DONOR, SKULLS_CARRIED_TAG);
+	release_donor_blob(donor);
 }
 
 void randomizer_tags_loaded(char const *scenario_name)
@@ -2757,34 +2820,50 @@ void randomizer_tags_loaded(char const *scenario_name)
 	char leaf[32];
 	int index;
 
+	int randomize = 0;
+	int skull;
+
 	randomizer_tags_unloaded();
 	if (!campaign_leaf(scenario_name, leaf, sizeof(leaf)))
 		return;
-	if (network_game_distributed_client())
-	{
-		if (!remote_on)
-			return;
-		setup_from_remote(&current);
-		placement_roll_from_remote();
-	}
-	else
-	{
-		if (!config_boolean("game.randomizer"))
-			return;
-		setup_from_config(&current);
-	}
 	if (game && game->variant.game_engine_index != game_engine_none)
 		return;
-	if (!setup_swaps(&current))
+	if (network_game_distributed_client())
+	{
+		if (remote_on)
+		{
+			setup_from_remote(&current);
+			placement_roll_from_remote();
+			randomize = setup_swaps(&current);
+		}
+	}
+	else if (config_boolean("game.randomizer"))
+	{
+		setup_from_config(&current);
+		randomize = setup_swaps(&current);
+	}
+	/* (and the skull the enemies carry, which the randomizer may be off for) */
+	skull = skulls_carried_wanted();
+	if (!randomize && !skull)
 		return;
-	if (!network_game_distributed_client() && !placement_roll_ready)
+	if (randomize && !network_game_distributed_client() && !placement_roll_ready)
 		placement_roll_new();
 	snprintf(map_name_leaf, sizeof(map_name_leaf), "%s", leaf);
-	import_campaign(leaf);
-	error(_error_silent, "randomizer: gathering actors already in %s", leaf);
-	build_pools();
-	build_protected();
-	loaded = 1;
+	if (gather_begin())
+	{
+		if (randomize)
+			gather_campaign(leaf);
+		if (skull)
+			gather_skull();
+		import_wanted();
+	}
+	if (randomize)
+	{
+		error(_error_silent, "randomizer: gathering actors already in %s", leaf);
+		build_pools();
+		build_protected();
+		loaded = 1;
+	}
 	/* the tag blobs are already gone. The pack ranges stay until the level
 	unloads: bitmap pixels and sound samples are read from them in play */
 	donor_reads = 0;
@@ -2927,7 +3006,8 @@ int randomizer_donor_read(long tag_index, long offset, long size, void *buffer)
 	long asked;
 	struct donor *donor;
 
-	if (!loaded || tag_index == NONE || !buffer || offset < 0 || size < 0)
+	/* (the randomizer's tags, or the skull's alone) */
+	if (import_count <= 0 || tag_index == NONE || !buffer || offset < 0 || size < 0)
 		return 0;
 	absolute = tag_index & 0xFFFF;
 	for (index = 0; index < import_count; index++)
@@ -3155,6 +3235,13 @@ int randomizer_weapon_is_covenant(char const *tag_name)
 int randomizer_unit_is_grunt(char const *tag_name)
 {
 	return classify(tag_name) == TYPE_GRUNT;
+}
+
+int randomizer_unit_can_carry(char const *tag_name)
+{
+	int type = classify(tag_name);
+
+	return type == TYPE_GRUNT || type == TYPE_ELITE || type == TYPE_JACKAL || type == TYPE_FLOOD_COMBAT;
 }
 
 void randomizer_advertisement(unsigned char *reserved)

@@ -21,6 +21,13 @@ which say which ranges to keep, and again to copy those ranges as the
 stream passes them. That is a few minutes, once, and about 500 MB. The
 file is written as randomizer.pack.partial and renamed when it is whole, so
 a stop part-way leaves no pack that looks complete.
+
+maps/skulls.pack is the same file of one multiplayer map, Wizard's, keeping
+the pixels and samples of its oddball (the skull the enemies carry when
+skulls are to be found, skulls.c) and of the HUD: about 9 MB, a few
+seconds, written the same way once game.skulls is on with the skulls
+unlocked by playing. A record names a map in seven letters, which
+Blood Gulch's name is too long for; Wizard's oddball is the same.
 */
 
 #include <stdio.h>
@@ -107,8 +114,28 @@ struct pack_seen
 	long data_at;
 };
 
+/* a pack and what it is made of: randomizer.pack, the campaign maps'
+actors and weapons; skulls.pack, the skull the enemies carry (skulls.c),
+which no campaign map has. Each its maps, the bitmaps and sounds whose
+pixels and samples it keeps, the least of those a map of it has, and its
+words */
+struct pack_kind
+{
+	char const *file_name;
+	int (*map_count)(void);
+	char const *(*map)(int index);
+	int (*keep)(unsigned long group, char const *name);
+	long minimum_bitmaps;
+	long minimum_sounds;
+	wchar_t const *notice;
+	wchar_t const *building;
+	wchar_t const *ready;
+	wchar_t const *failed;
+};
+
 static struct
 {
+	struct pack_kind const *kind;
 	HANDLE out;
 	long cursor;
 	unsigned char *chunk;
@@ -198,7 +225,7 @@ static void progress_show(int force)
 	percent = build.total > 0.0 ? (int)(build.done * 100.0 / build.total) : 0;
 	if (percent > 99)
 		percent = 99;
-	status_set(L"Building the randomizer's data\r\nfrom the campaign maps: ", percent, status_map);
+	status_set(build.kind->building, percent, status_map);
 	main_pregame_render();
 	main_present_frame();
 }
@@ -408,7 +435,7 @@ static char const *tag_name(unsigned char const *blob, long blob_size, long inst
 
 /* level geometry, menus, music and ambience are not actors or weapons, and
 the same character tags would otherwise carry them in every map */
-static int keep_bytes(unsigned long group, char const *name)
+static int randomizer_keep_bytes(unsigned long group, char const *name)
 {
 	static char const *const bitmap_skips[] = { "levels\\", "sky\\", "ui\\", "rasterizer\\", "scenery\\", "cinematics\\" };
 	static char const *const sound_skips[] = { "sound\\music\\", "sound\\sfx\\ambience\\" };
@@ -604,7 +631,7 @@ static int collect(struct range_list *list, unsigned char const *blob, long blob
 
 		if (base < 0 || (group != 'bitm' && group != 'snd!'))
 			continue;
-		if (!keep_bytes(group, tag_name(blob, blob_size, instance)))
+		if (!build.kind->keep(group, tag_name(blob, blob_size, instance)))
 			continue;
 		if (group == 'bitm')
 		{
@@ -619,7 +646,7 @@ static int collect(struct range_list *list, unsigned char const *blob, long blob
 			sound_ranges(list, blob, blob_size, base, file_length, &ok);
 		}
 	}
-	if (!ok || bitmaps < 20 || sounds < 20)
+	if (!ok || bitmaps < build.kind->minimum_bitmaps || sounds < build.kind->minimum_sounds)
 		return 0;
 	qsort(list->ranges, (unsigned long)list->count, sizeof(*list->ranges), range_less);
 	kept = 0;
@@ -804,7 +831,7 @@ static int pack_map(char const *leaf, struct pack_record *record)
 	stream_end(&stream);
 	if (!collect(&list, blob, tag_size, file_length))
 	{
-		error(_error_silent, "randomizer pack: %s.map's tags are not a campaign map's", leaf);
+		error(_error_silent, "randomizer pack: %s.map's tags are not the map %s wants", leaf, build.kind->file_name);
 		goto done;
 	}
 	/* the pixels and samples, from the start again */
@@ -886,7 +913,7 @@ static int pack_finish(struct pack_record const *records, int count)
 	return pack_write(directory, sizeof(directory));
 }
 
-int randomizer_pack_build(void)
+static int pack_build(struct pack_kind const *kind)
 {
 	char path[512];
 	char partial[520];
@@ -895,15 +922,15 @@ int randomizer_pack_build(void)
 	int level;
 	int ok = 0;
 
-	snprintf(path, sizeof(path), "%srandomizer.pack", cache_files_map_directory());
+	snprintf(path, sizeof(path), "%s%s", cache_files_map_directory(), kind->file_name);
 	snprintf(partial, sizeof(partial), "%s.partial", path);
 	memset(&build, 0, sizeof(build));
-	for (level = 0; level < PACK_MAPS; level++)
+	build.kind = kind;
+	for (level = 0; level < kind->map_count() && level < PACK_MAPS; level++)
 	{
 		long file_length, tag_offset, tag_size;
 
-		if (randomizer_pack_map_header(tag_name_strip_path(main_get_solo_level_name(level)),
-			&file_length, &tag_offset, &tag_size, NULL))
+		if (randomizer_pack_map_header(kind->map(level), &file_length, &tag_offset, &tag_size, NULL))
 			build.total += 2.0 * (double)file_length;
 	}
 	build.chunk = malloc(IO_CHUNK);
@@ -918,14 +945,14 @@ int randomizer_pack_build(void)
 		build.out = NULL;
 		goto done;
 	}
-	error(_error_silent, "randomizer pack: writing %s from the campaign maps (once)", path);
+	error(_error_silent, "randomizer pack: writing %s (once)", path);
 	progress_show(1);
 	memset(records, 0, sizeof(records));
 	if (!pack_write(records, PACK_DIRECTORY_SIZE))
 		goto done;
-	for (level = 0; level < PACK_MAPS; level++)
+	for (level = 0; level < kind->map_count() && level < PACK_MAPS; level++)
 	{
-		if (pack_map(tag_name_strip_path(main_get_solo_level_name(level)), records + count))
+		if (pack_map(kind->map(level), records + count))
 			count++;
 		else if (build.failed)
 			goto done;
@@ -957,10 +984,67 @@ done:
 	return ok;
 }
 
+/* ---------- the packs */
+
+static int campaign_map_count(void)
+{
+	return PACK_MAPS;
+}
+
+static char const *campaign_map(int index)
+{
+	return tag_name_strip_path(main_get_solo_level_name((short)index));
+}
+
+/* (the skull's map: one of seven letters at most, as a pack's record names
+it, that has the oddball; randomizer.c's SKULL_DONOR) */
+static int skull_map_count(void)
+{
+	return 1;
+}
+
+static char const *skull_map(int index)
+{
+	(void)index;
+	return "wizard";
+}
+
+/* the skull's pixels and samples, and the HUD's it shows held */
+static int skull_keep_bytes(unsigned long group, char const *name)
+{
+	(void)group;
+	return strstr(name, "ball") != NULL || !strncmp(name, "ui\\hud\\", 7);
+}
+
+static struct pack_kind const randomizer_kind =
+{
+	"randomizer.pack", campaign_map_count, campaign_map, randomizer_keep_bytes, 20, 20,
+	L"The randomizer needs to build\r\nits data from the campaign maps:\r\n"
+	L"a few minutes and about 500 MB,\r\nonce. It starts when this closes.",
+	L"Building the randomizer's data\r\nfrom the campaign maps: ",
+	L"The randomizer's data is ready.",
+	L"The randomizer's data could not\r\nbe built (is the card full?).\r\n"
+	L"Randomized levels will load\r\nmore slowly.",
+};
+
+static struct pack_kind const skulls_kind =
+{
+	"skulls.pack", skull_map_count, skull_map, skull_keep_bytes, 1, 0,
+	L"The skulls need some data\r\nfrom a multiplayer map.\r\nIt takes a few seconds.",
+	L"Building skull data:\r\n",
+	L"The skull data is ready.",
+	L"The skull data could not\r\nbe built. Is the card full?",
+};
+
+int randomizer_pack_build(void)
+{
+	return pack_build(&randomizer_kind);
+}
+
 /* ---------- when it is written */
 
 /* the pack is there, and each map it has is the one in maps/ */
-int randomizer_pack_ready(void)
+static int pack_ready(struct pack_kind const *kind)
 {
 	char path[512];
 	unsigned char head[12];
@@ -969,7 +1053,7 @@ int randomizer_pack_ready(void)
 	unsigned long index;
 	int ready;
 
-	snprintf(path, sizeof(path), "%srandomizer.pack", cache_files_map_directory());
+	snprintf(path, sizeof(path), "%s%s", cache_files_map_directory(), kind->file_name);
 	file = CreateFileA(path, GENERIC_READ, 0, NULL, OPEN_EXISTING, 0, NULL);
 	if (file == INVALID_HANDLE_VALUE)
 		return 0;
@@ -1012,21 +1096,46 @@ enum
 };
 
 static int pack_step;
+/* the pack being written, and those asked for after it, in turn */
+static struct pack_kind const *pack_current;
+static struct pack_kind const *pack_queue[2];
+static int pack_queued;
+
+static void pack_request(struct pack_kind const *kind)
+{
+	int index;
+
+#ifdef HALO_WEB
+	/* (the page's storage is not the place for half a gigabyte) */
+	if (kind == &randomizer_kind)
+		return;
+#endif
+	if (pack_current == kind)
+		return;
+	for (index = 0; index < pack_queued; index++)
+	{
+		if (pack_queue[index] == kind)
+			return;
+	}
+	if (pack_queued >= (int)NUMBEROF(pack_queue) || pack_ready(kind))
+		return;
+	pack_queue[pack_queued++] = kind;
+	error(_error_silent, "randomizer pack: %s wanted; written at the main menu, after its notice", kind->file_name);
+}
+
+int randomizer_pack_ready(void)
+{
+	return pack_ready(&randomizer_kind);
+}
 
 void randomizer_pack_request(void)
 {
-#ifdef HALO_WEB
-	/* (the page's storage is not the place for half a gigabyte) */
-	return;
-#else
-	if (pack_step != _pack_idle || randomizer_pack_ready())
-		return;
-	pack_step = _pack_notice;
-	display_error_text_deferred(
-		L"The randomizer needs to build\r\nits data from the campaign maps:\r\n"
-		L"a few minutes and about 500 MB,\r\nonce. It starts when this closes.", 0);
-	error(_error_silent, "randomizer pack: wanted; written when the notice is dismissed");
-#endif
+	pack_request(&randomizer_kind);
+}
+
+void skulls_pack_request(void)
+{
+	pack_request(&skulls_kind);
 }
 
 void randomizer_pack_update(boolean main_menu)
@@ -1035,19 +1144,30 @@ void randomizer_pack_update(boolean main_menu)
 
 	if (!main_menu)
 		return;
-	/* (at start-up, with the randomizer already on) */
+	/* (at start-up, with the randomizer, or skulls to find, already on) */
 	if (!checked)
 	{
 		checked = 1;
 		if (config_boolean("game.randomizer"))
 			randomizer_pack_request();
+		if (config_boolean("game.skulls") && skulls_drop())
+			skulls_pack_request();
 	}
 	switch (pack_step)
 	{
+	case _pack_idle:
+		if (!pack_queued || ui_widget_port_error_showing())
+			return;
+		pack_current = pack_queue[0];
+		pack_queued--;
+		memmove(pack_queue, pack_queue + 1, (unsigned long)pack_queued * sizeof(*pack_queue));
+		display_error_text_deferred(pack_current->notice, 0);
+		pack_step = _pack_notice;
+		return;
 	case _pack_notice:
 		if (ui_widget_port_error_showing())
 			return;
-		status_set(L"Building the randomizer's data\r\nfrom the campaign maps: ", 0, "");
+		status_set(pack_current->building, 0, "");
 		display_error_text_deferred(status_text, 0);
 		pack_step = _pack_dialog_asked;
 		return;
@@ -1057,15 +1177,18 @@ void randomizer_pack_update(boolean main_menu)
 		if (ui_widget_port_error_open())
 			pack_step = _pack_dialog_up;
 		else if (!ui_widget_port_error_showing())
+		{
 			pack_step = _pack_idle;
+			pack_current = NULL;
+		}
 		return;
 	case _pack_dialog_up:
 		pack_step = _pack_idle;
-		if (randomizer_pack_build())
-			status_set(L"The randomizer's data is ready.", -1, NULL);
+		if (pack_build(pack_current))
+			status_set(pack_current->ready, -1, NULL);
 		else
-			status_set(L"The randomizer's data could not\r\nbe built (is the card full?).\r\n"
-				L"Randomized levels will load\r\nmore slowly.", -1, NULL);
+			status_set(pack_current->failed, -1, NULL);
+		pack_current = NULL;
 		return;
 	}
 }

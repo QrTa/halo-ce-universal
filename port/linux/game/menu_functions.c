@@ -415,6 +415,7 @@ static boolean setting_write(char const *name, char const *value)
 
 static void setting_written(char const *name, char const *value);
 extern void randomizer_pack_request(void);
+extern void skulls_pack_request(void);
 
 static boolean setting_load(struct widget_instance *widget)
 {
@@ -2088,6 +2089,8 @@ static boolean skulls_unlock_choose(boolean play, boolean *widget_deleted)
 {
 	if (!config_write("game.skulls_unlock_mode", play ? "play" : "all"))
 		error(_error_silent, "skulls: could not write game.skulls_unlock_mode");
+	if (play && skulls_drop())
+		skulls_pack_request();
 	ui_play_audio_feedback_sound(SOUND_FORWARD);
 	return skulls_open_over(skulls_menu_back_tag, widget_deleted);
 }
@@ -2490,6 +2493,12 @@ static void setting_written(char const *name, char const *value)
 {
 	if (!strcmp(name, "game.randomizer") && !strcmp(value, "true"))
 		randomizer_pack_request();
+	/* (and the skulls': skulls to be found, carried by the enemies) */
+	if ((!strcmp(name, "game.skulls") || !strcmp(name, "game.skulls_all_unlocked")) &&
+		config_boolean("game.skulls") && skulls_drop())
+	{
+		skulls_pack_request();
+	}
 }
 
 /* "port settings save" (OK): those changed written, and applied */

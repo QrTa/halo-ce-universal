@@ -25,6 +25,10 @@ long randomizer_enemy_weapon(long weapon_definition, long unit_index, long attem
 (the skulls': skulls.c) */
 int randomizer_weapon_is_covenant(char const *tag_name);
 int randomizer_unit_is_grunt(char const *tag_name);
+/* whether a unit holds things, to carry a skull: a grunt, an elite, a
+jackal or a combat form (not a carrier or infection form, a hunter, a
+sentinel or an engineer) */
+int randomizer_unit_can_carry(char const *tag_name);
 
 /* the advertisement's reserved bytes: the randomizer flag and the setup,
 when this game is a randomized campaign */
@@ -51,6 +55,9 @@ int randomizer_pack_ready(void);
 /* the pack is wanted (game.randomizer turned on): a notice, then, at the
 main menu, the pack written. Nothing when it is ready */
 void randomizer_pack_request(void);
+/* maps/skulls.pack, the skull the enemies carry (skulls.c), the same way:
+wanted once skulls are to be found (game.skulls on, unlocking by playing) */
+void skulls_pack_request(void);
 
 /* a campaign map's header, as the pack records it. 0 when the map is not
 there or is not an Xbox map */

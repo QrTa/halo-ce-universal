@@ -26,6 +26,9 @@ enum particle_flags
 	_particle_datum_dont_draw_first_person_bit,
 	_particle_datum_dont_draw_third_person_bit,
 	_particle_datum_attached_to_local_player_bit,
+	/* port: one that floats up at least as fast as particles_port_rise
+	says (the skulls' confetti: port/linux/game/skulls.c) */
+	_particle_datum_port_rises_bit,
 	NUMBER_OF_PARTICLE_FLAGS,
 };
 
@@ -180,6 +183,10 @@ void particles_reconnect_to_structure_bsp(
 	void);
 void particle_new(
 	struct new_particle_data const *data);
+/* port: the particles made from now on float up at this speed at least, in
+world units a second (0: as their physics has them) */
+void particles_port_rise(
+	real speed);
 void particles_update(
 	real dt);
 

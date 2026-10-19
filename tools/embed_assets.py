@@ -50,10 +50,12 @@ SMAA_FILES = (("SMAA.hlsl", "xgpu_smaa_shader"), ("area_tex.zlib", "xgpu_smaa_ar
 # the desktop windows' icon (tools/app_icon.py; port/linux/src/sdl_platform.c)
 WINDOW_ICON = Path("port/assets/icon/opence-icon-256.png")
 # the game's own sounds, WAV files of 16-bit PCM (port/assets/sounds), and the
-# names their makers declare them by: Grunt Birthday Party's cheer
-# (port/linux/game/skulls.c)
+# names their makers declare them by (port/linux/game/skulls.c): Grunt
+# Birthday Party's cheer; a skull to be found picked up, dropped by the enemy
+# killed, and humming on the floor
 SOUND_ASSETS = Path("port/assets/sounds")
-SOUND_FILES = (("grunt_birthday_party.wav", "skulls_party_sound"),)
+SOUND_FILES = (("grunt_birthday_party.wav", "skulls_party_sound"), ("skull_sfx1.wav", "skulls_pickup_sound"),
+               ("skull_sfx2.wav", "skulls_carrier_sound"), ("skull_sfx3.wav", "skulls_floor_sound"))
 PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 
 

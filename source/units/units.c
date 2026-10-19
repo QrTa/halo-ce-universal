@@ -2872,29 +2872,41 @@ void unit_died(
 	return;
 }
 
-/* port: skull: Pinata, a grenade of the type dropped from the unit's hand
-(port/linux/game/skulls.c) */
+/* port: skull: an object of the definition dropped from the unit's hand,
+as the unit drops its own (Pinata's grenades, the skull to be found:
+port/linux/game/skulls.c); the object, or NONE */
+long unit_port_drop_object(
+	long unit_index,
+	long definition_index)
+{
+	struct object_placement_data placement_data;
+	long object_index;
+
+	if (definition_index == NONE)
+		return NONE;
+	object_placement_data_new(&placement_data, definition_index, unit_index);
+	object_index = object_new(&placement_data);
+	if (object_index != NONE)
+	{
+		object_disconnect_from_map(object_index);
+		unit_drop_item(unit_index, object_index);
+	}
+
+	return object_index;
+}
+
+/* port: skull: Pinata, a grenade of the type dropped from the unit's hand */
 void unit_port_drop_grenade(
 	long unit_index,
 	short grenade_type)
 {
 	struct game_globals *game_globals = scenario_get_game_globals();
 	struct game_globals_grenade *grenade;
-	struct object_placement_data placement_data;
-	long grenade_object_index;
 
 	if (grenade_type < 0 || grenade_type >= game_globals->grenades.count)
 		return;
 	grenade = TAG_BLOCK_GET_ELEMENT(&game_globals->grenades, grenade_type, struct game_globals_grenade);
-	if (grenade->item.index == NONE)
-		return;
-	object_placement_data_new(&placement_data, grenade->item.index, unit_index);
-	grenade_object_index = object_new(&placement_data);
-	if (grenade_object_index != NONE)
-	{
-		object_disconnect_from_map(grenade_object_index);
-		unit_drop_item(unit_index, grenade_object_index);
-	}
+	unit_port_drop_object(unit_index, grenade->item.index);
 }
 
 static void unit_drop_grenades(
@@ -7148,7 +7160,7 @@ void unit_damage_aftermath(
 	/* port: skull: Grunt Birthday Party, a grunt's headshot celebrated
 	(port/linux/game/skulls.c) */
 	if (lethal)
-		skulls_unit_killed(unit_index, body_part == _unit_damage_part_head);
+		skulls_unit_killed(unit_index, body_part == _unit_damage_part_head, damage_data->owner_player_index);
 
 	if (!TEST_FLAG(
 			damage_data->flags,

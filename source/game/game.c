@@ -392,6 +392,8 @@ void game_tick(
 	profile_scope(game_tick_players_after_section, players_update_after_game();)
 	profile_scope(game_tick_hud_section, hud_update();)
 	profile_scope(game_tick_player_effect_section, player_effect_update();)
+	/* port: the skulls to be found, lying about (port/linux/game/skulls.c) */
+	skulls_tick();
 	/* port: and at its end, before the frame draws the lights */
 	game_state_check_data_arrays();
 	lights_port_recover();

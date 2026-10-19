@@ -101,10 +101,22 @@ void skulls_melee_damage(long victim_index, long attacker_object_index, long att
 /* Boom: what an explosion's radii are multiplied by */
 float skulls_boom_scale(void);
 
-/* a unit's killing blow (Grunt Birthday Party's, on a headshot), and its
-death (Grunt Funeral's); on every machine, the effects' damage the host's */
-void skulls_unit_killed(long unit_index, int headshot);
+/* a unit's killing blow, by the player (NONE: another's), and its death
+(Grunt Funeral's); on every machine, the effects' damage the host's. The
+blow: Grunt Birthday Party's celebration of a headshot, and a skull to be
+found dropped by an enemy */
+void skulls_unit_killed(long unit_index, int headshot, long killer_player_index);
 void skulls_unit_died(long unit_index);
+
+/* the skull the enemies carry, to be found (unlocking by playing): a
+multiplayer map's oddball, copied into the level as it loads
+(port/linux/game/randomizer.c, from skulls.pack). Whether a level loading
+wants it: the skulls on, unlocking by playing, a game of this machine's
+alone (solo or split screen) */
+#define SKULLS_CARRIED_TAG "weapons\\ball\\ball"
+int skulls_carried_wanted(void);
+/* each tick of the game: the skulls lying about, heard, and picked up */
+void skulls_tick(void);
 
 /* Famine: the weapon an actor drops, with half its ammunition */
 void skulls_famine_weapon(long weapon_index);

@@ -959,6 +959,8 @@ boolean unit_custom_animation_at_frame(
 boolean unit_drop_current_weapon(long unit_index, boolean immediate);
 /* port: a grenade of the type, dropped as a unit drops its own (skulls.c's Pinata) */
 void unit_port_drop_grenade(long unit_index, short grenade_type);
+/* port: an object of the definition dropped from the unit's hand (skulls.c's skull); the object, or NONE */
+long unit_port_drop_object(long unit_index, long definition_index);
 boolean unit_drop_selected_weapon(long unit_index);
 
 boolean unit_throw_grenade_begin(long unit_index, real_vector2d const *alignment_vector);
