@@ -1208,6 +1208,16 @@ static void object_damage_aftermath(
 
 	if (TEST_FLAG(_object_mask_unit, object->object.type))
 	{
+		/* port: skull: the blow, for a skull's odds of dropping at a kill (a
+		punch, a vehicle's, a killing one: port/linux/game/skulls.c) */
+		skulls_unit_blow(
+			object_index,
+			damage->definition_index,
+			damage->owner_object_index,
+			&damage->direction,
+			damage_effect->damage.category == _damage_category_melee,
+			damage_effect->damage.category == _damage_category_vehicle,
+			TEST_FLAG(being_damaged_flags, _object_being_damaged_body_depleted_bit));
 		unit_damage_aftermath(
 			object_index,
 			damage,

@@ -127,6 +127,13 @@ float skulls_boom_scale(void);
 blow: Grunt Birthday Party's celebration of a headshot, and a skull to be
 found dropped by an enemy */
 void skulls_unit_killed(long unit_index, int headshot, long killer_player_index);
+/* a blow to a unit, before its aftermath (and its killing blow's
+skulls_unit_killed): the kind it was, and whether it killed. A kill's
+odds of dropping a skull: a headshot, a punch from behind, an instant kill
+(none before it), a group's (one blow, several), a vehicle's. (The
+direction is a real_vector3d: this header comes before real_math.h) */
+void skulls_unit_blow(long unit_index, long definition_index, long owner_object_index,
+	void const *direction, int melee, int vehicle, int lethal);
 void skulls_unit_died(long unit_index);
 
 /* the skull the enemies carry, to be found (unlocking by playing): a

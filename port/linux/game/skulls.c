@@ -1133,15 +1133,108 @@ static short skulls_left_to_find(void)
 	return count < quota ? count : quota;
 }
 
-static void skull_drop_maybe(long unit_index, long killer_player_index)
+/* ---------- a kill's odds of a skull
+
+one in as many as are left (the base), and one more for each of these: a
+headshot, a punch from behind, an instant kill (the enemy hurt by nothing
+before), a group's (one blow killing several), a vehicle's (run over). The
+kills of a tick are decided at its end, when the blow's group is known */
+
+/* the enemies hurt, by any blow (an instant kill's is not): a set of their
+indices, this machine's, forgotten with the level and a revert */
+#define HURT_SLOTS 512
+
+static long hurt_units[HURT_SLOTS];
+
+static void hurt_reset(void)
+{
+	short index;
+
+	for (index = 0; index < HURT_SLOTS; index++)
+		hurt_units[index] = NONE;
+}
+
+/* the unit's slot: its own, or the free one it would take (NONE: full) */
+static short hurt_slot(long unit_index)
+{
+	short index = (short)((((unsigned long)unit_index * 2654435761UL) >> 16) % HURT_SLOTS);
+	short tries;
+
+	for (tries = 0; tries < HURT_SLOTS; tries++, index = (short)((index + 1) % HURT_SLOTS))
+	{
+		if (hurt_units[index] == unit_index || hurt_units[index] == NONE)
+			return index;
+	}
+	return NONE;
+}
+
+/* the last killing blow, which skulls_unit_killed (its aftermath, at once)
+takes */
+static struct
+{
+	long unit_index;
+	long definition_index;
+	long owner_object_index;
+	long time;
+	boolean behind;
+	boolean vehicle;
+	boolean instant;
+} killing_blow = { NONE };
+
+void skulls_unit_blow(long unit_index, long definition_index, long owner_object_index,
+	void const *direction, int melee, int vehicle, int lethal)
 {
 	short slot;
+
+	if (carried_definition == NONE)
+		return;
+	slot = hurt_slot(unit_index);
+	if (!lethal)
+	{
+		if (slot != NONE)
+			hurt_units[slot] = unit_index;
+		return;
+	}
+	killing_blow.unit_index = unit_index;
+	killing_blow.definition_index = definition_index;
+	killing_blow.owner_object_index = owner_object_index;
+	killing_blow.time = game_time_get();
+	killing_blow.vehicle = (boolean)vehicle;
+	killing_blow.instant = slot == NONE || hurt_units[slot] != unit_index;
+	killing_blow.behind = FALSE;
+	/* (from behind: the blow going the way the body faces) */
+	if (melee && direction)
+	{
+		struct object_datum *object = object_try_and_get(unit_index);
+		real_vector3d blow = *(real_vector3d const *)direction;
+
+		if (object && normalize3d(&blow) > 0.0f)
+			killing_blow.behind = dot_product3d(&blow, &object->object.forward) > 0.5f;
+	}
+}
+
+/* the kills of the tick, to be decided at its end */
+#define KILLS_PER_TICK 32
+
+static struct
+{
+	long unit_index;
 	long left;
-	long skull_index;
-	boolean drop;
-	int skull;
-	char name[SKULL_NAME_LENGTH];
-	short character;
+	long deaths;
+	long definition_index;
+	long owner_object_index;
+	short bonus;
+} tick_kills[KILLS_PER_TICK];
+static short tick_kill_count;
+static long tick_kills_time;
+
+static void skull_drop(long unit_index, int skull, long left, short odds);
+
+/* an enemy killed, by a player's blow or another's: counted among the dead
+(the odds' base); a player's kill, to be decided at the tick's end */
+static void skull_drop_maybe(long unit_index, long killer_player_index, int headshot)
+{
+	long left;
 
 	if (!skulls_unit_is_enemy(unit_index) || !skulls_unit_can_carry(unit_index))
 		return;
@@ -1160,18 +1253,82 @@ static void skull_drop_maybe(long unit_index, long killer_player_index)
 	finding->deaths++;
 	if (killer_player_index == NONE)
 		return;
-	/* (the run's skulls, chosen at its first drop; the next of them, if
-	any is left to drop) */
-	if (run.pool_count == NONE)
-		run_pool();
-	skull = run_next();
-	if (skull == NONE)
+	if (tick_kills_time != game_time_get())
+	{
+		tick_kill_count = 0;
+		tick_kills_time = game_time_get();
+	}
+	if (tick_kill_count == KILLS_PER_TICK)
 		return;
-	/* (the run's first skull, until it is picked up, at any kill: the first
-	kill's, and again after a revert took it away before it was taken; then
-	the kill's odds, the level's own) */
-	drop = skull == run.pool[0] || (long)(finding_random((unsigned long)finding->deaths) % (unsigned long)left) == 0;
-	if (!drop)
+	tick_kills[tick_kill_count].unit_index = unit_index;
+	tick_kills[tick_kill_count].left = left;
+	tick_kills[tick_kill_count].deaths = finding->deaths;
+	tick_kills[tick_kill_count].bonus = (short)(headshot ? 1 : 0);
+	tick_kills[tick_kill_count].definition_index = NONE;
+	tick_kills[tick_kill_count].owner_object_index = NONE;
+	if (killing_blow.unit_index == unit_index && killing_blow.time == game_time_get())
+	{
+		tick_kills[tick_kill_count].bonus = (short)(tick_kills[tick_kill_count].bonus +
+			(killing_blow.behind ? 1 : 0) + (killing_blow.instant ? 1 : 0) + (killing_blow.vehicle ? 1 : 0));
+		tick_kills[tick_kill_count].definition_index = killing_blow.definition_index;
+		tick_kills[tick_kill_count].owner_object_index = killing_blow.owner_object_index;
+	}
+	tick_kill_count++;
+}
+
+/* the tick's kills decided: a group's (another of the tick's kills by the
+same blow: its kind and its owner) one more each */
+static void tick_kills_decide(void)
+{
+	short index;
+
+	if (tick_kills_time != game_time_get())
+		tick_kill_count = 0;
+	for (index = 0; index < tick_kill_count; index++)
+	{
+		short odds = (short)(1 + tick_kills[index].bonus);
+		short other;
+		int skull;
+
+		for (other = 0; other < tick_kill_count; other++)
+		{
+			if (other != index && tick_kills[index].definition_index != NONE &&
+				tick_kills[other].definition_index == tick_kills[index].definition_index &&
+				tick_kills[other].owner_object_index == tick_kills[index].owner_object_index)
+			{
+				odds++;
+				break;
+			}
+		}
+		/* (the run's skulls, chosen at its first drop; the next of them, if
+		any is left to drop) */
+		if (run.pool_count == NONE)
+			run_pool();
+		skull = run_next();
+		if (skull == NONE)
+			break;
+		/* (the run's first skull, until it is picked up, at any kill: the
+		first kill's, and again after a revert took it away before it was
+		taken; then the kill's odds, the level's own) */
+		if (skull == run.pool[0] ||
+			(long)(finding_random((unsigned long)tick_kills[index].deaths) % (unsigned long)tick_kills[index].left) <
+				(long)odds)
+		{
+			skull_drop(tick_kills[index].unit_index, skull, tick_kills[index].left, odds);
+		}
+	}
+	tick_kill_count = 0;
+}
+
+/* the skull dropped by the dead enemy, with its cheer and confetti */
+static void skull_drop(long unit_index, int skull, long left, short odds)
+{
+	short slot;
+	long skull_index;
+	char name[SKULL_NAME_LENGTH];
+	short character;
+
+	if (!object_try_and_get_and_verify_type(unit_index, _object_mask_unit))
 		return;
 	for (slot = 0; slot < SKULLS_DROPPED_MAX && finding->skulls[slot].object_index != NONE; slot++)
 		;
@@ -1188,8 +1345,8 @@ static void skull_drop_maybe(long unit_index, long killer_player_index)
 	for (character = 0; name[character] && character < SKULL_NAME_LENGTH - 1; character++)
 		finding->skulls[slot].name[character] = (wchar_t)(unsigned char)name[character];
 	finding->skulls[slot].name[character] = 0;
-	error(_error_silent, "skulls: death %ld dropped %s, %d left of %d (one chance in %ld)", finding->deaths, name,
-		skulls_left_to_find(), run.pool_count, left);
+	error(_error_silent, "skulls: dropped %s, %d left of %d (%d chances in %ld)", name, skulls_left_to_find(),
+		run.pool_count, odds, left);
 	own_sound_play(_own_sound_skull_carrier, unit_index);
 	confetti(unit_index, skull_colors, (short)NUMBEROF(skull_colors), SKULL_CONFETTI_RISE);
 }
@@ -1263,6 +1420,8 @@ static void running_skulls_reset(void)
 {
 	short slot;
 
+	hurt_reset();
+	tick_kill_count = 0;
 	hunter_kind_count = 0;
 	for (slot = 0; slot < ENVY_PLAYERS; slot++)
 		envy_ready_time[slot] = 0;
@@ -1529,6 +1688,7 @@ void skulls_tick(void)
 	skulls_units_tick();
 	if (carried_definition == NONE)
 		return;
+	tick_kills_decide();
 	now = game_time_get();
 	if (now < skull_hums_time)
 	{
@@ -1693,6 +1853,7 @@ static void run_restored(char const *why)
 
 void skulls_game_state_reverted(void)
 {
+	hurt_reset();
 	/* (the run is this machine's: the game state's copy, of then, is not) */
 	run_restored("the game went back to a checkpoint");
 }
@@ -1816,7 +1977,7 @@ void skulls_unit_killed(long unit_index, int headshot, long killer_player_index)
 		own_sound_play(_own_sound_party, unit_index);
 	}
 	if (carried_definition != NONE)
-		skull_drop_maybe(unit_index, killer_player_index);
+		skull_drop_maybe(unit_index, killer_player_index, headshot);
 }
 
 void skulls_unit_died(long unit_index)
