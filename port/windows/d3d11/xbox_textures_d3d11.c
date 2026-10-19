@@ -1425,8 +1425,29 @@ static Uint64 texture_next_sweep = 0;
 void xgpu_d3d11_texture_cache_begin_frame(void)
 {
 	unsigned long index, idle_since;
+	unsigned long changed = hud_hires_settings_changed();
 	Uint64 now;
 
+	/* display.high_res_hud or display.high_res_text changed (xbox_textures.c's):
+	only the maps' bitmaps belonging to the setting that changed are written
+	again, which finds their replacement anew; the decoded replacements and
+	the world's textures are kept, and the native pixels are made at that
+	write, an override having skipped their first */
+	if (changed)
+	{
+		for (index = 0; index < TEXTURE_BUCKET_COUNT; index++)
+		{
+			struct texture_entry *entry;
+
+			for (entry = texture_buckets[index]; entry; entry = entry->next)
+				if (hud_hires_bitmap_affected(entry->address,
+					(long)entry->description.width, (long)entry->description.height, changed))
+					entry->generation = 0;
+		}
+		/* (the remembered lookups skip the generation's check: they are
+		forgotten, not the textures) */
+		memset(recent_textures, 0, sizeof(recent_textures));
+	}
 	texture_frame++;
 	now = SDL_GetTicks();
 	if (now < texture_next_sweep)

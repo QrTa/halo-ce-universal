@@ -82,9 +82,11 @@ executable draws the menus and the maps as `halo.exe` draws them: the PC
 menus and the Xbox menus with their art and their text, the maps' geometry
 and textures, the render targets that the maps sample (the wake-up flash,
 the zoom, the shadows, the water), multisampling, supersampling, the FXAA
-and SMAA passes, and the visibility tests of the lens flares. The settings `display.anti_aliasing`,
+and SMAA passes, the visibility tests of the lens flares, and the loading
+screen. The settings `display.anti_aliasing`,
 `display.resolution_scaling`, `display.shadow_resolution`,
 `display.high_res_hud`, `display.high_res_text`, `display.menus`,
+`display.anisotropic_filtering`, `display.model_detail`, `display.overshield_effect`,
 `display.per_pixel_lighting`, `debug.texture_log`, `debug.texture_no_cache`,
 `debug.texture_dump_directory`, `debug.gpu_trace_frame` and `debug.gpu_stats`
 mean what they mean in `halo.exe`. To play, use `halo.exe`.
