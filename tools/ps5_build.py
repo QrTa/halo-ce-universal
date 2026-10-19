@@ -99,8 +99,10 @@ SHARED_HOST_FILES = ("host_arch.c", "host_common.c", "host_loader.c", "host_thre
 SHARED_RENDERER_FILES = ("host_vk.c", "host_vk_data.c", "host_vk_draw.c", "host_vk_post.c", "host_vk_present.c",
                          "host_vk_render.c", "host_vk_shaders.c", "host_vk_texture.c", "host_vk_visibility.c")
 # posix.h's helpers (port/linux/src) the game imports, as the Linux host
-# compiles them (port/ps5/PS5.md, phases 2 and 5)
-POSIX_FILES = ("posix_files.c", "posix_net.c", "posix_upnp.c", "posix_dtls.c")
+# compiles them (port/ps5/PS5.md, phases 2 and 5), and the Linux updater's
+# HTTPS download, which the title's updater fetches with (phase 8:
+# port/ps5/host/host_update_ps5.c)
+POSIX_FILES = ("posix_files.c", "posix_net.c", "posix_upnp.c", "posix_dtls.c", "posix_update.c")
 # (and posix_net.c's calls that take or give an address, which
 # host_net_ps5.c turns round between Winsock's layout and BSD's: phase 5)
 ADDRESS_WRAPS = ("posix_socket_bind", "posix_socket_connect", "posix_socket_accept", "posix_socket_sendto",
@@ -505,6 +507,11 @@ def _generate(n: Writer, sln: Any, config_path: Path) -> None:
     # both images, as Android's; and the PS5's own, port/ps5/host_imports.list,
     # as the Switch has its own: the gyroscope's, port/ps5/PS5.md, phase 7)
 
+    # (the guest's own updater, port/linux/src/updater.c, is given no number,
+    # so it never looks: the title is updated by its host, which is given the
+    # number, port/ps5/host/host_update_ps5.c; phase 8)
+    release = bool(getattr(sln, "port_release", False))
+    guest_updater_cflags = f'-DHALO_BUILD_NUMBER=0 -DHALO_BUILD_FLAVOR=\\"{"release" if release else "debug"}\\"'
     n.variable("ps5_guest_cc", guest_cc)
     ar, ld, objdump = _guest_tools(guest_cc)
     guest = generate_guest_image(
@@ -513,7 +520,7 @@ def _generate(n: Writer, sln: Any, config_path: Path) -> None:
         environment="gnu", platform_defines=["-DHALO_MOVABLE_WINDOW=1", "-DHALO_PS5=1"],
         extra_runtime=[LINUX_HOST_DIR / "guest_desktop.c"], extra_imports=[LINUX_HOST_DIR / "host_imports.list", ANDROID_DIR / "host_imports_vk.list",
                                                          PORT_DIR / "host_imports.list"],
-        updater_cflags=updater_defines(getattr(sln, "port_release", False)), desktop_gl=True, vulkan=True)
+        updater_cflags=guest_updater_cflags, desktop_gl=True, vulkan=True)
 
     # ---------- the toolchain
 
@@ -674,8 +681,15 @@ def _generate(n: Writer, sln: Any, config_path: Path) -> None:
             cflags += " -Wno-missing-field-initializers -Wno-gnu-variable-sized-type-not-at-end"
         if source.name == "posix_upnp.c":
             cflags += " " + miniupnpc_cflags
-        if source.name == "posix_dtls.c":
+        if source.name in ("posix_dtls.c", "posix_update.c"):
             cflags += " " + mbedtls_cflags
+        if source.name == "posix_update.c":
+            # (its update_launch starts a new executable, which a title
+            # cannot, and the title's updater never asks it to: no module
+            # exports execl, answered by host_update_ps5.c)
+            cflags += " -Dexecl=ps5_update_execl"
+        if source.name == "host_update_ps5.c":
+            cflags += " " + updater_defines(release)
         n.build(outputs=obj, rule="ps5_host_cc", inputs=source, variables={"cflags": cflags},
                 implicit=[build_stamp])
         objects.append(obj)
@@ -695,8 +709,12 @@ def _generate(n: Writer, sln: Any, config_path: Path) -> None:
         objects.append(obj)
     for source in sorted((root / MBEDTLS_DIR / "library").glob("*.c")):
         obj = obj_dir / "mbedtls" / (source.name + ".o")
-        n.build(outputs=obj, rule="ps5_host_cc", inputs=source,
-                variables={"cflags": f"{host_cflags} {mbedtls_cflags} -I{root / MBEDTLS_DIR / 'library'} -w"})
+        cflags = f"{host_cflags} {mbedtls_cflags} -I{root / MBEDTLS_DIR / 'library'} -w"
+        if source.name == "net_sockets.c":
+            # (its connect's lookup, which the platform layer refuses: one
+            # IPv4 address through the console's resolver, host_net_ps5.c)
+            cflags += " -Dgetaddrinfo=ps5_tls_getaddrinfo -Dfreeaddrinfo=ps5_tls_freeaddrinfo"
+        n.build(outputs=obj, rule="ps5_host_cc", inputs=source, variables={"cflags": cflags})
         objects.append(obj)
 
     # the link (tools/ps5_title.sh link): RADV's link recipe, glslang's two
@@ -763,25 +781,30 @@ def _generate(n: Writer, sln: Any, config_path: Path) -> None:
 
     # what the release carries beside the title (tools/ci_build.py ps5): the
     # player's README, COPYING and the licence texts, in build/ps5/release
-    release = build / "release"
+    release_dir = build / "release"
     roots = {"repo": root, "vulkan": vulkan, "mesa": mesa, "glslang": glslang_source,
              "musl": root / THIRD_PARTY / f"musl-{MUSL_VERSION}",
              "pacbrew": vulkan / ".deps" / "pacbrew" / PACBREW_VERSION / "sysroot" / "user" / "homebrew"}
     n.rule(name="ps5_license", command=f"{python} -m tools.ps5_build license $in $out $sha256",
            description="PS5 LICENSE $out")
-    release_files = [release / "README.txt"]
+    release_files = [release_dir / "README.txt"]
     n.build(outputs=release_files[0], rule="ps5_copy", inputs=root / RELEASE_README)
     for source, name, sha256 in release_license_sources(roots):
-        n.build(outputs=release / name, rule="ps5_license", inputs=source, implicit=[root / "tools" / "ps5_build.py"],
+        n.build(outputs=release_dir / name, rule="ps5_license", inputs=source, implicit=[root / "tools" / "ps5_build.py"],
                 variables={"sha256": sha256 or "-"})
-        release_files.append(release / name)
+        release_files.append(release_dir / name)
 
     # internet play's brokers, which the host writes beside config.toml at
     # each start (port/ps5/host/host_net_ps5.c)
     brokers = title / "brokers.txt"
     n.build(outputs=brokers, rule="ps5_copy", inputs=root / "port" / "assets" / "network" / "brokers.txt")
+    # the roots the updater's HTTPS trusts (host_update_ps5.c): the console
+    # has no store of them a title can read
+    certificates = title / "certificates.pem"
+    n.build(outputs=certificates, rule="ps5_copy", inputs=root / PORT_DIR / "release" / "certificates.pem")
 
-    n.build(outputs="ps5", rule="phony", inputs=[eboot, param, icon, libc, guest_image, notice, brokers, *release_files])
+    n.build(outputs="ps5", rule="phony", inputs=[eboot, param, icon, libc, guest_image, notice, brokers, certificates,
+                                              *release_files])
     n.newline()
 
 

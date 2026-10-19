@@ -74,6 +74,13 @@ posix_resolve_ipv4; and the step 1 smoke test of port/ps5/PS5.md, phase 5
 it runs ps5_net_start (brokers.txt beside config.toml, the addresses and
 the DTLS certificate logged) */
 uint32_t ps5_net_resolve_ipv4(const char *name);
+
+/* the title's updater (host_update_ps5.c): an install a closed session left
+halfway finished, or a download's files removed, before the guest loads
+(the host may end here, for the new build to start); and the check for a
+newer release, on a thread of its own, once the game's thread runs */
+void ps5_update_recover(void);
+void ps5_update_start(void);
 void ps5_net_start(void);
 void ps5_net_test(void);
 

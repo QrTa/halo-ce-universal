@@ -646,19 +646,29 @@ jobs:
 
       # The tools on the path the way the build machine's hostdeps script puts
       # them (configure.py --ps5-hostdeps, PS5_HOSTDEPS): LLVM 18's first,
-      # whose llvm-config, clang and libclc the native half of the Mesa build
-      # finds by name; the console's half is clang 22's (LLVM_CONFIG, by its
-      # full path). Meson looks for llvm-config under its versioned names too
-      # and takes the newest, which would be 22's, with no SPIR-V translator
-      # of its version: those names are LLVM 18's here.
+      # whose clang and libclc the native half of the Mesa build (mesa_clc and
+      # vtn_bindgen2, PS5_Vulkan's tools/build-radv.sh) compiles OpenCL with,
+      # against its SPIR-V translator. The console's half is clang 22's, which
+      # the SDK's compiler wrapper takes from LLVM_CONFIG; but meson reads
+      # LLVM_CONFIG too, as its llvm-config, so the native half would be
+      # configured for LLVM 22, which has no SPIR-V translator here. The
+      # script calls meson through MESON: a wrapper gives that one set-up
+      # (the radv-clc-build folder) LLVM 18's llvm-config, as the build
+      # machine's was set up, and passes everything else on as it is.
       - name: Set up the SDK fork and RADV
         run: |
-          mkdir -p "$PS5_DEPS/llvm-18-names"
-          for version in 19 20 21 22 23 24; do
-            ln -sf /usr/lib/llvm-18/bin/llvm-config "$PS5_DEPS/llvm-18-names/llvm-config-$version"
-          done
+          cat > "$PS5_DEPS/meson" <<EOF
+          #!/bin/sh
+          case " \$* " in
+            *radv-clc-build*) export LLVM_CONFIG=/usr/lib/llvm-18/bin/llvm-config ;;
+          esac
+          exec $(command -v meson) "\$@"
+          EOF
+          cat "$PS5_DEPS/meson"
+          chmod +x "$PS5_DEPS/meson"
           cat > "$PS5_DEPS/hostdeps.sh" <<EOF
-          export PATH=$PS5_DEPS/llvm-18-names:/usr/lib/llvm-18/bin:\$PATH
+          export PATH=/usr/lib/llvm-18/bin:\$PATH
+          export MESON=$PS5_DEPS/meson
           EOF
           cat "$PS5_DEPS/hostdeps.sh"
           echo "PS5_HOSTDEPS=$PS5_DEPS/hostdeps.sh" >> "$GITHUB_ENV"

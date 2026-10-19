@@ -2814,7 +2814,7 @@ glslang on the path, clang 22 for the compile), `port/ps5/host/host_main.c`
     `posix_update.c` takes when no system bundle exists. Mbed TLS's
     `mbedtls_net_connect` looks the host up with `getaddrinfo`, which the
     platform layer refuses a title: `net_sockets.c` is compiled with
-    `-Dgetaddrinfo=ps5_getaddrinfo -Dfreeaddrinfo=ps5_freeaddrinfo`, an
+    `-Dgetaddrinfo=ps5_tls_getaddrinfo -Dfreeaddrinfo=ps5_tls_freeaddrinfo`, an
     IPv4 lookup over `ps5_net_resolve_ipv4` in `host_net_ps5.c`, the
     library unedited (as miniupnpc's names are answered).
   - **The install.** The zip is stored, not deflated (`zip -0`, as the
@@ -2863,7 +2863,7 @@ glslang on the path, clang 22 for the compile), `port/ps5/host/host_main.c`
 | `port/ps5/README.md` | rewritten for a player first and a developer second: Requirements (the console: firmware proved, 13.59 here and PS5_Vulkan's 12.02 to 12.70; the homebrew environment; a 4K or 1080p display, 120 Hz if the TV takes it), Installing from the release (no PC tools: FTP alone), Updates (automatic, the notifications, `update.auto`, by hand), Game data, Settings (the menus as the PS5's: the maximum resolution, Gyro Aim, voice chat; `config.toml` over FTP), What the port does not have, How it operates (the log, the picture, the pad and the sound, the network: today's sections, kept), and then Building (the toolchain, CI or the machine, the pins) and Developing (the deploy, the probes, the figures); rest mode and the PS button's pause stated as tried by the user (one sentence each, asked of the user: what rest mode did and what came back) |
 | `port/ps5/host/host_main.c`, `host_syscall.c` | the player's folder made theirs (above); the start-up walk's one log line; the updater's thread started, and an interrupted install finished, before the guest loads |
 | `port/ps5/host/host_update_ps5.c` (in place of `host_update_none.c`) | the updater (above): the check, the download through `posix_update.c`, the stored zip's walk, the install and its stamp, the notifications; `host_update_*` still "unavailable" to the guest |
-| `port/ps5/host/host_net_ps5.c` | `ps5_getaddrinfo` and `ps5_freeaddrinfo` (IPv4, over the resolver) for Mbed TLS's `net_sockets.c` |
+| `port/ps5/host/host_net_ps5.c` | `ps5_tls_getaddrinfo` and `ps5_tls_freeaddrinfo` (IPv4, over the resolver) for Mbed TLS's `net_sockets.c` |
 | `port/ps5/release/certificates.pem` | the roots the update's hosts chain to (github.com, api.github.com, the release download host), each named, with the date they were read; copied into the title folder by `ninja ps5` |
 | `port/ps5/tests/`, `tools/test_ps5_host.py` | the updater's pure parts tested on the PC |
 | `AGENTS.md` | a `port/ps5/` row in the layout table (the host files, the probes, the stubs, the import list, the plan), `tools/` gains `ps5_build.py`, `ps5_deploy.py`, `ps5_title.sh`, the guests' tests list gains `test_ps5_build.py` and `test_ps5_host.py`, the build table gains `ninja ps5` |

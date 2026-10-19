@@ -25,11 +25,19 @@ samples are only turned to floats; a buffer all zeros (muted, or a
 headset changing over) is dropped, as the Switch's host_microphone.c
 drops them, so voice chat hears nothing rather than a silence it would
 send.
+
+The updater (phase 8) reads GitHub's answer for the latest release as
+port/linux/src/updater.c does (the "tag_name"), and the release's PS5 zip
+as port/switch/host/host_update.c reads the Switch's: stored entries, each
+with its sizes and CRC in its local header, taken one after another. Only
+the entries under the title's folder go to the console, and only names
+that stay inside it.
 */
 
 #include "host_rules_ps5.h"
 
 #include <stdlib.h>
+#include <string.h>
 
 /* (8K's lines: more than any display the console drives) */
 #define LINES_HIGHEST 4320
@@ -120,4 +128,107 @@ int ps5_microphone_samples(const short *samples, int count, float *out)
 	for (index = 0; index < count; index++)
 		out[index] = samples[index] / 32768.0f;
 	return count;
+}
+
+/* ---------- the updater */
+
+long ps5_update_release_build(const char *json)
+{
+	const char *tag = json ? strstr(json, "\"tag_name\"") : NULL;
+	char *end;
+	long build;
+
+	if (!tag)
+		return 0;
+	tag = strchr(tag + strlen("\"tag_name\""), '"');
+	if (!tag || strncmp(tag, "\"build-", 7))
+		return 0;
+	build = strtol(tag + 7, &end, 10);
+	return *end == '"' && build > 0 ? build : 0;
+}
+
+static unsigned long little(const unsigned char *bytes, int count)
+{
+	unsigned long value = 0;
+	int index;
+
+	for (index = count - 1; index >= 0; index--)
+		value = (value << 8) | bytes[index];
+	return value;
+}
+
+int ps5_zip_local_header(const unsigned char *header, struct ps5_zip_entry *entry)
+{
+	unsigned long signature = little(header, 4);
+
+	if (signature == 0x02014b50UL || signature == 0x06054b50UL)
+		return 0;
+	if (signature != 0x04034b50UL)
+		return -1;
+	entry->flags = (unsigned)little(header + 6, 2);
+	entry->method = (unsigned)little(header + 8, 2);
+	entry->crc = little(header + 14, 4);
+	entry->compressed = little(header + 18, 4);
+	entry->size = little(header + 22, 4);
+	entry->name_length = (unsigned)little(header + 26, 2);
+	entry->extra_length = (unsigned)little(header + 28, 2);
+	return 1;
+}
+
+int ps5_zip_entry_stored(const struct ps5_zip_entry *entry)
+{
+	/* (bit 0 encrypted, bit 3 the sizes after the data) */
+	return entry->method == 0 && !(entry->flags & 9) && entry->compressed == entry->size;
+}
+
+unsigned long ps5_crc32(unsigned long crc, const void *data, unsigned long size)
+{
+	static unsigned long table[256];
+	const unsigned char *bytes = data;
+	unsigned long index;
+
+	if (!table[1])
+	{
+		unsigned long entry, bit;
+
+		for (entry = 0; entry < 256; entry++)
+		{
+			unsigned long value = entry;
+
+			for (bit = 0; bit < 8; bit++)
+				value = value & 1 ? 0xedb88320UL ^ (value >> 1) : value >> 1;
+			table[entry] = value;
+		}
+	}
+	crc = ~crc & 0xffffffffUL;
+	for (index = 0; index < size; index++)
+		crc = table[(crc ^ bytes[index]) & 0xff] ^ (crc >> 8);
+	return ~crc & 0xffffffffUL;
+}
+
+int ps5_update_entry_path(const char *name, const char *folder, char *out, unsigned long size)
+{
+	size_t folder_length = strlen(folder);
+	const char *rest, *part;
+
+	if (strncmp(name, folder, folder_length))
+		return 0;
+	rest = name + folder_length;
+	if (strlen(rest) >= size || strchr(rest, '\\'))
+		return -1;
+	/* each part between slashes a name: not empty (but for a folder's
+	final slash), not "." or ".." */
+	for (part = rest; *part;)
+	{
+		const char *slash = strchr(part, '/');
+		size_t length = slash ? (size_t)(slash - part) : strlen(part);
+
+		if (!length || (length == 1 && part[0] == '.') || (length == 2 && part[0] == '.' && part[1] == '.'))
+			return -1;
+		if (!slash)
+			break;
+		part = slash + 1;
+	}
+	memcpy(out, rest, strlen(rest) + 1);
+	return 1;
 }

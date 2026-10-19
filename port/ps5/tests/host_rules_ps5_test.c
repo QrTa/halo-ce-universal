@@ -8,7 +8,10 @@ gyroscope's turn, from samples made after probe 1's figures (the probe kept
 its figures, not every sample): its rate (a sample about every 1.6 ms), the
 noise at rest (at most 0.0199 rad/s), a quarter turn's angular velocity
 and the signs of the axes used (x looks up, z steers left); the microphone's samples to floats, its buffers of
-zeros dropped (probe 2: muted, every buffer is zeros; silence is not).
+zeros dropped (probe 2: muted, every buffer is zeros; silence is not);
+and the updater's reading of a release (phase 8): the latest release's
+build number, a stored zip's local header as zip -0 writes it, its CRC, and
+which of its names go into the title's folder.
 */
 
 #include "host_rules_ps5.h"
@@ -214,12 +217,88 @@ static void test_microphone(void)
 	CHECK(ps5_microphone_samples(samples, 0, out) == 0);
 }
 
+/* ---------- the updater */
+
+static void test_update_release(void)
+{
+	CHECK(ps5_update_release_build("{\"url\": \"x\", \"tag_name\": \"build-105\", \"name\": \"Build 105\"}") == 105);
+	CHECK(ps5_update_release_build("{\"tag_name\":\"build-7\"}") == 7);
+	CHECK(ps5_update_release_build("{\"tag_name\": \"v105\"}") == 0);
+	CHECK(ps5_update_release_build("{\"tag_name\": \"build-\"}") == 0);
+	CHECK(ps5_update_release_build("{\"tag_name\": \"build-12x\"}") == 0);
+	CHECK(ps5_update_release_build("{\"message\": \"Not Found\"}") == 0);
+	CHECK(ps5_update_release_build("") == 0 && ps5_update_release_build(NULL) == 0);
+}
+
+static void test_update_zip(void)
+{
+	/* the local header of a stored entry "PPSA99500/brokers.txt" of 611
+	bytes, as zip -0 writes it */
+	static const unsigned char header[30] = { 0x50, 0x4b, 0x03, 0x04, 0x0a, 0x00, 0x00, 0x00, 0x00, 0x00,
+		0x6e, 0x0c, 0x53, 0x5b, 0x78, 0x56, 0x34, 0x12, 0x63, 0x02, 0x00, 0x00, 0x63, 0x02, 0x00, 0x00,
+		0x15, 0x00, 0x1c, 0x00 };
+	static const unsigned char central[4] = { 0x50, 0x4b, 0x01, 0x02 };
+	static const unsigned char other[4] = { 0x00, 0x00, 0x00, 0x00 };
+	unsigned char padded[30] = { 0 };
+	struct ps5_zip_entry entry;
+
+	CHECK(ps5_zip_local_header(header, &entry) == 1);
+	CHECK(entry.method == 0 && entry.flags == 0 && entry.crc == 0x12345678UL && entry.compressed == 611 &&
+		entry.size == 611 && entry.name_length == 21 && entry.extra_length == 28);
+	CHECK(ps5_zip_entry_stored(&entry));
+	entry.method = 8;
+	CHECK(!ps5_zip_entry_stored(&entry));
+	entry.method = 0;
+	entry.flags = 8;
+	CHECK(!ps5_zip_entry_stored(&entry));
+	entry.flags = 1;
+	CHECK(!ps5_zip_entry_stored(&entry));
+	memcpy(padded, central, 4);
+	CHECK(ps5_zip_local_header(padded, &entry) == 0);
+	memcpy(padded, other, 4);
+	CHECK(ps5_zip_local_header(padded, &entry) == -1);
+	/* zip's CRC-32: the check value, and taken in two pieces */
+	CHECK(ps5_crc32(0, "123456789", 9) == 0xcbf43926UL);
+	CHECK(ps5_crc32(ps5_crc32(0, "1234", 4), "56789", 5) == 0xcbf43926UL);
+	CHECK(ps5_crc32(0, "", 0) == 0);
+}
+
+static void test_update_paths(void)
+{
+	char out[64];
+
+	CHECK(ps5_update_entry_path("PPSA99500/eboot.bin", "PPSA99500/", out, sizeof(out)) == 1 &&
+		!strcmp(out, "eboot.bin"));
+	CHECK(ps5_update_entry_path("PPSA99500/sce_sys/param.json", "PPSA99500/", out, sizeof(out)) == 1 &&
+		!strcmp(out, "sce_sys/param.json"));
+	CHECK(ps5_update_entry_path("PPSA99500/sce_module/", "PPSA99500/", out, sizeof(out)) == 1 &&
+		!strcmp(out, "sce_module/"));
+	CHECK(ps5_update_entry_path("PPSA99500/", "PPSA99500/", out, sizeof(out)) == 1 && !strcmp(out, ""));
+	/* the release's other files are not the title's */
+	CHECK(ps5_update_entry_path("README.txt", "PPSA99500/", out, sizeof(out)) == 0);
+	CHECK(ps5_update_entry_path("licenses/zlib-LICENSE.txt", "PPSA99500/", out, sizeof(out)) == 0);
+	CHECK(ps5_update_entry_path("PPSA9950", "PPSA99500/", out, sizeof(out)) == 0);
+	/* and nothing leaves the folder */
+	CHECK(ps5_update_entry_path("PPSA99500/../eboot.bin", "PPSA99500/", out, sizeof(out)) == -1);
+	CHECK(ps5_update_entry_path("PPSA99500/sce_sys/../../x", "PPSA99500/", out, sizeof(out)) == -1);
+	CHECK(ps5_update_entry_path("PPSA99500/./x", "PPSA99500/", out, sizeof(out)) == -1);
+	CHECK(ps5_update_entry_path("PPSA99500//x", "PPSA99500/", out, sizeof(out)) == -1);
+	CHECK(ps5_update_entry_path("PPSA99500/a\\..\\b", "PPSA99500/", out, sizeof(out)) == -1);
+	CHECK(ps5_update_entry_path("PPSA99500/..", "PPSA99500/", out, sizeof(out)) == -1);
+	CHECK(ps5_update_entry_path("PPSA99500/a..b", "PPSA99500/", out, sizeof(out)) == 1 && !strcmp(out, "a..b"));
+	CHECK(ps5_update_entry_path("PPSA99500/a-name-longer-than-the-sixty-four-bytes-of-the-buffer-it-is-written-into",
+		"PPSA99500/", out, sizeof(out)) == -1);
+}
+
 int main(void)
 {
 	test_resolution_lines();
 	test_resolution_rule();
 	test_gyro();
 	test_microphone();
+	test_update_release();
+	test_update_zip();
+	test_update_paths();
 	if (failures)
 		printf("%d failures\n", failures);
 	else

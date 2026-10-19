@@ -3,8 +3,8 @@ HOST_RULES_PS5.H
 
 The PS5 host's rules that need no console (port/ps5/PS5.md, phase 7): the
 maximum resolution against the display's, the gyroscope's turn from the
-DualSense's samples, and the microphone's samples, compiled into the title
-and,
+DualSense's samples, the microphone's samples, and the updater's reading of
+a release (phase 8), compiled into the title and,
 with port/ps5/tests/host_rules_ps5_test.c, on the PC
 (tools/test_ps5_host.py).
 */
@@ -67,5 +67,39 @@ and how many; 0, and nothing written, for a buffer all zeros, which the
 input gives while the pad's mute button is lit or a headset is changing
 over (speech or silence never is: silence reads a peak of 22) */
 int ps5_microphone_samples(const short *samples, int count, float *out);
+
+/* the updater (host_update_ps5.c; port/ps5/PS5.md, phase 8) */
+
+/* the build number in GitHub's answer for the latest release (its
+"tag_name": "build-<number>"), or 0 */
+long ps5_update_release_build(const char *json);
+
+/* a zip's local file header (30 bytes), as the release's stored archive
+has it */
+#define PS5_ZIP_LOCAL_HEADER 30
+struct ps5_zip_entry
+{
+	unsigned long crc, compressed, size;
+	unsigned method, flags, name_length, extra_length;
+};
+
+/* 1 if header is a local file header, its fields in *entry; 0 if it is the
+central directory's start (the files have ended); -1 for anything else */
+int ps5_zip_local_header(const unsigned char *header, struct ps5_zip_entry *entry);
+
+/* 1 if the entry can be taken as it is: stored, its sizes before its data
+(no data descriptor), not encrypted */
+int ps5_zip_entry_stored(const struct ps5_zip_entry *entry);
+
+/* the CRC-32 of data after crc (0 to start), as a zip's */
+unsigned long ps5_crc32(unsigned long crc, const void *data, unsigned long size);
+
+/* where an archive's entry goes in the title's folder: for a name under
+folder ("PPSA99500/"), the rest of it in out (empty for the folder
+itself) and 1, a folder's ending in '/'; 0 for a name outside it (the
+release's README.txt, its licences), which the title does not take; -1
+for a name the title refuses (a part "..", "." or empty, a backslash, or
+too long for out) */
+int ps5_update_entry_path(const char *name, const char *folder, char *out, unsigned long size);
 
 #endif

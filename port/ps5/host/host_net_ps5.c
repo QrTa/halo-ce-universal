@@ -15,7 +15,10 @@ nothing in libc:
   word on it (sceNetCtlGetInfo), and the DTLS certificate made and its
   hash logged;
 - Mbed TLS's entropy (DTLS with browsers, posix_dtls.c), from
-  arc4random_buf (mbedtls_config_ps5.h);
+  arc4random_buf (mbedtls_config_ps5.h), and the lookup its net_sockets.c
+  connects with (the updater's HTTPS, posix_update.c): getaddrinfo's
+  answer for one IPv4 address, through the resolver, which
+  tools/ps5_build.py gives that file as ps5_tls_getaddrinfo;
 - the step 1 smoke test (HALO_PS5_NET_TEST=1 in environment.txt), run by
   host_main.c before the game's thread: the console's sockets, its
   resolver and its random numbers tried one by one in a title, each result
@@ -499,6 +502,61 @@ void ps5_net_start(void)
 	else
 		ps5_log("network: DTLS certificate NOT made (posix_dtls_fingerprint, %.1f ms): browsers cannot join",
 			(ps5_now_ns() - start) / 1e6);
+}
+
+/* ---------- Mbed TLS's lookup (net_sockets.c's mbedtls_net_connect)
+
+The platform layer's getaddrinfo refuses every name, so Mbed TLS's
+net_sockets.c is compiled with these in place of getaddrinfo and
+freeaddrinfo (tools/ps5_build.py): one IPv4 address, a numeric one as it is
+and a name through the resolver, the port a number, in one block that
+freeaddrinfo frees. */
+
+int ps5_tls_getaddrinfo(const char *node, const char *service, const struct addrinfo *hints, struct addrinfo **result);
+void ps5_tls_freeaddrinfo(struct addrinfo *list);
+
+int ps5_tls_getaddrinfo(const char *node, const char *service, const struct addrinfo *hints, struct addrinfo **result)
+{
+	struct
+	{
+		struct addrinfo info;
+		struct sockaddr_in address;
+	} *block;
+	struct in_addr address;
+	char *end;
+	long port = service ? strtol(service, &end, 10) : 0;
+
+	*result = NULL;
+	if (!node || (hints && hints->ai_family != AF_UNSPEC && hints->ai_family != AF_INET))
+		return EAI_FAMILY;
+	if (service && (*end || port < 0 || port > 65535))
+		return EAI_SERVICE;
+	if (inet_pton(AF_INET, node, &address) != 1)
+	{
+		address.s_addr = ps5_net_resolve_ipv4(node);
+		if (!address.s_addr)
+			return EAI_NONAME;
+	}
+	block = calloc(1, sizeof(*block));
+	if (!block)
+		return EAI_MEMORY;
+	block->address.sin_len = sizeof(block->address);
+	block->address.sin_family = AF_INET;
+	block->address.sin_port = htons((uint16_t)port);
+	block->address.sin_addr = address;
+	block->info.ai_family = AF_INET;
+	block->info.ai_socktype = hints ? hints->ai_socktype : SOCK_STREAM;
+	block->info.ai_protocol = hints ? hints->ai_protocol : 0;
+	block->info.ai_addrlen = sizeof(block->address);
+	block->info.ai_addr = (struct sockaddr *)&block->address;
+	*result = &block->info;
+	return 0;
+}
+
+void ps5_tls_freeaddrinfo(struct addrinfo *list)
+{
+	/* (the address is in the same block, after it) */
+	free(list);
 }
 
 /* ---------- Mbed TLS's entropy (mbedtls_config_ps5.h) */

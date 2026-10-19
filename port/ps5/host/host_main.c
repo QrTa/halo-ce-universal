@@ -1079,6 +1079,7 @@ int main(void)
 	if (!is_folder(PS5_DATA_FOLDER "/save") && mkdir(PS5_DATA_FOLDER "/save", 0777) != 0)
 		ps5_log(PS5_DATA_FOLDER "/save: cannot be made (%s)", strerror(errno));
 	open_player_folder();
+	ps5_update_recover();
 	/* (the game's own relative paths are made absolute on the data folder,
 	host_syscall.c; this is for the host's file helpers, posix_files.c) */
 	if (chdir(PS5_DATA_FOLDER) != 0)
@@ -1100,6 +1101,7 @@ int main(void)
 	host_set_tp(MAIN_THREAD_MARK);
 	if (host_native_thread_create(game_main, NULL, GAME_STACK_SIZE) != 0)
 		host_fatal("cannot start the game's thread");
+	ps5_update_start();
 	/* the game ends the process itself (host_exit) */
 	for (;;)
 		pause();
