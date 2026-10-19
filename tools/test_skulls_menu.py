@@ -96,9 +96,10 @@ def test_each_skull_has_its_icon():
     frames = re.search(r'<bitmap name="skulls/icons">(.*?)</bitmap>', bitmaps, re.DOTALL).group(1)
     pngs = re.findall(r'png="([^"]+)"', frames)
 
-    # (the skulls', then the cross over one lost)
-    assert len(pngs) == len(port_settings.SKULLS) + 1
-    for index, key in enumerate([key for key, _ in port_settings.SKULLS] + ["lost"]):
+    # (the skulls', then the cross over one lost, the mark over one dropped,
+    # the check over one unlocked)
+    assert len(pngs) == len(port_settings.SKULLS) + 3
+    for index, key in enumerate([key for key, _ in port_settings.SKULLS] + ["lost", "dropped", "unlocked"]):
         source = ROOT / "port/assets/skulls" / f"{key}.png"
         assert source.is_file(), key
         assert pngs[index] in files

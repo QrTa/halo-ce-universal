@@ -650,17 +650,19 @@ def main() -> None:
     # menu_tags.c)
     lines.append(art.port_picture("blank", [
         ('<svg xmlns="http://www.w3.org/2000/svg" width="4" height="4" viewBox="0 0 4 4"/>\n', 4, 4)]))
-    # (the skulls' icons, Halopedia's of the Master Chief Collection's
-    # (MCC:Skulls), port/assets/skulls: a frame each, in skulls.c's order,
-    # then the red cross over one lost, which skulls.c draws at the bottom
-    # right of the HUD)
     # (the skulls screen's bar of a skull, a third of a row: as option_bkds_sm,
     # plain and chosen)
     lines.append(art.port_pngs("skulls/option", [(ROOT / "port/assets/skulls" / f"option__{index}.png",
                                                   port_settings.SKULL_WIDTH, 32) for index in (0, 1)]))
+    # (the skulls' icons, Halopedia's of the Master Chief Collection's
+    # (MCC:Skulls), port/assets/skulls: a frame each, in skulls.c's order,
+    # then the red cross over one lost, the yellow mark over one dropped and
+    # the green check over one unlocked, which skulls.c draws at the bottom
+    # right of the HUD)
     lines.append(art.port_pngs("skulls/icons", [(ROOT / "port/assets/skulls" / f"{key}.png", 24, 24)
                                                 for key, _ in port_settings.SKULLS] +
-                               [(ROOT / "port/assets/skulls/lost.png", 24, 24)]))
+                               [(ROOT / "port/assets/skulls" / f"{mark}.png", 24, 24)
+                                for mark in ("lost", "dropped", "unlocked")]))
     lines.append("</menus>")
     (CE / "bitmaps.xml").write_text("\n".join(lines) + "\n")
     # what is not hand-drawn

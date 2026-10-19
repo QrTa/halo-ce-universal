@@ -914,20 +914,38 @@ and is kept once the level is finished without dying */
 #define SKULLS_DROPPED_MAX 8
 #define SKULL_NAME_LENGTH 40
 
+#define SKULLS_POOL_MAX 8
+
+/* the run of the level, from its start (or start again) on: what a death or
+a revert does not take back, so that no skull is had twice. The skulls it
+drops, chosen at its first drop (the first of the level's order not had
+then, as many as its difficulty drops), in that order; those picked up,
+and of them those unlocked at once (INSTANT UNLOCK) or lost. Only a skull
+picked up is spent: one dropped and gone with a revert drops again, the
+first of them at the first kill. This machine's (a revert puts the game
+state's back), with a copy in the game state that a saved game keeps
+(Continue) */
+struct skulls_run
+{
+	short pool_count;
+	short pad;
+	signed char pool[SKULLS_POOL_MAX];
+	unsigned long taken_mask;
+	unsigned long unlocked_mask;
+	unsigned long lost_mask;
+};
+
 /* in the game state: a checkpoint's revert, and the level started again,
-bring back the skulls dropped and found as they were then */
+bring back the skulls lying about and found as they were then */
 struct skulls_finding
 {
-	/* the level's carriers (NONE: not counted yet), those dead, and those
-	of them the players killed */
+	/* the level's carriers (NONE: not counted yet), and those dead */
 	long total;
 	long deaths;
-	long kills;
-	short dropped;
-	/* the skulls taken this level: on, not yet kept; and those lost (as the
-	level's lost_mask, below, which a saved game keeps through this) */
+	/* the skulls taken this level: on, not yet kept */
 	unsigned long found_mask;
-	unsigned long lost_mask;
+	/* the run, as of the last change (skulls_run) */
+	struct skulls_run run;
 	/* rolled when the level starts (and starts again): the order the skulls
 	drop in, and the odds of each kill's, so a revert drops the same skull at
 	the same kill; another start of the level, other skulls */
@@ -943,9 +961,7 @@ struct skulls_finding
 };
 
 static struct skulls_finding *finding;
-/* the skulls found in the level and lost by a death or a revert: not the
-game state's, which a revert puts back, and not dropped again in the level */
-static unsigned long lost_mask;
+static struct skulls_run run;
 /* the hum each dropped skull plays (a sound of this machine's, not the
 game state's: forgotten when a revert takes the game back), and when */
 static long skull_hums[SKULLS_DROPPED_MAX] = { NONE, NONE, NONE, NONE, NONE, NONE, NONE, NONE };
@@ -971,16 +987,28 @@ static unsigned long finding_random(unsigned long step)
 	return value & 0xFFFFFFFFUL;
 }
 
+/* the run's change, into the game state's copy */
+static void run_saved(void)
+{
+	if (finding)
+		finding->run = run;
+}
+
+/* a new run: the level started, or started again */
+static void run_reset(void)
+{
+	csmemset(&run, 0, sizeof(run));
+	run.pool_count = NONE;
+	run_saved();
+}
+
 static void finding_reset(void)
 {
 	short index;
 
 	finding->total = NONE;
 	finding->deaths = 0;
-	finding->kills = 0;
-	finding->dropped = 0;
 	finding->found_mask = 0;
-	finding->lost_mask = 0;
 	/* (the order, shuffled from the clock: each start of the level its own) */
 	finding->seed = (unsigned long)system_milliseconds() * 2654435761UL ^ 0x5EED5EEDUL;
 	for (index = 0; index < NUMBER_OF_SKULLS; index++)
@@ -1029,55 +1057,84 @@ static long carriers_left(long dying_index)
 	return count;
 }
 
-/* the skulls that could be dropped: not had, not found this level, not
-lying about */
-static unsigned long skulls_to_find(void)
+/* the run's skulls: the first of the level's order not had, as many as
+the difficulty drops (one on easy to four on legendary) */
+static void run_pool(void)
 {
-	unsigned long mask = ~skulls_unlocked_mask() & ~finding->found_mask & ~lost_mask & ((1UL << NUMBER_OF_SKULLS) - 1);
-	short slot;
-
-	for (slot = 0; slot < SKULLS_DROPPED_MAX; slot++)
-	{
-		if (finding->skulls[slot].object_index != NONE && finding->skulls[slot].skull != NONE)
-			mask &= ~(1UL << finding->skulls[slot].skull);
-	}
-	return mask;
-}
-
-/* the mask's skull first in the level's order */
-static int skull_next(unsigned long mask)
-{
+	unsigned long had = skulls_unlocked_mask();
+	short quota = (short)(game_difficulty_level_get() + 1);
 	short index;
 
-	for (index = 0; index < NUMBER_OF_SKULLS; index++)
+	run.pool_count = 0;
+	for (index = 0; index < NUMBER_OF_SKULLS && run.pool_count < quota && run.pool_count < SKULLS_POOL_MAX; index++)
 	{
 		int skull = finding->order[index];
 
-		if (skull >= 0 && skull < NUMBER_OF_SKULLS && (mask & (1UL << skull)))
+		if (skull >= 0 && skull < NUMBER_OF_SKULLS && !(had & (1UL << skull)))
+			run.pool[run.pool_count++] = (signed char)skull;
+	}
+	run_saved();
+}
+
+/* the skulls lying about, as the game state has them */
+static unsigned long skulls_lying(void)
+{
+	unsigned long lying = 0;
+	short index;
+
+	for (index = 0; index < SKULLS_DROPPED_MAX; index++)
+	{
+		long object_index = finding->skulls[index].object_index;
+		struct object_datum *object = object_index == NONE ? NULL : object_try_and_get(object_index);
+		int skull = finding->skulls[index].skull;
+
+		if (object && skull != NONE && object->definition_index == carried_definition)
+			lying |= 1UL << skull;
+	}
+	return lying;
+}
+
+/* the run's next skull to drop: its first not picked up nor lying about;
+NONE when it has dropped them all */
+static int run_next(void)
+{
+	unsigned long lying = skulls_lying();
+	short index;
+
+	for (index = 0; index < run.pool_count; index++)
+	{
+		int skull = run.pool[index];
+
+		if (!(run.taken_mask & (1UL << skull)) && !(lying & (1UL << skull)))
 			return skull;
 	}
 	return NONE;
 }
 
-/* the skulls still to drop in the level: its difficulty's number, less
-those dropped, as many as are not had */
+/* the skulls still to be found in the run: those not picked up */
 static short skulls_left_to_find(void)
 {
-	short left = (short)(game_difficulty_level_get() + 1 - finding->dropped);
-	unsigned long mask = skulls_to_find();
+	short quota = (short)(game_difficulty_level_get() + 1);
+	unsigned long locked = ~skulls_unlocked_mask() & ((1UL << NUMBER_OF_SKULLS) - 1);
 	short count = 0;
 	int skull;
 
+	if (run.pool_count != NONE)
+	{
+		short left = 0;
+		short index;
+
+		for (index = 0; index < run.pool_count; index++)
+			left += (short)!(run.taken_mask & (1UL << run.pool[index]));
+		return left;
+	}
 	for (skull = 0; skull < NUMBER_OF_SKULLS; skull++)
-		count += (short)((mask >> skull) & 1);
-	if (left > count)
-		left = count;
-	return left > 0 ? left : 0;
+		count += (short)((locked >> skull) & 1);
+	return count < quota ? count : quota;
 }
 
 static void skull_drop_maybe(long unit_index, long killer_player_index)
 {
-	short quota = (short)(game_difficulty_level_get() + 1);
 	short slot;
 	long left;
 	long skull_index;
@@ -1103,26 +1160,26 @@ static void skull_drop_maybe(long unit_index, long killer_player_index)
 	finding->deaths++;
 	if (killer_player_index == NONE)
 		return;
-	/* (none left to find: all of them had, or lying about) */
-	if (finding->dropped >= quota || !skulls_to_find())
-	{
-		finding->kills++;
+	/* (the run's skulls, chosen at its first drop; the next of them, if
+	any is left to drop) */
+	if (run.pool_count == NONE)
+		run_pool();
+	skull = run_next();
+	if (skull == NONE)
 		return;
-	}
-	/* (the kill's odds, the level's own: the same kill drops after a revert) */
-	drop = finding->kills == 0 || (long)(finding_random((unsigned long)finding->deaths) % (unsigned long)left) == 0;
-	finding->kills++;
+	/* (the run's first skull, until it is picked up, at any kill: the first
+	kill's, and again after a revert took it away before it was taken; then
+	the kill's odds, the level's own) */
+	drop = skull == run.pool[0] || (long)(finding_random((unsigned long)finding->deaths) % (unsigned long)left) == 0;
 	if (!drop)
 		return;
 	for (slot = 0; slot < SKULLS_DROPPED_MAX && finding->skulls[slot].object_index != NONE; slot++)
 		;
 	if (slot == SKULLS_DROPPED_MAX)
 		return;
-	skull = skull_next(skulls_to_find());
-	skull_index = skull == NONE ? NONE : unit_port_drop_object(unit_index, carried_definition);
+	skull_index = unit_port_drop_object(unit_index, carried_definition);
 	if (skull_index == NONE)
 		return;
-	finding->dropped++;
 	finding->skulls[slot].object_index = skull_index;
 	skull_hums[slot] = NONE;
 	finding->skulls[slot].next_hum_time = game_time_get();
@@ -1131,8 +1188,8 @@ static void skull_drop_maybe(long unit_index, long killer_player_index)
 	for (character = 0; name[character] && character < SKULL_NAME_LENGTH - 1; character++)
 		finding->skulls[slot].name[character] = (wchar_t)(unsigned char)name[character];
 	finding->skulls[slot].name[character] = 0;
-	error(_error_silent, "skulls: kill %ld (death %ld) dropped %s, %d of %d (one chance in %ld)", finding->kills,
-		finding->deaths, name, finding->dropped, quota, left);
+	error(_error_silent, "skulls: death %ld dropped %s, %d left of %d (one chance in %ld)", finding->deaths, name,
+		skulls_left_to_find(), run.pool_count, left);
 	own_sound_play(_own_sound_skull_carrier, unit_index);
 	confetti(unit_index, skull_colors, (short)NUMBEROF(skull_colors), SKULL_CONFETTI_RISE);
 }
@@ -1542,10 +1599,15 @@ int skulls_item_take(short local_player_index, long unit_index, long object_inde
 	instant = config_boolean("game.skulls_instant_unlock");
 	/* (on for the level from now on, kept once it is finished; or with
 	INSTANT UNLOCK, kept now, and not on) */
+	run.taken_mask |= 1UL << skull;
 	if (instant)
+	{
 		skulls_keep(1UL << skull);
+		run.unlocked_mask |= 1UL << skull;
+	}
 	else
 		finding->found_mask |= 1UL << skull;
+	run_saved();
 	if (skull_hums[slot] != NONE)
 		sound_stop_impulse(skull_hums[slot]);
 	finding->skulls[slot].object_index = NONE;
@@ -1581,32 +1643,23 @@ int skulls_item_take(short local_player_index, long unit_index, long object_inde
 	return TRUE;
 }
 
-/* the skulls found and not kept, lost: a player died, or the game went
-back to a checkpoint (or saved and quit, which goes back to one first). Said
-on the screen; they are to be found again in another level */
-static void skulls_lose(char const *why)
+/* the skulls of the mask lost to the run, each said once on the screen;
+to be found again in another level */
+static void run_lose(unsigned long mask, char const *why)
 {
-	unsigned long mask = found_mask();
 	short local_player_index;
 	int skull;
 
-	if (!mask)
-		return;
-	finding->found_mask = 0;
 	for (skull = 0; skull < NUMBER_OF_SKULLS; skull++)
 	{
 		char text[64];
 		wchar_t line[64];
 		short character;
 
-		if (!(mask & (1UL << skull)))
+		if (!(mask & (1UL << skull)) || (run.lost_mask & (1UL << skull)))
 			continue;
+		run.lost_mask |= 1UL << skull;
 		error(_error_silent, "skulls: %s lost (%s)", skull_descriptions[skull].key, why);
-		/* (said once, though a death and its revert both take it) */
-		if (lost_mask & (1UL << skull))
-			continue;
-		lost_mask |= 1UL << skull;
-		finding->lost_mask |= 1UL << skull;
 		snprintf(text, sizeof(text), "%s SKULL lost.", skull_descriptions[skull].label);
 		for (character = 0; text[character] && character < (short)NUMBEROF(line) - 1; character++)
 			line[character] = (wchar_t)(unsigned char)text[character];
@@ -1614,36 +1667,50 @@ static void skulls_lose(char const *why)
 		for (local_player_index = 0; local_player_index < local_player_count(); local_player_index++)
 			hud_print_message(local_player_index, line);
 	}
+	run_saved();
 }
 
-/* the lost skulls, the level's and the game state's together: a revert
-puts back the game state's of then, which a death since added to; a saved
-game loaded has its own, which the level knew nothing of */
-static void lost_merge(void)
+/* a player died: the skulls found and not kept are lost */
+static void skulls_lose(char const *why)
 {
-	if (!finding)
+	unsigned long mask = found_mask();
+
+	if (!mask)
 		return;
-	finding->lost_mask |= lost_mask;
-	lost_mask |= finding->lost_mask;
+	finding->found_mask = 0;
+	run_lose(mask, why);
+}
+
+/* the game state put back (a revert, or a saved game loaded): the skulls
+picked up and not unlocked are lost (any death loses them), whatever the
+game state found then; one dropped and not taken, gone with the revert,
+is to drop again */
+static void run_restored(char const *why)
+{
+	finding->found_mask = 0;
+	run_lose(run.taken_mask & ~run.unlocked_mask, why);
 }
 
 void skulls_game_state_reverted(void)
 {
-	lost_merge();
-	skulls_lose("the game went back to a checkpoint");
+	/* (the run is this machine's: the game state's copy, of then, is not) */
+	run_restored("the game went back to a checkpoint");
 }
 
 void skulls_game_state_loaded(void)
 {
-	lost_merge();
-	skulls_lose("a saved game was loaded");
+	/* (the run is the saved game's: this machine had none of it) */
+	run = finding->run;
+	run_restored("a saved game was loaded");
 }
 
 /* ---------- the skulls on, on the screen
 
 each skull on in the level a small icon at the bottom right, in a row from
 the right (on top of another past eleven): those turned on, and those found
-and not yet kept, pulsing, and those lost, crossed out. The icons are Halopedia's of the Master Chief
+and not yet kept, pulsing, those unlocked in the level, checked green,
+those dropped and lying about, marked yellow, and those lost, crossed out.
+The icons are Halopedia's of the Master Chief
 Collection's (MCC:Skulls), the menus' bitmap skulls/icons, a frame each in
 the skulls' order (port/assets/skulls, tools/ce_menus.py); none without the
 menus' bitmaps (display.menus "xbox") */
@@ -1657,7 +1724,10 @@ void skulls_hud_draw(short local_player_index)
 {
 	long bitmap_index;
 	unsigned long found = found_mask();
-	unsigned long mask = level_mask | found | lost_mask;
+	unsigned long lost_mask = run.lost_mask;
+	unsigned long lying = carried_definition != NONE ? skulls_lying() : 0;
+	unsigned long unlocked = run.unlocked_mask;
+	unsigned long mask = level_mask | found | lost_mask | lying | unlocked;
 	real scale;
 	short width, height;
 	short shown = 0;
@@ -1677,6 +1747,7 @@ void skulls_hud_draw(short local_player_index)
 		struct bitmap_data *bitmap;
 		rectangle2d bounds;
 		real alpha = 1.0f;
+		short overlay;
 		short column, row;
 
 		if (!(mask & (1UL << skull)))
@@ -1691,20 +1762,40 @@ void skulls_hud_draw(short local_player_index)
 		bounds.x0 = (short)(bounds.x1 - SKULL_ICON_SIZE * scale);
 		bounds.y1 = (short)(height - (SKULL_ICON_MARGIN + row * SKULL_ICON_SPACING) * scale);
 		bounds.y0 = (short)(bounds.y1 - SKULL_ICON_SIZE * scale);
-		/* (found, not yet kept: pulsing, once a second; lost: faint, and
-		crossed out in red, the frame after the skulls') */
-		if ((found & (1UL << skull)) && !(level_mask & (1UL << skull)))
+		/* (found, not yet kept: pulsing, once a second; unlocked in the
+		level: faint, a green check on it; dropped and lying about: faint, a
+		yellow mark on it; lost: faint, crossed out in red. The marks are the
+		frames after the skulls': the cross, the mark, the check) */
+		if (level_mask & (1UL << skull))
+			overlay = NONE;
+		else if (unlocked & (1UL << skull))
+		{
+			alpha = 0.6f;
+			overlay = NUMBER_OF_SKULLS + 2;
+		}
+		else if (found & (1UL << skull))
+		{
 			alpha = 0.6f + 0.4f * cosine((real)(game_time_get() % TICKS_PER_SECOND) * (2.0f * _pi / TICKS_PER_SECOND));
-		else if (!(level_mask & (1UL << skull)) && (lost_mask & (1UL << skull)))
+			overlay = NONE;
+		}
+		else if (lying & (1UL << skull))
+		{
 			alpha = 0.45f;
+			overlay = NUMBER_OF_SKULLS + 1;
+		}
+		else
+		{
+			alpha = 0.45f;
+			overlay = NUMBER_OF_SKULLS;
+		}
 		draw_bitmap_in_rect(bitmap, &bounds, NULL, NULL,
 			((pixel32)(alpha * 255.0f + 0.5f) << 24) | 0x00FFFFFF, NULL, TRUE);
-		if (!(level_mask & (1UL << skull)) && !(found & (1UL << skull)) && (lost_mask & (1UL << skull)))
+		if (overlay != NONE)
 		{
-			struct bitmap_data *cross = bitmap_group_try_and_get_bitmap(bitmap_index, NUMBER_OF_SKULLS);
+			struct bitmap_data *mark = bitmap_group_try_and_get_bitmap(bitmap_index, overlay);
 
-			if (cross)
-				draw_bitmap_in_rect(cross, &bounds, NULL, NULL, 0xFFFFFFFF, NULL, TRUE);
+			if (mark)
+				draw_bitmap_in_rect(mark, &bounds, NULL, NULL, 0xFFFFFFFF, NULL, TRUE);
 		}
 	}
 }
@@ -1747,5 +1838,5 @@ void skulls_initialize(void)
 void skulls_initialize_for_new_map(void)
 {
 	finding_reset();
-	lost_mask = 0;
+	run_reset();
 }
