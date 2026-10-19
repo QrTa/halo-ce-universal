@@ -206,15 +206,34 @@ void skulls_text_from_mask(unsigned long mask, char *text, unsigned int size)
 	}
 }
 
+extern int config_write(char const *name, char const *value);
+
+/* the question answered: unlocking by playing, ALL SKULLS on or off (the
+answer "all" ALL SKULLS on, and so is a setting of "all" from before,
+the first time it is read, so that ALL SKULLS can turn it off later) */
 int skulls_unlock_mode(void)
 {
 	char const *mode = config_string("game.skulls_unlock_mode");
 
 	if (mode && !_stricmp(mode, "all"))
-		return _skulls_unlock_all;
+	{
+		if (config_write("game.skulls_unlock_mode", "play") && config_write("game.skulls_all_unlocked", "true"))
+			error(_error_silent, "skulls: game.skulls_unlock_mode \"all\" is now \"play\", with ALL SKULLS on");
+		return _skulls_unlock_play;
+	}
 	if (mode && !_stricmp(mode, "play"))
 		return _skulls_unlock_play;
 	return _skulls_unlock_unset;
+}
+
+/* the skulls of the mask kept for good (game.skulls_unlocked) */
+static void skulls_keep(unsigned long mask)
+{
+	char text[400];
+
+	skulls_text_from_mask(skulls_mask_from_text(config_string("game.skulls_unlocked")) | mask, text, sizeof(text));
+	if (!config_write("game.skulls_unlocked", text))
+		error(_error_silent, "skulls: could not write game.skulls_unlocked");
 }
 
 unsigned long skulls_unlocked_mask(void)
@@ -1515,19 +1534,25 @@ int skulls_item_take(short local_player_index, long unit_index, long object_inde
 	wchar_t line[64];
 	char text[64];
 	short character;
+	boolean instant;
 
 	if (slot == NONE)
 		return FALSE;
 	skull = finding->skulls[slot].skull;
-	/* (on for the level from now on; kept once it is finished) */
-	finding->found_mask |= 1UL << skull;
+	instant = config_boolean("game.skulls_instant_unlock");
+	/* (on for the level from now on, kept once it is finished; or with
+	INSTANT UNLOCK, kept now, and not on) */
+	if (instant)
+		skulls_keep(1UL << skull);
+	else
+		finding->found_mask |= 1UL << skull;
 	if (skull_hums[slot] != NONE)
 		sound_stop_impulse(skull_hums[slot]);
 	finding->skulls[slot].object_index = NONE;
 	finding->skulls[slot].skull = NONE;
 	object_delete(object_index);
 	own_sound_play(_own_sound_skull_pickup, unit_index);
-	error(_error_silent, "skulls: %s taken", skull_descriptions[skull].key);
+	error(_error_silent, "skulls: %s taken%s", skull_descriptions[skull].key, instant ? ", and unlocked" : "");
 	/* (the newest message is shown on top: printed last line first) */
 	if (local_player_index != NONE)
 	{
@@ -1541,9 +1566,13 @@ int skulls_item_take(short local_player_index, long unit_index, long object_inde
 			line[character] = (wchar_t)(unsigned char)text[character];
 		line[character] = 0;
 		hud_print_message(local_player_index, line);
-		hud_print_message(local_player_index, L"Death will take your prize away.");
-		hud_print_message(local_player_index, L"Finish the level without dying to unlock it.");
-		snprintf(text, sizeof(text), "%s SKULL picked up.", skull_descriptions[skull].label);
+		if (!instant)
+		{
+			hud_print_message(local_player_index, L"Death will take your prize away.");
+			hud_print_message(local_player_index, L"Finish the level without dying to unlock it.");
+		}
+		snprintf(text, sizeof(text), instant ? "%s SKULL unlocked." : "%s SKULL picked up.",
+			skull_descriptions[skull].label);
 		for (character = 0; text[character] && character < (short)NUMBEROF(line) - 1; character++)
 			line[character] = (wchar_t)(unsigned char)text[character];
 		line[character] = 0;

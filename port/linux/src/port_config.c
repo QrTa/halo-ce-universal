@@ -454,19 +454,26 @@ static const struct config_setting config_settings[] =
 		"swarm, thats_just_wrong, thunderstorm, tough_luck, vampirism. Written by\n"
 		"the skulls screen." },
 	{ "game.skulls_unlock_mode", _config_string, "\"\"", "HALO_SKULLS_UNLOCK_MODE", _environment_value, _platform_all,
-		"How the skulls are had, asked the first time the skulls screen opens:\n"
-		"\"all\" (every skull can be turned on), \"play\" (Grunt Birthday Party,\n"
-		"and those found: enemies carry the locked skulls, one picked up is on\n"
-		"for that level, and kept once the level is finished; a death loses it),\n"
-		"or \"\" (not asked yet)." },
+		"Whether the skulls screen's question (how the skulls are had) was\n"
+		"answered, the first time it opened: \"play\" (game.skulls_all_unlocked\n"
+		"says whether every skull is had, or those found: enemies carry the\n"
+		"locked skulls, one picked up is on for that level, and kept once the\n"
+		"level is finished; a death loses it), or \"\" (not asked yet). \"all\",\n"
+		"of an older build, becomes \"play\" with ALL SKULLS on." },
 	{ "game.skulls_unlocked", _config_string, "\"\"", "HALO_SKULLS_UNLOCKED", _environment_value, _platform_all,
 		"With game.skulls_unlock_mode \"play\", the skulls found and kept,\n"
 		"separated by commas (game.skulls_active's names). Grunt Birthday Party\n"
 		"is always had. Written as levels are finished." },
 	{ "game.skulls_all_unlocked", _config_boolean, "false", "HALO_SKULLS_ALL_UNLOCKED", _environment_value, _platform_all,
-		"Settings > Gameplay's ALL SKULLS, with game.skulls_unlock_mode \"play\".\n"
-		"true: every skull can be turned on, and none drop. false: those found\n"
-		"(game.skulls_unlocked), which this leaves as they are." },
+		"Settings > Gameplay's ALL SKULLS, once the skulls screen's question\n"
+		"is answered (ALL UNLOCKED turns it on). true: every skull can be turned\n"
+		"on, and none drop. false: those found (game.skulls_unlocked), which this\n"
+		"leaves as they are, and the others dropped by enemies to be found." },
+	{ "game.skulls_instant_unlock", _config_boolean, "false", "HALO_SKULLS_INSTANT_UNLOCK", _environment_value,
+		_platform_all,
+		"Settings > Gameplay's INSTANT UNLOCK, with ALL SKULLS off. true: a\n"
+		"skull picked up is unlocked at once, and not turned on. false: it is on\n"
+		"for the level, and unlocked once the level is finished without dying." },
 	{ "game.custom_edition", _config_boolean, "true", "HALO_CUSTOM_EDITION", _environment_value, _platform_all,
 		"Load and run Halo Custom Edition maps (not those that need OpenSauce):\n"
 		"put them and Custom Edition's bitmaps.map, sounds.map and loc.map in\n"

@@ -23,6 +23,9 @@ def test_skulls_menus():
     assert 'setting="game.skulls_all_unlocked"' in gameplay
     assert 'name="main_menu/settings_select/player_setup/player_profile_edit/gameplay/op_skulls_all_unlocked"' in gameplay
     assert 'input="gameplay screen update"' in gameplay
+    # (INSTANT UNLOCK, shown with ALL SKULLS off)
+    assert 'setting="game.skulls_instant_unlock"' in gameplay
+    assert 'name="main_menu/settings_select/player_setup/player_profile_edit/gameplay/op_skulls_instant_unlock"' in gameplay
     assert len(port_settings.SKULLS) == 29
     for key, _ in port_settings.SKULLS:
         assert f'name="main_menu/difficulty_select/skulls/skull_{key}"' in screen

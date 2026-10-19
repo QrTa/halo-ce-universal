@@ -2087,8 +2087,13 @@ the answer kept, then the skulls screen, over the screen the question was
 over */
 static boolean skulls_unlock_choose(boolean play, boolean *widget_deleted)
 {
-	if (!config_write("game.skulls_unlock_mode", play ? "play" : "all"))
+	/* (either answer unlocking by playing, with ALL SKULLS on for ALL
+	UNLOCKED: Settings > Gameplay's ALL SKULLS changes it later) */
+	if (!config_write("game.skulls_unlock_mode", "play") ||
+		!config_write("game.skulls_all_unlocked", play ? "false" : "true"))
+	{
 		error(_error_silent, "skulls: could not write game.skulls_unlock_mode");
+	}
 	if (play && skulls_drop())
 		skulls_pack_request();
 	ui_play_audio_feedback_sound(SOUND_FORWARD);
@@ -2249,16 +2254,21 @@ static void skulls_screen_update(struct widget_instance *list)
 }
 
 /* "gameplay screen update" (Settings > Gameplay): ALL SKULLS only with the
-skulls on and UNLOCK BY PLAYING chosen; a hidden row takes no focus */
+skulls on and the skulls screen's question answered, INSTANT UNLOCK only
+with ALL SKULLS off too; a hidden row takes no focus */
 static void gameplay_screen_update(struct widget_instance *list)
 {
-	struct widget_instance *row = named(list, "op_skulls_all_unlocked", 0);
+	struct widget_instance *all_row = named(list, "op_skulls_all_unlocked", 0);
+	struct widget_instance *instant_row = named(list, "op_skulls_instant_unlock", 0);
+	/* (ALL SKULLS once the skulls screen's question is answered; INSTANT
+	UNLOCK with it off, the skulls to be found) */
+	boolean answered = randomizer_spinner_is(list, "skulls_spinner", "true") &&
+		skulls_unlock_mode() != _skulls_unlock_unset;
 
-	if (row)
-	{
-		row->visible = randomizer_spinner_is(list, "skulls_spinner", "true") &&
-			skulls_unlock_mode() == _skulls_unlock_play;
-	}
+	if (all_row)
+		all_row->visible = answered;
+	if (instant_row)
+		instant_row->visible = answered && !randomizer_spinner_is(list, "skulls_all_unlocked_spinner", "true");
 }
 
 /* the difficulty menu: "difficulty item select" starts the game at the

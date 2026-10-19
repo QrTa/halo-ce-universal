@@ -345,7 +345,12 @@ SCREENS["gameplay"] = {
         # menu_functions.c's gameplay_screen_update)
         ("ALL SKULLS:", "game.skulls_all_unlocked",
          [("OFF", "false"), ("ON", "true")],
-         "On: every skull can be picked, and none drop.\nOff: back to the skulls you found.",
+         "On: every skull can be picked, and none drop.\nOff: enemies drop the skulls you haven't found.",
+         None),
+        # (shown with ALL SKULLS off: menu_functions.c's gameplay_screen_update)
+        ("INSTANT UNLOCK:", "game.skulls_instant_unlock",
+         [("OFF", "false"), ("ON", "true")],
+         "On: a skull you pick up is unlocked at once.\nOff: finish the level without dying to unlock it.",
          None),
     ],
     "inputs": ["gameplay screen update"],
