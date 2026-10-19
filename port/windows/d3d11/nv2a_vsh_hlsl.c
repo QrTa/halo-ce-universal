@@ -368,6 +368,14 @@ char *nv2a_hlsl_vertex_shader(const uint32_t *instruction_words, uint32_t count,
 			break;
 	}
 
+	/* (nv2a_vsh.c's height fade: d3d8_gl_set_height_fade) */
+	xgpu_text_append(&text,
+		"\tif (height_fade.w != 0.0)\n"
+		"\t{\n"
+		"\t\tfloat faded = clamp((height_fade.y - (oT0.z - height_fade.z) / height_fade.w) * height_fade.x, 0.0, 1.0);\n"
+		"\t\toD0 *= faded;\n"
+		"\t\toD1 *= faded;\n"
+		"\t}\n");
 	xgpu_text_append(&text,
 		"\t/* undo the screen-space conversion done with c[-38] and c[-37] */\n"
 		"\tfloat3 scale = float3(viewport_scale.x != 0.0 ? viewport_scale.x : 1.0,\n"

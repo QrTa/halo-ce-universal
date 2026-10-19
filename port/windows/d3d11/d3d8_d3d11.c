@@ -158,6 +158,8 @@ is presented (halo_screen_commit). */
 render target the size of the screen has per unit of it */
 static long screen_width;
 static float screen_scale[2] = { 1.0f, 1.0f };
+/* how much of that scale is supersampling's, which the display scales down */
+static float screen_supersampling = 1.0f;
 static long ui_offset;
 #define UI_OFFSET ((GLint)ui_offset)
 
@@ -244,6 +246,7 @@ static void screen_mode_choose(long *width, float scale[2])
 
 	*width = 640;
 	scale[0] = scale[1] = 1.0f;
+	screen_supersampling = 1.0f;
 	if (platform_screen_mode(&display_width, &display_height) && display_width > 0 && display_height > 0)
 	{
 		long wanted = (SCREEN_HEIGHT * display_width + display_height / 2) / display_height;
@@ -271,6 +274,7 @@ static void screen_mode_choose(long *width, float scale[2])
 			{
 				scale[0] *= factor;
 				scale[1] *= factor;
+				screen_supersampling = factor;
 			}
 		}
 	}
@@ -301,6 +305,63 @@ float halo_screen_scale(void)
 {
 	halo_screen_width();
 	return screen_scale[0] > screen_scale[1] ? screen_scale[0] : screen_scale[1];
+}
+
+/* display.model_detail (d3d8_gl.c's): which level of detail the models draw
+at. The game chooses it by the size a model covers in the Xbox's 480 lines;
+"stock" keeps that, "native" measures in the display's lines (not
+supersampling's), "highest" measures as "native" which models are too small
+to draw, and draws the others at their most detailed level
+(port/linux/game/model_detail.c). level: the scale for choosing the level,
+otherwise for whether to draw at all. */
+enum
+{
+	_model_detail_stock,
+	_model_detail_native,
+	_model_detail_highest,
+};
+
+static int model_detail = -1;
+static unsigned long model_detail_read_at;
+
+static int model_detail_setting(void)
+{
+	if (model_detail < 0 || model_detail_read_at != config_changes())
+	{
+		const char *setting = config_string("display.model_detail");
+		int value = !strcmp(setting, "native") ? _model_detail_native :
+			!strcmp(setting, "highest") ? _model_detail_highest : _model_detail_stock;
+
+		model_detail_read_at = config_changes();
+		if (value != model_detail)
+		{
+			if (value == _model_detail_stock && strcmp(setting, "stock"))
+				platform_log("model detail: \"%s\" is unknown, so stock", setting);
+			else
+				platform_log("model detail: %s", setting);
+		}
+		model_detail = value;
+	}
+	return model_detail;
+}
+
+int halo_model_detail_stock(void)
+{
+	return model_detail_setting() == _model_detail_stock;
+}
+
+float halo_model_detail_scale(int level)
+{
+	float display_scale;
+
+	model_detail_setting();
+	if (model_detail == _model_detail_stock)
+		return 1.0f;
+	if (model_detail == _model_detail_highest && level)
+		return 1.0e6f;
+	halo_screen_width();
+	display_scale = screen_scale[1] / screen_supersampling;
+	return display_scale > 1.0f ? display_scale : 1.0f;
 }
 
 /* display.shadow_resolution: the size the shadow maps are drawn at.
@@ -4012,7 +4073,24 @@ static void constants_update(BOOL lit)
 }
 
 /* the uniforms of the latest draws, converted from these inputs */
-#define DRAW_UNIFORM_INPUT_COUNT (4 + 4 + 16 + 16 + 2 + 4 + 1 + 1 + 1 + 6 * D3DTSS_MAXSTAGES)
+#define DRAW_UNIFORM_INPUT_COUNT (4 + 4 + 16 + 16 + 2 + 4 + 1 + 1 + 1 + 6 * D3DTSS_MAXSTAGES + 4)
+
+/* the height fade of the draws that follow (d3d8_gl_set_height_fade): off
+while its scale is zero */
+static float height_fade_value[4];
+
+/* d3d8_gl.c's: the draws that follow fade out above a height on their model
+(the shield flare rising up a body: port/linux/game/overshield_effect.c),
+each vertex's colors scaled by clamp((height - z) * inverse_softness, 0, 1),
+z being (oT0.z - offset) / scale (nv2a_vsh_hlsl.c); a scale of zero turns it
+off */
+void d3d8_gl_set_height_fade(float inverse_softness, float height, float offset, float scale)
+{
+	height_fade_value[0] = inverse_softness;
+	height_fade_value[1] = height;
+	height_fade_value[2] = offset;
+	height_fade_value[3] = scale;
+}
 
 static DWORD draw_uniform_inputs[DRAW_UNIFORM_INPUT_COUNT];
 static BOOL draw_uniforms_valid;
@@ -4069,6 +4147,8 @@ static void uniforms_update(const float texture_scale[D3DTSS_MAXSTAGES][4])
 		inputs[count++] = state[D3DTSS_BUMPENVLSCALE];
 		inputs[count++] = state[D3DTSS_BUMPENVLOFFSET];
 	}
+	memcpy(&inputs[count], height_fade_value, sizeof(height_fade_value));
+	count += 4;
 	if (draw_uniforms_valid && words_equal(inputs, draw_uniform_inputs, sizeof(inputs)))
 		return;
 	memcpy(draw_uniform_inputs, inputs, sizeof(inputs));
@@ -4078,6 +4158,7 @@ static void uniforms_update(const float texture_scale[D3DTSS_MAXSTAGES][4])
 	memcpy(vertex.viewport_scale, device.viewport_scale, sizeof(vertex.viewport_scale));
 	memcpy(vertex.viewport_offset, device.viewport_offset, sizeof(vertex.viewport_offset));
 	vertex.screen[0] = (float)UI_OFFSET;
+	memcpy(vertex.height_fade, height_fade_value, sizeof(vertex.height_fade));
 	if (!vertex_parameters_valid || !words_equal(&vertex, &vertex_parameters_written, sizeof(vertex)))
 	{
 		d3d11_backend_constants_write(D3D11_BACKEND_CONSTANTS_VERTEX_PARAMETERS, &vertex, sizeof(vertex));
@@ -5077,6 +5158,65 @@ void WINAPI D3DDevice_Clear(DWORD count, CONST D3DRECT *rectangles, DWORD flags,
 			"first %ldx%ld at %ld,%ld", device.frame, (unsigned long)flags, (unsigned long)color, (unsigned long)made,
 			(long)pixels[0][2], (long)pixels[0][3], (long)pixels[0][0], (long)pixels[0][1]);
 	}
+}
+
+/* the part of a frame being drawn: only the Switch's renderer keeps it
+(port/switch/guest/d3d8_dk.c; d3d8_gl.c's too does nothing) */
+void halo_render_marker(char const *name)
+{
+	(void)name;
+}
+
+/* (only the Switch's renderer clips: d3d8_dk.c) */
+void halo_texture_clip(unsigned char clip, float low, float high)
+{
+	(void)clip;
+	(void)low;
+	(void)high;
+}
+
+void halo_texture_clip_stage(short stage, unsigned char three_dimensional, float low, float high)
+{
+	(void)stage;
+	(void)three_dimensional;
+	(void)low;
+	(void)high;
+}
+
+/* (only the Switch's renderer narrows its scissor: d3d8_dk.c) */
+void halo_draw_scissor(unsigned char on, float x0, float y0, float x1, float y1)
+{
+	(void)on;
+	(void)x0;
+	(void)y0;
+	(void)x1;
+	(void)y1;
+}
+
+/* (only the Switch's renderer draws the zoom's blur small: d3d8_dk.c) */
+unsigned char halo_screen_fast_warp(void)
+{
+	return 0;
+}
+
+void halo_screen_warp_blend(unsigned char on)
+{
+	(void)on;
+}
+
+unsigned char halo_screen_fast_blur(void)
+{
+	return 0;
+}
+
+/* display.hdr's tone mapping of a window's 3D view (d3d8_gl.c's): the
+Direct3D 11 executable has no floating-point window yet, so nothing to map */
+void halo_screen_tone_map(short x0, short y0, short x1, short y1)
+{
+	(void)x0;
+	(void)y0;
+	(void)x1;
+	(void)y1;
 }
 
 /* ---------- the anti-aliasing passes */

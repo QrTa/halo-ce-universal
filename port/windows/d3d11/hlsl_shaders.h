@@ -29,7 +29,7 @@ include it; the key and the lighting are named by pointer only (xgpu.h).
 
 /* in every shader's identity (phase 5's cache): a change to the generators'
 text is a new version */
-#define HLSL_SHADER_GENERATOR_VERSION 3
+#define HLSL_SHADER_GENERATOR_VERSION 4
 
 #define HLSL_STRING(x) #x
 #define HLSL_REGISTER_TEXT(x) HLSL_STRING(x)
@@ -43,8 +43,9 @@ text is a new version */
 #define HLSL_VERTEX_CONSTANTS_C_REGISTER 0
 #define HLSL_VERTEX_CONSTANTS_SIZE 3072
 
-/* the viewport's transform (Direct3D's c[-38] and c[-37]) and, in screen.x,
-the columns the menus shift by (d3d8_gl.c's screen_offset) */
+/* the viewport's transform (Direct3D's c[-38] and c[-37]); in screen.x,
+the columns the menus shift by (d3d8_gl.c's screen_offset); and the height
+fade of the draws (d3d8_gl_set_height_fade, off while its w is zero) */
 #define HLSL_VERTEX_PARAMETERS_SLOT 1
 #define HLSL_VERTEX_PARAMETERS_VIEWPORT_SCALE 0
 #define HLSL_VERTEX_PARAMETERS_VIEWPORT_SCALE_REGISTER 0
@@ -52,7 +53,9 @@ the columns the menus shift by (d3d8_gl.c's screen_offset) */
 #define HLSL_VERTEX_PARAMETERS_VIEWPORT_OFFSET_REGISTER 1
 #define HLSL_VERTEX_PARAMETERS_SCREEN 32
 #define HLSL_VERTEX_PARAMETERS_SCREEN_REGISTER 2
-#define HLSL_VERTEX_PARAMETERS_SIZE 48
+#define HLSL_VERTEX_PARAMETERS_HEIGHT_FADE 48
+#define HLSL_VERTEX_PARAMETERS_HEIGHT_FADE_REGISTER 3
+#define HLSL_VERTEX_PARAMETERS_SIZE 64
 
 #define HLSL_VERTEX_CONSTANTS_TEXT \
 	"cbuffer vertex_constants : register(b" HLSL_REGISTER_TEXT(HLSL_VERTEX_CONSTANTS_SLOT) ")\n" \
@@ -65,6 +68,7 @@ the columns the menus shift by (d3d8_gl.c's screen_offset) */
 	"\tfloat4 viewport_scale : packoffset(c" HLSL_REGISTER_TEXT(HLSL_VERTEX_PARAMETERS_VIEWPORT_SCALE_REGISTER) ");\n" \
 	"\tfloat4 viewport_offset : packoffset(c" HLSL_REGISTER_TEXT(HLSL_VERTEX_PARAMETERS_VIEWPORT_OFFSET_REGISTER) ");\n" \
 	"\tfloat4 screen : packoffset(c" HLSL_REGISTER_TEXT(HLSL_VERTEX_PARAMETERS_SCREEN_REGISTER) ");\n" \
+	"\tfloat4 height_fade : packoffset(c" HLSL_REGISTER_TEXT(HLSL_VERTEX_PARAMETERS_HEIGHT_FADE_REGISTER) ");\n" \
 	"};\n"
 
 struct hlsl_vertex_constants
@@ -78,6 +82,8 @@ struct hlsl_vertex_parameters
 	float viewport_offset[4];
 	/* x: the screen offset; y, z, w: 0 */
 	float screen[4];
+	/* the inverse softness, the height, the offset and the scale */
+	float height_fade[4];
 };
 
 /* ---------- the pixel stage's constant buffers */
@@ -183,6 +189,10 @@ _Static_assert(HLSL_VERTEX_PARAMETERS_VIEWPORT_OFFSET == HLSL_VERTEX_PARAMETERS_
 	"vertex_parameters viewport_offset register");
 _Static_assert(HLSL_VERTEX_PARAMETERS_SCREEN == HLSL_VERTEX_PARAMETERS_SCREEN_REGISTER * 16,
 	"vertex_parameters screen register");
+_Static_assert(offsetof(struct hlsl_vertex_parameters, height_fade) == HLSL_VERTEX_PARAMETERS_HEIGHT_FADE,
+	"vertex_parameters height_fade");
+_Static_assert(HLSL_VERTEX_PARAMETERS_HEIGHT_FADE == HLSL_VERTEX_PARAMETERS_HEIGHT_FADE_REGISTER * 16,
+	"vertex_parameters height_fade register");
 _Static_assert(sizeof(struct hlsl_vertex_parameters) == HLSL_VERTEX_PARAMETERS_SIZE, "vertex_parameters size");
 
 #define HLSL_PIXEL_MEMBER_ASSERT(member, MEMBER) \
