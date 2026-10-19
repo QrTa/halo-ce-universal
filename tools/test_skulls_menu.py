@@ -75,6 +75,14 @@ def test_skulls_unlock_question():
         assert len(line) <= 44, line
 
 
+def test_screens_after_the_difficulty_keep_the_menu_going():
+    """The randomizer's and the skulls' screens are the main menu's: they do not
+    pause the game, whose clock runs the menu's music and video."""
+    files = port_settings.settings_files()
+    for name in ("main_menu.difficulty_select.randomizer.xml", "main_menu.difficulty_select.skulls.xml"):
+        assert "pause_game" not in "\n".join(files[name]), name
+
+
 def test_skull_handlers_are_registered():
     """menu_tags.c names the screen's functions, and menu_functions.c runs them."""
     tags = (ROOT / "port/linux/game/menu_tags.c").read_text()

@@ -29,6 +29,10 @@ int randomizer_unit_is_grunt(char const *tag_name);
 jackal or a combat form (not a carrier or infection form, a hunter, a
 sentinel or an engineer) */
 int randomizer_unit_can_carry(char const *tag_name);
+/* the enemies the level's encounters place on this difficulty (and bring
+back) that can carry a skull, by the squads' own actors (the randomizer's
+swaps aside): the skulls' odds (skulls.c) */
+long randomizer_level_carriers(void);
 
 /* the advertisement's reserved bytes: the randomizer flag and the setup,
 when this game is a randomized campaign */

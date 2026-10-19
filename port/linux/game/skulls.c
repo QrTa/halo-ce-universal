@@ -26,9 +26,11 @@ makes the same.
 #include "effects/effect_definitions.h"
 #include "effects/effects.h"
 #include "effects/particles.h"
+#include "interface/hud_messaging.h"
 #include "game/game.h"
 #include "game/game_allegiance.h"
 #include "game/game_engine.h"
+#include "saved games/game_state.h"
 #include "items/weapon_definitions.h"
 #include "items/weapons.h"
 #include "math/real_math.h"
@@ -259,6 +261,7 @@ enum
 static void own_sounds_add(unsigned long wanted);
 static void own_sounds_remove(void);
 static void finding_reset(void);
+static unsigned long found_mask(void);
 
 /* the level's carried skull's weapon tag (randomizer.c copies it in), or
 NONE when its enemies carry none */
@@ -289,7 +292,6 @@ void skulls_level_loaded(long scenario_tag_index)
 	}
 	/* (the sounds: Grunt Birthday Party's cheer, a campaign level's; those
 	of the skulls to be found) */
-	finding_reset();
 	if (scenario_tag_index != NONE && scenario_definition_get(scenario_tag_index)->type == _scenario_type_solo)
 	{
 		own_sounds_add(((level_mask & (1UL << _skull_grunt_birthday_party)) ? 1UL << _own_sound_party : 0) |
@@ -301,7 +303,6 @@ void skulls_level_loaded(long scenario_tag_index)
 void skulls_level_unloaded(void)
 {
 	carried_definition = NONE;
-	finding_reset();
 	own_sounds_remove();
 	level_mask = 0;
 	malfunction_reset();
@@ -309,7 +310,11 @@ void skulls_level_unloaded(void)
 
 int skull_active(int skull)
 {
-	if (!level_mask || skull < 0 || skull >= NUMBER_OF_SKULLS || !(level_mask & (1UL << skull)))
+	/* (those turned on, and those found in the level, as the game state has
+	them: a revert to before one was taken takes it back) */
+	unsigned long mask = level_mask | found_mask();
+
+	if (!mask || skull < 0 || skull >= NUMBER_OF_SKULLS || !(mask & (1UL << skull)))
 		return 0;
 	/* (a campaign's scenario: not the main menu's, nor a multiplayer map's) */
 	return global_scenario && global_scenario->type == _scenario_type_solo;
@@ -751,23 +756,17 @@ static void own_sounds_remove(void)
 		own_sounds[sound].tag_index = NONE;
 }
 
-/* the sound played from the object; the sound, or NONE. (Said in the log,
-for now: the skulls' sounds are not heard) */
+/* the sound played from the object; the sound, or NONE */
 static long own_sound_play(int sound, long object_index)
 {
-	long sound_index;
-
 	if (own_sounds[sound].tag_index == NONE || object_index == NONE)
 	{
 		error(_error_silent, "skulls: %s not played (tag %08lx, object %08lx)", own_sounds[sound].name,
 			(unsigned long)own_sounds[sound].tag_index, (unsigned long)object_index);
 		return NONE;
 	}
-	sound_index = object_impulse_sound_new(object_index, own_sounds[sound].tag_index, NONE, global_origin3d,
+	return object_impulse_sound_new(object_index, own_sounds[sound].tag_index, NONE, global_origin3d,
 		global_forward3d, 1.0f);
-	error(_error_silent, "skulls: %s from %s: sound %08lx", own_sounds[sound].name,
-		tag_get_name(object_get(object_index)->definition_index), (unsigned long)sound_index);
-	return sound_index;
 }
 
 unsigned char skulls_sound_read(struct sound_permutation const *permutation, void *buffer)
@@ -866,37 +865,64 @@ static void confetti(long unit_index, real_rgb_color const *colors, short color_
 
 The enemies that hold things (randomizer.c's randomizer_unit_can_carry) drop
 the oddball the level copied in: the first the players kill, then each
-they kill one chance in as many as are left alive, until the difficulty's
-number (one on easy to four on legendary). It hums on the floor, and
-chimes when a player takes it */
+they kill one chance in as many as are left of those the level places
+(randomizer_level_carriers, less those dead), until the difficulty's
+number (one on easy to four on legendary). Each is a skull not had, at
+random, named by the pick-up prompt; it hums on the floor. The action
+button takes it (never walking over it): it chimes, is on for the level,
+and is kept once the level is finished without dying */
 #define SKULLS_DROPPED_MAX 8
+#define SKULL_NAME_LENGTH 40
 
-static struct
+/* in the game state: a checkpoint's revert, and the level started again,
+bring back the skulls dropped and found as they were then */
+struct skulls_finding
 {
+	/* the level's carriers (NONE: not counted yet), those dead, and those
+	of them the players killed */
+	long total;
+	long deaths;
 	long kills;
 	short dropped;
+	/* the skulls taken this level: on, not yet kept */
+	unsigned long found_mask;
 	struct
 	{
 		long object_index;
-		long hum_index;
 		long next_hum_time;
-		/* in a player's hands: chimed, and not humming */
-		boolean taken;
+		int skull;
+		wchar_t name[SKULL_NAME_LENGTH];
 	} skulls[SKULLS_DROPPED_MAX];
-} finding;
+};
+
+static struct skulls_finding *finding;
+/* the hum each dropped skull plays (a sound of this machine's, not the
+game state's: forgotten when a revert takes the game back), and when */
+static long skull_hums[SKULLS_DROPPED_MAX] = { NONE, NONE, NONE, NONE, NONE, NONE, NONE, NONE };
+static long skull_hums_time;
+
+/* the skulls found in the level, not yet kept */
+static unsigned long found_mask(void)
+{
+	return finding ? finding->found_mask : 0;
+}
 
 static void finding_reset(void)
 {
 	short index;
 
-	finding.kills = 0;
-	finding.dropped = 0;
+	finding->total = NONE;
+	finding->deaths = 0;
+	finding->kills = 0;
+	finding->dropped = 0;
+	finding->found_mask = 0;
 	for (index = 0; index < SKULLS_DROPPED_MAX; index++)
 	{
-		finding.skulls[index].object_index = NONE;
-		finding.skulls[index].hum_index = NONE;
-		finding.skulls[index].next_hum_time = 0;
-		finding.skulls[index].taken = FALSE;
+		finding->skulls[index].object_index = NONE;
+		skull_hums[index] = NONE;
+		finding->skulls[index].next_hum_time = 0;
+		finding->skulls[index].skull = NONE;
+		finding->skulls[index].name[0] = 0;
 	}
 }
 
@@ -926,41 +952,114 @@ static long carriers_left(long dying_index)
 	return count;
 }
 
-static void skull_drop_maybe(long unit_index)
+/* the skulls that could be dropped: not had, not found this level, not
+lying about */
+static unsigned long skulls_to_find(void)
+{
+	unsigned long mask = ~skulls_unlocked_mask() & ~finding->found_mask & ((1UL << NUMBER_OF_SKULLS) - 1);
+	short slot;
+
+	for (slot = 0; slot < SKULLS_DROPPED_MAX; slot++)
+	{
+		if (finding->skulls[slot].object_index != NONE && finding->skulls[slot].skull != NONE)
+			mask &= ~(1UL << finding->skulls[slot].skull);
+	}
+	return mask;
+}
+
+/* one of the mask's skulls, at random */
+static int skull_pick(unsigned long mask)
+{
+	int count = 0;
+	int skull;
+	int chosen;
+
+	for (skull = 0; skull < NUMBER_OF_SKULLS; skull++)
+		count += (mask >> skull) & 1;
+	if (!count)
+		return NONE;
+	chosen = (int)(local_random() % (unsigned long)count);
+	for (skull = 0; skull < NUMBER_OF_SKULLS; skull++)
+	{
+		if (((mask >> skull) & 1) && chosen-- == 0)
+			return skull;
+	}
+	return NONE;
+}
+
+/* the skulls still to drop in the level: its difficulty's number, less
+those dropped, as many as are not had */
+static short skulls_left_to_find(void)
+{
+	short left = (short)(game_difficulty_level_get() + 1 - finding->dropped);
+	unsigned long mask = skulls_to_find();
+	short count = 0;
+	int skull;
+
+	for (skull = 0; skull < NUMBER_OF_SKULLS; skull++)
+		count += (short)((mask >> skull) & 1);
+	if (left > count)
+		left = count;
+	return left > 0 ? left : 0;
+}
+
+static void skull_drop_maybe(long unit_index, long killer_player_index)
 {
 	short quota = (short)(game_difficulty_level_get() + 1);
 	short slot;
 	long left;
 	long skull_index;
 	boolean drop;
+	int skull;
+	char name[SKULL_NAME_LENGTH];
+	short character;
 
 	if (!skulls_unit_is_enemy(unit_index) || !skulls_unit_can_carry(unit_index))
 		return;
-	/* (none left to find: all of them had) */
-	if (finding.dropped >= quota || !(~skulls_unlocked_mask() & ((1UL << NUMBER_OF_SKULLS) - 1)))
+	/* (the level's carriers, counted at the first death: those it places
+	over the whole level, not only those about now) */
+	if (finding->total == NONE)
 	{
-		finding.kills++;
+		finding->total = randomizer_level_carriers();
+		error(_error_silent, "skulls: the level places %ld enemies that could carry a skull", finding->total);
+	}
+	/* (as many left as the level places less the dead, and no fewer than
+	are alive now: a squad brought back more than its count) */
+	left = finding->total - finding->deaths;
+	if (left < carriers_left(unit_index))
+		left = carriers_left(unit_index);
+	finding->deaths++;
+	if (killer_player_index == NONE)
+		return;
+	/* (none left to find: all of them had, or lying about) */
+	if (finding->dropped >= quota || !skulls_to_find())
+	{
+		finding->kills++;
 		return;
 	}
-	left = carriers_left(unit_index);
-	drop = finding.kills == 0 || (long)(local_random() % (unsigned long)left) == 0;
-	finding.kills++;
+	drop = finding->kills == 0 || (long)(local_random() % (unsigned long)left) == 0;
+	finding->kills++;
 	if (!drop)
 		return;
-	for (slot = 0; slot < SKULLS_DROPPED_MAX && finding.skulls[slot].object_index != NONE; slot++)
+	for (slot = 0; slot < SKULLS_DROPPED_MAX && finding->skulls[slot].object_index != NONE; slot++)
 		;
 	if (slot == SKULLS_DROPPED_MAX)
 		return;
-	skull_index = unit_port_drop_object(unit_index, carried_definition);
+	skull = skull_pick(skulls_to_find());
+	skull_index = skull == NONE ? NONE : unit_port_drop_object(unit_index, carried_definition);
 	if (skull_index == NONE)
 		return;
-	finding.dropped++;
-	finding.skulls[slot].object_index = skull_index;
-	finding.skulls[slot].hum_index = NONE;
-	finding.skulls[slot].next_hum_time = game_time_get();
-	finding.skulls[slot].taken = FALSE;
-	error(_error_silent, "skulls: kill %ld dropped skull %d of %d (one chance in %ld)", finding.kills,
-		finding.dropped, quota, left);
+	finding->dropped++;
+	finding->skulls[slot].object_index = skull_index;
+	skull_hums[slot] = NONE;
+	finding->skulls[slot].next_hum_time = game_time_get();
+	finding->skulls[slot].skull = skull;
+	snprintf(name, sizeof(name), "%s SKULL", skull_descriptions[skull].label);
+	for (character = 0; name[character] && character < SKULL_NAME_LENGTH - 1; character++)
+		finding->skulls[slot].name[character] = (wchar_t)(unsigned char)name[character];
+	finding->skulls[slot].name[character] = 0;
+	error(_error_silent, "skulls: kill %ld (death %ld) dropped %s, %d of %d (one chance in %ld)", finding->kills,
+		finding->deaths, name, finding->dropped, quota, left);
 	own_sound_play(_own_sound_skull_carrier, unit_index);
 	confetti(unit_index, skull_colors, (short)NUMBEROF(skull_colors), SKULL_CONFETTI_RISE);
 }
@@ -973,9 +1072,15 @@ void skulls_tick(void)
 	if (carried_definition == NONE)
 		return;
 	now = game_time_get();
+	if (now < skull_hums_time)
+	{
+		for (slot = 0; slot < SKULLS_DROPPED_MAX; slot++)
+			skull_hums[slot] = NONE;
+	}
+	skull_hums_time = now;
 	for (slot = 0; slot < SKULLS_DROPPED_MAX; slot++)
 	{
-		long skull_index = finding.skulls[slot].object_index;
+		long skull_index = finding->skulls[slot].object_index;
 		struct weapon_datum *skull = skull_index == NONE ? NULL :
 			(struct weapon_datum *)object_try_and_get_and_verify_type(skull_index, _object_mask_weapon);
 
@@ -984,37 +1089,85 @@ void skulls_tick(void)
 		/* (gone, or another object in its place after a revert) */
 		if (!skull || skull->definition_index != carried_definition)
 		{
-			finding.skulls[slot].object_index = NONE;
+			finding->skulls[slot].object_index = NONE;
 			continue;
 		}
-		/* (taken: the chime, and the hum stops) */
+		/* (in a unit's hands, which a revert may bring back: not heard) */
 		if (skull->object.parent_object_index != NONE)
-		{
-			if (!finding.skulls[slot].taken && skulls_unit_is_player(skull->object.parent_object_index))
-			{
-				finding.skulls[slot].taken = TRUE;
-				if (finding.skulls[slot].hum_index != NONE)
-					sound_stop_impulse(finding.skulls[slot].hum_index);
-				finding.skulls[slot].hum_index = NONE;
-				own_sound_play(_own_sound_skull_pickup, skull->object.parent_object_index);
-				error(_error_silent, "skulls: a skull was picked up");
-			}
 			continue;
-		}
-		/* (dropped again: it hums again at once) */
-		if (finding.skulls[slot].taken)
+		if (now >= finding->skulls[slot].next_hum_time)
 		{
-			finding.skulls[slot].taken = FALSE;
-			finding.skulls[slot].next_hum_time = now;
-			error(_error_silent, "skulls: a skull was dropped");
-		}
-		if (now >= finding.skulls[slot].next_hum_time)
-		{
-			finding.skulls[slot].hum_index = own_sound_play(_own_sound_skull_floor, skull_index);
-			finding.skulls[slot].next_hum_time = now +
-				own_sounds[_own_sound_skull_floor].milliseconds * TICKS_PER_SECOND / 1000 + TICKS_PER_SECOND / 2;
+			skull_hums[slot] = own_sound_play(_own_sound_skull_floor, skull_index);
+			/* (again as it ends: it loops) */
+			finding->skulls[slot].next_hum_time = now +
+				MAX(1, own_sounds[_own_sound_skull_floor].milliseconds * TICKS_PER_SECOND / 1000);
 		}
 	}
+}
+
+static short skull_slot(long object_index)
+{
+	short slot;
+
+	if (object_index == NONE || carried_definition == NONE)
+		return NONE;
+	for (slot = 0; slot < SKULLS_DROPPED_MAX; slot++)
+	{
+		if (finding->skulls[slot].object_index == object_index && finding->skulls[slot].skull != NONE)
+			return slot;
+	}
+	return NONE;
+}
+
+unsigned short const *skulls_item_name(long object_index)
+{
+	short slot = skull_slot(object_index);
+
+	return slot == NONE ? NULL : (unsigned short const *)finding->skulls[slot].name;
+}
+
+int skulls_item_take(short local_player_index, long unit_index, long object_index)
+{
+	short slot = skull_slot(object_index);
+	int skull;
+	wchar_t line[64];
+	char text[64];
+	short character;
+
+	if (slot == NONE)
+		return FALSE;
+	skull = finding->skulls[slot].skull;
+	/* (on for the level from now on; kept once it is finished) */
+	finding->found_mask |= 1UL << skull;
+	if (skull_hums[slot] != NONE)
+		sound_stop_impulse(skull_hums[slot]);
+	finding->skulls[slot].object_index = NONE;
+	finding->skulls[slot].skull = NONE;
+	object_delete(object_index);
+	own_sound_play(_own_sound_skull_pickup, unit_index);
+	error(_error_silent, "skulls: %s taken", skull_descriptions[skull].key);
+	/* (the newest message is shown on top: printed last line first) */
+	if (local_player_index != NONE)
+	{
+		short left = skulls_left_to_find();
+
+		if (left == 0)
+			snprintf(text, sizeof(text), "No more skulls to be found in here.");
+		else
+			snprintf(text, sizeof(text), "%d skull%s left to be found in here.", left, left == 1 ? "" : "s");
+		for (character = 0; text[character] && character < (short)NUMBEROF(line) - 1; character++)
+			line[character] = (wchar_t)(unsigned char)text[character];
+		line[character] = 0;
+		hud_print_message(local_player_index, line);
+		hud_print_message(local_player_index, L"Death will take your prize away.");
+		hud_print_message(local_player_index, L"Finish the level without dying to unlock it.");
+		snprintf(text, sizeof(text), "%s SKULL picked up.", skull_descriptions[skull].label);
+		for (character = 0; text[character] && character < (short)NUMBEROF(line) - 1; character++)
+			line[character] = (wchar_t)(unsigned char)text[character];
+		line[character] = 0;
+		hud_print_message(local_player_index, line);
+	}
+	return TRUE;
 }
 
 /* ---------- a unit's death */
@@ -1027,8 +1180,8 @@ void skulls_unit_killed(long unit_index, int headshot, long killer_player_index)
 		confetti(unit_index, party_colors, (short)NUMBEROF(party_colors), 0.0f);
 		own_sound_play(_own_sound_party, unit_index);
 	}
-	if (carried_definition != NONE && killer_player_index != NONE)
-		skull_drop_maybe(unit_index);
+	if (carried_definition != NONE)
+		skull_drop_maybe(unit_index, killer_player_index);
 }
 
 void skulls_unit_died(long unit_index)
@@ -1037,4 +1190,17 @@ void skulls_unit_died(long unit_index)
 	effect's damage is) */
 	if (skull_active(_skull_grunt_funeral) && skulls_unit_is_grunt(unit_index))
 		effect_at_unit("weapons\\plasma grenade\\effects\\explosion", unit_index);
+}
+
+void skulls_initialize(void)
+{
+	/* (a multiple of four bytes, as the game state allocates) */
+	finding = (struct skulls_finding *)game_state_malloc("skulls finding", NULL,
+		(long)((sizeof(*finding) + 3) & ~(unsigned long)3));
+	finding_reset();
+}
+
+void skulls_initialize_for_new_map(void)
+{
+	finding_reset();
 }

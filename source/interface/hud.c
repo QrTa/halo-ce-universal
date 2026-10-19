@@ -471,7 +471,21 @@ static void hud_show_action_response(
 	case _player_action_result_swap_for_weapon:
 	{
 		struct weapon_datum *weapon = weapon_try_and_get(player->action_object_index);
+		/* port: skull: a skull to be found, picked up by name
+		(port/linux/game/skulls.c) */
+		wchar_t const *skull_name = (wchar_t const *)skulls_item_name(player->action_object_index);
 
+		if (skull_name)
+		{
+			hud_set_state_message(
+				render.local_player_index,
+				_hud_message_pickup);
+			hud_port_set_state_message_slot_text(
+				render.local_player_index,
+				0,
+				skull_name);
+			return;
+		}
 		if (weapon != NULL)
 		{
 			struct icon_hud_element_definition const *icon = NULL;

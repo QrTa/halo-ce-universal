@@ -3781,6 +3781,12 @@ static boolean player_handle_weapon_swap(
 	switch (player->action_result)
 	{
 	case _player_action_result_swap_for_weapon:
+		/* port: skull: or a skull to be found, taken (port/linux/game/skulls.c) */
+		if (skulls_item_take(player->local_player_index, player->unit_index, player->action_object_index))
+		{
+			result = TRUE;
+			break;
+		}
 		if (unit_drop_selected_weapon(player->unit_index) &&
 			unit_add_weapon_to_inventory(
 				player->unit_index,
@@ -4283,6 +4289,18 @@ static void player_examine_nearby_item(
 
 		weapon_item_index = item_index;
 		weapon = weapon_try_and_get(weapon_item_index);
+		/* port: skull: a skull to be found is never taken by walking over
+		it: the action button takes it, by its name, and it is not a
+		weapon of the player's (port/linux/game/skulls.c) */
+		if (weapon && skulls_item_name(weapon_item_index))
+		{
+			player_set_action_result(
+				player_index,
+				_player_action_result_swap_for_weapon,
+				weapon_item_index,
+				NONE);
+			return;
+		}
 		/* port: skull: Foreign, the players cannot take Covenant weapons
 		(port/linux/game/skulls.c) */
 		if (!weapon || !unit_can_use_weapon(player->unit_index, weapon_item_index) ||

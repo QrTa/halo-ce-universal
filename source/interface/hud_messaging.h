@@ -97,6 +97,11 @@ void hud_messaging_update(
 void hud_set_state_message(
 	short local_player_index,
 	short message_index);
+/* port: a state message's custom icon shown as this text (skulls.c) */
+void hud_port_set_state_message_slot_text(
+	short local_player_index,
+	short custom_icon_index,
+	wchar_t const *text);
 void hud_set_state_message_text(
 	short local_player_index,
 	short custom_icon_index,

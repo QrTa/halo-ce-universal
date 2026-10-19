@@ -324,6 +324,9 @@ void game_initialize(
 	player_ui_initialize();
 	bink_playback_initialize();
 	progress_bar_initialize();
+	/* port: the skulls dropped and found in a level, kept by checkpoints
+	(port/linux/game/skulls.c) */
+	skulls_initialize();
 
 	return;
 }
@@ -704,6 +707,8 @@ void game_initialize_for_new_map(
 	hs_initialize_for_new_map();
 	recorded_animations_initialize_for_new_map();
 	cheats_initialize_for_new_map();
+	/* port: no skulls dropped or found yet (port/linux/game/skulls.c) */
+	skulls_initialize_for_new_map();
 
 	game_globals->active = TRUE;
 	objects_place();

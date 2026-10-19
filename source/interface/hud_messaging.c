@@ -1091,6 +1091,35 @@ hud_set_state_message_text(
 	return;
 }
 
+/* port: a state message's custom icon shown as this text, not a string
+list's (port/linux/game/skulls.c's skull names) */
+#define HUD_PORT_SLOT_TEXT_STRING_INDEX -2
+#define HUD_PORT_SLOT_TEXT_LENGTH 40
+
+static wchar_t hud_port_slot_text[MAXIMUM_NUMBER_OF_LOCAL_PLAYERS][NUMBER_OF_HUD_CUSTOM_ICONS][HUD_PORT_SLOT_TEXT_LENGTH];
+
+void hud_port_set_state_message_slot_text(
+	short local_player_index,
+	short custom_icon_index,
+	wchar_t const *text)
+{
+	struct hud_messaging_datum_definition *datum =
+		&hud_messaging_globals->message_data[local_player_index];
+
+	if (custom_icon_index < 0 || custom_icon_index >= NUMBER_OF_HUD_CUSTOM_ICONS || !text)
+		return;
+	if (datum->state_message.valid &&
+		!hud_scripted_globals->show_hud_help_text &&
+		datum->state_message.state_message)
+	{
+		ustrncpy(hud_port_slot_text[local_player_index][custom_icon_index], text, HUD_PORT_SLOT_TEXT_LENGTH - 1);
+		hud_port_slot_text[local_player_index][custom_icon_index][HUD_PORT_SLOT_TEXT_LENGTH - 1] = 0;
+		datum->state_message.info[custom_icon_index].text.string_index = HUD_PORT_SLOT_TEXT_STRING_INDEX;
+		datum->state_message.info[custom_icon_index].text.uses_scenario_names = FALSE;
+		datum->state_message.is_text_flags |= 1 << custom_icon_index;
+	}
+}
+
 void
 hud_enable_custom_state_message(
 	short local_player_index,
@@ -1624,7 +1653,16 @@ void hud_messaging_update(
 									{
 										short string_index = state_message->info[custom_index].text.string_index;
 
-										if (string_index != NONE)
+										/* port: the text given (hud_port_set_state_message_slot_text) */
+										if (string_index == HUD_PORT_SLOT_TEXT_STRING_INDEX)
+										{
+											render_state_text(
+												&line_bounds,
+												&line_cursor,
+												hud_port_slot_text[render.local_player_index][custom_index],
+												FALSE);
+										}
+										else if (string_index != NONE)
 										{
 											if (state_message->info[custom_index].text.uses_scenario_names)
 											{

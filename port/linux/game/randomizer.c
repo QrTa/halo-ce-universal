@@ -3072,6 +3072,66 @@ static short variant_team(long variant_index, struct encounter_definition const 
 	return unit ? unit->unit.default_team : _game_team_default;
 }
 
+long randomizer_level_carriers(void)
+{
+	struct scenario *scenario = global_scenario_get();
+	long total = 0;
+	long encounter_index;
+
+	if (!scenario)
+		return 0;
+	for (encounter_index = 0; encounter_index < scenario->ai_encounters.count; encounter_index++)
+	{
+		struct encounter_definition *encounter = TAG_BLOCK_GET_ELEMENT(&scenario->ai_encounters, encounter_index,
+			struct encounter_definition);
+		long squad_index;
+
+		for (squad_index = 0; squad_index < encounter->squads.count; squad_index++)
+		{
+			struct squad_definition *squad = TAG_BLOCK_GET_ELEMENT(&encounter->squads, squad_index,
+				struct squad_definition);
+			struct tag_reference *palette_entry;
+			struct actor_variant_definition *variant;
+			short count;
+
+			if (!VALID_INDEX(squad->actor_palette_index, scenario->ai_actor_palette.count))
+				continue;
+			palette_entry = TAG_BLOCK_GET_ELEMENT(&scenario->ai_actor_palette, squad->actor_palette_index,
+				struct tag_reference);
+			if (palette_entry->index == NONE)
+				continue;
+			variant = actor_variant_definition_get(palette_entry->index);
+			if (!variant || variant->unit_reference.index == NONE ||
+				!randomizer_unit_can_carry(tag_get_name(variant->unit_reference.index)) ||
+				!skulls_team_is_enemy(variant_team(palette_entry->index, encounter)))
+			{
+				continue;
+			}
+			/* (as encounters.c places a squad on each difficulty, and those it
+			brings back) */
+			switch (game_difficulty_level_get())
+			{
+			case _game_difficulty_level_easy:
+			case _game_difficulty_level_normal:
+				count = squad->min_count;
+				break;
+			case _game_difficulty_level_hard:
+				count = (short)((squad->max_count + squad->min_count) / 2);
+				break;
+			default:
+				count = squad->max_count;
+				break;
+			}
+			if (count > 0)
+				total += count;
+			if (squad->respawn_total_count > 0)
+				total += squad->respawn_total_count;
+		}
+	}
+
+	return total;
+}
+
 long randomizer_actor_variant(long original, long encounter_index, long squad_index, void *starting_location)
 {
 	struct actor_starting_location *location = starting_location;

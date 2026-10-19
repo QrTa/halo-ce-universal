@@ -716,7 +716,7 @@ def _randomizer_screen() -> list:
     name), Load (the profiles' screen), OK, which starts the level"""
     base = "main_menu/difficulty_select/randomizer"
     lines = _widget(f"{base}/randomizer_screen",
-                    [("width", 640), ("height", 480), ("flags", "pass_unhandled_to_focused_child pause_game"),
+                    [("width", 640), ("height", 480), ("flags", "pass_unhandled_to_focused_child"),
                      ("bitmap", "bitmaps/gradient")],
                     ['<on event="b" back="true"/>', '<on event="back" back="true"/>',
                      f'<child widget="{base}/header_randomizer"/>',
@@ -802,7 +802,7 @@ def _skulls_screen() -> list:
     base = "main_menu/difficulty_select/skulls"
     moves = [f'<on event="{event}" run="{function}"/>' for event, function in SKULL_MOVES]
     lines = _widget(f"{base}/skulls_screen",
-                    [("width", 640), ("height", 480), ("flags", "pass_unhandled_to_focused_child pause_game"),
+                    [("width", 640), ("height", 480), ("flags", "pass_unhandled_to_focused_child"),
                      ("bitmap", "bitmaps/gradient")],
                     ['<on event="b" back="true"/>', '<on event="back" back="true"/>',
                      f'<child widget="{base}/header_skulls"/>',
@@ -871,7 +871,7 @@ def _skulls_unlock_screen(base: str) -> list:
     """the question of how the skulls are had: every one now, or those found
     playing; menu_functions.c then opens the skulls screen"""
     lines = _widget(f"{base}/unlock_screen",
-                    [("width", 640), ("height", 480), ("flags", "pass_unhandled_to_focused_child pause_game"),
+                    [("width", 640), ("height", 480), ("flags", "pass_unhandled_to_focused_child"),
                      ("bitmap", "bitmaps/gradient")],
                     ['<on event="b" back="true"/>', '<on event="back" back="true"/>',
                      f'<child widget="{base}/header_skulls"/>',
@@ -902,7 +902,7 @@ def _skulls_unlock_screen(base: str) -> list:
 def _randomizer_profiles_screen(base: str) -> list:
     """Load's screen: the setups saved, A one to use it, and back"""
     lines = _widget(f"{base}/profiles_screen",
-                    [("width", 640), ("height", 480), ("flags", "pass_unhandled_to_focused_child pause_game"),
+                    [("width", 640), ("height", 480), ("flags", "pass_unhandled_to_focused_child"),
                      ("bitmap", "bitmaps/gradient")],
                     ['<on event="b" back="true"/>', '<on event="back" back="true"/>',
                      f'<child widget="{base}/header_randomizer"/>',
