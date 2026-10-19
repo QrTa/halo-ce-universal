@@ -339,6 +339,12 @@ malloc'd string. */
 char *nv2a_hlsl_vertex_shader(const uint32_t *instructions, uint32_t count, uint32_t packed_mask,
 	uint32_t integer_mask, uint32_t three_component_mask, const struct nv2a_vertex_lighting *lighting);
 
+/* HLSL for the fixed-function pipeline's vertex shader (nv2a_fixed_function_glsl's,
+xgpu.h): the loading screen's immediate-mode draws, their positions already
+in clip space (d3d8_d3d11.c transforms them). Entry HLSL_ENTRY, target
+HLSL_VERTEX_TARGET. Returns a malloc'd string. */
+char *nv2a_hlsl_fixed_function(void);
+
 /* HLSL for a pixel shader key (nv2a_pixel_shader_to_glsl's, xgpu.h), and its
 target in target: HLSL_PIXEL_TARGET, or HLSL_PIXEL_COVERAGE_TARGET for a
 multisampled alpha test (alpha_test_samples), which writes SV_Coverage.

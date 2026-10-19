@@ -505,6 +505,12 @@ struct d3d11_device
 {
 	D3DPRESENT_PARAMETERS presentation;
 	D3DSurface back_buffer;
+	/* the frame shown last, as the loading screen reads it (GetBackBuffer
+	with -1: front_buffer_ready); the frame it was last asked for in, and
+	the frame its picture was last taken in (front_buffer_take), each + 1 */
+	D3DSurface front_buffer;
+	unsigned long front_buffer_asked;
+	unsigned long front_buffer_taken;
 	D3DSurface depth_buffer;
 	D3DSurface *render_target;
 	D3DSurface *depth_stencil;
@@ -515,6 +521,9 @@ struct d3d11_device
 	D3DSHADERCONSTANTMODE shader_constant_mode;
 
 	struct vertex_shader_object *vertex_shader;
+	/* SetVertexShader chose the fixed-function pipeline (with 0): the
+	loading screen's draws (fixed_function_variant) */
+	BOOL fixed_function;
 	struct vertex_shader_object *program_slots[VERTEX_PROGRAM_SLOTS];
 	unsigned long program_address;
 	float constants[XGPU_VERTEX_CONSTANT_COUNT][4];
@@ -730,9 +739,15 @@ void WINAPI D3DDevice_SetVerticalBlankCallback(D3DCALLBACK callback)
 	vertical_blank_start();
 }
 
+static void front_buffer_take(void);
+
 void WINAPI D3DDevice_BlockUntilVerticalBlank(void)
 {
 	unsigned long count;
+
+	/* (the loading screen's last call: its frame, for the next frame's
+	trails) */
+	front_buffer_take();
 
 	vertical_blank_start();
 	pthread_mutex_lock(&vertical_blank_lock);
@@ -1550,10 +1565,19 @@ void WINAPI D3DDevice_GetDeviceCaps(D3DCAPS8 *caps)
 	caps->MaxPixelShaderValue = 1.0f;
 }
 
+static BOOL front_buffer_ready(void);
+
 void WINAPI D3DDevice_GetBackBuffer(INT back_buffer, D3DBACKBUFFER_TYPE type, D3DSurface **result)
 {
-	(void)back_buffer;
 	(void)type;
+	/* -1: the front buffer, the frame shown last, which the loading screen
+	blurs into its light's trails (progress_bar.c) */
+	if (back_buffer == -1 && front_buffer_ready())
+	{
+		device.front_buffer.Common++;
+		*result = &device.front_buffer;
+		return;
+	}
 	/* like Direct3D, the caller gets a reference it must release */
 	device.back_buffer.Common++;
 	*result = &device.back_buffer;
@@ -2068,7 +2092,13 @@ void WINAPI D3DDevice_SetVertexShader(DWORD handle)
 		device.vertex_shader = object;
 		device.program_address = 0;
 		device.program_slots[0] = object;
+		device.fixed_function = FALSE;
 	}
+	/* 0: the fixed-function pipeline, which only the loading screen uses
+	(progress_bar.c). Another handle that is no shader (NONE, of a shader
+	that could not be made) changes nothing, as before */
+	else if (!handle)
+		device.fixed_function = TRUE;
 }
 
 void WINAPI D3DDevice_LoadVertexShader(DWORD handle, DWORD address)
@@ -2081,6 +2111,9 @@ void WINAPI D3DDevice_SelectVertexShader(DWORD handle, DWORD address)
 {
 	struct vertex_shader_object *object = vertex_shader_from_handle(handle);
 
+	/* (a program, loaded or packed at the address: never the fixed-function
+	pipeline, which SetVertexShader with 0 sets) */
+	device.fixed_function = FALSE;
 	if (object)
 		device.vertex_shader = object;
 	if (address < VERTEX_PROGRAM_SLOTS)
@@ -2112,6 +2145,27 @@ static struct vertex_shader_object *current_program(void)
 	struct vertex_shader_object *program = device.program_slots[device.program_address];
 
 	return program ? program : device.vertex_shader;
+}
+
+/* a position in immediate mode by the fixed-function pipeline's transforms
+(d3d8_gl.c's): Direct3D's row vectors, times world, view, then projection */
+static void fixed_function_transform(float *position)
+{
+	static const D3DTRANSFORMSTATETYPE order[3] = { D3DTS_WORLD, D3DTS_VIEW, D3DTS_PROJECTION };
+	int which, column;
+
+	for (which = 0; which < 3; which++)
+	{
+		const D3DMATRIX *matrix = &device.transforms[order[which]];
+		float in[4];
+
+		memcpy(in, position, sizeof(in));
+		for (column = 0; column < 4; column++)
+		{
+			position[column] = in[0] * matrix->m[0][column] + in[1] * matrix->m[1][column] +
+				in[2] * matrix->m[2][column] + in[3] * matrix->m[3][column];
+		}
+	}
 }
 
 /* ---------- tracing (debug.gpu_trace_frame) */
@@ -3339,6 +3393,27 @@ static struct vertex_variant *vertex_variant_get(struct vertex_shader_object *pr
 	return variant;
 }
 
+/* the fixed-function pipeline's vertex shader (SetVertexShader with 0) as a
+variant without a program (vertex_shader_handle generates its HLSL): its
+immediate-mode draws only, whose positions D3DDevice_End transforms by the
+world, view and projection matrices (nv2a_hlsl_fixed_function). Draws from
+vertex buffers have no declaration to read them by, and are not drawn (no
+game draw makes one: d3d8_gl.c's fixed_function_program). */
+static struct vertex_variant *fixed_function_variant(void)
+{
+	static struct vertex_variant variant;
+
+	if (!variant.identity)
+	{
+		static const char name[] = "fixed-function";
+		uint32_t version = HLSL_SHADER_GENERATOR_VERSION;
+
+		variant.identity = shader_hash(shader_hash(SHADER_HASH_START, &version, sizeof(version)), name, sizeof(name));
+		shaders_met.vertex_variants++;
+	}
+	return &variant;
+}
+
 /* ---------- the shaders' handles (phase 5)
 
 Each entry asks the backend's shader service for its handle the first time a
@@ -3360,9 +3435,11 @@ static uint32_t vertex_shader_handle(struct vertex_variant *variant)
 	if (!variant->handle)
 	{
 		program = variant->program;
-		text = nv2a_hlsl_vertex_shader((const uint32_t *)program->instructions, (uint32_t)program->instruction_count,
-			variant->packed_mask, variant->integer_mask, variant->three_component_mask,
-			variant->lit ? &program->lighting : NULL);
+		/* (no program: the fixed-function pipeline's, fixed_function_variant) */
+		text = !program ? nv2a_hlsl_fixed_function() :
+			nv2a_hlsl_vertex_shader((const uint32_t *)program->instructions, (uint32_t)program->instruction_count,
+				variant->packed_mask, variant->integer_mask, variant->three_component_mask,
+				variant->lit ? &program->lighting : NULL);
 		if (text)
 			variant->handle = d3d11_backend_shader_make(D3D11_BACKEND_STAGE_VERTEX, variant->identity, text,
 				strlen(text), HLSL_ENTRY, HLSL_VERTEX_TARGET);
@@ -4238,7 +4315,13 @@ static BOOL draw_prepare(BOOL immediate)
 	blending: SV_Coverage, the key's ps_4_1 shader) */
 	if (target_samples > 1 && key.alpha_test_function && !D3D__RenderState[D3DRS_ALPHABLENDENABLE])
 		key.alpha_test_samples = (unsigned char)target_samples;
-	if (program->lighting.lights && !program->lighting_failed && per_pixel_lighting())
+	/* (the fixed-function pipeline's draws: immediate mode's only) */
+	if (device.fixed_function && !immediate)
+	{
+		stats.skipped_no_program++;
+		return FALSE;
+	}
+	if (!device.fixed_function && program->lighting.lights && !program->lighting_failed && per_pixel_lighting())
 	{
 		key.per_pixel_lighting = (unsigned char)program->lighting.lights;
 		variant = vertex_variant_get(program, immediate, TRUE);
@@ -4256,7 +4339,7 @@ static BOOL draw_prepare(BOOL immediate)
 	}
 	if (!vertex || !pixel)
 	{
-		variant = vertex_variant_get(program, immediate, FALSE);
+		variant = device.fixed_function ? fixed_function_variant() : vertex_variant_get(program, immediate, FALSE);
 		vertex = vertex_shader_handle(variant);
 		pixel = pixel_shader_handle(pixel_entry_get(&key, by_constant_alpha));
 	}
@@ -4832,11 +4915,14 @@ static BOOL draw_ready(void)
 {
 	struct vertex_shader_object *program = current_program();
 
-	if (!device.backend_ready || !program || !device.vertex_shader || !program->instructions)
+	/* (the fixed-function pipeline needs no program: the loading screen) */
+	if (!device.backend_ready ||
+		(!device.fixed_function && (!program || !device.vertex_shader || !program->instructions)))
 	{
 		stats.skipped_no_program++;
 		return FALSE;
 	}
+	if (program && !device.fixed_function)
 	{
 		const char *skip = debug_settings.skip_vertex_shaders;
 
@@ -4984,6 +5070,12 @@ void WINAPI D3DDevice_End(void)
 	device.immediate_active = FALSE;
 	if (!count || !draw_ready() || !draw_prepare(TRUE))
 		return;
+	/* (the fixed-function pipeline's: positions into clip space) */
+	if (device.fixed_function)
+	{
+		for (offset = 0; offset < count; offset++)
+			fixed_function_transform(device.immediate_vertices + offset * XGPU_VERTEX_ATTRIBUTE_COUNT * 4);
+	}
 	trace_draw("immediate", type, count, device.immediate_vertices);
 	/* the vertices streamed: every attribute four floats, one after another,
 	in slot 0 at the ring's offset (the variant's immediate layout) */
@@ -5245,6 +5337,90 @@ void halo_screen_anti_alias(short x0, short y0, short x1, short y1)
 	corners[3] = scaled_pixel(y1, target->target.scale[1]);
 	d3d11_backend_anti_alias(mode == _anti_aliasing_smaa, target->backend_target, corners);
 	backend_lost_check();
+}
+
+/* ---------- the front buffer (d3d8_gl.c's)
+
+The Xbox's front buffer is the frame on the screen, which the loading screen
+reads back (GetBackBuffer with -1, progress_bar.c) and draws again blurred,
+a little larger and fainter, under each new frame: the trails of its light.
+Here it is a render target of the menus' 640x480, which takes the 640
+columns in the middle of the frame (where the loading screen draws, as the
+menus do on a wide screen) once the loading screen has drawn it, while the
+screen asks for it: at its BlockUntilVerticalBlank, its last call, so that
+what is drawn over it after (the download screen's words) leaves no trail. */
+
+enum
+{
+	FRONT_BUFFER_WIDTH = 640,
+	FRONT_BUFFER_HEIGHT = 480,
+};
+
+/* the front buffer, made the first time it is asked for, and black when the
+frame before did not take its picture (a loading screen's first frame) */
+static BOOL front_buffer_ready(void)
+{
+	/* (its memory could not be had: not asked for again each frame) */
+	static BOOL failed;
+	struct render_target_entry *front;
+
+	if (!device.backend_ready || failed)
+		return FALSE;
+	if (!device.front_buffer.Data)
+	{
+		d3d8_surface_initialize(&device.front_buffer, D3DFMT_LIN_A8R8G8B8, FRONT_BUFFER_WIDTH, FRONT_BUFFER_HEIGHT);
+		if (!device.front_buffer.Data)
+		{
+			failed = TRUE;
+			return FALSE;
+		}
+	}
+	front = render_target_get(&device.front_buffer);
+	if (!front || !front->backend_target)
+		return FALSE;
+	if (device.front_buffer_taken != device.frame)
+	{
+		if (!d3d11_backend_target_copy(front->backend_target, 0, NULL))
+			return FALSE;
+		/* (drawn into, as a draw marks a target: the latest of its memory's) */
+		front->last_rendered = device.frame + 1;
+		front->target.written = ++render_target_write_serial;
+	}
+	device.front_buffer_asked = device.frame + 1;
+	return TRUE;
+}
+
+/* the frame as the loading screen has drawn it into the front buffer, when
+this frame asked for it (D3DDevice_BlockUntilVerticalBlank) */
+static void front_buffer_take(void)
+{
+	struct render_target_entry *back_buffer, *front;
+	int32_t rectangle[4];
+	long width, left;
+
+	if (!device.backend_ready || !device.front_buffer.Data || device.front_buffer_asked != device.frame + 1)
+		return;
+	back_buffer = render_target_get(&device.back_buffer);
+	front = render_target_get(&device.front_buffer);
+	if (!back_buffer || !front || !back_buffer->backend_target || !front->backend_target)
+		return;
+	render_target_resolve(back_buffer);
+	width = (long)(FRONT_BUFFER_WIDTH * back_buffer->target.scale[0] + 0.5f);
+	left = ((long)back_buffer->target.gl_width - width) / 2;
+	if (left < 0)
+	{
+		left = 0;
+		width = (long)back_buffer->target.gl_width;
+	}
+	rectangle[0] = (int32_t)left;
+	rectangle[1] = 0;
+	rectangle[2] = (int32_t)width;
+	rectangle[3] = (int32_t)back_buffer->target.gl_height;
+	if (!d3d11_backend_target_copy(front->backend_target, back_buffer->backend_target, rectangle))
+		return;
+	front->last_rendered = device.frame + 1;
+	front->target.written = ++render_target_write_serial;
+	device.front_buffer_taken = device.frame + 1;
 }
 
 /* ---------- presentation */

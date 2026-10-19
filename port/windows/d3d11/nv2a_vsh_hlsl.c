@@ -433,3 +433,40 @@ char *nv2a_hlsl_vertex_shader(const uint32_t *instruction_words, uint32_t count,
 	xgpu_text_append(&text, "%s}\n", HLSL_INTERFACE_RETURN);
 	return text.buffer;
 }
+
+/* The fixed-function pipeline's vertex shader (nv2a_vsh.c's
+nv2a_fixed_function_glsl), for the draws that select it (SetVertexShader
+with 0): only the loading screen's (progress_bar.c), which gives each vertex
+its position, diffuse color and up to four texture coordinates in immediate
+mode. d3d8_d3d11.c transforms the positions by the world, view and projection
+matrices before the draw, so the position here is already in Direct3D's clip
+space, which is Direct3D 11's. The inputs are immediate mode's sixteen
+four-float attributes (its layout). */
+char *nv2a_hlsl_fixed_function(void)
+{
+	struct xgpu_text text = { 0 };
+	unsigned long index;
+
+	xgpu_text_append(&text, "%s%s%s", HLSL_INTERFACE_BEGIN, HLSL_INTERFACE_END, HLSL_INTERFACE_STATICS);
+	xgpu_text_append(&text, "struct vs_in\n{\n");
+	for (index = 0; index < XGPU_VERTEX_ATTRIBUTE_COUNT; index++)
+		xgpu_text_append(&text, "\tfloat4 v%lu_in : TEXCOORD%lu;\n", index, index);
+	xgpu_text_append(&text, "};\n");
+	xgpu_text_append(&text,
+		"vs_out main(vs_in input)\n{\n"
+		"\tvs_out output;\n"
+		"\toutput.position = input.v0_in;\n"
+		"\txD0 = clamp(input.v3_in, 0.0, 1.0);\n"
+		"\txD1 = clamp(input.v4_in, 0.0, 1.0);\n"
+		"\txB0 = float4(0.0, 0.0, 0.0, 1.0);\n"
+		"\txB1 = float4(0.0, 0.0, 0.0, 1.0);\n"
+		"\txT0 = input.v9_in;\n"
+		"\txT1 = input.v10_in;\n"
+		"\txT2 = input.v11_in;\n"
+		"\txT3 = input.v12_in;\n"
+		"\txFog = 1.0;\n"
+		HLSL_INTERFACE_OUTPUT
+		HLSL_INTERFACE_RETURN
+		"}\n");
+	return text.buffer;
+}

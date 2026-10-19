@@ -112,6 +112,16 @@ went through clear calls, 2 if any of it was drawn, 0 if nothing was cleared
 uint32_t d3d11_backend_clear(uint32_t channels, const float color[4], float z, uint32_t stencil,
 	const int32_t *rectangles, uint32_t count);
 
+/* the loading screen's front buffer (d3d8_d3d11.c): the colour target
+destination given the pixels of the rectangle of the colour target source
+(x, y, width, height in its pixels, row 0 at the top), scaled to the whole
+of destination through the linear sampler, alpha made 1; with source 0,
+destination cleared to opaque black. source must not be multisampled, or be
+resolved (the device resolves it). The targets and the draws' state are
+bound again by the next draw or clear. 1 if done; 0 if not (no shaders, a
+target missing, a depth or multisampled one). */
+int d3d11_backend_target_copy(uint32_t destination, uint32_t source, const int32_t rectangle[4]);
+
 /* a colour target's pixels, BGRA rows from the top, pixel_width * 4 bytes
 each, into pixels (size bytes); 1 on success, 0 (logged) otherwise */
 int d3d11_backend_target_read(uint32_t handle, void *pixels, size_t size);

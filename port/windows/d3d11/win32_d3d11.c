@@ -888,6 +888,66 @@ void d3d11_backend_targets_rebind(void)
 	bound_valid = 0;
 }
 
+int d3d11_backend_target_copy(uint32_t destination, uint32_t source, const int32_t rectangle[4])
+{
+	static const float black[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
+	static ID3D11ShaderResourceView *const none = NULL;
+	struct target *to = target_from_handle(destination), *from = source ? target_from_handle(source) : NULL;
+	D3D11_VIEWPORT viewport;
+	D3D11_RECT whole;
+	float scale_x, scale_y;
+
+	if (!B.device || B.lost || !to || to->is_depth || to->samples || !to->color)
+		return 0;
+	if (source && (!from || from->is_depth || !from->view || rectangle[2] <= 0 || rectangle[3] <= 0))
+		return 0;
+	/* (the destination may still be sampled by the draw before: the
+	loading screen reads it) */
+	d3d11_backend_draw_target_unbind(to->view);
+	ID3D11DeviceContext_OMSetRenderTargets(B.context, 1, &to->color, NULL);
+	d3d11_backend_targets_forget();
+	if (!from)
+	{
+		ID3D11DeviceContext_ClearRenderTargetView(B.context, to->color, black);
+		return 1;
+	}
+	if (!d3d11_backend_shaders())
+		return 0;
+	/* the full-target triangle over the whole source, placed so that the
+	rectangle covers the destination: the viewport is the source scaled by
+	the destination's size over the rectangle's and moved by the
+	rectangle's corner, and the scissor keeps the destination */
+	scale_x = (float)to->width / (float)rectangle[2];
+	scale_y = (float)to->height / (float)rectangle[3];
+	viewport.TopLeftX = -(float)rectangle[0] * scale_x;
+	viewport.TopLeftY = -(float)rectangle[1] * scale_y;
+	viewport.Width = (float)from->width * scale_x;
+	viewport.Height = (float)from->height * scale_y;
+	viewport.MinDepth = 0.0f;
+	viewport.MaxDepth = 1.0f;
+	whole.left = 0;
+	whole.top = 0;
+	whole.right = (LONG)to->width;
+	whole.bottom = (LONG)to->height;
+	ID3D11DeviceContext_RSSetViewports(B.context, 1, &viewport);
+	ID3D11DeviceContext_IASetInputLayout(B.context, NULL);
+	ID3D11DeviceContext_IASetPrimitiveTopology(B.context, D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+	ID3D11DeviceContext_VSSetShader(B.context, d3d11_backend_triangle_vs, NULL, 0);
+	ID3D11DeviceContext_PSSetShader(B.context, d3d11_backend_present_ps, NULL, 0);
+	ID3D11DeviceContext_PSSetShaderResources(B.context, 0, 1, &from->view);
+	ID3D11DeviceContext_PSSetSamplers(B.context, 0, 1, &d3d11_backend_linear_sampler);
+	ID3D11DeviceContext_OMSetBlendState(B.context, d3d11_backend_write_all, NULL, 0xffffffff);
+	ID3D11DeviceContext_OMSetDepthStencilState(B.context, d3d11_backend_depth_off, 0);
+	ID3D11DeviceContext_RSSetState(B.context, d3d11_backend_scissored);
+	ID3D11DeviceContext_RSSetScissorRects(B.context, 1, &whole);
+	ID3D11DeviceContext_Draw(B.context, 3, 0);
+	/* (the present's way out: the source unbound, the draws' shadow
+	forgotten) */
+	ID3D11DeviceContext_PSSetShaderResources(B.context, 0, 1, &none);
+	d3d11_backend_state_forget();
+	return 1;
+}
+
 ID3D11RenderTargetView *d3d11_backend_target_color_view(struct target *target)
 {
 	return target->samples ? target->multisampled_color : target->color;
