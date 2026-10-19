@@ -13,32 +13,35 @@
 	</widget>
 	<widget name="main_menu/difficulty_select/skulls/options_menu" type="column_list" width="640" height="480" flags="pass_unhandled_to_focused_child" description="main_menu/difficulty_select/skulls/help">
 		<data input="skulls screen update"/>
-		<child widget="main_menu/difficulty_select/skulls/skull_anger" x="54" y="76"/>
-		<child widget="main_menu/difficulty_select/skulls/skull_assassins" x="232" y="76"/>
-		<child widget="main_menu/difficulty_select/skulls/skull_bandanna" x="410" y="76"/>
-		<child widget="main_menu/difficulty_select/skulls/skull_black_eye" x="54" y="106"/>
-		<child widget="main_menu/difficulty_select/skulls/skull_blind" x="232" y="106"/>
-		<child widget="main_menu/difficulty_select/skulls/skull_boom" x="410" y="106"/>
-		<child widget="main_menu/difficulty_select/skulls/skull_catch" x="54" y="136"/>
-		<child widget="main_menu/difficulty_select/skulls/skull_envy" x="232" y="136"/>
-		<child widget="main_menu/difficulty_select/skulls/skull_eye_patch" x="410" y="136"/>
-		<child widget="main_menu/difficulty_select/skulls/skull_famine" x="54" y="166"/>
-		<child widget="main_menu/difficulty_select/skulls/skull_fog" x="232" y="166"/>
-		<child widget="main_menu/difficulty_select/skulls/skull_foreign" x="410" y="166"/>
-		<child widget="main_menu/difficulty_select/skulls/skull_ghost" x="54" y="196"/>
-		<child widget="main_menu/difficulty_select/skulls/skull_grunt_birthday_party" x="232" y="196"/>
-		<child widget="main_menu/difficulty_select/skulls/skull_grunt_funeral" x="410" y="196"/>
-		<child widget="main_menu/difficulty_select/skulls/skull_iron" x="54" y="226"/>
-		<child widget="main_menu/difficulty_select/skulls/skull_malfunction" x="232" y="226"/>
-		<child widget="main_menu/difficulty_select/skulls/skull_mythic" x="410" y="226"/>
-		<child widget="main_menu/difficulty_select/skulls/skull_pinata" x="54" y="256"/>
-		<child widget="main_menu/difficulty_select/skulls/skull_recession" x="232" y="256"/>
-		<child widget="main_menu/difficulty_select/skulls/skull_sputnik" x="410" y="256"/>
-		<child widget="main_menu/difficulty_select/skulls/skull_streaking" x="54" y="286"/>
-		<child widget="main_menu/difficulty_select/skulls/skull_swarm" x="232" y="286"/>
-		<child widget="main_menu/difficulty_select/skulls/skull_thats_just_wrong" x="410" y="286"/>
-		<child widget="main_menu/difficulty_select/skulls/skull_thunderstorm" x="54" y="316"/>
-		<child widget="main_menu/difficulty_select/skulls/skull_tough_luck" x="232" y="316"/>
+		<child widget="main_menu/difficulty_select/skulls/skull_anger" x="54" y="74"/>
+		<child widget="main_menu/difficulty_select/skulls/skull_assassins" x="232" y="74"/>
+		<child widget="main_menu/difficulty_select/skulls/skull_bandanna" x="410" y="74"/>
+		<child widget="main_menu/difficulty_select/skulls/skull_black_eye" x="54" y="103"/>
+		<child widget="main_menu/difficulty_select/skulls/skull_blind" x="232" y="103"/>
+		<child widget="main_menu/difficulty_select/skulls/skull_boom" x="410" y="103"/>
+		<child widget="main_menu/difficulty_select/skulls/skull_catch" x="54" y="132"/>
+		<child widget="main_menu/difficulty_select/skulls/skull_confetti_party" x="232" y="132"/>
+		<child widget="main_menu/difficulty_select/skulls/skull_envy" x="410" y="132"/>
+		<child widget="main_menu/difficulty_select/skulls/skull_eye_patch" x="54" y="161"/>
+		<child widget="main_menu/difficulty_select/skulls/skull_famine" x="232" y="161"/>
+		<child widget="main_menu/difficulty_select/skulls/skull_fog" x="410" y="161"/>
+		<child widget="main_menu/difficulty_select/skulls/skull_foreign" x="54" y="190"/>
+		<child widget="main_menu/difficulty_select/skulls/skull_ghost" x="232" y="190"/>
+		<child widget="main_menu/difficulty_select/skulls/skull_grunt_birthday_party" x="410" y="190"/>
+		<child widget="main_menu/difficulty_select/skulls/skull_grunt_funeral" x="54" y="219"/>
+		<child widget="main_menu/difficulty_select/skulls/skull_iron" x="232" y="219"/>
+		<child widget="main_menu/difficulty_select/skulls/skull_malfunction" x="410" y="219"/>
+		<child widget="main_menu/difficulty_select/skulls/skull_mythic" x="54" y="248"/>
+		<child widget="main_menu/difficulty_select/skulls/skull_pinata" x="232" y="248"/>
+		<child widget="main_menu/difficulty_select/skulls/skull_protected" x="410" y="248"/>
+		<child widget="main_menu/difficulty_select/skulls/skull_recession" x="54" y="277"/>
+		<child widget="main_menu/difficulty_select/skulls/skull_sputnik" x="232" y="277"/>
+		<child widget="main_menu/difficulty_select/skulls/skull_streaking" x="410" y="277"/>
+		<child widget="main_menu/difficulty_select/skulls/skull_swarm" x="54" y="306"/>
+		<child widget="main_menu/difficulty_select/skulls/skull_thats_just_wrong" x="232" y="306"/>
+		<child widget="main_menu/difficulty_select/skulls/skull_thunderstorm" x="410" y="306"/>
+		<child widget="main_menu/difficulty_select/skulls/skull_tough_luck" x="54" y="335"/>
+		<child widget="main_menu/difficulty_select/skulls/skull_vampirism" x="232" y="335"/>
 		<child widget="main_menu/difficulty_select/skulls/button_all_off" x="0" y="415"/>
 		<child widget="main_menu/difficulty_select/skulls/button_ok" x="380" y="415"/>
 		<child widget="main_menu/difficulty_select/skulls/button_cancel" x="510" y="415"/>
@@ -122,6 +125,19 @@
 		<on event="stick_right" run="skulls right"/>
 	</widget>
 	<widget name="main_menu/difficulty_select/skulls/skull_catch" type="text" width="170" height="28" bitmap="skulls/option" font="ui\small_ui" color="#FF2896FF" text_x="10" text_y="7">
+		<on event="a" run="skull toggle"/>
+		<on event="start" run="skull toggle"/>
+		<on event="left_mouse" run="mouse emit accept event"/>
+		<on event="up" run="skulls up"/>
+		<on event="stick_up" run="skulls up"/>
+		<on event="down" run="skulls down"/>
+		<on event="stick_down" run="skulls down"/>
+		<on event="left" run="skulls left"/>
+		<on event="stick_left" run="skulls left"/>
+		<on event="right" run="skulls right"/>
+		<on event="stick_right" run="skulls right"/>
+	</widget>
+	<widget name="main_menu/difficulty_select/skulls/skull_confetti_party" type="text" width="170" height="28" bitmap="skulls/option" font="ui\small_ui" color="#FF2896FF" text_x="10" text_y="7">
 		<on event="a" run="skull toggle"/>
 		<on event="start" run="skull toggle"/>
 		<on event="left_mouse" run="mouse emit accept event"/>
@@ -290,6 +306,19 @@
 		<on event="right" run="skulls right"/>
 		<on event="stick_right" run="skulls right"/>
 	</widget>
+	<widget name="main_menu/difficulty_select/skulls/skull_protected" type="text" width="170" height="28" bitmap="skulls/option" font="ui\small_ui" color="#FF2896FF" text_x="10" text_y="7">
+		<on event="a" run="skull toggle"/>
+		<on event="start" run="skull toggle"/>
+		<on event="left_mouse" run="mouse emit accept event"/>
+		<on event="up" run="skulls up"/>
+		<on event="stick_up" run="skulls up"/>
+		<on event="down" run="skulls down"/>
+		<on event="stick_down" run="skulls down"/>
+		<on event="left" run="skulls left"/>
+		<on event="stick_left" run="skulls left"/>
+		<on event="right" run="skulls right"/>
+		<on event="stick_right" run="skulls right"/>
+	</widget>
 	<widget name="main_menu/difficulty_select/skulls/skull_recession" type="text" width="170" height="28" bitmap="skulls/option" font="ui\small_ui" color="#FF2896FF" text_x="10" text_y="7">
 		<on event="a" run="skull toggle"/>
 		<on event="start" run="skull toggle"/>
@@ -369,6 +398,19 @@
 		<on event="stick_right" run="skulls right"/>
 	</widget>
 	<widget name="main_menu/difficulty_select/skulls/skull_tough_luck" type="text" width="170" height="28" bitmap="skulls/option" font="ui\small_ui" color="#FF2896FF" text_x="10" text_y="7">
+		<on event="a" run="skull toggle"/>
+		<on event="start" run="skull toggle"/>
+		<on event="left_mouse" run="mouse emit accept event"/>
+		<on event="up" run="skulls up"/>
+		<on event="stick_up" run="skulls up"/>
+		<on event="down" run="skulls down"/>
+		<on event="stick_down" run="skulls down"/>
+		<on event="left" run="skulls left"/>
+		<on event="stick_left" run="skulls left"/>
+		<on event="right" run="skulls right"/>
+		<on event="stick_right" run="skulls right"/>
+	</widget>
+	<widget name="main_menu/difficulty_select/skulls/skull_vampirism" type="text" width="170" height="28" bitmap="skulls/option" font="ui\small_ui" color="#FF2896FF" text_x="10" text_y="7">
 		<on event="a" run="skull toggle"/>
 		<on event="start" run="skull toggle"/>
 		<on event="left_mouse" run="mouse emit accept event"/>

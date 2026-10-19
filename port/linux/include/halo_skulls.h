@@ -19,6 +19,7 @@ enum skull
 	_skull_blind,
 	_skull_boom,
 	_skull_catch,
+	_skull_confetti_party,
 	_skull_envy,
 	_skull_eye_patch,
 	_skull_famine,
@@ -31,6 +32,7 @@ enum skull
 	_skull_malfunction,
 	_skull_mythic,
 	_skull_pinata,
+	_skull_protected,
 	_skull_recession,
 	_skull_sputnik,
 	_skull_streaking,
@@ -38,6 +40,7 @@ enum skull
 	_skull_thats_just_wrong,
 	_skull_thunderstorm,
 	_skull_tough_luck,
+	_skull_vampirism,
 	NUMBER_OF_SKULLS
 };
 
@@ -148,6 +151,15 @@ skull's active camo instead (taken, or still recharging); Swarm: whether an
 object's definition is a hunter's */
 int skulls_envy(long unit_index);
 int skulls_object_is_hunter(long definition_index);
+
+/* Vampirism: a player's unit fired a shot (a miss, unless an enemy is hit
+soon); damage of a player's dealt to an object (a hit, if an enemy) */
+void skulls_shot_fired(long unit_index);
+void skulls_damage_dealt(long object_index, long owner_player_index);
+/* Protected: an enemy's body without a shield given one; a hit on such a
+shield (broken by it, or not), shown as the model cannot show it */
+void skulls_protect(long unit_index);
+void skulls_given_shield_hit(long object_index, int broken);
 
 /* Famine: the weapon an actor drops, with half its ammunition */
 void skulls_famine_weapon(long weapon_index);

@@ -26,6 +26,7 @@ makes the same.
 #include "effects/effect_definitions.h"
 #include "effects/effects.h"
 #include "effects/particles.h"
+#include "cutscene/cinematics.h"
 #include "interface/hud_messaging.h"
 #include "interface/ui_widget.h"
 #include "bitmaps/bitmap_group.h"
@@ -72,25 +73,28 @@ struct skull_description const skull_descriptions[NUMBER_OF_SKULLS] =
 	{ "blind", "BLIND", "No HUD and no weapon on screen." },
 	{ "boom", "BOOM", "Explosions reach twice as far." },
 	{ "catch", "CATCH", "Enemies throw grenades more often. Also drop more." },
-	{ "envy", "ENVY", "Your flashlight is active camo instead: ten seconds of it, then a recharge." },
+	{ "confetti_party", "CONFETTI PARTY", "Every enemy killed by a headshot goes out with a celebration." },
+	{ "envy", "ENVY", "Your flashlight is active camo instead." },
 	{ "eye_patch", "EYE PATCH", "No aim assist: no magnetism, no red reticle." },
 	{ "famine", "FAMINE", "Weapons dropped by enemies have half\ntheir ammo." },
 	{ "fog", "FOG", "No motion tracker." },
 	{ "foreign", "FOREIGN", "You can't pick up Covenant weapons." },
 	{ "ghost", "GHOST", "Enemies don't flinch when you hit them." },
-	{ "grunt_birthday_party", "BIRTHDAY PARTY", "A grunt killed by a headshot goes out with a celebration." },
+	{ "grunt_birthday_party", "GRUNT BIRTHDAY", "A grunt killed by a headshot goes out with a celebration." },
 	{ "grunt_funeral", "GRUNT FUNERAL", "Dying grunts blow up like plasma grenades." },
 	{ "iron", "IRON", "Dying reverts to checkpoint. Single player restarts the level." },
 	{ "malfunction", "MALFUNCTION", "Each time you spawn, one part of your HUD stops working." },
 	{ "mythic", "MYTHIC", "Enemies have twice the health and shields." },
 	{ "pinata", "PINATA", "Punching an enemy knocks a grenade loose." },
+	{ "protected", "PROTECTED", "All enemies have shields." },
 	{ "recession", "RECESSION", "Every shot uses twice the ammo." },
 	{ "sputnik", "SPUTNIK", "Hits and blasts throw bodies, vehicles and weapons 3x as far." },
-	{ "streaking", "STREAKING", "Your shields slowly drain and never recharge. Every kill gives some back." },
+	{ "streaking", "STREAKING", "Your shields drain over time. Kill to recharge." },
 	{ "swarm", "SWARM", "Hunters are much stronger." },
 	{ "thats_just_wrong", "JUST... WRONG", "Enemies see and hear you from twice as far away." },
 	{ "thunderstorm", "THUNDERSTORM", "Enemies are promoted." },
 	{ "tough_luck", "TOUGH LUCK", "Enemies always go berserk, dive from grenades, and never flee." },
+	{ "vampirism", "VAMPIRISM", "Every shot missed hurts you. Regenerate health by hitting shots." },
 };
 
 #define SKULLS_LOCAL_PLAYERS 4
@@ -277,6 +281,7 @@ NONE when its enemies carry none */
 static long carried_definition = NONE;
 
 static void running_skulls_reset(void);
+static void vampirism_reset(void);
 
 void skulls_level_loaded(long scenario_tag_index)
 {
@@ -306,7 +311,8 @@ void skulls_level_loaded(long scenario_tag_index)
 	of the skulls to be found) */
 	if (scenario_tag_index != NONE && scenario_definition_get(scenario_tag_index)->type == _scenario_type_solo)
 	{
-		own_sounds_add(((level_mask & (1UL << _skull_grunt_birthday_party)) ? 1UL << _own_sound_party : 0) |
+		own_sounds_add(((level_mask & ((1UL << _skull_grunt_birthday_party) | (1UL << _skull_confetti_party))) ?
+			1UL << _own_sound_party : 0) |
 			(carried_definition != NONE ? (1UL << _own_sound_skull_pickup) | (1UL << _own_sound_skull_carrier) |
 				(1UL << _own_sound_skull_floor) : 0));
 	}
@@ -360,7 +366,10 @@ void skulls_set_remote(int on, unsigned char const *mask)
 
 int skulls_team_is_enemy(short team_index)
 {
-	return team_index != NONE && game_team_is_enemy(_game_team_player, team_index);
+	/* (not an object of no team, an empty vehicle's: game_team_is_enemy
+	counts the default team the player's enemy) */
+	return team_index != NONE && team_index != _game_team_default &&
+		game_team_is_enemy(_game_team_player, team_index);
 }
 
 int skulls_unit_is_enemy(long unit_index)
@@ -1181,6 +1190,7 @@ static void running_skulls_reset(void)
 	hunter_kind_count = 0;
 	for (slot = 0; slot < ENVY_PLAYERS; slot++)
 		envy_ready_time[slot] = 0;
+	vampirism_reset();
 }
 
 /* Streaking: the players' shields drain from full to none in this long,
@@ -1188,17 +1198,208 @@ and a kill gives back this share of them */
 #define STREAKING_DRAIN_TICKS (40 * TICKS_PER_SECOND)
 #define STREAKING_KILL_SHIELD 0.25f
 
+/* Protected: an enemy without a shield (a grunt's, a jackal's) is given
+one of this share of its health, which does not come back */
+#define PROTECTED_SHIELD 0.75f
+
+void skulls_protect(long unit_index)
+{
+	struct unit_datum *unit = (struct unit_datum *)object_try_and_get_and_verify_type(unit_index, _object_mask_unit);
+
+	if (!unit || !skull_active(_skull_protected) || unit->object.type != _object_type_biped ||
+		unit->object.maximum_shield_vitality > 0.0f || unit->object.maximum_body_vitality <= 0.0f ||
+		TEST_FLAG(unit->object.damage_flags, _object_dead_bit) || !skulls_unit_is_enemy(unit_index))
+	{
+		return;
+	}
+	unit->object.maximum_shield_vitality = unit->object.maximum_body_vitality * PROTECTED_SHIELD;
+	unit->object.shield_vitality = 1.0f;
+}
+
+/* the flare of a hit on Protected's shield: the covenant shield's sparks,
+blue, at the body; and when it breaks, an elite's shield breaking */
+#define GIVEN_SHIELD_SPARKS 6
+#define GIVEN_SHIELD_SPARK_TAG "effects\\particles\\energy\\shield c generic"
+#define GIVEN_SHIELD_BREAK_TAG "characters\\elite\\effects\\elite shield depletion"
+
+static real_rgb_color const given_shield_colors[] = { { 0.35f, 0.65f, 1.0f }, { 0.6f, 0.85f, 1.0f } };
+
+void skulls_given_shield_hit(long object_index, int broken)
+{
+	struct object_datum *object = object_try_and_get(object_index);
+	real_point3d center;
+
+	if (!object)
+		return;
+	center = object->object.bounding_sphere_center;
+	confetti_throw(tag_loaded(PARTICLE_TAG, GIVEN_SHIELD_SPARK_TAG), GIVEN_SHIELD_SPARKS, &center, 0.4f, 0.1f, 0.16f,
+		given_shield_colors, (short)NUMBEROF(given_shield_colors));
+	if (broken)
+	{
+		effect_at_unit(GIVEN_SHIELD_BREAK_TAG, object_index);
+		error(_error_silent, "skulls: protected's shield on %s broke", tag_get_name(object->definition_index));
+	}
+}
+
+/* Vampirism: each player's shots not yet known to have hit (the game times
+they were fired, oldest first): a hit on an enemy within this long takes
+the oldest away and heals; one older is a miss, and hurts. Health comes
+back by nothing else (health packs are left: players.c) */
+#define VAMPIRISM_PLAYERS 4
+#define VAMPIRISM_SHOTS 32
+#define VAMPIRISM_HIT_TICKS (TICKS_PER_SECOND * 3 / 2)
+#define VAMPIRISM_HIT_HEALTH 0.03f
+#define VAMPIRISM_MISS_SHIELD 0.04f
+#define VAMPIRISM_MISS_HEALTH 0.02f
+/* (a miss never kills: it leaves this much health) */
+#define VAMPIRISM_MISS_FLOOR 0.05f
+
+static struct
+{
+	long unit_index;
+	long fired[VAMPIRISM_SHOTS];
+	short count;
+} vampirism_shots[VAMPIRISM_PLAYERS];
+
+static short vampirism_slot(long unit_index, boolean add)
+{
+	short slot;
+	short free_slot = NONE;
+
+	for (slot = 0; slot < VAMPIRISM_PLAYERS; slot++)
+	{
+		if (vampirism_shots[slot].unit_index == unit_index && vampirism_shots[slot].count >= 0)
+			return slot;
+		if (free_slot == NONE && (vampirism_shots[slot].count == 0 ||
+			!object_try_and_get_and_verify_type(vampirism_shots[slot].unit_index, _object_mask_unit)))
+		{
+			free_slot = slot;
+		}
+	}
+	if (!add || free_slot == NONE)
+		return NONE;
+	vampirism_shots[free_slot].unit_index = unit_index;
+	vampirism_shots[free_slot].count = 0;
+	return free_slot;
+}
+
+static void vampirism_reset(void)
+{
+	short slot;
+
+	for (slot = 0; slot < VAMPIRISM_PLAYERS; slot++)
+	{
+		vampirism_shots[slot].unit_index = NONE;
+		vampirism_shots[slot].count = 0;
+	}
+}
+
+void skulls_shot_fired(long unit_index)
+{
+	short slot;
+
+	if (!skull_active(_skull_vampirism) || network_game_distributed_client() || !skulls_unit_is_player(unit_index))
+		return;
+	slot = vampirism_slot(unit_index, TRUE);
+	if (slot == NONE)
+		return;
+	/* (full: the oldest is let go, neither hit nor missed) */
+	if (vampirism_shots[slot].count == VAMPIRISM_SHOTS)
+	{
+		memmove(vampirism_shots[slot].fired, vampirism_shots[slot].fired + 1,
+			(VAMPIRISM_SHOTS - 1) * sizeof(vampirism_shots[slot].fired[0]));
+		vampirism_shots[slot].count--;
+	}
+	vampirism_shots[slot].fired[vampirism_shots[slot].count++] = game_time_get();
+}
+
+void skulls_damage_dealt(long object_index, long owner_player_index)
+{
+	struct player_datum *player;
+	struct unit_datum *unit;
+	short slot;
+
+	if (!skull_active(_skull_vampirism) || owner_player_index == NONE || !skulls_unit_is_enemy(object_index))
+		return;
+	player = player_get(owner_player_index);
+	unit = player->unit_index == NONE ? NULL :
+		(struct unit_datum *)object_try_and_get_and_verify_type(player->unit_index, _object_mask_unit);
+	if (!unit || TEST_FLAG(unit->object.damage_flags, _object_dead_bit))
+		return;
+	/* (a hit: its shot no miss; and some health back) */
+	slot = vampirism_slot(player->unit_index, FALSE);
+	if (slot != NONE && vampirism_shots[slot].count > 0)
+	{
+		memmove(vampirism_shots[slot].fired, vampirism_shots[slot].fired + 1,
+			(VAMPIRISM_SHOTS - 1) * sizeof(vampirism_shots[slot].fired[0]));
+		vampirism_shots[slot].count--;
+	}
+	unit->object.body_vitality += VAMPIRISM_HIT_HEALTH;
+	if (unit->object.body_vitality > 1.0f)
+		unit->object.body_vitality = 1.0f;
+}
+
+/* the shots that hit nothing in time: each takes some shield, then health */
+static void vampirism_tick(void)
+{
+	long now = game_time_get();
+	short slot;
+
+	if (!skull_active(_skull_vampirism) || network_game_distributed_client())
+		return;
+	for (slot = 0; slot < VAMPIRISM_PLAYERS; slot++)
+	{
+		struct unit_datum *unit;
+
+		if (vampirism_shots[slot].count <= 0)
+			continue;
+		unit = (struct unit_datum *)object_try_and_get_and_verify_type(vampirism_shots[slot].unit_index,
+			_object_mask_unit);
+		/* (gone, dead, or a revert to before the shots) */
+		if (!unit || TEST_FLAG(unit->object.damage_flags, _object_dead_bit) ||
+			now < vampirism_shots[slot].fired[0])
+		{
+			vampirism_shots[slot].count = 0;
+			continue;
+		}
+		while (vampirism_shots[slot].count > 0 && now - vampirism_shots[slot].fired[0] > VAMPIRISM_HIT_TICKS)
+		{
+			memmove(vampirism_shots[slot].fired, vampirism_shots[slot].fired + 1,
+				(VAMPIRISM_SHOTS - 1) * sizeof(vampirism_shots[slot].fired[0]));
+			vampirism_shots[slot].count--;
+			if (unit->object.shield_vitality > 0.0f)
+			{
+				unit->object.shield_vitality -= VAMPIRISM_MISS_SHIELD;
+				if (unit->object.shield_vitality < 0.0f)
+					unit->object.shield_vitality = 0.0f;
+			}
+			else if (unit->object.body_vitality > VAMPIRISM_MISS_FLOOR)
+			{
+				unit->object.body_vitality -= VAMPIRISM_MISS_HEALTH;
+				if (unit->object.body_vitality < VAMPIRISM_MISS_FLOOR)
+					unit->object.body_vitality = VAMPIRISM_MISS_FLOOR;
+			}
+		}
+	}
+}
+
 /* the units' skulls, each tick: Assassins cloaks the enemies (those placed
-before it was on too), Streaking drains the players' shields; where the
-shields are run (not a distributed client's: the host's) */
+before it was on too), Protected shields them, Streaking drains the
+players' shields; where the shields are run (not a distributed client's:
+the host's) */
 static void skulls_units_tick(void)
 {
 	struct object_iterator iterator;
 	struct unit_datum *unit;
 	boolean assassins = skull_active(_skull_assassins) && game_time_get() % TICKS_PER_SECOND == 0;
-	boolean streaking = skull_active(_skull_streaking) && !network_game_distributed_client();
+	boolean protect = skull_active(_skull_protected) && !network_game_distributed_client() &&
+		game_time_get() % TICKS_PER_SECOND == 0;
+	/* (Streaking stops for a cutscene) */
+	boolean streaking = skull_active(_skull_streaking) && !network_game_distributed_client() &&
+		!cinematic_in_progress();
 
-	if (!assassins && !streaking)
+	vampirism_tick();
+	if (!assassins && !streaking && !protect)
 		return;
 	object_iterator_new(&iterator, _object_mask_unit, 0);
 	while ((unit = object_iterator_next(&iterator)) != NULL)
@@ -1211,8 +1412,11 @@ static void skulls_units_tick(void)
 			if (unit->object.shield_vitality < 0.0f)
 				unit->object.shield_vitality = 0.0f;
 		}
-		if (assassins && !TEST_FLAG(unit->unit.flags, _unit_active_camouflaged_bit) &&
-			skulls_unit_is_enemy(iterator.index))
+		if (protect && unit->object.maximum_shield_vitality <= 0.0f)
+			skulls_protect(iterator.index);
+		/* (an enemy's body: not a vehicle, whose riders would vanish with it) */
+		if (assassins && unit->object.type == _object_type_biped &&
+			!TEST_FLAG(unit->unit.flags, _unit_active_camouflaged_bit) && skulls_unit_is_enemy(iterator.index))
 		{
 			SET_FLAG(unit->unit.flags, _unit_active_camouflaged_bit, TRUE);
 			unit->unit.active_camouflage = 1.0f;
@@ -1485,7 +1689,8 @@ void skulls_unit_killed(long unit_index, int headshot, long killer_player_index)
 	if (skulls_unit_is_player(unit_index))
 		skulls_lose("a player died");
 	/* (the Master Chief Collection's confetti and cheer) */
-	if (headshot && skull_active(_skull_grunt_birthday_party) && skulls_unit_is_grunt(unit_index))
+	if (headshot && ((skull_active(_skull_grunt_birthday_party) && skulls_unit_is_grunt(unit_index)) ||
+		(skull_active(_skull_confetti_party) && skulls_unit_is_enemy(unit_index))))
 	{
 		confetti(unit_index, party_colors, (short)NUMBEROF(party_colors), 0.0f);
 		own_sound_play(_own_sound_party, unit_index);

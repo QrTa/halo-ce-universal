@@ -4448,6 +4448,10 @@ static void player_handle_powerup_equipment(
 	}
 	else if (powerup_type == _equipment_powerup_health)
 	{
+		/* port: skull: Vampirism, a health pack is not taken
+		(port/linux/game/skulls.c) */
+		if (skull_active(_skull_vampirism))
+			return;
 		if (!object_restore_body(player->unit_index))
 			return;
 		player_health_pack_screen_effect(player_index);

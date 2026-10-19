@@ -2770,6 +2770,10 @@ static void weapon_trigger_fire(
 		}
 
 		weapon->weapon.game_time_last_fired= game_time_get();
+		/* port: skull: Vampirism, a player's shot, a miss unless it hits an
+		enemy soon (port/linux/game/skulls.c) */
+		if (!misfired && TEST_FLAG(weapon->item.flags, _item_belongs_to_player_bit))
+			skulls_shot_fired(owner_object_index);
 
 		first_person_weapon_message_from_weapon(weapon_index, misfired ?
 			(trigger_index ? _first_person_weapon_message_secondary_misfire : _first_person_weapon_message_primary_misfire) :

@@ -447,10 +447,12 @@ static const struct config_setting config_settings[] =
 		"Game too. A co-op client plays with the host's." },
 	{ "game.skulls_active", _config_string, "\"\"", "HALO_SKULLS_ACTIVE", _environment_value, _platform_all,
 		"The skulls turned on, with game.skulls, separated by commas: anger,\n"
-		"assassins, bandanna, black_eye, blind, boom, catch, envy, eye_patch,\n"
+		"assassins, bandanna, black_eye, blind, boom, catch, confetti_party,\n"
+		"envy, eye_patch,\n"
 		"famine, fog, foreign, ghost, grunt_birthday_party, grunt_funeral, iron,\n"
-		"malfunction, mythic, pinata, recession, sputnik, streaking, swarm,\n"
-		"thats_just_wrong, thunderstorm, tough_luck. Written by the skulls screen." },
+		"malfunction, mythic, pinata, protected, recession, sputnik, streaking,\n"
+		"swarm, thats_just_wrong, thunderstorm, tough_luck, vampirism. Written by\n"
+		"the skulls screen." },
 	{ "game.skulls_unlock_mode", _config_string, "\"\"", "HALO_SKULLS_UNLOCK_MODE", _environment_value, _platform_all,
 		"How the skulls are had, asked the first time the skulls screen opens:\n"
 		"\"all\" (every skull can be turned on), \"play\" (Grunt Birthday Party,\n"

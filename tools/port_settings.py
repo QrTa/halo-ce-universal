@@ -777,20 +777,20 @@ def _randomizer_screen() -> list:
 # Their helps are skulls.c's, which the screen shows
 SKULLS = [
     ("anger", "ANGER"), ("assassins", "ASSASSINS"), ("bandanna", "BANDANNA"), ("black_eye", "BLACK EYE"),
-    ("blind", "BLIND"), ("boom", "BOOM"), ("catch", "CATCH"), ("envy", "ENVY"), ("eye_patch", "EYE PATCH"),
+    ("blind", "BLIND"), ("boom", "BOOM"), ("catch", "CATCH"), ("confetti_party", "CONFETTI PARTY"), ("envy", "ENVY"), ("eye_patch", "EYE PATCH"),
     ("famine", "FAMINE"), ("fog", "FOG"), ("foreign", "FOREIGN"), ("ghost", "GHOST"),
-    ("grunt_birthday_party", "BIRTHDAY PARTY"), ("grunt_funeral", "GRUNT FUNERAL"), ("iron", "IRON"),
-    ("malfunction", "MALFUNCTION"), ("mythic", "MYTHIC"), ("pinata", "PINATA"), ("recession", "RECESSION"),
+    ("grunt_birthday_party", "GRUNT BIRTHDAY"), ("grunt_funeral", "GRUNT FUNERAL"), ("iron", "IRON"),
+    ("malfunction", "MALFUNCTION"), ("mythic", "MYTHIC"), ("pinata", "PINATA"), ("protected", "PROTECTED"), ("recession", "RECESSION"),
     ("sputnik", "SPUTNIK"), ("streaking", "STREAKING"), ("swarm", "SWARM"), ("thats_just_wrong", "JUST... WRONG"),
-    ("thunderstorm", "THUNDERSTORM"), ("tough_luck", "TOUGH LUCK"),
+    ("thunderstorm", "THUNDERSTORM"), ("tough_luck", "TOUGH LUCK"), ("vampirism", "VAMPIRISM"),
 ]
 SKULL_COLUMNS = 3
 # a skull's place in the grid: its bar (port/assets/skulls/option, as
 # option_bkds_sm is, as narrow as three to a row need) and the rows' pitch
 SKULL_WIDTH = 170
 SKULL_PITCH_X = 178
-SKULL_PITCH_Y = 30
-SKULL_TOP = 76
+SKULL_PITCH_Y = 29
+SKULL_TOP = 74
 # the grid's moves, which menu_functions.c's "skulls up" (and so on) make:
 # the screen's list steps none itself
 SKULL_MOVES = [('up', 'skulls up'), ('stick_up', 'skulls up'), ('down', 'skulls down'),

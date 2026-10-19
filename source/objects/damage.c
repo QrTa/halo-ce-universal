@@ -447,6 +447,22 @@ void object_initialize_vitality(
 	return;
 }
 
+/* port: skull: Protected, whether the object's shield is one the skull
+gave it, its collision model having none (port/linux/game/skulls.c): its
+model's materials take no shield damage, which the shield takes instead */
+static boolean object_shield_given(
+	struct object_datum const *object)
+{
+	struct object_definition *definition = object_definition_get(object->definition_index);
+	struct collision_model *collision_model;
+
+	if (object->object.maximum_shield_vitality <= 0.f || definition->object.collision_model.index == NONE)
+		return FALSE;
+	collision_model = collision_model_definition_get(definition->object.collision_model.index);
+
+	return collision_model && collision_model->resistance.maximum_shield_vitality <= 0.f;
+}
+
 real object_get_maximum_body_vitality(
 	long object_index,
 	boolean ignore_difficulty)
@@ -484,6 +500,12 @@ real object_get_maximum_shield_vitality(
 		/* port: skull: Swarm, and the hunters' */
 		if (skull_active(_skull_swarm) && skulls_object_is_hunter(object->definition_index))
 			result *= 3.f;
+		/* port: skull: Protected, an enemy's own shield doubled */
+		if (skull_active(_skull_protected) && skulls_team_is_enemy(object->object.owner_team_index) &&
+			result > 0.f && !object_shield_given(object))
+		{
+			result *= 2.f;
+		}
 	}
 
 	return result;
@@ -847,6 +869,9 @@ static void object_damage_shield(
 	boolean ignore_difficulty = FALSE;
 	real maximum_shield_vitality;
 	real inverse_maximum_shield_vitality;
+	/* port: skull: Protected's shield, which none of the model's materials
+	leak through or scale (port/linux/game/skulls.c) */
+	boolean given = object_shield_given(object);
 
 	(void)damage;
 
@@ -873,7 +898,7 @@ static void object_damage_shield(
 				_damage_resistance_always_shields_friendly_damage_bit))
 		{
 			shield_damage =
-				(1.f - damage_material->shield_leak_fraction) * total_damage;
+				(1.f - (given ? 0.f : damage_material->shield_leak_fraction)) * total_damage;
 			if (object->object.shield_vitality <=
 					damage_resistance->shield_failure_threshold &&
 				damage_resistance->shield_failure_threshold > 0.f)
@@ -920,7 +945,7 @@ static void object_damage_shield(
 					shield_damage /= difficulty;
 			}
 
-			actual_shield_damage =
+			actual_shield_damage = given ? shield_damage :
 				damage_material->shield_damage_multiplier * shield_damage;
 			match_vassert(
 				"c:\\halo\\SOURCE\\objects\\damage.c",
@@ -930,7 +955,10 @@ static void object_damage_shield(
 				"damage_resistance->shield_material_type>=0 && damage_resistance->shield_material_type<NUMBER_OF_MATERIAL_TYPES");
 			/* port: a material the modifiers have, or no modifier (a map's type;
 			retail's are 0-30) */
-			if (VALID_INDEX(damage_resistance->shield_material_type, NUMBER_OF_MATERIAL_TYPES))
+			if (given)
+			{
+			}
+			else if (VALID_INDEX(damage_resistance->shield_material_type, NUMBER_OF_MATERIAL_TYPES))
 			{
 				actual_shield_damage *= damage_definition->material_modifiers[
 					damage_resistance->shield_material_type];
@@ -990,6 +1018,11 @@ static void object_damage_shield(
 				}
 			}
 		}
+
+		/* port: skull: Protected's shield has no flare of its own (the
+		model has none): the skull's, and its break */
+		if (given && !negligible_damage)
+			skulls_given_shield_hit(object_index, object->object.shield_vitality <= 0.f);
 
 		if (!negligible_damage)
 		{
@@ -1133,6 +1166,9 @@ static void object_damage_aftermath(
 	shields are run (port/linux/game/skulls.c) */
 	if (objects_update_shields() && damage_effect->damage.category == _damage_category_melee)
 		skulls_melee_damage(object_index, damage->owner_object_index, damage->owner_player_index);
+	/* port: skull: Vampirism, a player's hit on an enemy heals them */
+	if (objects_update_shields())
+		skulls_damage_dealt(object_index, damage->owner_player_index);
 
 	if (game_engine_can_score() &&
 		!TEST_FLAG(damage->flags, _damage_no_statistics_bit))
@@ -2110,10 +2146,13 @@ void object_damage_update(
 		}
 		else if (object->object.shield_vitality < 1.f)
 		{
-			/* port: skull: Black Eye, a player's shield only a punch fills */
+			/* port: skull: Black Eye, a player's shield only a punch fills;
+			and Protected's shield never comes back (the model it was given
+			to has no recharge of its own, which may be at once) */
 			if (object->object.shield_stun_ticks == 0 &&
 				!((skull_active(_skull_black_eye) || skull_active(_skull_streaking)) &&
-					skulls_unit_is_player(object_index)))
+					skulls_unit_is_player(object_index)) &&
+				!object_shield_given(object))
 			{
 				real shield_recharge =
 					collision_model->resistance.runtime_shield_recharge_velocity;

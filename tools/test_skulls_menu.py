@@ -23,7 +23,7 @@ def test_skulls_menus():
     assert 'setting="game.skulls_all_unlocked"' in gameplay
     assert 'name="main_menu/settings_select/player_setup/player_profile_edit/gameplay/op_skulls_all_unlocked"' in gameplay
     assert 'input="gameplay screen update"' in gameplay
-    assert len(port_settings.SKULLS) == 26
+    assert len(port_settings.SKULLS) == 29
     for key, _ in port_settings.SKULLS:
         assert f'name="main_menu/difficulty_select/skulls/skull_{key}"' in screen
     assert screen.count('run="skull toggle"') == 2 * len(port_settings.SKULLS)
@@ -100,6 +100,12 @@ def test_each_skull_has_its_icon():
         assert source.is_file(), key
         assert pngs[index] in files
         assert (ROOT / "port/assets/menus" / pngs[index]).read_bytes() == source.read_bytes(), key
+
+
+def test_skulls_are_alphabetical():
+    """The skulls screen lists them in alphabetical order of their keys."""
+    keys = [key for key, _ in port_settings.SKULLS]
+    assert keys == sorted(keys)
 
 
 def test_skull_handlers_are_registered():
