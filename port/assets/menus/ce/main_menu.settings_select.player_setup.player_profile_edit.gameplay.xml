@@ -13,13 +13,9 @@
 	</widget>
 	<widget name="main_menu/settings_select/player_setup/player_profile_edit/gameplay/options_menu" type="column_list" width="640" height="480" flags="pass_unhandled_to_focused_child up_down_tabs_children" description="main_menu/settings_select/player_setup/player_profile_edit/gameplay/help">
 		<data input="port settings help"/>
-		<data input="gameplay screen update"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/gameplay/op_ragdoll_players" x="54" y="73"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/gameplay/op_ragdoll_ai" x="54" y="103"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/gameplay/op_randomizer" x="54" y="133"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/gameplay/op_skulls" x="54" y="163"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/gameplay/op_skulls_all_unlocked" x="54" y="193"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/gameplay/op_skulls_instant_unlock" x="54" y="223"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/gameplay/op_ragdolls" x="54" y="73"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/gameplay/op_randomizer" x="54" y="103"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/gameplay/op_skulls" x="54" y="133"/>
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/gameplay/button_bar" y="414"/>
 	</widget>
 	<widget name="main_menu/settings_select/player_setup/player_profile_edit/gameplay/button_bar" type="column_list" width="640" height="28" flags="pass_unhandled_to_focused_child left_right_tabs_items">
@@ -27,59 +23,29 @@
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/gameplay/button_ok" x="380" y="1"/>
 		<child widget="common_button_cancel" x="510" y="1"/>
 	</widget>
-	<widget name="main_menu/settings_select/player_setup/player_profile_edit/gameplay/op_ragdoll_players" width="512" height="28" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/option_bkds" color="#FF2896FF">
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/gameplay/ragdoll_players_label"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/gameplay/ragdoll_players_spinner" x="320" y="1"/>
+	<widget name="main_menu/settings_select/player_setup/player_profile_edit/gameplay/op_ragdolls" width="512" height="28" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/option_bkds" color="#FF2896FF">
+		<on event="a" open="main_menu/settings_select/player_setup/player_profile_edit/gameplay/ragdolls/ragdolls_settings_screen"/>
+		<on event="start" open="main_menu/settings_select/player_setup/player_profile_edit/gameplay/ragdolls/ragdolls_settings_screen"/>
+		<on event="left_mouse" run="mouse emit accept event"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/gameplay/ragdolls_label"/>
 	</widget>
-	<widget name="main_menu/settings_select/player_setup/player_profile_edit/gameplay/ragdoll_players_label" type="text" controller="1" width="300" height="22" string_list="main_menu/settings_select/player_setup/player_profile_edit/gameplay/labels" string_index="0" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
-	</widget>
-	<widget name="main_menu/settings_select/player_setup/player_profile_edit/gameplay/ragdoll_players_spinner" type="spinner" left="3" top="2" width="147" height="20" flags="pass_unhandled_to_focused_child left_right_tabs_items" strings="NONE|WOODY|HALO 2" setting="game.ragdoll_players" values="none|woody|halo2" font="ui\large_ui" color="#FF2896FF" align="center" text_y="1" header_bitmap="bitmaps/arrow_sm_left" footer_bitmap="bitmaps/arrow_sm_right" header_bounds="7 -6 19 0" footer_bounds="7 150 19 156">
-		<on event="created" run="port setting load"/>
-	</widget>
-	<widget name="main_menu/settings_select/player_setup/player_profile_edit/gameplay/op_ragdoll_ai" width="512" height="28" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/option_bkds" color="#FF2896FF">
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/gameplay/ragdoll_ai_label"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/gameplay/ragdoll_ai_spinner" x="320" y="1"/>
-	</widget>
-	<widget name="main_menu/settings_select/player_setup/player_profile_edit/gameplay/ragdoll_ai_label" type="text" controller="1" width="300" height="22" string_list="main_menu/settings_select/player_setup/player_profile_edit/gameplay/labels" string_index="1" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
-	</widget>
-	<widget name="main_menu/settings_select/player_setup/player_profile_edit/gameplay/ragdoll_ai_spinner" type="spinner" left="3" top="2" width="147" height="20" flags="pass_unhandled_to_focused_child left_right_tabs_items" strings="NONE|WOODY|HALO 2" setting="game.ragdoll_ai" values="none|woody|halo2" font="ui\large_ui" color="#FF2896FF" align="center" text_y="1" header_bitmap="bitmaps/arrow_sm_left" footer_bitmap="bitmaps/arrow_sm_right" header_bounds="7 -6 19 0" footer_bounds="7 150 19 156">
-		<on event="created" run="port setting load"/>
+	<widget name="main_menu/settings_select/player_setup/player_profile_edit/gameplay/ragdolls_label" type="text" controller="1" width="512" height="22" string_list="main_menu/settings_select/player_setup/player_profile_edit/gameplay/labels" string_index="0" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
 	</widget>
 	<widget name="main_menu/settings_select/player_setup/player_profile_edit/gameplay/op_randomizer" width="512" height="28" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/option_bkds" color="#FF2896FF">
+		<on event="a" open="main_menu/settings_select/player_setup/player_profile_edit/gameplay/randomizer/randomizer_settings_screen"/>
+		<on event="start" open="main_menu/settings_select/player_setup/player_profile_edit/gameplay/randomizer/randomizer_settings_screen"/>
+		<on event="left_mouse" run="mouse emit accept event"/>
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/gameplay/randomizer_label"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/gameplay/randomizer_spinner" x="320" y="1"/>
 	</widget>
-	<widget name="main_menu/settings_select/player_setup/player_profile_edit/gameplay/randomizer_label" type="text" controller="1" width="300" height="22" string_list="main_menu/settings_select/player_setup/player_profile_edit/gameplay/labels" string_index="2" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
-	</widget>
-	<widget name="main_menu/settings_select/player_setup/player_profile_edit/gameplay/randomizer_spinner" type="spinner" left="3" top="2" width="147" height="20" flags="pass_unhandled_to_focused_child left_right_tabs_items" strings="OFF|ON" setting="game.randomizer" values="false|true" font="ui\large_ui" color="#FF2896FF" align="center" text_y="1" header_bitmap="bitmaps/arrow_sm_left" footer_bitmap="bitmaps/arrow_sm_right" header_bounds="7 -6 19 0" footer_bounds="7 150 19 156">
-		<on event="created" run="port setting load"/>
+	<widget name="main_menu/settings_select/player_setup/player_profile_edit/gameplay/randomizer_label" type="text" controller="1" width="512" height="22" string_list="main_menu/settings_select/player_setup/player_profile_edit/gameplay/labels" string_index="1" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
 	</widget>
 	<widget name="main_menu/settings_select/player_setup/player_profile_edit/gameplay/op_skulls" width="512" height="28" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/option_bkds" color="#FF2896FF">
+		<on event="a" open="main_menu/settings_select/player_setup/player_profile_edit/gameplay/skulls/skulls_settings_screen"/>
+		<on event="start" open="main_menu/settings_select/player_setup/player_profile_edit/gameplay/skulls/skulls_settings_screen"/>
+		<on event="left_mouse" run="mouse emit accept event"/>
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/gameplay/skulls_label"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/gameplay/skulls_spinner" x="320" y="1"/>
 	</widget>
-	<widget name="main_menu/settings_select/player_setup/player_profile_edit/gameplay/skulls_label" type="text" controller="1" width="300" height="22" string_list="main_menu/settings_select/player_setup/player_profile_edit/gameplay/labels" string_index="3" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
-	</widget>
-	<widget name="main_menu/settings_select/player_setup/player_profile_edit/gameplay/skulls_spinner" type="spinner" left="3" top="2" width="147" height="20" flags="pass_unhandled_to_focused_child left_right_tabs_items" strings="OFF|ON" setting="game.skulls" values="false|true" font="ui\large_ui" color="#FF2896FF" align="center" text_y="1" header_bitmap="bitmaps/arrow_sm_left" footer_bitmap="bitmaps/arrow_sm_right" header_bounds="7 -6 19 0" footer_bounds="7 150 19 156">
-		<on event="created" run="port setting load"/>
-	</widget>
-	<widget name="main_menu/settings_select/player_setup/player_profile_edit/gameplay/op_skulls_all_unlocked" width="512" height="28" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/option_bkds" color="#FF2896FF">
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/gameplay/skulls_all_unlocked_label"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/gameplay/skulls_all_unlocked_spinner" x="320" y="1"/>
-	</widget>
-	<widget name="main_menu/settings_select/player_setup/player_profile_edit/gameplay/skulls_all_unlocked_label" type="text" controller="1" width="300" height="22" string_list="main_menu/settings_select/player_setup/player_profile_edit/gameplay/labels" string_index="4" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
-	</widget>
-	<widget name="main_menu/settings_select/player_setup/player_profile_edit/gameplay/skulls_all_unlocked_spinner" type="spinner" left="3" top="2" width="147" height="20" flags="pass_unhandled_to_focused_child left_right_tabs_items" strings="OFF|ON" setting="game.skulls_all_unlocked" values="false|true" font="ui\large_ui" color="#FF2896FF" align="center" text_y="1" header_bitmap="bitmaps/arrow_sm_left" footer_bitmap="bitmaps/arrow_sm_right" header_bounds="7 -6 19 0" footer_bounds="7 150 19 156">
-		<on event="created" run="port setting load"/>
-	</widget>
-	<widget name="main_menu/settings_select/player_setup/player_profile_edit/gameplay/op_skulls_instant_unlock" width="512" height="28" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/option_bkds" color="#FF2896FF">
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/gameplay/skulls_instant_unlock_label"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/gameplay/skulls_instant_unlock_spinner" x="320" y="1"/>
-	</widget>
-	<widget name="main_menu/settings_select/player_setup/player_profile_edit/gameplay/skulls_instant_unlock_label" type="text" controller="1" width="300" height="22" string_list="main_menu/settings_select/player_setup/player_profile_edit/gameplay/labels" string_index="5" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
-	</widget>
-	<widget name="main_menu/settings_select/player_setup/player_profile_edit/gameplay/skulls_instant_unlock_spinner" type="spinner" left="3" top="2" width="147" height="20" flags="pass_unhandled_to_focused_child left_right_tabs_items" strings="OFF|ON" setting="game.skulls_instant_unlock" values="false|true" font="ui\large_ui" color="#FF2896FF" align="center" text_y="1" header_bitmap="bitmaps/arrow_sm_left" footer_bitmap="bitmaps/arrow_sm_right" header_bounds="7 -6 19 0" footer_bounds="7 150 19 156">
-		<on event="created" run="port setting load"/>
+	<widget name="main_menu/settings_select/player_setup/player_profile_edit/gameplay/skulls_label" type="text" controller="1" width="512" height="22" string_list="main_menu/settings_select/player_setup/player_profile_edit/gameplay/labels" string_index="2" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
 	</widget>
 	<widget name="main_menu/settings_select/player_setup/player_profile_edit/gameplay/button_defaults" type="text" width="128" height="24" bitmap="bitmaps/text_button_background" string_list="strings/common_button_captions" string_index="3" font="ui\small_ui" color="#FFFFFFFF" align="center" text_y="2">
 		<on event="a" run="port settings defaults"/>
@@ -92,21 +58,15 @@
 		<on event="left_mouse" run="mouse emit accept event"/>
 	</widget>
 	<strings name="main_menu/settings_select/player_setup/player_profile_edit/gameplay/labels">
-		<string text="PLAYER RAGDOLLS:"/>
-		<string text="AI RAGDOLLS:"/>
-		<string text="RANDOMIZER:"/>
-		<string text="SKULLS:"/>
-		<string text="ALL SKULLS:"/>
-		<string text="INSTANT UNLOCK:"/>
+		<string text="RAGDOLLS"/>
+		<string text="RANDOMIZER"/>
+		<string text="SKULLS"/>
 	</strings>
 	<strings name="main_menu/settings_select/player_setup/player_profile_edit/gameplay/help_strings">
 		<string text=""/>
-		<string text="How a player's body falls:\nthe animation, a loose ragdoll, or Halo 2's."/>
-		<string text="How an AI's body falls:\nthe animation, a loose ragdoll, or Halo 2's."/>
-		<string text="On: after a campaign level's difficulty, a screen\nsets how that level's enemies and weapons change."/>
-		<string text="On: after a campaign level's difficulty, a screen\nturns the Master Chief Collection's skulls on."/>
-		<string text="On: every skull can be picked, and none drop.\nOff: enemies drop the skulls you haven't found."/>
-		<string text="On: a skull you pick up is unlocked at once.\nOff: finish the level without dying to unlock it."/>
+		<string text="How the bodies of players and the AI fall."/>
+		<string text="The randomizer: a campaign level's enemies\nand weapons swapped."/>
+		<string text="The Master Chief Collection's skulls, and\nhow they are found."/>
 	</strings>
 	<widget name="main_menu/settings_select/player_setup/player_profile_edit/gameplay_profile_item" type="text" left="51" top="342" width="232" height="32" bitmap="bitmaps/list_item_bkd" text="GAMEPLAY" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="5">
 		<on event="a" open="main_menu/settings_select/player_setup/player_profile_edit/gameplay/gameplay_settings_screen"/>

@@ -42,6 +42,8 @@ calls them from PC_MENU_FUNCTION_BASE on):
   of them, "skulls start" writes game.skulls_active and starts the level,
   "skulls up", "down", "left" and "right" move through its grid, and
   "skulls screen update" ticks them and shows the chosen one's help;
+- Settings > Gameplay > Skulls: "skulls reset progress" (A twice) forgets
+  the skulls found and the question of how they are had;
 - Controls Setup's: the keyboard and mouse's controls, two bindings each,
   shown a group at a time ("controls update menu"); "controls begin
   binding" takes the next key or button pressed for the binding left and
@@ -1584,7 +1586,7 @@ oldest first; a new name past eight drops the oldest. A setting added at
 the end is its default in a setup saved before it */
 #define RANDOMIZER_PROFILE_MAX 8
 #define RANDOMIZER_PROFILE_NAME 24
-#define RANDOMIZER_KEY_COUNT 16
+#define RANDOMIZER_KEY_COUNT 15
 
 static char const *const randomizer_keys[RANDOMIZER_KEY_COUNT] =
 {
@@ -1603,7 +1605,8 @@ static char const *const randomizer_keys[RANDOMIZER_KEY_COUNT] =
 	"game.randomizer_enemy_weapons",
 	"game.randomizer_weapon_pool",
 	"game.randomizer_weapon_type",
-	"game.randomizer_crazy",
+	/* (Go Crazy, once the last, is Settings > Gameplay > Randomizer's: a
+	setup saved with it has its field, unread) */
 };
 
 static struct
@@ -2044,7 +2047,6 @@ static void randomizer_screen_update(struct widget_instance *list)
 	rows[12].row = "op_enemy_weapons", rows[12].shown = TRUE;
 	rows[13].row = "op_weapon_pool", rows[13].shown = weapons;
 	rows[14].row = "op_weapon_type", rows[14].shown = weapons && randomizer_spinner_is(list, "weapon_pool_spinner", "one");
-	rows[15].row = "op_crazy", rows[15].shown = TRUE;
 	for (index = 0; index < RANDOMIZER_KEY_COUNT; index++)
 	{
 		struct widget_instance *row = named(list, rows[index].row, 0);
@@ -2082,15 +2084,17 @@ static boolean skulls_open(struct widget_instance *widget, boolean *widget_delet
 	return skulls_open_over(screen_of(widget)->definition_tag_index, widget_deleted);
 }
 
-/* "skulls unlock all" and "skulls unlock play" (the question's answers):
-the answer kept, then the skulls screen, over the screen the question was
-over */
-static boolean skulls_unlock_choose(boolean play, boolean *widget_deleted)
+/* "skulls unlock all", "skulls unlock play" and "skulls unlock pickup" (the
+question's answers): the answer kept, then the skulls screen, over the
+screen the question was over */
+static boolean skulls_unlock_choose(boolean play, boolean instant, boolean *widget_deleted)
 {
-	/* (either answer unlocking by playing, with ALL SKULLS on for ALL
-	UNLOCKED: Settings > Gameplay's ALL SKULLS changes it later) */
+	/* (every answer unlocking by playing, with ALL SKULLS on for ALL
+	UNLOCKED, and INSTANT UNLOCK on for UNLOCK BY PICKING UP: Settings >
+	Gameplay > Skulls changes them later) */
 	if (!config_write("game.skulls_unlock_mode", "play") ||
-		!config_write("game.skulls_all_unlocked", play ? "false" : "true"))
+		!config_write("game.skulls_all_unlocked", play ? "false" : "true") ||
+		!config_write("game.skulls_instant_unlock", instant ? "true" : "false"))
 	{
 		error(_error_silent, "skulls: could not write game.skulls_unlock_mode");
 	}
@@ -2253,13 +2257,50 @@ static void skulls_screen_update(struct widget_instance *list)
 	text_set(help, text);
 }
 
-/* "gameplay screen update" (Settings > Gameplay): ALL SKULLS only with the
-skulls on and the skulls screen's question answered, INSTANT UNLOCK only
-with ALL SKULLS off too; a hidden row takes no focus */
+/* "skulls reset progress" (Settings > Gameplay > Skulls' last row): the
+first A asks, the second forgets the skulls found and how they are had, and
+the skulls chosen; the help line says which (gameplay_screen_update) */
+static enum
+{
+	_skulls_reset_none,
+	_skulls_reset_asked,
+	_skulls_reset_done
+} skulls_reset_state;
+
+static void skulls_reset_progress(struct widget_instance *widget)
+{
+	if (skulls_reset_state != _skulls_reset_asked)
+	{
+		skulls_reset_state = _skulls_reset_asked;
+		ui_play_audio_feedback_sound(SOUND_FORWARD);
+		return;
+	}
+	if (!config_write("game.skulls_unlocked", "") || !config_write("game.skulls_active", "") ||
+		!config_write("game.skulls_all_unlocked", "false") || !config_write("game.skulls_unlock_mode", ""))
+	{
+		error(_error_silent, "skulls: could not reset the skulls' progress");
+		skulls_reset_state = _skulls_reset_none;
+		ui_play_audio_feedback_sound(SOUND_ERROR);
+		return;
+	}
+	platform_log("menus: skull progress reset");
+	skulls_reset_state = _skulls_reset_done;
+	/* (the spinners, what is saved now) */
+	settings_each(screen_of(widget), setting_show_saved);
+	ui_play_audio_feedback_sound(SOUND_BACK);
+}
+
+/* "gameplay screen update" (Settings > Gameplay > Skulls): ALL SKULLS only
+with the skulls on and the skulls screen's question answered, INSTANT
+UNLOCK only with ALL SKULLS off too; a hidden row takes no focus. And
+RESET SKULL PROGRESS's question or done in the help line, while it has the
+focus (its help's next strings: tools/port_settings.py) */
 static void gameplay_screen_update(struct widget_instance *list)
 {
 	struct widget_instance *all_row = named(list, "op_skulls_all_unlocked", 0);
 	struct widget_instance *instant_row = named(list, "op_skulls_instant_unlock", 0);
+	struct widget_instance *reset_row = named(list, "op_reset_progress", 0);
+	struct widget_instance *help = list->parameters.list.extended_description;
 	/* (ALL SKULLS once the skulls screen's question is answered; INSTANT
 	UNLOCK with it off, the skulls to be found) */
 	boolean answered = randomizer_spinner_is(list, "skulls_spinner", "true") &&
@@ -2269,6 +2310,18 @@ static void gameplay_screen_update(struct widget_instance *list)
 		all_row->visible = answered;
 	if (instant_row)
 		instant_row->visible = answered && !randomizer_spinner_is(list, "skulls_all_unlocked_spinner", "true");
+	if (!reset_row || list->focused_child != reset_row)
+	{
+		skulls_reset_state = _skulls_reset_none;
+		return;
+	}
+	if (help && skulls_reset_state != _skulls_reset_none && reset_row->child)
+	{
+		short label = pc_menu_string_index(reset_row->child->definition_tag_index);
+
+		if (label != NONE)
+			help->parameters.text_box.string_list_index = (short)(label + 1 + skulls_reset_state);
+	}
 }
 
 /* the difficulty menu: "difficulty item select" starts the game at the
@@ -7003,13 +7056,21 @@ boolean pc_menu_event_function_invoke(
 		{
 			return skulls_start();
 		}
+		else if (!strcmp(name, "skulls reset progress"))
+		{
+			skulls_reset_progress(widget);
+		}
 		else if (!strcmp(name, "skulls unlock all"))
 		{
-			return skulls_unlock_choose(FALSE, widget_deleted);
+			return skulls_unlock_choose(FALSE, FALSE, widget_deleted);
 		}
 		else if (!strcmp(name, "skulls unlock play"))
 		{
-			return skulls_unlock_choose(TRUE, widget_deleted);
+			return skulls_unlock_choose(TRUE, FALSE, widget_deleted);
+		}
+		else if (!strcmp(name, "skulls unlock pickup"))
+		{
+			return skulls_unlock_choose(TRUE, TRUE, widget_deleted);
 		}
 		else if (!strcmp(name, "skulls up"))
 		{

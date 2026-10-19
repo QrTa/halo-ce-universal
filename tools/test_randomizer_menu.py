@@ -14,10 +14,16 @@ def test_randomizer_menus():
     files = port_settings.settings_files()
     gameplay = "\n".join(files[
         "main_menu.settings_select.player_setup.player_profile_edit.gameplay.xml"])
+    settings = "\n".join(files[
+        "main_menu.settings_select.player_setup.player_profile_edit.gameplay.randomizer.xml"])
     screen = "\n".join(files["main_menu.difficulty_select.randomizer.xml"])
 
-    assert 'setting="game.randomizer"' in gameplay
-    assert "RANDOMIZER:" in gameplay
+    # (Gameplay's Randomizer row opens its screen: the switch and Go Crazy)
+    assert 'open="main_menu/settings_select/player_setup/player_profile_edit/gameplay/randomizer/randomizer_settings_screen"' in gameplay
+    assert 'setting="game.randomizer"' in settings
+    assert "RANDOMIZER:" in settings
+    assert 'setting="game.randomizer_crazy"' in settings
+    assert 'setting="game.randomizer_crazy"' not in screen
     for setting in (
         "game.randomizer_enemies",
         "game.randomizer_allies",
@@ -34,7 +40,6 @@ def test_randomizer_menus():
         "game.randomizer_pickup_type",
         "game.randomizer_weapon_pool",
         "game.randomizer_weapon_type",
-        "game.randomizer_crazy",
     ):
         assert f'setting="{setting}"' in screen
     assert 'values="any|covenant|flood|human|one"' in screen

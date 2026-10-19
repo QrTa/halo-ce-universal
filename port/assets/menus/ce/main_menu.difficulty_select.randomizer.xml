@@ -29,7 +29,6 @@
 		<child widget="main_menu/difficulty_select/randomizer/op_enemy_weapons" x="54" y="382"/>
 		<child widget="main_menu/difficulty_select/randomizer/op_weapon_pool" x="54" y="408"/>
 		<child widget="main_menu/difficulty_select/randomizer/op_weapon_type" x="54" y="434"/>
-		<child widget="main_menu/difficulty_select/randomizer/op_crazy" x="54" y="460"/>
 		<child widget="main_menu/difficulty_select/randomizer/button_bar" y="414"/>
 	</widget>
 	<widget name="main_menu/difficulty_select/randomizer/button_bar" type="column_list" width="640" height="28" flags="pass_unhandled_to_focused_child left_right_tabs_items">
@@ -173,15 +172,6 @@
 	<widget name="main_menu/difficulty_select/randomizer/weapon_type_spinner" type="spinner" left="3" top="2" width="236" height="20" flags="pass_unhandled_to_focused_child left_right_tabs_items" strings="PISTOL|ASSAULT RIFLE|SHOTGUN|SNIPER RIFLE|ROCKETS|FLAMETHROWER|PLASMA PISTOL|PLASMA RIFLE|NEEDLER|FUEL ROD|ENERGY SWORD" setting="game.randomizer_weapon_type" values="pistol|assault_rifle|shotgun|sniper_rifle|rocket_launcher|flamethrower|plasma_pistol|plasma_rifle|needler|fuel_rod|energy_sword" font="ui\large_ui" color="#FF2896FF" align="center" text_y="4" header_bitmap="bitmaps/arrow_sm_left" footer_bitmap="bitmaps/arrow_sm_right" header_bounds="7 -13 19 -7" footer_bounds="7 238 19 244">
 		<on event="created" run="port setting load"/>
 	</widget>
-	<widget name="main_menu/difficulty_select/randomizer/op_crazy" width="512" height="28" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/option_bkds" color="#FF2896FF">
-		<child widget="main_menu/difficulty_select/randomizer/crazy_label"/>
-		<child widget="main_menu/difficulty_select/randomizer/crazy_spinner" x="256" y="1"/>
-	</widget>
-	<widget name="main_menu/difficulty_select/randomizer/crazy_label" type="text" controller="1" width="300" height="22" string_list="main_menu/difficulty_select/randomizer/labels" string_index="15" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
-	</widget>
-	<widget name="main_menu/difficulty_select/randomizer/crazy_spinner" type="spinner" left="3" top="2" width="236" height="20" flags="pass_unhandled_to_focused_child left_right_tabs_items" strings="OFF|ON" setting="game.randomizer_crazy" values="false|true" font="ui\large_ui" color="#FF2896FF" align="center" text_y="4" header_bitmap="bitmaps/arrow_sm_left" footer_bitmap="bitmaps/arrow_sm_right" header_bounds="7 -13 19 -7" footer_bounds="7 238 19 244">
-		<on event="created" run="port setting load"/>
-	</widget>
 	<widget name="main_menu/difficulty_select/randomizer/button_save" type="text" width="128" height="24" bitmap="bitmaps/text_button_background" text="SAVE" font="ui\small_ui" color="#FFFFFFFF" align="center" text_y="2">
 		<on event="a" run="randomizer profile save"/>
 		<on event="start" run="randomizer profile save"/>
@@ -213,7 +203,6 @@
 		<string text="ENEMY WEAPONS:"/>
 		<string text="WEAPON POOL:"/>
 		<string text="WEAPON TYPE:"/>
-		<string text="GO CRAZY:"/>
 	</strings>
 	<strings name="main_menu/difficulty_select/randomizer/help_strings">
 		<string text="Save keeps this setup under a name.\nLoad chooses one saved before."/>
@@ -232,7 +221,6 @@
 		<string text="On: an actor's weapon is swapped for one it\ncan hold; one that can hold none keeps its own."/>
 		<string text="Which weapons an actor may be given. An actor\nthat can hold none of them keeps its own."/>
 		<string text="Only enemies that can hold it get it; others\nkeep theirs (Go Crazy lends them the hands)."/>
-		<string text="Any NPC can hold any weapon, but may not use it\nwell. Adds unused NPCs and multiplayer weapons."/>
 	</strings>
 	<widget name="main_menu/difficulty_select/randomizer/profiles_screen" width="640" height="480" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/gradient">
 		<on event="b" back="true"/>

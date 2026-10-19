@@ -15,17 +15,32 @@ def test_skulls_menus():
     files = port_settings.settings_files()
     gameplay = "\n".join(files[
         "main_menu.settings_select.player_setup.player_profile_edit.gameplay.xml"])
+    settings = "\n".join(files[
+        "main_menu.settings_select.player_setup.player_profile_edit.gameplay.skulls.xml"])
     screen = "\n".join(files["main_menu.difficulty_select.skulls.xml"])
+    base = "main_menu/settings_select/player_setup/player_profile_edit/gameplay"
 
-    assert 'setting="game.skulls"' in gameplay
-    assert "SKULLS:" in gameplay
+    # (Gameplay's three rows, each opening its screen)
+    for folder, screen_name in (("ragdolls", "ragdolls_settings_screen"), ("randomizer", "randomizer_settings_screen"),
+                                ("skulls", "skulls_settings_screen")):
+        assert f'open="{base}/{folder}/{screen_name}"' in gameplay
+    assert 'setting="game.skulls"' in settings
+    assert "SKULLS:" in settings
     # (ALL SKULLS, which menu_functions.c shows only once UNLOCK BY PLAYING was chosen)
-    assert 'setting="game.skulls_all_unlocked"' in gameplay
-    assert 'name="main_menu/settings_select/player_setup/player_profile_edit/gameplay/op_skulls_all_unlocked"' in gameplay
-    assert 'input="gameplay screen update"' in gameplay
+    assert 'setting="game.skulls_all_unlocked"' in settings
+    assert f'name="{base}/skulls/op_skulls_all_unlocked"' in settings
+    assert 'input="gameplay screen update"' in settings
     # (INSTANT UNLOCK, shown with ALL SKULLS off)
-    assert 'setting="game.skulls_instant_unlock"' in gameplay
-    assert 'name="main_menu/settings_select/player_setup/player_profile_edit/gameplay/op_skulls_instant_unlock"' in gameplay
+    assert 'setting="game.skulls_instant_unlock"' in settings
+    assert f'name="{base}/skulls/op_skulls_instant_unlock"' in settings
+    # (RESET SKULL PROGRESS, the last row: its help, then the question and
+    # the done that menu_functions.c shows after it)
+    assert f'name="{base}/skulls/op_reset_progress"' in settings
+    assert 'run="skulls reset progress"' in settings
+    helps = re.findall(r'<string text="([^"]*)"/>', settings.split("help_strings")[-1])
+    assert helps[-3].startswith("Forget every skull")
+    assert helps[-2].startswith("Press A again")
+    assert helps[-1].startswith("Skull progress reset")
     assert len(port_settings.SKULLS) == 29
     for key, _ in port_settings.SKULLS:
         assert f'name="main_menu/difficulty_select/skulls/skull_{key}"' in screen
@@ -68,14 +83,15 @@ def test_skull_helps_fit_the_help_line():
 
 
 def test_skulls_unlock_question():
-    """The first opening asks how the skulls are had, its two answers run in C."""
+    """The first opening asks how the skulls are had, its three answers run in C."""
     screen = "\n".join(port_settings.settings_files()["main_menu.difficulty_select.skulls.xml"])
 
     assert 'name="main_menu/difficulty_select/skulls/unlock_screen"' in screen
     assert 'run="skulls unlock all"' in screen
     assert 'run="skulls unlock play"' in screen
+    assert 'run="skulls unlock pickup"' in screen
     for line in port_settings.SKULLS_UNLOCK_TEXT:
-        assert len(line) <= 44, line
+        assert len(line) <= 56, line
 
 
 def test_screens_after_the_difficulty_keep_the_menu_going():
@@ -118,6 +134,6 @@ def test_skull_handlers_are_registered():
     functions = (ROOT / "port/linux/game/menu_functions.c").read_text()
 
     for name in ("skull toggle", "skulls all off", "skulls start", "skulls up", "skulls down", "skulls left",
-                 "skulls right", "skulls unlock all", "skulls unlock play", "skulls screen update", "gameplay screen update"):
+                 "skulls right", "skulls unlock all", "skulls unlock play", "skulls unlock pickup", "skulls screen update", "gameplay screen update"):
         assert f'"{name}"' in tags
         assert f'!strcmp(name, "{name}")' in functions

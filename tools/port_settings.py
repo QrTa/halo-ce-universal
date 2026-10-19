@@ -319,11 +319,23 @@ SCREENS["network_setup/map_sharing"] = {
     ],
 }
 
-# Gameplay, a screen of its own from Settings (a row of the profile menu)
+# Gameplay, a screen of its own from Settings (a row of the profile menu):
+# its categories, each a screen of its own
+_GAMEPLAY_HEADER = ("header_gameplay", f"{PE}/gameplay/header_gameplay")
 SCREENS["gameplay"] = {
     "screen": "gameplay_settings_screen",
-    "header": ("header_gameplay", f"{PE}/gameplay/header_gameplay"),
+    "header": _GAMEPLAY_HEADER,
     "spacing": 30,
+    "rows": [],
+    "categories": [
+        ("RAGDOLLS", "gameplay/ragdolls", "How the bodies of players and the AI fall."),
+        ("RANDOMIZER", "gameplay/randomizer",
+         "The randomizer: a campaign level's enemies\nand weapons swapped."),
+        ("SKULLS", "gameplay/skulls", "The Master Chief Collection's skulls, and\nhow they are found."),
+    ],
+}
+SCREENS["gameplay/ragdolls"] = {
+    "screen": "ragdolls_settings_screen", "header": _GAMEPLAY_HEADER, "spacing": 30,
     "rows": [
         ("PLAYER RAGDOLLS:", "game.ragdoll_players",
          [("NONE", "none"), ("WOODY", "woody"), ("HALO 2", "halo2")],
@@ -333,10 +345,23 @@ SCREENS["gameplay"] = {
          [("NONE", "none"), ("WOODY", "woody"), ("HALO 2", "halo2")],
          "How an AI's body falls:\nthe animation, a loose ragdoll, or Halo 2's.",
          None),
+    ],
+}
+SCREENS["gameplay/randomizer"] = {
+    "screen": "randomizer_settings_screen", "header": _GAMEPLAY_HEADER, "spacing": 30,
+    "rows": [
         ("RANDOMIZER:", "game.randomizer",
          [("OFF", "false"), ("ON", "true")],
          "On: after a campaign level's difficulty, a screen\nsets how that level's enemies and weapons change.",
          None),
+        ("GO CRAZY:", "game.randomizer_crazy", [("OFF", "false"), ("ON", "true")],
+         "Any NPC can hold any weapon, but may not use it\nwell. Adds unused NPCs and multiplayer weapons.",
+         None),
+    ],
+}
+SCREENS["gameplay/skulls"] = {
+    "screen": "skulls_settings_screen", "header": _GAMEPLAY_HEADER, "spacing": 30,
+    "rows": [
         ("SKULLS:", "game.skulls",
          [("OFF", "false"), ("ON", "true")],
          "On: after a campaign level's difficulty, a screen\nturns the Master Chief Collection's skulls on.",
@@ -352,6 +377,15 @@ SCREENS["gameplay"] = {
          [("OFF", "false"), ("ON", "true")],
          "On: a skull you pick up is unlocked at once.\nOff: finish the level without dying to unlock it.",
          None),
+    ],
+    # (a row that runs a function: A once asks, A again resets. Its help's
+    # next two strings are the question and the done, which
+    # menu_functions.c's gameplay_screen_update shows; it is the last row)
+    "actions": [
+        ("RESET SKULL PROGRESS", "skulls reset progress", "reset_progress",
+         "Forget every skull found, and ask again how\nthe skulls are had.",
+         ["Press A again to forget every skull found.\nThis cannot be undone.",
+          "Skull progress reset. Every skull is to be\nfound again."]),
     ],
     "inputs": ["gameplay screen update"],
 }
@@ -560,16 +594,34 @@ def _setting_screen(folder: str, spec: dict) -> list:
                          [("type", "text"), ("controller", 1), ("width", 512), ("height", 22),
                           ("string_list", f"{base}/labels"), ("string_index", len(spec["rows"]) + index),
                           ("font", "ui\\large_ui"), ("color", "#FF2896FF"), ("text_x", 13), ("text_y", 4)], [])
+    # (each action's row: its label, the function A runs, and its help, then
+    # the helps that function shows)
+    categories = len(spec.get("categories", ()))
+    for index, (label, function, key, _, _) in enumerate(spec.get("actions", ())):
+        row = f"{base}/op_{key}"
+        rows.append((row, None, place + 1 + categories + index))
+        extra += _widget(row, [("width", 512), ("height", 28), ("flags", "pass_unhandled_to_focused_child"),
+                               ("bitmap", "bitmaps/option_bkds"), ("color", "#FF2896FF")],
+                         [f'<on event="a" run="{function}"/>', f'<on event="start" run="{function}"/>',
+                          '<on event="left_mouse" run="mouse emit accept event"/>',
+                          f'<child widget="{base}/{key}_label"/>'])
+        extra += _widget(f"{base}/{key}_label",
+                         [("type", "text"), ("controller", 1), ("width", 512), ("height", 22),
+                          ("string_list", f"{base}/labels"), ("string_index", len(spec["rows"]) + categories + index),
+                          ("font", "ui\\large_ui"), ("color", "#FF2896FF"), ("text_x", 13), ("text_y", 4)], [])
     extra += _button(f"{base}/button_defaults", 3, ['<on event="a" run="port settings defaults"/>',
                                                     '<on event="start" run="port settings defaults"/>'])
     extra += _button(f"{base}/button_ok", 1, ['<on event="a" run="port settings save" back="true"/>',
                                               '<on event="start" run="port settings save" back="true"/>'])
     extra += _strings(f"{base}/labels", [label for label, *_ in spec["rows"]] +
-                      [label for label, *_ in spec.get("categories", ())])
+                      [label for label, *_ in spec.get("categories", ())] +
+                      [label for label, *_ in spec.get("actions", ())])
     # (the help of the row whose label is string n is n + 1: the buttons' is 0)
     extra += _strings(f"{base}/help_strings",
                       [""] + [help_text.replace("\n", "\\n") for _, _, _, help_text, *_ in spec["rows"]] +
-                      [help_text.replace("\n", "\\n") for _, _, help_text, *_ in spec.get("categories", ())])
+                      [help_text.replace("\n", "\\n") for _, _, help_text, *_ in spec.get("categories", ())] +
+                      [text.replace("\n", "\\n") for *_, help_text, more in spec.get("actions", ())
+                       for text in [help_text, *more]])
     return _screen(folder, spec, rows, ["port settings help", *spec.get("inputs", ())], [], extra)
 
 
@@ -710,8 +762,6 @@ RANDOMIZER_ROWS = [
     ("weapon_type", "WEAPON TYPE:", "game.randomizer_weapon_type",
      RANDOMIZER_WEAPONS + [("FUEL ROD", "fuel_rod"), ("ENERGY SWORD", "energy_sword")],
      "Only enemies that can hold it get it; others\\nkeep theirs (Go Crazy lends them the hands)."),
-    ("crazy", "GO CRAZY:", "game.randomizer_crazy", OFF_ON,
-     "Any NPC can hold any weapon, but may not use it\\nwell. Adds unused NPCs and multiplayer weapons."),
 ]
 
 
@@ -865,17 +915,19 @@ def _skulls_screen() -> list:
 
 
 # the question the skulls screen asks before it opens the first time
-# (menu_functions.c's "skulls unlock all" and "skulls unlock play")
+# (menu_functions.c's "skulls unlock all", "skulls unlock play" and
+# "skulls unlock pickup")
 SKULLS_UNLOCK_TEXT = [
     "How should the skulls be unlocked?",
     "",
-    "ALL UNLOCKED: every skull can be turned on",
-    "right away.",
+    "ALL UNLOCKED: every skull can be turned on right away.",
     "",
-    "UNLOCK BY PLAYING: Birthday Party is yours.",
-    "Enemies carry the others: pick one up to",
-    "use it on that level, and finish the level",
-    "to keep it. Die before then and it's lost.",
+    "UNLOCK BY USING: enemies carry the skulls. Pick one up",
+    "to enable its effect, then finish the level without",
+    "dying or returning to a checkpoint to unlock it.",
+    "",
+    "UNLOCK BY PICKING UP: enemies carry the skulls. Pick one",
+    "up to unlock it.",
 ]
 
 
@@ -890,13 +942,14 @@ def _skulls_unlock_screen(base: str) -> list:
                      f'<child widget="{base}/unlock_text"/>',
                      f'<child widget="{base}/unlock_menu"/>'])
     lines += _widget(f"{base}/unlock_text",
-                     [("type", "text"), ("controller", 1), ("left", 68), ("top", 90), ("width", 504), ("height", 190),
+                     [("type", "text"), ("controller", 1), ("left", 40), ("top", 84), ("width", 560), ("height", 196),
                       ("text", "\\n".join(SKULLS_UNLOCK_TEXT)), ("font", "ui\\small_ui"), ("color", "#FFFFFFFF")], [])
     choices = [("unlock_all", "ALL UNLOCKED", "skulls unlock all"),
-               ("unlock_play", "UNLOCK BY PLAYING", "skulls unlock play")]
+               ("unlock_play", "UNLOCK BY USING", "skulls unlock play"),
+               ("unlock_pickup", "UNLOCK BY PICKING UP", "skulls unlock pickup")]
     children = []
     for index, (name, _, _) in enumerate(choices):
-        children.append(f'<child{attributes([("widget", f"{base}/{name}"), ("x", 64), ("y", 296 + index * 32)])}/>')
+        children.append(f'<child{attributes([("widget", f"{base}/{name}"), ("x", 64), ("y", 290 + index * 32)])}/>')
     children.append('<child widget="common_button_cancel" x="510" y="415"/>')
     lines += _widget(f"{base}/unlock_menu",
                      [("type", "column_list"), ("width", 640), ("height", 480),
