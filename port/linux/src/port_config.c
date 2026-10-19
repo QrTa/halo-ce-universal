@@ -85,6 +85,14 @@ enum
 #define PLATFORM_VULKAN _platform_android
 #endif
 
+/* the gyroscope's rows: Android's (the phone's, and the Switch's controllers),
+and the PS5's (the DualSense's) */
+#ifdef HALO_PS5
+#define PLATFORM_GYRO _platform_ps5
+#else
+#define PLATFORM_GYRO _platform_android
+#endif
+
 struct config_setting
 {
 	const char *name;
@@ -132,10 +140,13 @@ static const struct config_setting config_settings[] =
 		"Where display.window_size is empty: the window's size as a multiple of\n"
 		"640x480." },
 #ifdef HALO_PS5
-	{ "display.ps5_resolution", _config_string, "\"1080p\"", "HALO_PS5_RESOLUTION", _environment_value, _platform_ps5,
-		"The PS5's: the size the game draws at, \"1080p\" (1920x1080, which the\n"
-		"console scales to its 4K output) or \"2160p\" (3840x2160). Read when the\n"
-		"game starts." },
+	/* (the Switch's setting, with the PS5's values: port/ps5/host/host_main.c
+	reads it, at the start and when the file changes) */
+	{ "display.resolution_limit", _config_string, "\"2160\"", "HALO_RESOLUTION_LIMIT", _environment_value,
+		_platform_ps5,
+		"The PS5's: the most lines the game draws at, \"2160\" (3840x2160), \"1440\"\n"
+		"(2560x1440) or \"1080\" (1920x1080), no more than the display shows (the\n"
+		"console's video output), which the picture is scaled to. Changes at once." },
 #endif
 	{ "display.screen_width", _config_integer, "0", "HALO_SCREEN_WIDTH", _environment_value, _platform_android,
 		"Columns of the 480-line picture: 0 for the display's shape, 640 for the\n"
@@ -735,28 +746,33 @@ static const struct config_setting config_settings[] =
 		"Megabytes a recording keeps in memory, 4 to 1024: two halves, each\n"
 		"written out as a part when it fills." },
 #endif
-#ifdef HALO_ANDROID
-	/* (the phone's gyroscope on Android, the controller's on the Switch) */
-	{ "input.gyro_aim", _config_string, "\"false\"", "HALO_GYRO_AIM", _environment_value, _platform_android,
+#if defined(HALO_ANDROID) || defined(HALO_PS5)
+	/* (the phone's gyroscope on Android, the controller's on the Switch and
+	the PS5) */
+	{ "input.gyro_aim", _config_string, "\"false\"", "HALO_GYRO_AIM", _environment_value, PLATFORM_GYRO,
+#ifdef HALO_PS5
+		"Aim with the DualSense's gyroscope, each local player with their own.\n"
+#else
 		"Aim with the gyroscope: the phone's on Android; on the Switch the\n"
 		"controller's, each local player from their own (a Pro Controller, the\n"
 		"console held in the hands, or one Joy-Con; of two, the right one).\n"
+#endif
 		"\"false\" is the stick only, \"true\" adds the turn to the view, \"zoom\" adds\n"
 		"it only while the player is zoomed in, for fine aiming." },
 	{ "input.gyro_sensitivity_horizontal", _config_real, "1.0", "HALO_GYRO_SENSITIVITY_HORIZONTAL",
-		_environment_value, _platform_android,
+		_environment_value, PLATFORM_GYRO,
 		"How far the view turns left and right for the gyroscope, when\n"
 		"input.gyro_aim is true. 1 is the sensor's own turn. 0.25 to 10." },
 	{ "input.gyro_sensitivity_vertical", _config_real, "1.0", "HALO_GYRO_SENSITIVITY_VERTICAL",
-		_environment_value, _platform_android,
+		_environment_value, PLATFORM_GYRO,
 		"How far the view turns up and down for the gyroscope, when\n"
 		"input.gyro_aim is true. 1 is the sensor's own turn. 0.25 to 10." },
 	{ "input.gyro_invert_horizontal", _config_boolean, "false", "HALO_GYRO_INVERT_HORIZONTAL",
-		_environment_value, _platform_android,
+		_environment_value, PLATFORM_GYRO,
 		"Invert the gyroscope's yaw. false: turning the phone or controller right\n"
 		"looks right. true: turning it right looks left. The stick's invert is its own." },
 	{ "input.gyro_invert_vertical", _config_boolean, "false", "HALO_GYRO_INVERT_VERTICAL",
-		_environment_value, _platform_android,
+		_environment_value, PLATFORM_GYRO,
 		"Invert the gyroscope's pitch. false: tilting the phone or controller up\n"
 		"looks up. true: tilting it up looks down. The stick's invert is its own." },
 #endif

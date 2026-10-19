@@ -85,10 +85,20 @@ extern int host_gl_statistics;
 written to a file that often (host_vk_screenshot_ps5.c); 0 for none */
 extern int ps5_screenshot_seconds;
 
-/* config.toml's display.ps5_resolution (or HALO_PS5_RESOLUTION), read by
-host_main.c before the game starts: the stand-in window's size, which the
-game draws at (host_sdl_ps5.c); 1920x1080, or 3840x2160 for "2160p" */
+/* the stand-in window's size, which the game draws at (host_sdl_ps5.c):
+config.toml's display.resolution_limit (or HALO_RESOLUTION_LIMIT) against
+the display's mode, set by host_main.c before the game starts and again when
+the file changes (ps5_display_check), on the game's thread */
 extern int ps5_display_width, ps5_display_height;
+
+/* once a second, from the game's event poll (host_sdl_ps5.c): config.toml
+looked at, and the maximum resolution read again if it changed
+(host_main.c) */
+void ps5_display_check(uint64_t now);
+
+/* VideoOut's display mode (host_vk_driver_ps5.c): its size and refresh rate
+in mHz; 0 before the renderer's instance, or without one */
+int ps5_vk_display_mode(int *width, int *height, unsigned *millihertz);
 
 /* the frames the game has swapped so far (host_sdl_ps5.c): 0 before its
 first, which tells the system's start-up overlay from a later one
@@ -160,5 +170,18 @@ void ps5_audio_set_period(int frames);
 /* their parts of ps5_sdl_report, when the game ends */
 void ps5_input_report(void);
 void ps5_audio_report(void);
+/* the gyroscope's figures since the last ask (host_pad_ps5.c), for the
+pad: line: the samples read, the reads, the largest turn of a read and the
+turn in all, in radians; 0 if it was not read */
+int ps5_pad_gyro_minute(unsigned *samples, unsigned *reads, float *largest, float *total);
+
+/* voice chat's microphone (host_microphone_ps5.c): libSceAudioIn loaded at
+the host's start; opened for voice chat's recording stream
+(host_sdl_ps5_audio.c), whose 48 kHz mono floats it then holds */
+void ps5_microphone_start(void);
+int ps5_microphone_open(void);
+int ps5_microphone_available(void);
+int ps5_microphone_read(void *data, int length);
+void ps5_microphone_close(void);
 
 #endif

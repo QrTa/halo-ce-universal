@@ -389,9 +389,11 @@ static long current_line(struct reader *reader)
 
 /* this build's platform, as the platform attribute names it (the Switch's
 game is built as Android's, with HALO_SWITCH too: "android" is the Android
-app's) */
+app's; the PS5's as the desktop's, with HALO_PS5: "desktop" is the PC's) */
 #if defined(HALO_SWITCH)
 #define MENU_PLATFORM "switch"
+#elif defined(HALO_PS5)
+#define MENU_PLATFORM "ps5"
 #elif defined(HALO_ANDROID)
 #define MENU_PLATFORM "android"
 #elif defined(HALO_WEB)
@@ -420,9 +422,10 @@ static int for_this_platform(struct reader *reader, const XML_Char **attributes)
 				if (length)
 				{
 					if ((length != 7 || strncmp(name, "desktop", 7)) && (length != 7 || strncmp(name, "android", 7)) &&
-						(length != 3 || strncmp(name, "web", 3)) && (length != 6 || strncmp(name, "switch", 6)))
+						(length != 3 || strncmp(name, "web", 3)) && (length != 6 || strncmp(name, "switch", 6)) &&
+						(length != 3 || strncmp(name, "ps5", 3)))
 					{
-						reader_error(reader, "platform=\"%s\" names one that is not desktop, android, switch or web",
+						reader_error(reader, "platform=\"%s\" names one that is not desktop, android, switch, ps5 or web",
 							attributes[index + 1]);
 						return 1;
 					}

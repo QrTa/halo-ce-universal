@@ -131,6 +131,17 @@ return addresses of the stack; an address in the game is looked up with
 `addr2line -e build/ps5/halo_guest_vk.elf`, one in the host in
 `build/ps5/host/eboot.elf.map`.
 
+## The menus
+
+The game's menus are the PS5's own (`ps5` in the menu files' `platform`
+lists): Video Setup has MAXIMUM RESOLUTION, V-SYNC, SMOOTH MOTION,
+GRAPHICS and FOV AND VIEWMODELS, with nothing of a window's; Graphics has
+the anti-aliasing the console's renderer draws (off, FXAA, MSAA 2X and
+4X); Audio Setup starts at the volumes, with no device rows (the console
+has one output and one microphone); Gamepads ends with GYRO AIM; Network
+Setup has internet play, UPnP and map sharing, but no clipboard or
+updates rows (neither is a console's).
+
 ## The picture
 
 The game draws through the Vulkan renderer of the Android port
@@ -139,11 +150,15 @@ is, on RADV, the Vulkan driver PS5_Vulkan builds from PS5_Mesa, linked into
 the title. The log's `renderer:` line names it; a console where it does not
 come up ends the title (there is no other renderer), saying why.
 
-The game draws at 1920x1080 and the picture is scaled to the console's
-display, 3840x2160; with `display.ps5_resolution = "2160p"` in
-`config.toml` it draws at 3840x2160 (read at the start; the PS5's own
-setting, `port/linux/README.md`). Both hold 119.88 frames a second in a
-match (the figures below). The display runs at 59.94 Hz, or at 119.88 Hz: the title declares
+The game draws at its maximum resolution, Video Setup's MAXIMUM
+RESOLUTION (`display.resolution_limit`, `port/linux/README.md`): 2160P
+(3840x2160, the default), 1440P (2560x1440) or 1080P (1920x1080), no more
+than the console's video output shows (Settings, Screen and Video: on a
+1080p output, 2160P draws at 1920x1080), and the picture is scaled to the
+display. A change applies at once, in the menus or in a level: the log says
+`maximum resolution: "1440" (config.toml, changed in play); the display is
+3840x2160: the game draws at 2560x1440`. Each holds 119.88 frames a second
+(the figures below). The display runs at 59.94 Hz, or at 119.88 Hz: the title declares
 high-frame-rate output (`param.json`), and RADV takes the 120 Hz mode when
 the console's output does (Settings, Screen and Video, Video Output, Enable
 120 Hz Output, with a TV that takes it). RADV checks the switch once and
@@ -194,13 +209,33 @@ port, so two players play split screen from the menus. The pad rumbles through
 SDL2. Every minute in which the pad was used, a `pad:` line lists the
 buttons pressed, each stick's and trigger's range and the rumble asked for.
 
+**Gyro Aim** (Settings, Gamepads, Gyro Aim: ON, OFF or ONLY ON ZOOM, the
+two sensitivities and inverts; `input.gyro_*` in `config.toml`) aims with
+the DualSense's gyroscope, each local player with their own pad: steer
+the pad like a wheel to turn the view sideways, tip its top away to look
+up. Each sensitivity turns the view as far as it does on the Switch (5
+felt right in testing). The host finds each pad's user by the name SDL2 gives it,
+turns the pad's motion sensor on and reads the pad's state every frame
+(`gyro: pad 1 ("thelinkin3000") is user ...'s, ... the motion sensor on`);
+the `pad:` line adds the fresh samples a second (120 at 120 frames a
+second), the largest turn of a frame and the turn in all.
+
 The sound is SDL2's device on the console's audio output: 48 kHz, float,
 stereo, 1024 frames a callback (21.3 ms), the format the game asks for.
 SDL2 calls for sound on a thread that cannot run the game, so each call is
 handed to a thread that can. Every minute an `audio:` line gives the
 callbacks, the gaps between them (one longer than two periods is late)
-and the time the hand-off took; the end of the run gives the totals. No
-microphone is used yet, so voice chat is off.
+and the time the hand-off took; the end of the run gives the totals.
+
+**Voice chat's microphone** is the signed-in player's: the DualSense's
+own, or a headset in its jack. SDL2 records nothing on the console, so the
+host reads the console's audio input itself (libSceAudioIn, loaded at the
+start: `microphone: libSceAudioIn: ... 0x00000000`), 48 kHz mono, the rate
+voice chat speaks at. The pad's mute button silences it: the input then
+gives only zeros, which are dropped (`microphone: the input gives zeros`),
+as are the second or two of zeros while a headset is plugged in. Every
+minute it is open an `audio: the microphone:` line gives its buffers a
+second (187) and the seconds of zeros.
 
 SDL2's video is never started: its PS5 driver crashes a title (it calls
 the keyboard library, which a title does not load). The log's `SDL_Init`
@@ -253,9 +288,8 @@ work as there).
 - **Browsers** join the console's internet games through DTLS (Mbed TLS,
   with the console's random numbers); the certificate is made at the start,
   and the log gives its hash (`network: DTLS certificate made`).
-- **Voice chat** plays the other players' voices; the console's own
-  microphone is not used (SDL2 has no recording device here), so the
-  console never talks.
+- **Voice chat** both ways: the other players' voices, and the player's
+  through the pad's microphone (above).
 - **Map sharing** downloads to `/data/halo/custom_maps` at the host's
   upload limit (`network.map_share_upload`, 1024 KB/s by default: a 500 MB
   map takes eight minutes).
@@ -279,14 +313,15 @@ socket non-blocking.
   its rumble and the sound through SDL2; the system's menus as focus events
   (the level goes on under them); system link, internet play, the server
   browser and map sharing (above).
-- Also: native 4K drawing (`display.ps5_resolution`), the first start's
-  progress as notifications, split screen with a second pad, the pads'
-  arrival and removal.
+- Also: the menus as the PS5's (below), native 4K drawing and the maximum
+  resolution changed in play, Gyro Aim with the DualSense, voice chat's
+  microphone, the first start's progress as notifications, split screen
+  with a second pad, the pads' arrival and removal.
 - Not yet: a picture during the first start's extraction (notifications
-  only), the microphone (voice chat only listens), and the desktop's
-  self-updater, which a console title does not have (it is updated by
-  installing it again). The PS button's pause in a campaign level is in
-  place but was not tried on the console.
+  only), a keyboard and mouse, and the desktop's self-updater, which a
+  console title does not have (it is updated by installing it again). The
+  PS button's pause in a campaign level is in place but was not tried on
+  the console, nor was the console's rest mode.
 
 ## Figures
 

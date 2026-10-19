@@ -27,7 +27,7 @@ are moved to the end of phase 4, to be made with the picture. Phase 4 is
 done and reviewed: the game draws through the Android port's Vulkan
 renderer on RADV, the menus and campaign levels on the TV as on Android, at
 59.94 or 119.88 frames a second, with phase 3's runs made with the user at
-the console ("Progress"). Phase 5, the network (the phases were swapped), is done and reviewed: the console hosts and joins system link games and joins internet games through the brokers and the tunnel, and downloads shared maps. Phase 6 is done and reviewed: the console holds 119.88 frames a second in a match at 1080p and at native 4K and in split screen, the first start is seen on the TV, and the heap no longer grows; the campaign level, the PS button's pause in a level, rest mode and the long sessions were left out by the user's decision. Phase 7, the console's own features (the PS5's menus with the Switch's maximum resolution, changed in play and no more than the display shows; gyro aiming; the microphone), is written out and awaits its implementer; phase 8, for players, follows. The branch was rebased onto main's Build 104 on 2026-10-18 (the x32 guest's import rule met by one structure-based message box for every guest; see that commit). The probes are
+the console ("Progress"). Phase 5, the network (the phases were swapped), is done and reviewed: the console hosts and joins system link games and joins internet games through the brokers and the tunnel, and downloads shared maps. Phase 6 is done and reviewed: the console holds 119.88 frames a second in a match at 1080p and at native 4K and in split screen, the first start is seen on the TV, and the heap no longer grows; the campaign level, the PS button's pause in a level, rest mode and the long sessions were left out by the user's decision. Phase 7 is done and reviewed: the menus are the PS5's, the maximum resolution switches between 4K, 1440p and 1080p in play and is held to the display's mode, the DualSense's gyroscope aims (the user: "very smooth"), and voice chat speaks through the pad's microphone; the campaign level with the PS button, split-screen gyro, rest mode and the pad test were left out by the user's decision. The branch sits on main's Build 104. Phase 8, for players, is next, to be written out. The probes are
 in `port/ps5/probe`.
 
 ---
@@ -2725,6 +2725,594 @@ As the deko3d and Vulkan plans were, on purpose:
 ---
 
 ## Progress
+
+### Phase 7 — audit (2026-10-19)
+
+Checked on the sources, the builds, the tests, the probes' reports, the
+run folders' logs and the screenshots; the runs left out were the user's
+decision during the phase, and the entry's own table against the
+acceptance list is right.
+
+1. **The builds and tests.** `ninja ps5` rebuilds clean with `-Werror`,
+   `ninja linux_x86_64` is a null build, and `ninja switch` builds (its
+   `#error` lines are the pre-existing warning in an inactive branch of
+   `halo_android_abi.h`); the import check passes; the only weak symbol
+   in `eboot.elf` is the toolchain's `catchReturnFromMain`, no `host_`,
+   `posix_` or `ps5_` name. The test files: 40 passed, 5 skipped, 3 failed,
+   the three being `test_linux_port.py`'s i686 compiles, which stop at
+   `bits/wordsize.h` (this machine has no 32-bit glibc headers; the same
+   in phases 5 and 6). `display.ps5_resolution` and `HALO_PS5_RESOLUTION`
+   appear nowhere but "Progress". **The preprocessing check, made again
+   here** with each guest build's own command (Android, Linux x86-64 and
+   the Switch), HEAD against the tree: `port_config.c` identical (9,358,
+   9,351, 9,544 lines) and `xinput_sdl.c` identical (9,062, 8,975, 9,126);
+   `menu_files.c` differs on all three in `for_this_platform`'s one name
+   and its error message alone, the change the phase allowed.
+2. **The menus.** The six settings files are the generator's: running
+   `tools/port_settings.py`'s `settings_files()` here gives all 16 files
+   byte for byte as they are in the tree. **The other platforms' screens
+   are unchanged, checked independently:** each changed file at HEAD and
+   now, kept for `desktop`, `android`, `switch` and `web` as
+   `for_this_platform` keeps it, with every label and help line resolved
+   to its text, is the same on all four for five of the files; in
+   `video_settings.xml` the only addition for them is the PS5 row's three
+   widget definitions (its row, label and spinner), which no child of
+   theirs names, as every platform-only row's definitions already sit
+   unreferenced in the others' files. Screenshots seen: Video Setup
+   (`235039/00001724.png`: MAXIMUM RESOLUTION 2160P (4K), V-SYNC, SMOOTH
+   MOTION, GRAPHICS, FOV AND VIEWMODELS and the row's help, nothing of a
+   window's) and Controller Setup with GYRO AIM last (`00008874.png`). Six
+   files changing rather than three, and the generator, its README and
+   `test_linux_port.py` with them, is right: a row marked `desktop` alone
+   was the PS5's until it had a name of its own.
+3. **The maximum resolution.** Run `20261019-000815`'s log has the rule at
+   the start (line 45: `"1080"` against 3840x2160, drawn at 1920x1080) and
+   each change in play (lines 413 to 415, 495 to 497, 581 to 583: 2160,
+   1440, 2160, with `screen: 852x480 drawn at` the matching size after
+   each), and the heartbeat at 119.88 a second after. The `fstatat` fix is
+   argued and shown. **Deviation accepted:** no resize events are written;
+   the game asks the window's size between frames and remakes its targets,
+   which the log's target lines prove. The rule itself (`host_rules_ps5.c`)
+   is small and its test covers a 1080p and a 1440p output; the console's
+   output set to 1080p was not tried (the user kept the run short): carried.
+4. **Gyro aiming.** The pad probe's report (`pad-probe-run3.txt`) backs the
+   design: SDL2's handle from `scePadGetHandle`, the sensor off until
+   asked, 230 to 239 fresh samples a second from `scePadReadState`, the
+   rest noise under 0.014 rad/s, the axes and signs as tabled. The three
+   runs' fixes are each in the log: `001657` line 106 then 6 samples a
+   second (the queue emptied by SDL2's own reads), `003442` lines 676 and
+   942 at 117 to 120 samples a second, the user's settings saved (lines
+   386 to 390, 1486). The code is sound: the turn integrates the state's
+   angular velocity over the samples' own timestamps with a noise floor and
+   the Switch's gap limit, a first read after a pause turns nothing, the
+   per-pad entries are keyed by SDL2's instance so a pad off and on is
+   found again, and the scale matches the Switch's sensitivities.
+   **Deviations accepted, the user's choice in play:** the view turns as
+   the pad is steered (roll), not as it is turned flat, and the yaw's sign
+   follows the game's (positive to the left). **Not tried, by the user's
+   decision ("Gyro done"):** the campaign level start to end with the PS
+   button's pause in it, and a second player's gyro in split screen.
+5. **The microphone.** The audio-input probe's report
+   (`audioin-probe-run3.txt`) backs every figure: no `sceKernelDlsym` into
+   a system module, the own stub's imports bound once
+   `sceSysmoduleLoadModuleInternal(0x80000002)` has run, 48 kHz with 256
+   samples accepted, 188 returns a second, zeros under the mute button
+   with the silent state 4, a headset's change-over. The stub
+   (`port/ps5/stubs/libSceAudioIn_stub.c`, 57 lines) is the port's own
+   writing, built as the AGC stubs are and never run: nothing of
+   PS5_Vulkan's copied; the five names are a public export table's.
+   `host_microphone_ps5.c` is the Switch's model done over: a thread, a
+   second's ring under a lock, zeros dropped, the minute line. The run
+   (`003442`, lines 2195 to 2470) shows the open, the input heard, the mute
+   button three times and a minute at 187 buffers a second with 0
+   dropped; the user heard and was heard in a network game. **Not done:**
+   the other machine's lines were not fetched and no headset was tried;
+   carried as a check, not a doubt.
+6. **Rest mode and the pad off and on:** not tried, the user's decision.
+7. **The READMEs** say what the phase did: the menus, the maximum
+   resolution and its log line, Gyro Aim (steer to turn, 5 felt right),
+   the microphone and the mute button, voice both ways; the settings table
+   has the PS5's `display.resolution_limit` and gyro rows and no
+   `display.ps5_resolution`.
+8. **Scope** (item 9, not met and argued): `tools/port_settings.py` and
+   the three further menu files are where the screens are made, and
+   `port/assets/menus/README.md` and `test_linux_port.py` name the
+   platforms; `port/ps5/host_imports.list` and `port/ps5/stubs/` are under
+   `port/ps5`. Accepted: each is the phase's work in the file that holds
+   it. `port/ps5/probe/results/pad-probe-run1-unattended.txt` is the lost
+   first run's unattended twin, kept with its reason; fine.
+9. **The console's state:** the two probe titles (`PPSA99106`, `PPSA99107`)
+   stay installed; phase 0's six are gone at the user's word; the title
+   folder holds this phase's last build; `config.toml` keeps a stale
+   `display.ps5_resolution` line the game reports as unknown at each
+   start, harmless; `/data/halo/maps.phase6-aside` is still there.
+
+Carried into phase 8: a campaign level start to end with the PS button's
+pause in it; a second player's gyro in split screen; rest mode; the pad
+switched off and on; the console's output at 1080p against the rule; the
+other machine's voice lines and a headset; the long session and the
+compile priority's effect (phase 6's); internet hosting from behind the
+user's router; the console's chores (the two probe titles, the stale
+setting line, `maps.phase6-aside`); and the whole run once more from a
+fresh install.
+
+### Phase 7 — the console's own features (2026-10-18)
+
+The brief handed to the implementer named four probes and eight steps,
+from the plan as `413524284` wrote it; the plan as `a7b787381` reworked
+it at the user's word (no picture before the game, no keyboard and mouse)
+has two and six, and that is what is worked.
+
+#### Part A — the probes
+
+**The console's homebrew folder, first.** At the user's word, phase 0's
+six probe titles were deleted from the console before the new ones went
+on: `/data/homebrew/PPSA99014` (the RADV smoke test, PS5_Vulkan's sample
+installed as part A's `vk` probe), `PPSA99101` (io), `PPSA99102` (guest),
+`PPSA99103` (host), `PPSA99104` (SDL2) and `PPSA99105` (glslang). Every
+file and folder went over FTP without a refusal (their reports were made
+writable by FTP's user, and the RADV caches with them). Their sources and
+reports stay in `port/ps5/probe/`. `/data/homebrew` now holds `PPSA99500`,
+the two probes below and the user's `Overdrive.exfat`, untouched.
+
+**Two probes**, each a title in the shape of `probe/sdl2`, installed with
+`tools/ps5_deploy.py --title ID --title-dir build/ps5/probe/ID upload`:
+`probe/pad` (PPSA99106, "Halo PS5 pad probe") and `probe/audioin`
+(PPSA99107, "Halo PS5 audio input probe"). Their reports are in
+`probe/results/`.
+
+**What went wrong, and was dealt with.** The user ran the pad probe from
+the home screen while the implementer, told "go", launched it again
+through ps5vkctl. That second, unattended run wrote over the report of
+the user's (each probe wrote one fixed file name), and klogsrv's replay
+no longer held its lines: the user's first run is lost. Both probes now
+name their report for the start (`pad-probe-<seconds>.txt`), so no run
+writes over another; the unattended run is kept as
+`pad-probe-run1-unattended.txt` (its turns are a pad nobody moved). The
+second pad of the runs (`Invitado1`) lies tilted against a console on the
+user's desk: its figures are disregarded at the user's word; the user's
+own pad (`thelinkin3000`) is the one measured.
+
+**1. The pad's motion sensor** (`pad-probe-run2.txt`, `-run3.txt`):
+
+- pacbrew's SDL2 opens each signed-in user's pad (`scePadOpen`, the
+  joystick named for the user: "thelinkin3000", "Invitado1") and reads it
+  with `scePadReadState`, and never turns the sensor on: its `libSDL2.a`
+  imports no `scePadSetMotionSensorState`, and
+  `SDL_GameControllerHasSensor` says no gyro and no accelerometer.
+- `scePadGetHandle(user, 0, 0)` answers **SDL2's handle** (`0x03730701`,
+  `0x03740702`), and `scePadOpen` again answers `0x80920004` (already
+  opened): the host takes the pad SDL2 holds by its user.
+- `scePadGetControllerInformation`: touch pad 1920x1080 at 44.9 a mm,
+  dead zones 13 and 13, connection type 0 (standard), device class 0 (a
+  pad). `scePadGetExtControllerInformation` is refused (`0x80920101`, not
+  permitted); the pad's type is SDL2's (7, the PS5's).
+- `ScePadData` is 120 bytes with the angular velocity at 0x28 and the
+  timestamp at 0x50, as OpenOrbis's and shadPS4's layouts have it:
+  `connected` 1 throughout, the timestamp in **microseconds** (it advances
+  0.9996 to 1.0005 times the time stamp counter).
+- `scePadSetMotionSensorState(handle, 1)` answers 0.
+- **The sensor's rate:** `scePadReadState` read 250 times a second sees a
+  new sample 234 to 239 times a second (gaps 1.0 to 13.8 ms, mean 4.2 ms);
+  **`scePadRead`'s queue** holds 607 to 645 samples a second (gaps mean
+  1.55 to 1.65 ms), at most 15 in a read every 20 ms, 64 at most. The
+  queue is the sensor's own rate; it is the host's to drain (SDL2 reads
+  only the state).
+- **The noise at rest** (the pad on a table): at most 0.0045 to 0.0135
+  rad/s per axis with the library's dead band as it starts, 0.0047 to
+  0.0199 with it turned off; the mean within 0.0002 of 0 (no bias). The
+  dead band starts **off** (the two are alike); turned on explicitly,
+  `scePadSetAngularVelocityDeadbandState(handle, 1)`, it zeroes a still
+  pad. The host leaves it off and keeps a noise floor of its own:
+  **0.02 rad/s**, above every figure at rest.
+- **The axes, the unit and the signs** (each turn's angle integrated from
+  the angular velocity over the samples' timestamps; a quarter turn is
+  1.57 in radians): the unit is **radians a second** (quarter turns came
+  to 1.43 to 1.53, and a deliberate overshoot to 2.06).
+
+  | turn | x | y | z | |
+  |---|---|---|---|---|
+  | aim right, the pad level | −0.40 | **−1.53** | +0.55 | yaw is y; right is −y |
+  | top tipped away (look up) | **+1.01**, +1.19 | −0.01 | +0.04 | pitch is x; up is +x |
+  | top tipped toward (look down) | **−1.70**, −2.06 | −0.11 | −0.05 | |
+  | steered left | −0.46 | −0.21 | **+1.50**, +1.43 | roll is z |
+  | steered right | −0.12 | +0.10 | **−1.23**, −1.48 | |
+
+  Run 2 asked for "left" as "like turning a steering wheel" and got the
+  roll; run 3 asked for the aim's turn as pointing the pad at a wall. Its
+  aim left was missed (the pad barely moved: −0.007 at most); the signs
+  follow the right-hand rule on every measured axis (+x looks up, +z
+  steers left), by which aim left is +y, and aim right's −1.53 is clean.
+  Gravity at rest is +0.96 on y (the accelerometer in g): y stands out of
+  the pad's face.
+- **So the host:** yaw (positive to the right, as the guest wants it) is
+  **−y × dt**, pitch (positive looking up) **+x × dt**, dt from the
+  samples' own timestamps; each gyro call drains `scePadRead`'s queue (64
+  samples hold about 100 ms, more than the game's frame), with the
+  Switch's gap limit (100 ms); no thread of its own.
+
+**2. The audio input** (`audioin-probe-run1.txt` to `-run3.txt`):
+
+- **Runtime lookups do not work for a title.** `sceKernelLoadStartModule`
+  of `/system/common/lib/libSceAudioIn.sprx` and `/system/priv/lib/...`
+  answer `0x80020002` (not found); of the bare `libSceAudioIn.sprx`, a
+  handle (`0x6d`); but `sceKernelDlsym` finds nothing in it, by name or by
+  its NID (`0x80020003`), and nothing even in `libScePad.sprx`'s handle
+  (`0x72`) for `scePadInit`, which the title imports and calls.
+  `sceKernelGetModuleList` lists only the title's own `eboot.bin` and
+  `libc.prx`.
+- **A stub of our own does.** The SDK has none for `libSceAudioIn`; a stub
+  is, to `ps5-native-tool`, a shared object whose SONAME names the module
+  and whose global symbols are its functions (PS5_Vulkan's
+  `elf_object.cpp`, `read_stub`). The probe's build makes one (five
+  `ret`s, SONAME `libSceAudioIn.sprx`) and links it; with
+  `sceSysmoduleLoadModuleInternal(0x80000002)` (OpenOrbis's
+  `ORBIS_SYSMODULE_INTERNAL_AUDIOIN`, answered 0) first, the linked
+  `sceAudioInInit` answers 0 and every call after it works. The calls are
+  declared after shadPS4's `audioin.h` (OpenOrbis names them without
+  signatures).
+- **The opens:** type 0 (voice chat) and 1 (general) both, at **48 kHz**
+  and 16 kHz, 16-bit mono, with **256** or 128 samples
+  (`0x30000007`, a handle); 512 and 1024 refused (`0x80260102`).
+- **The cadence at 48 kHz, 256 samples:** 188 returns a second, 5.33 ms
+  apart (5.05 to 5.62 ms), 48,128 samples a second: the input is 48 kHz
+  as voice chat wants it, **nothing to resample**.
+- **The levels:** speaking, peaks of 93 to 100 %; silent, a peak of 22
+  (0.1 %), never zeros.
+- **The mute button:** lit, **every buffer is zeros** within about 0.2 s
+  and `sceAudioInGetSilentState` reads `0x4`; unlit, sound at once and
+  the state 0.
+- **A headset in the pad:** plugging it in gives a second or two of zero
+  buffers while the input changes over, then its sound (a peak of 57 %).
+  (The user had earphones in the pad at the start of the first speaking
+  second, and pulled them: that second's 32767 and the next two seconds'
+  zeros are that, not the microphone.)
+- **A second open** while the first port is open, for the same user and
+  for the second user: both answered a handle (`0x30000006`).
+- **So the host:** links the stub, loads the module with the sysmodule
+  call, opens type 0 at 48 kHz with 256 samples for the user of the pad
+  voice chat is opened for, and a thread reads it into the ring as floats,
+  the zero buffers dropped as the Switch drops them (the mute and a
+  headset's change-over both give them).
+
+#### Part B — the work
+
+**Step 1, the menus as the PS5's** (run `20261018-235039`, the user at the
+pad, `HALO_PS5_SCREENSHOT=3`).
+
+What changed, and why it is more than the plan's file table named:
+
+- **`port/linux/src/menu_files.c`**: `MENU_PLATFORM "ps5"` under
+  `HALO_PS5`, before Android's (the PS5's guest is built as the desktop's,
+  with `HALO_PS5`, as the Switch's is built as Android's with
+  `HALO_SWITCH`); and `for_this_platform` accepts `ps5` on every build,
+  its one name more and the error message's (the phase's one change not
+  behind `HALO_PS5`: the menu files are every build's data).
+- **The settings screens are written by `tools/port_settings.py`**, which
+  the plan did not name: `port/assets/menus/README.md` says a settings
+  screen "is changed in `tools/port_settings.py`, not in its XML", and an
+  XML edited by hand would be undone at the next writing. The generator
+  as it stood wrote the 16 settings files byte for byte as they are in the
+  tree (checked first), so writing them again with its `settings_files()`
+  alone (no PC tags needed) changes only the PS5's rows. Its changes:
+  `ps5` among the platforms that pack their own rows; Video Setup's new
+  row, **MAXIMUM RESOLUTION** (`op_resolution_limit_ps5`,
+  `resolution_limit_ps5_spinner`: the generator names a row's widgets by
+  its key, so not the plan's `resolution_limit_spinner_ps5`),
+  `platform="ps5"`, `2160P (4K)|1440P (2K)|1080P (FHD)`, values
+  `2160|1440|1080`, `setting="display.resolution_limit"`, first; Gamepads'
+  GYRO AIM category `android switch ps5`.
+- **Six screens, not three, change**, because a row marked `desktop` alone
+  was the PS5's until now and is no longer (the plan saw the three it
+  named): Graphics (`video_settings.graphics.xml`) gives the PS5
+  **Android's anti-aliasing row** (OFF, FXAA, MSAA 2X, MSAA 4X: the PS5
+  draws with Android's renderer, `d3d8_vk.c`, where the desktop row's
+  SMAA draws as FXAA and SSAA 2X as off) and the shadow resolution and
+  per-pixel lighting (`desktop android web ps5`); Network Setup and its
+  in-game form keep **INTERNET PLAY, UPNP PORT FORWARDING and MAP
+  SHARING** for the PS5 (phase 5 compiles the network, UPnP and the map
+  download) and drop **JOIN FROM CLIPBOARD** (nothing outside a title can
+  put text on its clipboard: `host_sdl_ps5.c`'s is the title's own) and
+  **CHECK FOR UPDATES** (`host_update_none.c`: a title is updated by
+  installing it again). Audio Setup needed no list change: its device
+  rows are `desktop`, its others every platform's.
+- **`tools/test_linux_port.py`**'s `test_menus_are_well_formed` knows the
+  platforms' names and gains `ps5`; `port/assets/menus/README.md`'s table
+  of attributes names it.
+- **Every other platform's screens are unchanged**, shown by a script
+  (in the scratchpad, not the tree) that reads each changed file at HEAD
+  and now as `for_this_platform` keeps it for `desktop`, `android`,
+  `switch` and `web`, and resolves each row to its place, label, spinner
+  (setting, strings, values), help line and actions: the same in all 24
+  (6 files by 4 platforms). The label and help indexes shift by one after
+  the new row; what they resolve to does not. `test_menus_are_well_formed`
+  and `test_menu_settings_exist` pass.
+- **`port/linux/src/port_config.c`**, so the rows set something on the
+  PS5 (the plan put this in steps 2 and 3; the menus need it first):
+  `display.resolution_limit` under `HALO_PS5`, `_platform_ps5`, default
+  `"2160"`, in place of `display.ps5_resolution`; the five `input.gyro_*`
+  rows' block opened to `HALO_PS5` (`#if defined(HALO_ANDROID) ||
+  defined(HALO_PS5)`, the platforms through `PLATFORM_GYRO`, which is
+  `_platform_android` on every other build), with `input.gyro_aim`'s first
+  lines the DualSense's under `HALO_PS5`. A macro holding three string
+  lines was tried first and preprocessed to one line on Android and the
+  Switch (the same tokens, not the same text), so the text is an `#ifdef`
+  inside the row.
+
+**The menus on the console**, the user going through each screen
+(screenshots in the run's folder): Video Setup `00001724.png` (MAXIMUM
+RESOLUTION 2160P (4K), V-SYNC, SMOOTH MOTION, GRAPHICS, FOV AND
+VIEWMODELS, nothing of a window's); Graphics `00005324.png` (Android's
+anti-aliasing row and its help); Audio Setup `00006044.png` (MASTER
+VOLUME first, no device rows); Gamepads `00008874.png` (GYRO AIM last);
+Gyro Aim `00007484.png` to `00008564.png` (ON, OFF, ONLY ON ZOOM, the
+sensitivities and inverts, set and saved: `menus: input.gyro_aim = zoom`);
+Network Setup `00010314.png`. The log: `menus: 1162 widgets, 289 string
+lists and 101 bitmaps added`, no file's error; `settings: added
+display.resolution_limit (new in this version) at its default` and the
+five gyro rows likewise; `unknown setting display.ps5_resolution` (the
+host still read it in this build: step 2 replaces it). The profile menu's
+CONTROLS SETUP and MOUSE SETUP stay: they have no platform list, and the
+keyboard and mouse are not this phase's.
+
+The user turned gyro aim on and saw nothing: expected in this step (the
+sensor is read from step 3).
+
+**Step 2, the maximum resolution** (runs `20261019-000007` and
+`20261019-000815`).
+
+- **The rule** is `host_rules_ps5.c`'s, a new file of functions that call
+  nothing of the system (`ps5_limit_lines`, `ps5_limit_rule`), tested on
+  the PC by `port/ps5/tests/host_rules_ps5_test.c` through
+  `tools/test_ps5_host.py` (the user's 4K display, a 1080p and a 1440p
+  output, other shapes, no mode known): the smaller of the limit and the
+  display's height, in the display's shape, an even width.
+- **The display's mode** is asked in `renderer_start` once RADV's instance
+  is up (`ps5_vk_display_mode` in `host_vk_driver_ps5.c`, the present's
+  own two calls): `display: VideoOut's mode is 3840x2160 at 59.94 Hz (the
+  console's output setting)`.
+- **At the start** `host_main.c` reads `HALO_RESOLUTION_LIMIT`, else
+  `config.toml`'s `display.resolution_limit`, else `"2160"`, and logs the
+  rule: `maximum resolution: "2160" (config.toml, at the start); the
+  display is 3840x2160: the game draws at 3840x2160`.
+  `display.ps5_resolution` and `HALO_PS5_RESOLUTION` are gone from the
+  host, the guest and the READMEs.
+- **In play**, once a second the game's event poll (`host_sdl_poll_event`,
+  the thread that also asks the window's size) calls `ps5_display_check`,
+  which looks at `config.toml`'s modification time and size and, when
+  either has changed, reads the limit again; a new size is the stand-in
+  window's at once. **No resize events are written**, unlike the plan: the
+  game handles no window event by name; it asks the window's size between
+  frames (`sdl_platform.c`'s `platform_screen_mode`, through
+  `d3d8_vk.c`'s `halo_screen_commit`), and remakes its back buffer and
+  depth buffer at the next frame, as a desktop window's resize does.
+- **What went wrong, and was dealt with.** The first build looked with
+  `stat`, and in run `000007` the host saw only the first of five saves
+  (`menus: display.resolution_limit = 1080`, `1440`, `2160`, then `1440`,
+  `1080` in a level): that save, the first of the run, also changed the
+  file's size (why is not known: the old `display.ps5_resolution` line,
+  which might have been thought dropped, is still in the file), and the
+  others kept it (`"1080"`, `"1440"`, `"2160"` are one length); the time
+  `stat` gave never moved, though FTP's `MLSD` showed the file's own
+  modification time at the last save. `stat` is not one of the names the
+  RADV recipe binds to the platform layer; `fstatat` is, and the guest's
+  own file calls have gone through it since phase 2 (`host_syscall.c`).
+  With `fstatat`, run `000815` saw every save within the second, each with
+  the size unchanged and the time moved (`config.toml: modified at
+  1792369513.000000000, 36508 bytes (it was 1792369051.000000000, 36508
+  bytes)`). The time is whole seconds: two saves of one size within a
+  second would be seen as one, which the menu is too slow to make.
+- **The three values switched in play**, the renderer's target in the log
+  (`screen: 852x480 drawn at WxH`) and the frame rate after:
+
+  | run, line | set | the game draws at | heartbeat after |
+  |---|---|---|---|
+  | `000007` 155 | 1080 | 1920x1080 | 119.88 a second |
+  | `000815` 414 | 2160 | 3840x2160 | 119.88 |
+  | `000815` 496 | 1440 | 2560x1440 | 119.88 |
+  | `000815` 582 | 2160 | 3840x2160 | 119.88 (the save's own frame 570 ms) |
+
+  In run `000007` the change to 1080 was made in the menus and the level
+  played after at that size (the five saves' other four unseen, as
+  above); each switch is "1 target changes", 4 images after it, 0
+  swapchain re-creations, 0 validation errors. The screenshots
+  (`HALO_PS5_SCREENSHOT=3`, in each run's folder) are of the presented
+  3840x2160 image, the same size at every setting.
+- **The display's size respected** is shown by the rule's test; the
+  console's output was not set to 1080p (the user's display is 4K and
+  the user kept the run short): on the console the log's rule line says
+  the display's mode it held the limit to.
+
+**Step 3, gyro aiming** (runs `20261019-001657`, `-002438`, `-003442`).
+
+- **The guest's path**, `port/linux/src/xinput_sdl.c`: `HALO_PS5` joins
+  `HALO_SWITCH` where the controller's gyroscope is read
+  (`halo_linux_touch_look`'s first branch, and `guest_host.h` for its
+  declaration), joins `HALO_ANDROID` where the settings are read
+  (`gyro_settings_read`, `halo_linux_gyro_zoom_only`), and is kept out of
+  the phone's sensor mode (`touch_input_gyro_mode`, now `#if
+  !defined(HALO_SWITCH) && !defined(HALO_PS5)`). The settings' rows are
+  step 1's in `port_config.c`.
+- **The import.** The plan had `host_sdl_gamepad_gyro` replace an import
+  stub; there was none: the PS5's guest takes the Linux host's import list
+  and the renderer's, and neither has it (the Switch's is in
+  `port/switch/host_imports.list`). The PS5 gains its own list,
+  `port/ps5/host_imports.list`, named in `tools/ps5_build.py`'s
+  `extra_imports` (and among its configure inputs), as the Switch has its
+  own; the guest's `imports.s` names it, and the host defines it (`T`).
+- **The host**, `host_pad_ps5.c`: each SDL2 pad matched to its user by the
+  joystick's name (`sceUserServiceGetLoginUserIdList`,
+  `sceUserServiceGetUserName`), `scePadGetHandle(user, 0, 0)` for SDL2's
+  handle, `scePadSetMotionSensorState` once: `gyro: pad 1
+  ("thelinkin3000") is user 372994645's, handle 0x038c0701; the motion
+  sensor on: 0x00000000`. The turn is `host_rules_ps5.c`'s
+  `ps5_gyro_turn` (noise floor 0.02 rad/s, the Switch's 100 ms gap limit, a
+  first read or one after a pause only noting where the samples are),
+  tested on the PC with samples made after probe 1's figures (the probe
+  kept figures, not every sample). The `pad:` line gains the fresh samples
+  a second, the reads, the largest turn of a read and the turn in all.
+- **What went wrong, and was dealt with, in three runs:**
+  1. *The queue was empty* (`001657`): the first build drained
+     `scePadRead`'s queue, which probe 1 found at about 600 samples a
+     second; in the title it gave **5 to 6 a second** (`gyro: 6 samples a
+     second in 6509 reads`), and the user found the gyro "works
+     horribly". In the probe nothing else read the pad during the queue's
+     test; in the title SDL2 reads the pad's state at every event poll,
+     and that empties the queue. The host reads the pad's state
+     (`scePadReadState`) at each ask instead, the game asking every frame:
+     **120 fresh samples a second** at 120 frames (`002438`, `003442`),
+     each sample's angular velocity counting for the time since the one
+     before by the samples' own timestamps. The user: "smooth".
+  2. *The sideways axis was reversed* (`002438`). The plan's and the
+     Switch's comment have the guest's yaw positive to the right; the
+     game's is positive to the **left** (`input_abstraction.c`: the
+     stick's yaw is `-right_stick.x`; the mouse's likewise), so a pad
+     turned right (−y, probe 1) turned the view left.
+  3. *Steering, and the scale.* Asked, the user chose to turn the view
+     sideways by **steering the pad like a wheel** (roll, about z) rather
+     than turning it flat (about y), and **each sensitivity as the
+     Switch's**: at 1 the turn was the pad's own, which the user felt as
+     the Switch's 6. The Switch's sensor gives turns a second (1.0 is 360
+     degrees a second: yuzu converts degrees a second to it by dividing by
+     360), which `host_sdl2.c` takes as radians and scales by 1.5, so its
+     1 turns the view 1.5/2π of the pad's turn; the PS5's turn is scaled
+     by the same (`GYRO_SCALE` in `host_pad_ps5.c`). So: **yaw +z × dt**
+     (steering left, +z in probe 1, turns the view left), **pitch +x × dt**
+     (the user: "up and down are perfect"), × 1.5/2π. The rule's test
+     follows (steering right gives a negative yaw).
+- **Tried in play by the user** (`003442`): "Very smooth, I love it";
+  sensitivity **5** both ways, no inverts (`menus:
+  input.gyro_sensitivity_horizontal = 5`); ONLY ON ZOOM set and played
+  (`menus: input.gyro_aim = zoom`); the `pad:` lines: `gyro: 117 samples a
+  second in 7039 reads, the largest turn of a read 2.88 degrees, 541
+  degrees in all`, `120 ... 7.42 degrees, 908 degrees in all`, at rest
+  `0.04 degrees, 2 degrees in all`. **Not tried, at the user's word
+  ("Gyro done")**: a campaign level start to end with the PS button
+  pressed in it (no `overlay:` line in a level in any of the runs), and a
+  split-screen match with each pad aiming its own view (each pad is its
+  own entry by its user, but a second player's gyro was not seen).
+
+**Step 4, the microphone** (run `20261019-003442`).
+
+- `host_microphone_ps5.c`, after the Switch's `host_microphone.c`:
+  `libSceAudioIn` loaded at the host's start
+  (`sceSysmoduleLoadModuleInternal(0x80000002)`, `sceAudioInInit`, both
+  0, logged); the calls imported through **a stub of the port's own**,
+  `port/ps5/stubs/libSceAudioIn_stub.c`, built by `tools/ps5_build.py`'s
+  stub rules beside the AGC ones (`OWN_STUBS`, SONAME
+  `libSceAudioIn.sprx`), since a title's `sceKernelDlsym` finds nothing in
+  a system module (probe 2); the foreground user's port, voice chat type,
+  48 kHz, 256 samples, 16-bit mono; a thread reading `sceAudioInInput`
+  into a second's ring of floats (`host_rules_ps5.c`'s
+  `ps5_microphone_samples`, tested: buffers of zeros dropped, silence's
+  noise kept); nothing resampled (48 kHz is voice chat's rate).
+- `host_sdl_ps5_audio.c` lists one recording device ("DualSense
+  microphone", its own id) and serves a stream opened on it or on the
+  default recording id: the microphone's stream is an ordinary audio
+  binding with a flag, since a new handle type would change the Android
+  host's `host.h`. Its reads, its available bytes and its close go to the
+  microphone.
+- **On the console**: `microphone: open, user 372994645's (the pad's
+  microphone or a headset in it), port 0x30000007`, `voice chat:
+  microphone open`, `microphone: hearing the input`; the mute button
+  pressed and released three times (`the input gives zeros (the pad's
+  mute button, or a headset changing over)`, then `hearing the input`);
+  `audio: the microphone: 187 buffers a second in 60 s, 2.2 s of them
+  zeros ..., 0 samples dropped (the ring full), 0 errors`. The console
+  joined a network game on Prisoner (`successfully joined a net game`),
+  and the user's account: "mic works". The other machine's lines were not
+  fetched, and no headset was tried.
+
+**Step 5, rest mode and the pad: not tried, the user's decision** ("Rest
+mode I don't care"). The README says rest mode was not tried. The pad
+switched off and on is phase 6's poll, unchanged and still untried.
+
+**Step 6, the READMEs and the settings table.** `port/ps5/README.md`: a
+section on the menus, the maximum resolution in "The picture", Gyro Aim
+and the microphone in "The pad and the sound", voice chat both ways in
+"The network", "What runs" brought up to date; `port/linux/README.md`'s
+table: `display.resolution_limit` for the Switch and the PS5 (their
+values and defaults), `display.ps5_resolution` gone, the five
+`input.gyro_*` rows for the PS5. **The whole run once more from a fresh
+install was not made**, at the user's word ("wrap things up"); each
+feature was tried on the console in its own run, the last one
+(`003442`) with every step's code.
+
+#### The shared files, argued
+
+| File (lines) | Changed | What, and why |
+|---|---|---|
+| `port/linux/src/menu_files.c` (1,157) | +6, −3 | `MENU_PLATFORM "ps5"` under `HALO_PS5`; `for_this_platform` accepts `ps5` on every build (one name and the error message: the menu files are every build's data) |
+| `port/linux/src/port_config.c` (2,360) | +27, −11 | `display.resolution_limit`'s PS5 row in place of `display.ps5_resolution`; the gyro rows' block opened to `HALO_PS5`, `PLATFORM_GYRO`, the DualSense's text for `input.gyro_aim` |
+| `port/linux/src/xinput_sdl.c` (1,566) | +7, −6 | `HALO_PS5` joins the Switch's controller gyroscope and Android's settings, and is kept out of the phone's sensor mode |
+
+**The preprocessing check**, the three files with each build's own
+command (`ninja -t commands` for `build/android/guest`,
+`build/linux_x86_64/guest` and `build/switch/guest`; the chain Android's
+command is, `clang -S` then its assembly's conversion, cut at its first
+command), HEAD's version against the tree's, at the end of the phase:
+`port_config.c` **identical** (9,358, 9,351, 9,544 lines) and
+`xinput_sdl.c` **identical** (9,062, 8,975, 9,126); `menu_files.c`
+differs on all three in `for_this_platform` alone, the allowed change:
+
+```
+     if ((length != 7 || strncmp(name, "desktop", 7)) && (length != 7 || strncmp(name, "android", 7)) &&
+-      (length != 3 || strncmp(name, "web", 3)) && (length != 6 || strncmp(name, "switch", 6)))
++      (length != 3 || strncmp(name, "web", 3)) && (length != 6 || strncmp(name, "switch", 6)) &&
++      (length != 3 || strncmp(name, "ps5", 3)))
+      {
+-      reader_error(reader, "platform=\"%s\" names one that is not desktop, android, switch or web",
++      reader_error(reader, "platform=\"%s\" names one that is not desktop, android, switch, ps5 or web",
+```
+
+The i686 Linux build (`-m32`) cannot be preprocessed here (no 32-bit glibc
+headers), as in phases 5 and 6. The menu XML's change for the other
+platforms is step 1's script: the same rows, places, labels, spinners and
+help on every other platform.
+
+#### The builds and tests
+
+`ninja ps5` builds with `-Werror` and no warning; `ninja linux_x86_64`
+builds; no weak `host_`, `posix_` or `ps5_` symbol stands in `eboot.elf`.
+`tools/test_ps5_host.py` (3, the new `test_host_rules` among them),
+`tools/test_ps5_build.py` and `tools/test_linux_port.py` (the menu files'
+tests among them): 21 passed, 4 skipped, 3 failed. **The three failures
+are this machine's**: `test_xdk_headers_compile_for_the_game`,
+`test_config_sections_join` and `test_p2p_signatures_and_listings`
+compile for the i686 build (`-m32`) and stop at `bits/wordsize.h` (no
+32-bit glibc headers); the same three fail on HEAD in a clean worktree,
+without this phase's changes.
+
+#### Acceptance, item by item
+
+| Item | | Where |
+|---|---|---|
+| 1. Builds, preprocessing, tests, no weak symbol, `display.ps5_resolution` gone | met but for the three tests that cannot run here (above) | above; the two names appear nowhere but here |
+| 2. The probes' results with their figures | met | part A; `probe/results/pad-probe-run*.txt`, `audioin-probe-run*.txt` |
+| 3. The menus on the console, Linux's unchanged | met | step 1 |
+| 4. The maximum resolution switched in play, the rule's line | met; the smaller display not tried (the rule tested) | step 2 |
+| 5. Gyro: the user's account, the sensitivity, the `pad:` lines | met; the campaign level start to end, the PS button's pause and the split-screen match not tried, at the user's word | step 3 |
+| 6. The microphone both ways, the mute button | met on the console's side and by the user's account; the other machine's lines not fetched, no headset | step 4 |
+| 7. Rest mode and the pad off and on | not tried, the user's decision | step 5 |
+| 8. Each shared file argued, `for_this_platform`, the module loads, the unexpected | met | above; step 1; step 4; each step's "what went wrong" |
+| 9. Nothing changed outside the named files | **not met, argued**: `tools/port_settings.py` (the settings screens' source, step 1), three more menu XML files (Graphics, Network Setup and its in-game form: the rows the PS5 lost as `desktop`, step 1), `port/assets/menus/README.md` (the attribute's names), `tools/test_linux_port.py` (the platforms' names), `port/ps5/host_imports.list` and `port/ps5/stubs/` (under `port/ps5`) | steps 1, 3, 4 |
+
+"Ends with": the menus the PS5's, the maximum resolution switched in play
+(4K, 1440p, 1080p), a level aimed with the DualSense's gyroscope, and
+voice with the microphone in a network game, are met; the campaign level
+start to end paused once with the PS button, and rest mode's and the
+pad's results, are not, at the user's word.
+
+**The console's state.** `/data/homebrew/PPSA99500` holds this phase's
+last build (with no `environment.txt`: the last run set none). The two
+probes stay installed, `PPSA99106` and `PPSA99107`, with their reports;
+phase 0's six are deleted (part A). `config.toml` has
+`display.resolution_limit = "2160"` and Gyro Aim on zoom at 5 both ways,
+no inverts (read over FTP at the end); the old `display.ps5_resolution =
+"1080p"` line is still in it, kept by the game as a setting it does not
+know (it says so at each start, `unknown setting
+display.ps5_resolution`), and harmless.
+`/data/halo/maps.phase6-aside` (phase 6's chore) is still there.
 
 ### Phase 6 — audit (2026-10-18)
 

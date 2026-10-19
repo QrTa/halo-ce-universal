@@ -146,10 +146,11 @@ void host_sdl_handle_free(uint32_t handle)
 /* the stand-ins' objects: a handle to one of these is all there is */
 static char standin_window, standin_context, standin_renderer;
 
-/* the console's display: VideoOut's one mode is 3840x2160 at 59.94 Hz, and
-the game renders at the stand-in window's size, 1080p unless
-display.ps5_resolution says "2160p" (host_main.c reads it), which phase 4's
-present scales (port/ps5/PS5.md, "Display" and phase 6) */
+/* the console's display: VideoOut's mode (3840x2160 at 59.94 Hz on a 4K
+display), and the game renders at the stand-in window's size, the maximum
+resolution against that mode (host_main.c sets it, at the start and when
+config.toml changes: port/ps5/PS5.md, phase 7), which phase 4's present
+scales to the mode */
 int ps5_display_width = 1920, ps5_display_height = 1080;
 #define DISPLAY_WIDTH ps5_display_width
 #define DISPLAY_HEIGHT ps5_display_height
@@ -529,6 +530,8 @@ int host_sdl_poll_event(void *event)
 	uint32_t which;
 	int found = 0;
 
+	/* (the window's size, on the thread that asks it) */
+	ps5_display_check(ps5_now_ns());
 	pthread_mutex_lock(&event_lock);
 	if (event_count)
 	{

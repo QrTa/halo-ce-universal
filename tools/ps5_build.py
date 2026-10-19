@@ -116,12 +116,16 @@ VULKAN_FILES = (
 )
 # the AGC stub libraries that name the driver's imports, compiled from
 # PS5_Vulkan's own stub sources as its tools/build-radv-title.sh does
+# the port's own stubs, for system modules the SDK has none of: a title's
+# sceKernelDlsym finds nothing in a module it loads (port/ps5/PS5.md, phase 7)
+OWN_STUBS = (("libSceAudioIn", PORT_DIR / "stubs" / "libSceAudioIn_stub.c"),)
 AGC_STUBS = (("libSceAgc", "vendor/ps5/sdk/stubs/agc_canary_link_stub.c"),
              ("libSceAgcDriver", "vendor/ps5/sdk/stubs/agc_driver_canary_link_stub.c"))
 
 
 def ps5_configure_inputs() -> List[Path]:
-    return [Path(__file__), PORT_DIR / "host", PORT_DIR / "sce_sys"]
+    return [Path(__file__), PORT_DIR / "host", PORT_DIR / "sce_sys", PORT_DIR / "host_imports.list",
+            PORT_DIR / "stubs"]
 
 
 def requested(sln: Any, third_party: Path = THIRD_PARTY) -> bool:
@@ -354,7 +358,8 @@ def _generate(n: Writer, sln: Any, config_path: Path) -> None:
     # Vulkan renderers call, hud_hires.h, text_hires.h and menu_files.h:
     # Android and the Switch have them by their own names; and the Vulkan
     # renderer's host calls, host_imports_vk.list, in the one import table of
-    # both images, as Android's)
+    # both images, as Android's; and the PS5's own, port/ps5/host_imports.list,
+    # as the Switch has its own: the gyroscope's, port/ps5/PS5.md, phase 7)
 
     n.variable("ps5_guest_cc", guest_cc)
     ar, ld, objdump = _guest_tools(guest_cc)
@@ -362,7 +367,8 @@ def _generate(n: Writer, sln: Any, config_path: Path) -> None:
         n, sln, config, arch=X32, prefix="ps5", label="PS5", build=BUILD, third_party=THIRD_PARTY,
         guest_cc=guest_cc, gl_headers=GL_HEADERS, ar=ar, ld=ld, objdump=objdump, builtins_cc="$ps5_guest_cc",
         environment="gnu", platform_defines=["-DHALO_MOVABLE_WINDOW=1", "-DHALO_PS5=1"],
-        extra_runtime=[LINUX_HOST_DIR / "guest_desktop.c"], extra_imports=[LINUX_HOST_DIR / "host_imports.list", ANDROID_DIR / "host_imports_vk.list"],
+        extra_runtime=[LINUX_HOST_DIR / "guest_desktop.c"], extra_imports=[LINUX_HOST_DIR / "host_imports.list", ANDROID_DIR / "host_imports_vk.list",
+                                                         PORT_DIR / "host_imports.list"],
         updater_cflags=updater_defines(getattr(sln, "port_release", False)), desktop_gl=True, vulkan=True)
 
     # ---------- the toolchain
@@ -425,6 +431,14 @@ def _generate(n: Writer, sln: Any, config_path: Path) -> None:
         stub = host_dir / "stubs" / f"{library}.so"
         n.build(outputs=stub_obj, rule="ps5_stub_cc", inputs=vulkan / source)
         n.build(outputs=stub, rule="ps5_stub_so", inputs=stub_obj, variables={"soname": f"{library}.prx"})
+        stubs.append(stub)
+    # and the port's own, for the modules the SDK has no stub of (the
+    # microphone's: port/ps5/PS5.md, phase 7), named as the SDK's are
+    for library, source in OWN_STUBS:
+        stub_obj = host_dir / "stubs" / f"{library}_stub.o"
+        stub = host_dir / "stubs" / f"{library}.so"
+        n.build(outputs=stub_obj, rule="ps5_stub_cc", inputs=root / source)
+        n.build(outputs=stub, rule="ps5_stub_so", inputs=stub_obj, variables={"soname": f"{library}.sprx"})
         stubs.append(stub)
 
     # ---------- the host

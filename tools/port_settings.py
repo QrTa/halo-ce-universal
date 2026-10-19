@@ -63,8 +63,8 @@ VOLUMES = [(str(step), f"{step / 10:g}") for step in range(11)]
 # menu opens), its header (widget, bitmap), the row spacing, and its rows:
 # (label, setting, [(shown, value)], help, platform[, key]): platform is None
 # for every platform, else the platforms the row is for, separated by spaces
-# ("desktop", "android" (the Android app), "switch", "web": the menus' platform
-# attribute, port/linux/src/menu_files.c); key names the row's widgets where
+# ("desktop", "android" (the Android app), "switch", "ps5", "web": the menus'
+# platform attribute, port/linux/src/menu_files.c); key names the row's widgets where
 # two rows set one setting (one for each platform), else the setting's name does
 SCREENS = {
     "video_settings": {
@@ -111,6 +111,13 @@ SCREENS = {
              "android"),
             ("RESOLUTION SCALING:", "display.resolution_scaling", [("NATIVE", "native"), ("ORIGINAL", "original")],
              "Native draws at the resolution; Original draws\nthe Xbox's 640x480 and scales it up.", "desktop web"),
+            # (the PS5's own, first: what the game draws at, no more than the
+            # display's mode, port/ps5/host/host_main.c; the Switch's row
+            # below has the same setting with its own values)
+            ("MAXIMUM RESOLUTION:", "display.resolution_limit",
+             [("2160P (4K)", "2160"), ("1440P (2K)", "1440"), ("1080P (FHD)", "1080")],
+             "The most lines the game draws at, no more than\nthe display shows. Changes at once.", "ps5",
+             "resolution_limit_ps5"),
             ("V-SYNC:", "display.vsync", ON_OFF,
              "Wait for the display between frames, so that the\npicture never tears.", None),
             ("FRAME RATE LIMIT:", "display.max_fps",
@@ -140,16 +147,16 @@ SCREENS = {
             ("ANTI-ALIASING:", "display.anti_aliasing",
              [("OFF", "off"), ("FXAA", "fxaa"), ("MSAA 2X", "msaa2x"), ("MSAA 4X", "msaa4x")],
              "Smooth jagged edges, which the Xbox did not. FXAA\nis cheap; MSAA is sharper.",
-             "android web", "anti_aliasing_android"),
+             "android web ps5", "anti_aliasing_android"),
             ("SHADOW RESOLUTION:", "display.shadow_resolution",
              [("128", "128"), ("256", "256"), ("512", "512"), ("1024", "1024")],
              "The size objects' shadows are drawn at: 128 as on\nthe Xbox; larger for smoother, as soft, edges.",
-             "desktop android web"),
+             "desktop android web ps5"),
             # (neither is the Switch's: its deko3d renderer draws the Xbox's
             # shadow maps and lights each vertex, port/switch/guest/d3d8_dk.c)
             ("PER-PIXEL LIGHTING:", "display.per_pixel_lighting", ON_OFF,
              "Light models for each pixel, without the facets\nof the Xbox's lighting for each vertex.",
-             "desktop android web"),
+             "desktop android web ps5"),
             ("SHIELD GLOW:", "display.shield_glow", ON_OFF,
              "Shields light their surroundings as they flare,\nin the shield's own color.", None),
             ("GLOW INTENSITY:", "display.shield_glow_intensity", [("DEFAULT", "default"), ("LIGHT SHOW", "light_show")],
@@ -208,10 +215,13 @@ SCREENS = {
         "rows": [
             ("INTERNET PLAY:", "network.online", ON_OFF,
              "Host and join games over the internet by invite\nlinks; off keeps to the local network.",
-             "desktop android switch web"),
+             "desktop android switch web ps5"),
             ("UPNP PORT FORWARDING:", "network.allow_upnp", ON_OFF,
              "Let internet play ask the router to forward its\nport, for networks that stop connections.",
-             "desktop android switch"),
+             "desktop android switch ps5"),
+            # (neither of these two is the PS5's: nothing outside a title
+            # can put text on its clipboard, and a title is updated by
+            # installing it again, port/ps5/host/host_update_none.c)
             ("JOIN FROM CLIPBOARD:", "network.join_from_clipboard", ON_OFF,
              "Join the game of an invite link copied before\nswitching to the game.", "desktop android switch"),
             ("CHECK FOR UPDATES:", "update.auto", ON_OFF,
@@ -257,12 +267,12 @@ SCREENS = {
 }
 
 # Gyro Aim is its own screen, opened from Gamepads: the controller's gyroscope
-# on the Switch, the phone's on Android. The other platforms do not show the
+# on the Switch and the PS5, the phone's on Android. The other platforms do not show the
 # row, and it takes the place after the last row, so they have no gap.
 _gamepads = SCREENS["gamepad_setup"]
 _gamepads["categories"] = [
     ("GYRO AIM:", "gamepad_setup/gyro",
-     "Turn the view with the gyroscope,\nas well as the stick.", "android switch"),
+     "Turn the view with the gyroscope,\nas well as the stick.", "android switch ps5"),
 ]
 SCREENS["gamepad_setup/gyro"] = {
     "screen": "gyro_aim_screen", "header": _gamepads["header"], "spacing": 30,
@@ -368,7 +378,7 @@ _network["rows"] = [row for row in _network["rows"] if row[1] not in _hud_settin
 _network["categories"] = [
     ("MAP SHARING:", "network_setup/map_sharing",
      "Downloading Custom Edition maps you do not have,\nand helping send them to other players.",
-     "desktop android"),
+     "desktop android ps5"),
     ("MULTIPLAYER HUD:", "network_setup/multiplayer_hud",
      "Players' names above their heads, the\nscoreboard, and the text chat."),
     ("STREAMER MODE:", "network_setup/streamer_mode",
@@ -600,7 +610,7 @@ def _setting_screen(folder: str, spec: dict) -> list:
     # no gap where the others' are; a row in one place for all its
     # platforms, else a child for each place. The Switch's are its own: a row
     # for "android" is the Android app's, port/linux/src/menu_files.c)
-    places = {"desktop": -1, "android": -1, "switch": -1, "web": -1}
+    places = {"desktop": -1, "android": -1, "switch": -1, "ps5": -1, "web": -1}
     for index, (label, setting, choices, _, platform, *named) in enumerate(spec["rows"]):
         key = named[0] if named else setting.split(".", 1)[1]
         row = f"{base}/op_{key}"

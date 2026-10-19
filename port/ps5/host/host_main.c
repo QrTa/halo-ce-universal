@@ -78,6 +78,7 @@ every title (phase 0 B); the README says so.
 
 #include "host.h"
 #include "ps5_host.h"
+#include "host_rules_ps5.h"
 #include "tomlc17.h"
 
 /* HALO_PROBE_BUILD, the commit the title is built from (written at every
@@ -675,41 +676,137 @@ static void read_gpu_stats(const char *path)
 	toml_free(result);
 }
 
-/* display.ps5_resolution (HALO_PS5_RESOLUTION in the environment first, for
-the deploy's tests): the stand-in window's size, which the game draws at;
-read before the game starts, so a change takes effect at the next start */
-static void read_display_resolution(const char *path)
-{
-	const char *from = "the default";
-	char value[16] = "1080p";
-	toml_result_t result = toml_parse_file_ex(path);
+/* ---------- the maximum resolution (port/ps5/PS5.md, phase 7, step 2)
 
-	if (getenv("HALO_PS5_RESOLUTION"))
+display.resolution_limit (HALO_RESOLUTION_LIMIT in the environment first,
+as the Switch's row): the most lines the game draws at, against the
+display's mode (VideoOut's, asked once the renderer's instance is up): the
+game draws at the smaller, in the display's shape (host_rules_ps5.c). It
+is the stand-in window's size; the game asks the window's size between
+frames (sdl_platform.c's platform_screen_mode, d3d8_vk.c's
+halo_screen_commit) and remakes its targets when it changes, as when a
+desktop window is resized, so a change in the menus applies at the next
+frame. */
+
+#define CONFIG_CHECK_NS 1000000000ull
+
+/* VideoOut's mode, asked in renderer_start; 0 if it could not be */
+static int display_mode_width, display_mode_height;
+/* config.toml as last looked at: its modification time and size */
+static struct timespec config_modified;
+static off_t config_size = -1;
+
+/* the setting's text and where it came from */
+static void resolution_limit_read(char *value, size_t size, const char **from)
+{
+	toml_result_t result;
+
+	snprintf(value, size, "%d", PS5_LIMIT_LINES_DEFAULT);
+	*from = "the default";
+	if (getenv("HALO_RESOLUTION_LIMIT"))
 	{
-		snprintf(value, sizeof(value), "%s", getenv("HALO_PS5_RESOLUTION"));
-		from = "HALO_PS5_RESOLUTION";
+		snprintf(value, size, "%s", getenv("HALO_RESOLUTION_LIMIT"));
+		*from = "HALO_RESOLUTION_LIMIT";
+		return;
 	}
-	else if (result.ok)
+	result = toml_parse_file_ex(PS5_DATA_FOLDER "/config.toml");
+	if (!result.ok)
+		return;
 	{
-		toml_datum_t setting = toml_seek(result.toptab, "display.ps5_resolution");
+		toml_datum_t setting = toml_seek(result.toptab, "display.resolution_limit");
 
 		if (setting.type == TOML_STRING)
 		{
-			snprintf(value, sizeof(value), "%s", setting.u.s);
-			from = "config.toml";
+			snprintf(value, size, "%s", setting.u.s);
+			*from = "config.toml";
+		}
+		else if (setting.type == TOML_INT64)
+		{
+			snprintf(value, size, "%lld", (long long)setting.u.int64);
+			*from = "config.toml";
 		}
 	}
-	if (result.ok)
-		toml_free(result);
-	if (!strcmp(value, "2160p"))
+	toml_free(result);
+}
+
+/* the rule applied: the window's size set, and said (why: "at the start",
+"changed in play") */
+static void resolution_apply(const char *why)
+{
+	char value[32], display[48];
+	const char *from;
+	int lines, width, height, display_decides;
+
+	resolution_limit_read(value, sizeof(value), &from);
+	lines = ps5_limit_lines(value);
+	if (!lines)
 	{
-		ps5_display_width = 3840;
-		ps5_display_height = 2160;
+		ps5_log("maximum resolution: \"%s\" (%s) is not a number of lines from %d to 4320: %d", value, from,
+			PS5_LIMIT_LINES_LOWEST, PS5_LIMIT_LINES_DEFAULT);
+		lines = PS5_LIMIT_LINES_DEFAULT;
 	}
-	else if (strcmp(value, "1080p"))
-		ps5_log("display.ps5_resolution: \"%s\" is neither \"1080p\" nor \"2160p\": 1080p", value);
-	ps5_log("display.ps5_resolution: \"%s\" (%s): the game draws at %dx%d", value, from, ps5_display_width,
-		ps5_display_height);
+	display_decides = ps5_limit_rule(lines, display_mode_width, display_mode_height, &width, &height);
+	if (display_mode_width > 0)
+		snprintf(display, sizeof(display), "the display is %dx%d", display_mode_width, display_mode_height);
+	else
+		snprintf(display, sizeof(display), "the display's mode is not known");
+	if (width == ps5_display_width && height == ps5_display_height && strcmp(why, "at the start"))
+	{
+		ps5_log("maximum resolution: \"%s\" (%s, %s); %s: the game still draws at %dx%d", value, from, why, display,
+			width, height);
+		return;
+	}
+	ps5_log("maximum resolution: \"%s\" (%s, %s); %s: the game draws at %dx%d%s", value, from, why, display, width,
+		height, display_decides && lines > display_mode_height ? " (no more than the display shows)" : "");
+	ps5_display_width = width;
+	ps5_display_height = height;
+}
+
+/* config.toml's modification time and size, or 0. Through fstatat, which
+the RADV link recipe binds to the platform layer as the guest's own file
+calls go (host_syscall.c): the first build's stat gave a time that never
+moved, and the host saw only a save that changed the file's size
+(port/ps5/PS5.md, phase 7, step 2) */
+static int config_looked_at(struct timespec *modified, off_t *size)
+{
+	struct stat status;
+
+	if (fstatat(AT_FDCWD, PS5_DATA_FOLDER "/config.toml", &status, 0) != 0)
+		return 0;
+	*modified = status.st_mtim;
+	*size = status.st_size;
+	return 1;
+}
+
+void ps5_display_check(uint64_t now)
+{
+	static uint64_t checked_at;
+	struct timespec modified;
+	off_t size;
+
+	if (checked_at && now - checked_at < CONFIG_CHECK_NS)
+		return;
+	checked_at = now;
+	if (!config_looked_at(&modified, &size))
+		return;
+	if (modified.tv_sec == config_modified.tv_sec && modified.tv_nsec == config_modified.tv_nsec &&
+		size == config_size)
+		return;
+	ps5_log("config.toml: modified at %lld.%09ld, %lld bytes (it was %lld.%09ld, %lld bytes)",
+		(long long)modified.tv_sec, modified.tv_nsec, (long long)size, (long long)config_modified.tv_sec,
+		config_modified.tv_nsec, (long long)config_size);
+	config_modified = modified;
+	config_size = size;
+	resolution_apply("changed in play");
+}
+
+/* before the game starts */
+static void read_display_resolution(void)
+{
+	if (config_looked_at(&config_modified, &config_size))
+		ps5_log("config.toml: modified at %lld.%09ld, %lld bytes", (long long)config_modified.tv_sec,
+			config_modified.tv_nsec, (long long)config_size);
+	resolution_apply("at the start");
 }
 
 /* /app0/halo_guest.elf, whole, in the host's heap; NULL if it cannot be read */
@@ -801,7 +898,7 @@ static void *game_main(void *unused)
 
 	host_apply_debug_settings(PS5_DATA_FOLDER "/config.toml", NULL);
 	read_gpu_stats(PS5_DATA_FOLDER "/config.toml");
-	read_display_resolution(PS5_DATA_FOLDER "/config.toml");
+	read_display_resolution();
 	ps5_log("the game starts at %.1f s", ps5_seconds());
 	host_run_guest_main(host_make_boot(&environment, "halo"));
 }
@@ -859,6 +956,15 @@ static void renderer_start(void)
 	}
 	if (!host_renderer_vulkan)
 		host_fatal("the Vulkan renderer did not come up on RADV, and the console has no other: %s", line);
+	{
+		unsigned millihertz = 0;
+
+		if (ps5_vk_display_mode(&display_mode_width, &display_mode_height, &millihertz))
+			ps5_log("display: VideoOut's mode is %dx%d at %.2f Hz (the console's output setting)",
+				display_mode_width, display_mode_height, millihertz / 1000.0);
+		else
+			ps5_log("display: VideoOut's mode could not be asked: the maximum resolution is not held to it");
+	}
 }
 
 int main(void)
@@ -904,6 +1010,7 @@ int main(void)
 	if (getenv("HALO_PS5_NET_TEST") && atoi(getenv("HALO_PS5_NET_TEST")) > 0)
 		ps5_net_test();
 	ps5_net_start();
+	ps5_microphone_start();
 
 	host_memory_reserve_early();
 	if (host_memory_fixed_unavailable())

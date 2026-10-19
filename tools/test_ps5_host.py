@@ -3,9 +3,11 @@ system call interface and the console's FreeBSD
 (port/ps5/host/host_syscall_tables.c, port/ps5/tests/host_syscall_tables_test.c)
 with the build machine's C compiler: the tables need no system, and their
 FreeBSD numbers (port/ps5/host/freebsd_abi.h) are checked against the SDK's
-headers by the console's build (host_syscall.c). Also checks that the
-generated weak import stubs (tools/ps5_build.py) compile, one for each
-function of a host import table."""
+headers by the console's build (host_syscall.c). Also runs the C test of
+the host's rules that need no console (port/ps5/host/host_rules_ps5.c,
+port/ps5/tests/host_rules_ps5_test.c), and checks that the generated weak
+import stubs (tools/ps5_build.py) compile, one for each function of a host
+import table."""
 import shutil
 import subprocess
 import sys
@@ -38,6 +40,21 @@ def test_host_syscall_tables(tmp_path):
         [cc, "-std=c11", "-Wall", "-Wextra", "-Werror", "-O1",
          f"-I{ROOT / 'port' / 'android' / 'include'}", f"-I{HOST}",
          str(TESTS / "host_syscall_tables_test.c"), str(HOST / "host_syscall_tables.c"),
+         "-o", str(binary)],
+        check=True,
+    )
+    result = subprocess.run([str(binary)], capture_output=True, text=True)
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_host_rules(tmp_path):
+    cc = compiler()
+    if not cc:
+        pytest.skip("no C compiler")
+    binary = tmp_path / "host_rules_ps5_test"
+    subprocess.run(
+        [cc, "-std=c11", "-Wall", "-Wextra", "-Werror", "-O1", f"-I{HOST}",
+         str(TESTS / "host_rules_ps5_test.c"), str(HOST / "host_rules_ps5.c"), "-lm",
          "-o", str(binary)],
         check=True,
     )

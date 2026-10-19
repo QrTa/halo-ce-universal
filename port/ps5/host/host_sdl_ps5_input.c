@@ -81,7 +81,8 @@ static void log_audio_devices(void)
 	{
 		count = SDL_GetNumAudioDevices(recording);
 		host_logf(HOST_LOG_INFO, "SDL: %d %s device(s)%s", count, recording ? "recording" : "playback",
-			recording ? " (voice chat's microphone is phase 5's: no stream records in this phase)" : "");
+			recording ? " (SDL2 records nothing on the console: voice chat's microphone is libSceAudioIn's, "
+			"host_microphone_ps5.c)" : "");
 		for (index = 0; index < count; index++)
 		{
 			const char *name = SDL_GetAudioDeviceName(index, recording);
@@ -450,7 +451,9 @@ static void pad_line(uint64_t now, int last)
 	char line[768];
 	size_t used = 0;
 	uint64_t on = __atomic_load_n(&rumble_on, __ATOMIC_RELAXED);
-	int index;
+	unsigned gyro_samples, gyro_reads;
+	float gyro_largest, gyro_total;
+	int index, gyro;
 
 	if (!pad_minute.line_start)
 	{
@@ -459,7 +462,8 @@ static void pad_line(uint64_t now, int last)
 	}
 	if (now - pad_minute.line_start < PAD_LINE_NS && !last)
 		return;
-	if (pad_minute.used || on != pad_minute.rumble_on_before)
+	gyro = ps5_pad_gyro_minute(&gyro_samples, &gyro_reads, &gyro_largest, &gyro_total);
+	if (pad_minute.used || on != pad_minute.rumble_on_before || gyro)
 	{
 		used += (size_t)snprintf(line + used, sizeof(line) - used, "pad: in %.0f s, presses:",
 			(now - pad_minute.line_start) / 1e9);
@@ -476,8 +480,13 @@ static void pad_line(uint64_t now, int last)
 					index ? "," : "; axes", axis_names[index], pad_minute.axis_low[index], pad_minute.axis_high[index]);
 		}
 		if (used < sizeof(line))
-			snprintf(line + used, sizeof(line) - used, "; rumble asked with the motors on %llu times",
+			used += (size_t)snprintf(line + used, sizeof(line) - used, "; rumble asked with the motors on %llu times",
 				(unsigned long long)(on - pad_minute.rumble_on_before));
+		/* (the gyroscope's, when Gyro Aim read it: host_pad_ps5.c) */
+		if (gyro && used < sizeof(line))
+			snprintf(line + used, sizeof(line) - used, "; gyro: %.0f samples a second in %u reads, the largest turn "
+				"of a read %.2f degrees, %.0f degrees in all", gyro_samples / ((now - pad_minute.line_start) / 1e9),
+				gyro_reads, gyro_largest * 57.29578f, gyro_total * 57.29578f);
 		host_log(HOST_LOG_INFO, line);
 	}
 	memset(&pad_minute, 0, sizeof(pad_minute));

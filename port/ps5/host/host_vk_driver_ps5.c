@@ -19,6 +19,7 @@ RADV_DEBUG, RADV_PERFTEST and MESA_VK_* the host's environment holds
 */
 
 #include "host.h"
+#include "host_vk.h"
 #include "host_vk_driver.h"
 #include "ps5_host.h"
 
@@ -88,4 +89,30 @@ uint32_t host_vk_driver_name(uint32_t out, uint32_t size)
 		return 0;
 	text[0] = 0;
 	return 0;
+}
+
+/* VideoOut's display mode, as the present's surface asks it
+(host_vk_present.c, host_vk_surface_make): what the console's output
+setting gives (3840x2160 at 59.94 Hz on the user's 4K display). 0 before the
+instance is made, or without a display or a mode. */
+int ps5_vk_display_mode(int *width, int *height, unsigned *millihertz)
+{
+	VkDisplayPropertiesKHR display;
+	VkDisplayModePropertiesKHR mode;
+	uint32_t count = 1;
+	VkResult result;
+
+	if (!host_vk.instance || !host_vk.physical || !host_vk.vkGetPhysicalDeviceDisplayPropertiesKHR)
+		return 0;
+	result = host_vk.vkGetPhysicalDeviceDisplayPropertiesKHR(host_vk.physical, &count, &display);
+	if ((result != VK_SUCCESS && result != VK_INCOMPLETE) || !count)
+		return 0;
+	count = 1;
+	result = host_vk.vkGetDisplayModePropertiesKHR(host_vk.physical, display.display, &count, &mode);
+	if ((result != VK_SUCCESS && result != VK_INCOMPLETE) || !count)
+		return 0;
+	*width = (int)mode.parameters.visibleRegion.width;
+	*height = (int)mode.parameters.visibleRegion.height;
+	*millihertz = mode.parameters.refreshRate;
+	return 1;
 }

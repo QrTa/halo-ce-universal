@@ -43,7 +43,7 @@ drive the controller.
 #include "touch_input.h"
 #include "halo_keyboard.h"
 #include "halo_ui_pointer.h"
-#ifdef HALO_SWITCH
+#if defined(HALO_SWITCH) || defined(HALO_PS5)
 #include "guest_host.h"
 #endif
 
@@ -305,8 +305,9 @@ the phone's, on the Switch the controller's) is a profile's Gyro Aim
 vertical sensitivity and invert are their own (input.gyro_sensitivity_horizontal,
 input.gyro_sensitivity_vertical, input.gyro_invert_horizontal,
 input.gyro_invert_vertical); the web's overlay has its own. Nothing but on
-Android, the web and the Switch. */
-#ifdef HALO_ANDROID
+Android, the web and the Switch, and the PS5, whose DualSense's gyroscope
+takes the Switch's controller's place. */
+#if defined(HALO_ANDROID) || defined(HALO_PS5)
 /* input.gyro_aim and the rest, read again when the settings change: "true"
 aims with the gyroscope, "zoom" only while zoomed (halo_linux_gyro_zoom_only) */
 static struct
@@ -334,7 +335,7 @@ static void gyro_settings_read(void)
 	gyro.invert_vertical = config_boolean("input.gyro_invert_vertical");
 	gyro.sensitivity_horizontal = (float)config_real("input.gyro_sensitivity_horizontal");
 	gyro.sensitivity_vertical = (float)config_real("input.gyro_sensitivity_vertical");
-#ifndef HALO_SWITCH
+#if !defined(HALO_SWITCH) && !defined(HALO_PS5)
 	/* (the overlay runs the phone's gyroscope only while it is wanted) */
 	touch_input_gyro_mode(!gyro.enabled ? 0 : gyro.zoom_only ? 2 : 1);
 #endif
@@ -346,7 +347,7 @@ Android) aims only while the player is zoomed in (input.gyro_aim = "zoom"):
 player_control.c drops its turn otherwise */
 int halo_linux_gyro_zoom_only(void)
 {
-#ifdef HALO_ANDROID
+#if defined(HALO_ANDROID) || defined(HALO_PS5)
 	gyro_settings_read();
 	return gyro.zoom_only;
 #else
@@ -360,7 +361,7 @@ int halo_linux_touch_look(short gamepad_index, float *yaw, float *pitch, float *
 	*pitch = 0.0f;
 	*gyro_yaw = 0.0f;
 	*gyro_pitch = 0.0f;
-#ifdef HALO_SWITCH
+#if defined(HALO_SWITCH) || defined(HALO_PS5)
 	{
 		SDL_Gamepad *gamepads[PORT_COUNT];
 		SDL_Gamepad *gamepad;

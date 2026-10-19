@@ -23,8 +23,8 @@ returning (min, median, max).
 
 A stream the game opens without a callback to play is answered as in phase
 2: what it puts is counted and played nowhere, at a device's rate. One to
-record (voice chat's microphone) is phase 5's: it fails, and voice chat is
-off.
+record is voice chat's microphone (phase 7): one recording device is
+listed, and its stream reads host_microphone_ps5.c's 48 kHz mono floats.
 */
 
 #include "host.h"
@@ -83,6 +83,8 @@ struct audio_binding
 	/* a stream without a callback: the bytes put, and its clock */
 	uint64_t put_bytes, resumed_ns;
 	int resumed;
+	/* voice chat's microphone (host_microphone_ps5.c) */
+	int microphone;
 };
 
 /* every stream's, for the end's report */
@@ -243,14 +245,24 @@ static void SDLCALL audio_callback(void *userdata, Uint8 *stream, int length)
 
 /* ---------- the game's calls */
 
-/* the playback devices are SDL2's, numbered from 1 (0 is no device); none
-records in this phase */
+/* the recording device: the signed-in player's microphone, the pad's or a
+headset in it (one id of its own, above SDL2's playback devices) */
+#define MICROPHONE_DEVICE 0x100u
+#define MICROPHONE_NAME "DualSense microphone"
+
+/* the playback devices are SDL2's, numbered from 1 (0 is no device); the
+recording one is the microphone */
 int host_sdl_get_audio_devices(int recording, uint32_t *ids, int maximum)
 {
 	int count, index;
 
 	if (recording)
-		return 0;
+	{
+		if (maximum < 1)
+			return 0;
+		ids[0] = MICROPHONE_DEVICE;
+		return 1;
+	}
 	count = SDL_GetNumAudioDevices(0);
 	for (index = 0; index < count && index < maximum; index++)
 		ids[index] = (uint32_t)index + 1;
@@ -261,6 +273,11 @@ int host_sdl_get_audio_device_name(uint32_t device, char *name, int size)
 {
 	const char *found;
 
+	if (size >= 1 && device == MICROPHONE_DEVICE)
+	{
+		SDL_strlcpy(name, MICROPHONE_NAME, (size_t)size);
+		return 1;
+	}
 	if (size < 1 || device < 1 || (int)device > SDL_GetNumAudioDevices(0))
 		return 0;
 	found = SDL_GetAudioDeviceName((int)device - 1, 0);
@@ -282,17 +299,33 @@ uint32_t host_sdl_open_audio_stream(uint32_t device, const void *spec, uint32_t 
 	struct audio_binding *binding;
 	SDL_AudioSpec wanted;
 
-	/* (the game asks for the microphone by the default's id: no device of
-	its own is listed) */
-	if (device == PS5_SDL3_AUDIO_DEVICE_DEFAULT_RECORDING)
+	/* voice chat's microphone, by the default's id or its own: 48 kHz mono
+	floats, as voice_audio.c asks */
+	if (device == PS5_SDL3_AUDIO_DEVICE_DEFAULT_RECORDING || device == MICROPHONE_DEVICE)
 	{
-		static int logged;
-
-		if (!__atomic_exchange_n(&logged, 1, __ATOMIC_RELAXED))
-			host_logf(HOST_LOG_INFO, "audio: a stream to record (format 0x%x, %d channel(s), %d Hz): none in this phase "
-				"(SDL2 lists %d recording device(s)); voice chat is off", (unsigned)guest_spec->format,
-				(int)guest_spec->channels, (int)guest_spec->freq, SDL_GetNumAudioDevices(1));
-		return 0;
+		if (guest_spec->format != PS5_SDL3_AUDIO_F32 || guest_spec->channels != 1 || guest_spec->freq != 48000)
+		{
+			host_logf(HOST_LOG_ERROR, "microphone: asked for format 0x%x, %d channel(s) at %d Hz; it gives 48000 Hz "
+				"mono floats", (unsigned)guest_spec->format, (int)guest_spec->channels, (int)guest_spec->freq);
+			return 0;
+		}
+		binding = calloc(1, sizeof(*binding));
+		if (!binding)
+			return 0;
+		binding->microphone = 1;
+		if (!ps5_microphone_open())
+		{
+			free(binding);
+			return 0;
+		}
+		binding->handle = host_sdl_handle_new(_handle_audio, binding);
+		if (!binding->handle)
+		{
+			ps5_microphone_close();
+			free(binding);
+			return 0;
+		}
+		return binding->handle;
 	}
 	binding = calloc(1, sizeof(*binding));
 	if (!binding)
@@ -392,6 +425,9 @@ int host_sdl_resume_audio_stream_device(uint32_t handle)
 
 	if (!binding)
 		return 0;
+	/* (the microphone captures from its opening) */
+	if (binding->microphone)
+		return 1;
 	if (!binding->callback)
 	{
 		if (!binding->resumed)
@@ -403,12 +439,14 @@ int host_sdl_resume_audio_stream_device(uint32_t handle)
 	return 1;
 }
 
+/* voice chat's microphone, the only stream the game reads */
 int host_sdl_get_audio_stream_data(uint32_t handle, void *data, int length)
 {
-	(void)handle;
-	(void)data;
-	(void)length;
-	return 0;
+	struct audio_binding *binding = host_sdl_handle_get(handle, _handle_audio);
+
+	if (!binding || !binding->microphone)
+		return 0;
+	return ps5_microphone_read(data, length);
 }
 
 /* (a stream without a callback: the bytes put less what a device at its
@@ -421,6 +459,8 @@ int host_sdl_get_audio_stream_available(uint32_t handle)
 
 	if (!binding)
 		return -1;
+	if (binding->microphone)
+		return ps5_microphone_available();
 	if (binding->callback)
 		return 0;
 	frame = (uint32_t)SDL_AUDIO_BITSIZE(binding->obtained.format) / 8 *
@@ -439,6 +479,8 @@ void host_sdl_destroy_audio_stream(uint32_t handle)
 	if (!binding)
 		return;
 	host_sdl_handle_free(handle);
+	if (binding->microphone)
+		ps5_microphone_close();
 	if (!binding->callback)
 	{
 		free(binding);
