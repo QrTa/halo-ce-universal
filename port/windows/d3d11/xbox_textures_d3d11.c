@@ -41,6 +41,8 @@ memory_watch.c detects that by write-protecting the pages.
 #include "d3d11_backend.h"
 #include "xbox_textures_d3d11.h"
 
+#include <SDL3/SDL.h>
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -865,7 +867,9 @@ struct texture_entry
 };
 
 #define TEXTURE_BUCKET_COUNT 4096
-#define TEXTURE_IDLE_FRAMES 1800
+#define TEXTURE_SWEEP_SECONDS 10
+#define TEXTURE_IDLE_SECONDS 30
+#define TEXTURE_SWEEP_COUNT (TEXTURE_IDLE_SECONDS / TEXTURE_SWEEP_SECONDS)
 #define MAXIMUM_PALETTE_VARIANTS 8
 
 static struct texture_entry *texture_buckets[TEXTURE_BUCKET_COUNT];
@@ -1302,14 +1306,30 @@ void xgpu_d3d11_texture_get(const DWORD *resource, const D3DCOLOR *palette, stru
 	texture_entry_result(entry, result);
 }
 
+/* the frame of each of the last sweeps, a sweep apart, and when the next
+is due (xbox_textures.c's) */
+static unsigned long texture_sweep_frames[TEXTURE_SWEEP_COUNT];
+static unsigned long texture_sweep_count = 0;
+static Uint64 texture_next_sweep = 0;
+
 void xgpu_d3d11_texture_cache_begin_frame(void)
 {
-	unsigned long index;
+	unsigned long index, idle_since;
+	Uint64 now;
 
 	texture_frame++;
-	if (texture_frame % 600)
+	now = SDL_GetTicks();
+	if (now < texture_next_sweep)
 		return;
-	/* drop textures that have not been used for a while */
+	texture_next_sweep = now + TEXTURE_SWEEP_SECONDS * 1000;
+	/* drop the textures not used since the sweep half a minute ago (none
+	before the first sweeps, which find frame 0). The time is counted in
+	seconds, not frames: 1800 frames, half a minute at 60 frames a second, is
+	five seconds at 360, and a texture out of sight that long was converted
+	and uploaded again when it came back into view */
+	idle_since = texture_sweep_frames[texture_sweep_count % TEXTURE_SWEEP_COUNT];
+	texture_sweep_frames[texture_sweep_count % TEXTURE_SWEEP_COUNT] = texture_frame;
+	texture_sweep_count++;
 	for (index = 0; index < TEXTURE_BUCKET_COUNT; index++)
 	{
 		struct texture_entry **link = &texture_buckets[index];
@@ -1318,7 +1338,7 @@ void xgpu_d3d11_texture_cache_begin_frame(void)
 		{
 			struct texture_entry *entry = *link;
 
-			if (texture_frame - entry->last_used_frame > TEXTURE_IDLE_FRAMES)
+			if (texture_frame - entry->last_used_frame > texture_frame - idle_since)
 			{
 				*link = entry->next;
 				d3d11_backend_texture_free(entry->texture);
