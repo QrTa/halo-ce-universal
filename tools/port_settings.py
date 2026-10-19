@@ -835,7 +835,8 @@ SKULLS = [
     ("blind", "BLIND"), ("boom", "BOOM"), ("catch", "CATCH"), ("confetti_party", "CONFETTI PARTY"), ("envy", "ENVY"), ("eye_patch", "EYE PATCH"),
     ("famine", "FAMINE"), ("fog", "FOG"), ("foreign", "FOREIGN"), ("ghost", "GHOST"),
     ("grunt_birthday_party", "GRUNT BIRTHDAY"), ("grunt_funeral", "GRUNT FUNERAL"), ("iron", "IRON"),
-    ("malfunction", "MALFUNCTION"), ("mythic", "MYTHIC"), ("pinata", "PINATA"), ("protected", "PROTECTED"), ("recession", "RECESSION"),
+    ("malfunction", "MALFUNCTION"), ("mythic", "MYTHIC"), ("outbreak", "OUTBREAK"),
+    ("pinata", "PINATA"), ("protected", "PROTECTED"), ("recession", "RECESSION"),
     ("sputnik", "SPUTNIK"), ("streaking", "STREAKING"), ("swarm", "SWARM"), ("thats_just_wrong", "JUST... WRONG"),
     ("thunderstorm", "THUNDERSTORM"), ("tough_luck", "TOUGH LUCK"), ("vampirism", "VAMPIRISM"),
 ]

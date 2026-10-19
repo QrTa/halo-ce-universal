@@ -1593,6 +1593,17 @@ static void effect_generate_part(
 	real_vector3d direction;
 	real_vector3d velocity;
 
+	/* port: skull: Outbreak's burst, a raised Flood's, its particles alone:
+	no damage, no sound (port/linux/game/skulls_outbreak.c) */
+	if ((skulls_effect_quiet && part_definition->runtime_base_class_tag == SOUND_DEFINITION_TAG) ||
+		(skulls_effect_harmless && part_definition->runtime_base_class_tag == DAMAGE_EFFECT_DEFINITION_TAG))
+	{
+		return;
+	}
+	/* port: skull: and Outbreak's smaller bursts, at a killed enemy's
+	spores (skulls_effect_size, else 1) */
+	scale *= skulls_effect_size;
+
 	switch (part_definition->runtime_base_class_tag)
 	{
 		case PARTICLE_SYSTEM_DEFINITION_TAG:
@@ -1991,7 +2002,8 @@ static void effect_generate_particles(
 					particles->distribution_radius_upper_bound,
 					particles->scale_a_flags,
 					particles->scale_b_flags,
-					_effect_particle_distribution_radius_bit);
+					_effect_particle_distribution_radius_bit) *
+					skulls_effect_size;
 
 				local_random_direction3d(&random_offset);
 				matrix4x3_transform_vector(
@@ -2100,7 +2112,7 @@ static void effect_generate_particles(
 						particles->radius_upper_bound,
 						particles->scale_a_flags,
 						particles->scale_b_flags,
-						_effect_particle_radius_bit);
+						_effect_particle_radius_bit) * skulls_effect_size;
 					data.angular_velocity = effect_real_random_range(
 						get_global_local_random_seed_address(),
 						effect,

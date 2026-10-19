@@ -1637,7 +1637,7 @@ static struct
 /* the skulls screen's skulls, from game.skulls_active as it opens, written
 by its OK (tools/port_settings.py's SKULLS); and the screen Back returns to
 from it, or from the question of how the skulls are had before it */
-static unsigned long skulls_menu_mask;
+static struct skull_set skulls_menu_set;
 static long skulls_menu_back_tag = NONE;
 
 static boolean skulls_open(struct widget_instance *widget, boolean *widget_deleted);
@@ -2072,7 +2072,8 @@ static boolean skulls_open_over(long back_tag, boolean *widget_deleted)
 		"pc\\main_menu\\difficulty_select\\skulls\\skulls_screen";
 
 	skulls_menu_back_tag = back_tag;
-	skulls_menu_mask = skulls_mask_from_text(config_string("game.skulls_active")) & skulls_unlocked_mask();
+	skulls_menu_set = skull_set_intersection(skulls_set_from_text(config_string("game.skulls_active")),
+		skulls_unlocked_set());
 	if (!ui_widget_load_by_name_or_tag(screen, NONE, NULL, NONE, back_tag, NONE, NONE))
 		return FALSE;
 	*widget_deleted = TRUE;
@@ -2123,17 +2124,21 @@ static int skull_of(struct widget_instance *widget)
 static boolean skull_toggle(struct widget_instance *widget)
 {
 	int skull = skull_of(widget);
+	struct skull_set unlocked = skulls_unlocked_set();
 
 	if (skull == NONE)
 		return FALSE;
 	/* (one not found yet stays off) */
-	if (!(skulls_unlocked_mask() & (1UL << skull)))
+	if (!skull_set_has(&unlocked, skull))
 	{
 		ui_play_audio_feedback_sound(SOUND_ERROR);
 		return TRUE;
 	}
-	skulls_menu_mask ^= 1UL << skull;
-	ui_play_audio_feedback_sound((skulls_menu_mask & (1UL << skull)) ? SOUND_FORWARD : SOUND_BACK);
+	if (skull_set_has(&skulls_menu_set, skull))
+		skulls_menu_set = skull_set_difference(skulls_menu_set, skull_set_of(skull));
+	else
+		skull_set_add(&skulls_menu_set, skull);
+	ui_play_audio_feedback_sound(skull_set_has(&skulls_menu_set, skull) ? SOUND_FORWARD : SOUND_BACK);
 	return TRUE;
 }
 
@@ -2198,11 +2203,15 @@ static boolean skulls_move(struct widget_instance *widget, short across, short d
 /* "skulls start" (OK): the skulls shown written, then the level */
 static boolean skulls_start(void)
 {
-	char text[400];
+	char text[SKULLS_TEXT_LENGTH];
 
-	skulls_text_from_mask(skulls_menu_mask & skulls_unlocked_mask(), text, sizeof(text));
+	skulls_text_from_set(skull_set_intersection(skulls_menu_set, skulls_unlocked_set()), text, sizeof(text));
 	if (!config_write("game.skulls_active", text))
 		error(_error_silent, "skulls: could not write game.skulls_active");
+	/* (Outbreak's Flood, from skulls.pack: written at the main menu after
+	this level, which reads the map until then) */
+	if (skulls_pack_wanted())
+		skulls_pack_request();
 	campaign_start(campaign_pending.map_name, campaign_pending.difficulty, campaign_pending.controller, TRUE);
 	return TRUE;
 }
@@ -2224,7 +2233,7 @@ static void skulls_screen_update(struct widget_instance *list)
 	struct widget_instance *focused = list->focused_child;
 	int focused_skull = skull_of(focused);
 	struct widget_instance *help = list->parameters.list.extended_description;
-	unsigned long unlocked = skulls_unlocked_mask();
+	struct skull_set unlocked = skulls_unlocked_set();
 	char line[256];
 	wchar_t text[ROW_TEXT_LENGTH];
 	int skull;
@@ -2232,14 +2241,14 @@ static void skulls_screen_update(struct widget_instance *list)
 	for (skull = 0; skull < NUMBER_OF_SKULLS; skull++)
 	{
 		struct widget_instance *item;
-		boolean locked = !(unlocked & (1UL << skull));
+		boolean locked = !skull_set_has(&unlocked, skull);
 
 		snprintf(line, sizeof(line), "skull_%s", skull_descriptions[skull].key);
 		item = named(list, line, 0);
 		if (!item)
 			continue;
 		/* (one not found yet, faint) */
-		snprintf(line, sizeof(line), "%s %s", locked ? "[--]" : (skulls_menu_mask & (1UL << skull)) ? "[X]" : "[  ]",
+		snprintf(line, sizeof(line), "%s %s", locked ? "[--]" : skull_set_has(&skulls_menu_set, skull) ? "[X]" : "[  ]",
 			skull_descriptions[skull].label);
 		text_widen(text, NUMBEROF(text), line);
 		text_set(item, text);
@@ -2247,7 +2256,7 @@ static void skulls_screen_update(struct widget_instance *list)
 	}
 	if (!help)
 		return;
-	if (focused_skull != NONE && !(unlocked & (1UL << focused_skull)))
+	if (focused_skull != NONE && !skull_set_has(&unlocked, focused_skull))
 		snprintf(line, sizeof(line), "Locked. An enemy carries it: pick it up,\nthen finish the level to keep it.");
 	else if (focused_skull != NONE)
 		snprintf(line, sizeof(line), "%s", skull_descriptions[focused_skull].description);
@@ -2557,8 +2566,7 @@ static void setting_written(char const *name, char const *value)
 	if (!strcmp(name, "game.randomizer") && !strcmp(value, "true"))
 		randomizer_pack_request();
 	/* (and the skulls': skulls to be found, carried by the enemies) */
-	if ((!strcmp(name, "game.skulls") || !strcmp(name, "game.skulls_all_unlocked")) &&
-		config_boolean("game.skulls") && skulls_drop())
+	if ((!strcmp(name, "game.skulls") || !strcmp(name, "game.skulls_all_unlocked")) && skulls_pack_wanted())
 	{
 		skulls_pack_request();
 	}
@@ -7049,7 +7057,7 @@ boolean pc_menu_event_function_invoke(
 		}
 		else if (!strcmp(name, "skulls all off"))
 		{
-			skulls_menu_mask = 0;
+			skulls_menu_set = skull_set_none();
 			ui_play_audio_feedback_sound(SOUND_BACK);
 		}
 		else if (!strcmp(name, "skulls start"))

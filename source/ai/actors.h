@@ -1028,6 +1028,11 @@ long actor_new(
 void actor_customize_unit(
 	long actor_variant_definition_index,
 	long unit_index);
+/* port: skull: an actor of the variant placed alone, of no encounter, at
+the point and facing the way (Outbreak's raised Flood,
+port/linux/game/skulls_outbreak.c); its unit, or NONE */
+long actor_port_place_free(long actor_variant_definition_index, real_point3d const *position,
+	real_vector3d const *forward);
 long actor_create_for_unit(
 	boolean swarm,
 	long unit_index,

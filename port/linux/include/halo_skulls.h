@@ -31,6 +31,7 @@ enum skull
 	_skull_iron,
 	_skull_malfunction,
 	_skull_mythic,
+	_skull_outbreak,
 	_skull_pinata,
 	_skull_protected,
 	_skull_recession,
@@ -53,11 +54,35 @@ struct skull_description
 
 extern struct skull_description const skull_descriptions[NUMBER_OF_SKULLS];
 
+/* a set of skulls: a bit each, in words of 32 (in the saved games' and the
+advertisement's bytes, little-endian, skull n bit n). As many as
+SKULLS_MAXIMUM; more wants it raised (and the advertisement's bytes:
+halo_port_limits.h's HALO_PORT_ADVERTISED_SKULLS_SIZE) */
+#define SKULLS_MAXIMUM 64
+#define SKULL_SET_WORDS ((SKULLS_MAXIMUM + 31) / 32)
+
+struct skull_set
+{
+	unsigned long words[SKULL_SET_WORDS];
+};
+
+int skull_set_has(struct skull_set const *set, int skull);
+void skull_set_add(struct skull_set *set, int skull);
+int skull_set_is_empty(struct skull_set const *set);
+struct skull_set skull_set_none(void);
+struct skull_set skull_set_of(int skull);
+/* every skull there is */
+struct skull_set skull_set_all(void);
+struct skull_set skull_set_union(struct skull_set a, struct skull_set b);
+struct skull_set skull_set_intersection(struct skull_set a, struct skull_set b);
+/* those of a not in b */
+struct skull_set skull_set_difference(struct skull_set a, struct skull_set b);
+
 /* whether the skull is on in the campaign game being played */
 int skull_active(int skull);
 
 /* how the skulls are had (game.skulls_unlock_mode): every one, or those
-found playing, or not asked yet; and the mask of those had */
+found playing, or not asked yet; and the set of those had */
 enum
 {
 	_skulls_unlock_unset = 0,
@@ -65,14 +90,16 @@ enum
 	_skulls_unlock_play
 };
 int skulls_unlock_mode(void);
-unsigned long skulls_unlocked_mask(void);
+struct skull_set skulls_unlocked_set(void);
 /* whether the locked skulls are carried by enemies to be found: unlocking
 by playing, without Settings > Gameplay's ALL SKULLS */
 int skulls_drop(void);
 
-/* game.skulls_active's words, to a mask of the skulls and back */
-unsigned long skulls_mask_from_text(char const *text);
-void skulls_text_from_mask(unsigned long mask, char *text, unsigned int size);
+/* game.skulls_active's words, to a set of the skulls and back; the text's
+room (port_config.c writes values of up to 1024 characters) */
+#define SKULLS_TEXT_LENGTH 1025
+struct skull_set skulls_set_from_text(char const *text);
+void skulls_text_from_set(struct skull_set set, char *text, unsigned int size);
 
 /* the skulls' part of the game state (the skulls dropped and found in the
 level, which a checkpoint keeps), made with the game's; and made new with
@@ -99,10 +126,10 @@ void skulls_level_unloaded(void);
 struct sound_permutation;
 unsigned char skulls_sound_read(struct sound_permutation const *permutation, void *buffer);
 
-/* the advertisement's reserved bytes: the skulls flag and mask, when the
+/* the advertisement's reserved bytes: the skulls flag and set, when the
 host plays a campaign game with skulls; the client's copy of them */
 void skulls_advertisement(unsigned char *reserved);
-void skulls_set_remote(int on, unsigned char const *mask);
+void skulls_set_remote(int on, unsigned char const *bytes);
 
 /* whether the unit (or an object's team) is the players' enemy */
 int skulls_unit_is_enemy(long unit_index);
@@ -145,6 +172,48 @@ alone (solo or split screen) */
 int skulls_carried_wanted(void);
 /* each tick of the game: the skulls lying about, heard */
 void skulls_tick(void);
+
+/* Outbreak (port/linux/game/skulls_outbreak.c): a player's kill may let
+loose Flood spores that run to the bodies about and raise them as Flood.
+The Flood's tags come from The Library (c20), copied into the level as it
+loads (randomizer.c, from skulls.pack): the roots below, and what they need.
+Whether a level loading wants them: Outbreak on, a game of this machine's
+alone (solo or split screen) */
+#define SKULLS_OUTBREAK_DONOR "c20"
+#define SKULLS_OUTBREAK_SPORE_TAG "characters\\flood_infection\\flood_infection"
+#define SKULLS_OUTBREAK_CARRIER_TAG "characters\\floodcarrier\\floodcarrier"
+#define SKULLS_OUTBREAK_BURST_TAG "characters\\floodcarrier\\effects\\body destroyed"
+#define SKULLS_OUTBREAK_ELITE_TAGS \
+	"characters\\floodcombat elite\\floodcombat elite unarmed", \
+	"characters\\floodcombat elite\\floodcombat elite plasma rifle", \
+	"characters\\floodcombat elite\\floodcombat elite needler"
+#define SKULLS_OUTBREAK_HUMAN_TAGS \
+	"characters\\floodcombat_human\\floodcombat_human unarmed", \
+	"characters\\floodcombat_human\\floodcombat_human assault rifle", \
+	"characters\\floodcombat_human\\floodcombat_human pistol"
+int skulls_outbreak_wanted(void);
+/* whether skulls.pack is wanted: skulls to be found, or Outbreak's Flood
+(game.skulls_active's, the skulls on) */
+int skulls_pack_wanted(void);
+/* the Outbreak's part of the game state (its spores and the Flood they
+raised), made with the game's, and new with each map */
+void skulls_outbreak_initialize(void);
+void skulls_outbreak_initialize_for_new_map(void);
+/* the level's: its Flood's tags found (skulls_level_loaded) */
+void skulls_outbreak_level_loaded(void);
+/* a unit killed by a player (skulls_unit_killed), and each tick */
+void skulls_outbreak_kill(long unit_index, long killer_player_index);
+void skulls_outbreak_tick(void);
+/* whether the unit is one of the Flood a spore raised: it carries no skull,
+lets loose no spores, and its death is not counted in the skulls' odds */
+int skulls_outbreak_raised(long unit_index);
+/* while set, an effect made makes no sound, or no damage; and its parts and
+particles are of this size (1, else): the burst a raised Flood appears in,
+its particles alone, and a killed enemy's as its spores go loose, half the
+size, harmless (effects.c) */
+extern int skulls_effect_quiet;
+extern int skulls_effect_harmless;
+extern float skulls_effect_size;
 /* a skull to be found lying about: its name ("IRON SKULL"), else NULL; and
 it taken by a player's action button: on for the level, to be kept once
 the level is finished without dying. FALSE for another item. (The name is

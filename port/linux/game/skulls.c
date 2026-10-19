@@ -85,6 +85,7 @@ struct skull_description const skull_descriptions[NUMBER_OF_SKULLS] =
 	{ "iron", "IRON", "Dying reverts to checkpoint. Single player restarts the level." },
 	{ "malfunction", "MALFUNCTION", "Each time you spawn, one part of your HUD stops working." },
 	{ "mythic", "MYTHIC", "Enemies have twice the health and shields." },
+	{ "outbreak", "OUTBREAK", "Kills can release flood spores that infect nearby bodies." },
 	{ "pinata", "PINATA", "Punching an enemy knocks a grenade loose." },
 	{ "protected", "PROTECTED", "All enemies have shields." },
 	{ "recession", "RECESSION", "Every shot uses twice the ammo." },
@@ -99,9 +100,92 @@ struct skull_description const skull_descriptions[NUMBER_OF_SKULLS] =
 
 #define SKULLS_LOCAL_PLAYERS 4
 
-static unsigned long level_mask;
+static struct skull_set level_set;
 static int remote_on;
-static unsigned long remote_mask;
+static struct skull_set remote_set;
+
+/* ---------- sets of skulls */
+
+/* (the skull set's bytes, and NUMBER_OF_SKULLS within it) */
+typedef char skull_set_holds_the_skulls[NUMBER_OF_SKULLS <= SKULLS_MAXIMUM ? 1 : -1];
+typedef char skull_set_fits_the_advertisement[
+	SKULL_SET_WORDS * 4 <= HALO_PORT_ADVERTISED_SKULLS_SIZE ? 1 : -1];
+
+int skull_set_has(struct skull_set const *set, int skull)
+{
+	return skull >= 0 && skull < NUMBER_OF_SKULLS && ((set->words[skull >> 5] >> (skull & 31)) & 1) != 0;
+}
+
+void skull_set_add(struct skull_set *set, int skull)
+{
+	if (skull >= 0 && skull < NUMBER_OF_SKULLS)
+		set->words[skull >> 5] |= 1UL << (skull & 31);
+}
+
+int skull_set_is_empty(struct skull_set const *set)
+{
+	short word;
+
+	for (word = 0; word < SKULL_SET_WORDS; word++)
+	{
+		if (set->words[word])
+			return 0;
+	}
+	return 1;
+}
+
+struct skull_set skull_set_none(void)
+{
+	struct skull_set set;
+
+	csmemset(&set, 0, sizeof(set));
+	return set;
+}
+
+struct skull_set skull_set_of(int skull)
+{
+	struct skull_set set = skull_set_none();
+
+	skull_set_add(&set, skull);
+	return set;
+}
+
+struct skull_set skull_set_all(void)
+{
+	struct skull_set set = skull_set_none();
+	int skull;
+
+	for (skull = 0; skull < NUMBER_OF_SKULLS; skull++)
+		skull_set_add(&set, skull);
+	return set;
+}
+
+struct skull_set skull_set_union(struct skull_set a, struct skull_set b)
+{
+	short word;
+
+	for (word = 0; word < SKULL_SET_WORDS; word++)
+		a.words[word] |= b.words[word];
+	return a;
+}
+
+struct skull_set skull_set_intersection(struct skull_set a, struct skull_set b)
+{
+	short word;
+
+	for (word = 0; word < SKULL_SET_WORDS; word++)
+		a.words[word] &= b.words[word];
+	return a;
+}
+
+struct skull_set skull_set_difference(struct skull_set a, struct skull_set b)
+{
+	short word;
+
+	for (word = 0; word < SKULL_SET_WORDS; word++)
+		a.words[word] &= ~b.words[word];
+	return a;
+}
 
 /* Malfunction's broken element, for each local player's body, and the
 game time it was last looked at: a checkpoint's revert, or the level
@@ -149,9 +233,9 @@ static int malfunction_new_element(int previous)
 	return choices[(malfunction_roll >> 16) % (unsigned long)count];
 }
 
-unsigned long skulls_mask_from_text(char const *text)
+struct skull_set skulls_set_from_text(char const *text)
 {
-	unsigned long mask = 0;
+	struct skull_set set = skull_set_none();
 	char word[32];
 	unsigned int length = 0;
 
@@ -169,7 +253,7 @@ unsigned long skulls_mask_from_text(char const *text)
 				for (skull = 0; skull < NUMBER_OF_SKULLS; skull++)
 				{
 					if (!_stricmp(word, skull_descriptions[skull].key))
-						mask |= 1UL << skull;
+						skull_set_add(&set, skull);
 				}
 			}
 			length = 0;
@@ -181,10 +265,10 @@ unsigned long skulls_mask_from_text(char const *text)
 			word[length++] = character;
 	}
 
-	return mask;
+	return set;
 }
 
-void skulls_text_from_mask(unsigned long mask, char *text, unsigned int size)
+void skulls_text_from_set(struct skull_set set, char *text, unsigned int size)
 {
 	unsigned int length = 0;
 	int skull;
@@ -194,7 +278,7 @@ void skulls_text_from_mask(unsigned long mask, char *text, unsigned int size)
 	text[0] = 0;
 	for (skull = 0; skull < NUMBER_OF_SKULLS; skull++)
 	{
-		if (!(mask & (1UL << skull)))
+		if (!skull_set_has(&set, skull))
 			continue;
 		length += (unsigned int)snprintf(text + length, size - length, "%s%s", length ? "," : "",
 			skull_descriptions[skull].key);
@@ -226,26 +310,25 @@ int skulls_unlock_mode(void)
 	return _skulls_unlock_unset;
 }
 
-/* the skulls of the mask kept for good (game.skulls_unlocked) */
-static void skulls_keep(unsigned long mask)
+/* the skulls of the set kept for good (game.skulls_unlocked) */
+static void skulls_keep(struct skull_set set)
 {
-	char text[400];
+	char text[SKULLS_TEXT_LENGTH];
 
-	skulls_text_from_mask(skulls_mask_from_text(config_string("game.skulls_unlocked")) | mask, text, sizeof(text));
+	skulls_text_from_set(skull_set_union(skulls_set_from_text(config_string("game.skulls_unlocked")), set), text,
+		sizeof(text));
 	if (!config_write("game.skulls_unlocked", text))
 		error(_error_silent, "skulls: could not write game.skulls_unlocked");
 }
 
-unsigned long skulls_unlocked_mask(void)
+struct skull_set skulls_unlocked_set(void)
 {
-	unsigned long everything = (1UL << NUMBER_OF_SKULLS) - 1;
-
 	/* (ALL SKULLS on: every one, those found kept for when it is off) */
 	if (skulls_unlock_mode() != _skulls_unlock_play || config_boolean("game.skulls_all_unlocked"))
-		return everything;
+		return skull_set_all();
 	/* (Grunt Birthday Party the one had from the start) */
-	return (skulls_mask_from_text(config_string("game.skulls_unlocked")) | (1UL << _skull_grunt_birthday_party)) &
-		everything;
+	return skull_set_union(skulls_set_from_text(config_string("game.skulls_unlocked")),
+		skull_set_of(_skull_grunt_birthday_party));
 }
 
 int skulls_drop(void)
@@ -268,16 +351,46 @@ int skulls_carried_wanted(void)
 
 /* the host's (or a game of one machine's) skulls, from its settings: those
 turned on that it has */
-static unsigned long config_mask(void)
+static struct skull_set config_set(void)
 {
 	struct network_game *game = network_game_get_game();
 
 	if (!config_boolean("game.skulls"))
-		return 0;
+		return skull_set_none();
 	if (game && game->variant.game_engine_index != game_engine_none)
-		return 0;
+		return skull_set_none();
 
-	return skulls_mask_from_text(config_string("game.skulls_active")) & skulls_unlocked_mask();
+	return skull_set_intersection(skulls_set_from_text(config_string("game.skulls_active")), skulls_unlocked_set());
+}
+
+int skulls_outbreak_wanted(void)
+{
+	struct network_game *game = network_game_get_game();
+	struct skull_set set = config_set();
+	struct skull_set unlocked = skulls_unlocked_set();
+
+	/* (on, or still to be found in the level: picked up, it is on there) */
+	if (!skull_set_has(&set, _skull_outbreak) &&
+		!(skulls_carried_wanted() && !skull_set_has(&unlocked, _skull_outbreak)))
+	{
+		return 0;
+	}
+	/* (solo and split screen: a network game's other machines would have
+	none of the Flood's tags) */
+	if (game_connection() != _game_connection_local || network_game_distributed_client())
+		return 0;
+	return !game || game->variant.game_engine_index == game_engine_none;
+}
+
+int skulls_pack_wanted(void)
+{
+	struct skull_set chosen;
+
+	if (!config_boolean("game.skulls"))
+		return 0;
+	chosen = skull_set_intersection(skulls_set_from_text(config_string("game.skulls_active")),
+		skulls_unlocked_set());
+	return skulls_drop() || skull_set_has(&chosen, _skull_outbreak);
 }
 
 /* the game's own sounds (below) */
@@ -293,7 +406,7 @@ enum
 static void own_sounds_add(unsigned long wanted);
 static void own_sounds_remove(void);
 static void finding_reset(void);
-static unsigned long found_mask(void);
+static struct skull_set found_set(void);
 
 /* the level's carried skull's weapon tag (randomizer.c copies it in), or
 NONE when its enemies carry none */
@@ -306,15 +419,16 @@ void skulls_level_loaded(long scenario_tag_index)
 {
 	malfunction_reset();
 	running_skulls_reset();
+	skulls_outbreak_level_loaded();
 	if (network_game_distributed_client())
-		level_mask = remote_on ? remote_mask : 0;
+		level_set = remote_on ? remote_set : skull_set_none();
 	else
-		level_mask = config_mask();
-	if (level_mask)
+		level_set = config_set();
+	if (!skull_set_is_empty(&level_set))
 	{
-		char text[400];
+		char text[SKULLS_TEXT_LENGTH];
 
-		skulls_text_from_mask(level_mask, text, sizeof(text));
+		skulls_text_from_set(level_set, text, sizeof(text));
 		error(_error_silent, "skulls: %s", text);
 	}
 	/* (the skull the enemies carry: a campaign level's, copied in by now) */
@@ -330,7 +444,8 @@ void skulls_level_loaded(long scenario_tag_index)
 	of the skulls to be found) */
 	if (scenario_tag_index != NONE && scenario_definition_get(scenario_tag_index)->type == _scenario_type_solo)
 	{
-		own_sounds_add(((level_mask & ((1UL << _skull_grunt_birthday_party) | (1UL << _skull_confetti_party))) ?
+		own_sounds_add((skull_set_has(&level_set, _skull_grunt_birthday_party) ||
+			skull_set_has(&level_set, _skull_confetti_party) ?
 			1UL << _own_sound_party : 0) |
 			(carried_definition != NONE ? (1UL << _own_sound_skull_pickup) | (1UL << _own_sound_skull_carrier) |
 				(1UL << _own_sound_skull_floor) : 0));
@@ -341,7 +456,7 @@ void skulls_level_unloaded(void)
 {
 	carried_definition = NONE;
 	own_sounds_remove();
-	level_mask = 0;
+	level_set = skull_set_none();
 	malfunction_reset();
 }
 
@@ -349,9 +464,9 @@ int skull_active(int skull)
 {
 	/* (those turned on, and those found in the level, as the game state has
 	them: a revert to before one was taken takes it back) */
-	unsigned long mask = level_mask | found_mask();
+	struct skull_set set = skull_set_union(level_set, found_set());
 
-	if (!mask || skull < 0 || skull >= NUMBER_OF_SKULLS || !(mask & (1UL << skull)))
+	if (!skull_set_has(&set, skull))
 		return 0;
 	/* (a campaign's scenario: not the main menu's, nor a multiplayer map's) */
 	return global_scenario && global_scenario->type == _scenario_type_solo;
@@ -359,28 +474,35 @@ int skull_active(int skull)
 
 void skulls_advertisement(unsigned char *reserved)
 {
-	unsigned long mask;
+	struct skull_set set;
+	short byte_index;
 
 	if (!reserved)
 		return;
-	mask = config_mask();
-	if (!mask)
+	set = config_set();
+	if (skull_set_is_empty(&set))
 		return;
 	reserved[HALO_PORT_ADVERTISED_FLAGS_OFFSET] =
 		(unsigned char)(reserved[HALO_PORT_ADVERTISED_FLAGS_OFFSET] | HALO_PORT_ADVERTISED_SKULLS_FLAG);
-	reserved[HALO_PORT_ADVERTISED_SKULLS_OFFSET] = (unsigned char)mask;
-	reserved[HALO_PORT_ADVERTISED_SKULLS_OFFSET + 1] = (unsigned char)(mask >> 8);
-	reserved[HALO_PORT_ADVERTISED_SKULLS_OFFSET + 2] = (unsigned char)(mask >> 16);
-	reserved[HALO_PORT_ADVERTISED_SKULLS_OFFSET + 3] = (unsigned char)(mask >> 24);
+	for (byte_index = 0; byte_index < HALO_PORT_ADVERTISED_SKULLS_SIZE; byte_index++)
+	{
+		reserved[HALO_PORT_ADVERTISED_SKULLS_OFFSET + byte_index] = byte_index / 4 < SKULL_SET_WORDS ?
+			(unsigned char)(set.words[byte_index / 4] >> ((byte_index % 4) * 8)) : 0;
+	}
 }
 
-void skulls_set_remote(int on, unsigned char const *mask)
+void skulls_set_remote(int on, unsigned char const *bytes)
 {
-	remote_on = on && mask;
-	remote_mask = remote_on ?
-		((unsigned long)mask[0] | ((unsigned long)mask[1] << 8) | ((unsigned long)mask[2] << 16) |
-			((unsigned long)mask[3] << 24)) & ((1UL << NUMBER_OF_SKULLS) - 1) :
-		0;
+	short byte_index;
+
+	remote_on = on && bytes;
+	remote_set = skull_set_none();
+	if (!remote_on)
+		return;
+	for (byte_index = 0; byte_index < SKULL_SET_WORDS * 4; byte_index++)
+		remote_set.words[byte_index / 4] |= (unsigned long)bytes[byte_index] << ((byte_index % 4) * 8);
+	/* (none past those there are) */
+	remote_set = skull_set_intersection(remote_set, skull_set_all());
 }
 
 int skulls_team_is_enemy(short team_index)
@@ -930,9 +1052,9 @@ struct skulls_run
 	short pool_count;
 	short pad;
 	signed char pool[SKULLS_POOL_MAX];
-	unsigned long taken_mask;
-	unsigned long unlocked_mask;
-	unsigned long lost_mask;
+	struct skull_set taken;
+	struct skull_set unlocked;
+	struct skull_set lost;
 };
 
 /* in the game state: a checkpoint's revert, and the level started again,
@@ -943,7 +1065,7 @@ struct skulls_finding
 	long total;
 	long deaths;
 	/* the skulls taken this level: on, not yet kept */
-	unsigned long found_mask;
+	struct skull_set found;
 	/* the run, as of the last change (skulls_run) */
 	struct skulls_run run;
 	/* rolled when the level starts (and starts again): the order the skulls
@@ -968,9 +1090,9 @@ static long skull_hums[SKULLS_DROPPED_MAX] = { NONE, NONE, NONE, NONE, NONE, NON
 static long skull_hums_time;
 
 /* the skulls found in the level, not yet kept */
-static unsigned long found_mask(void)
+static struct skull_set found_set(void)
 {
-	return finding ? finding->found_mask : 0;
+	return finding ? finding->found : skull_set_none();
 }
 
 /* a number of the seed's, for the step (a kill's odds, a place in the
@@ -1008,7 +1130,7 @@ static void finding_reset(void)
 
 	finding->total = NONE;
 	finding->deaths = 0;
-	finding->found_mask = 0;
+	finding->found = skull_set_none();
 	/* (the order, shuffled from the clock: each start of the level its own) */
 	finding->seed = (unsigned long)system_milliseconds() * 2654435761UL ^ 0x5EED5EEDUL;
 	for (index = 0; index < NUMBER_OF_SKULLS; index++)
@@ -1051,7 +1173,8 @@ static long carriers_left(long dying_index)
 	{
 		if (iterator.index == dying_index || TEST_FLAG(unit->object.damage_flags, _object_dead_bit))
 			continue;
-		if (skulls_unit_is_enemy(iterator.index) && skulls_unit_can_carry(iterator.index))
+		if (skulls_unit_is_enemy(iterator.index) && skulls_unit_can_carry(iterator.index) &&
+			!skulls_outbreak_raised(iterator.index))
 			count++;
 	}
 	return count;
@@ -1061,7 +1184,7 @@ static long carriers_left(long dying_index)
 the difficulty drops (one on easy to four on legendary) */
 static void run_pool(void)
 {
-	unsigned long had = skulls_unlocked_mask();
+	struct skull_set had = skulls_unlocked_set();
 	short quota = (short)(game_difficulty_level_get() + 1);
 	short index;
 
@@ -1070,16 +1193,16 @@ static void run_pool(void)
 	{
 		int skull = finding->order[index];
 
-		if (skull >= 0 && skull < NUMBER_OF_SKULLS && !(had & (1UL << skull)))
+		if (skull >= 0 && skull < NUMBER_OF_SKULLS && !skull_set_has(&had, skull))
 			run.pool[run.pool_count++] = (signed char)skull;
 	}
 	run_saved();
 }
 
 /* the skulls lying about, as the game state has them */
-static unsigned long skulls_lying(void)
+static struct skull_set skulls_lying(void)
 {
-	unsigned long lying = 0;
+	struct skull_set lying = skull_set_none();
 	short index;
 
 	for (index = 0; index < SKULLS_DROPPED_MAX; index++)
@@ -1089,7 +1212,7 @@ static unsigned long skulls_lying(void)
 		int skull = finding->skulls[index].skull;
 
 		if (object && skull != NONE && object->definition_index == carried_definition)
-			lying |= 1UL << skull;
+			skull_set_add(&lying, skull);
 	}
 	return lying;
 }
@@ -1098,14 +1221,14 @@ static unsigned long skulls_lying(void)
 NONE when it has dropped them all */
 static int run_next(void)
 {
-	unsigned long lying = skulls_lying();
+	struct skull_set lying = skulls_lying();
 	short index;
 
 	for (index = 0; index < run.pool_count; index++)
 	{
 		int skull = run.pool[index];
 
-		if (!(run.taken_mask & (1UL << skull)) && !(lying & (1UL << skull)))
+		if (!skull_set_has(&run.taken, skull) && !skull_set_has(&lying, skull))
 			return skull;
 	}
 	return NONE;
@@ -1115,7 +1238,7 @@ static int run_next(void)
 static short skulls_left_to_find(void)
 {
 	short quota = (short)(game_difficulty_level_get() + 1);
-	unsigned long locked = ~skulls_unlocked_mask() & ((1UL << NUMBER_OF_SKULLS) - 1);
+	struct skull_set locked = skull_set_difference(skull_set_all(), skulls_unlocked_set());
 	short count = 0;
 	int skull;
 
@@ -1125,11 +1248,11 @@ static short skulls_left_to_find(void)
 		short index;
 
 		for (index = 0; index < run.pool_count; index++)
-			left += (short)!(run.taken_mask & (1UL << run.pool[index]));
+			left += (short)!skull_set_has(&run.taken, run.pool[index]);
 		return left;
 	}
 	for (skull = 0; skull < NUMBER_OF_SKULLS; skull++)
-		count += (short)((locked >> skull) & 1);
+		count += (short)skull_set_has(&locked, skull);
 	return count < quota ? count : quota;
 }
 
@@ -1236,7 +1359,8 @@ static void skull_drop_maybe(long unit_index, long killer_player_index, int head
 {
 	long left;
 
-	if (!skulls_unit_is_enemy(unit_index) || !skulls_unit_can_carry(unit_index))
+	/* (Outbreak's raised Flood: none the level placed, none to count) */
+	if (!skulls_unit_is_enemy(unit_index) || !skulls_unit_can_carry(unit_index) || skulls_outbreak_raised(unit_index))
 		return;
 	/* (the level's carriers, counted at the first death: those it places
 	over the whole level, not only those about now) */
@@ -1686,6 +1810,7 @@ void skulls_tick(void)
 	short slot;
 
 	skulls_units_tick();
+	skulls_outbreak_tick();
 	if (carried_definition == NONE)
 		return;
 	tick_kills_decide();
@@ -1759,14 +1884,14 @@ int skulls_item_take(short local_player_index, long unit_index, long object_inde
 	instant = config_boolean("game.skulls_instant_unlock");
 	/* (on for the level from now on, kept once it is finished; or with
 	INSTANT UNLOCK, kept now, and not on) */
-	run.taken_mask |= 1UL << skull;
+	skull_set_add(&run.taken, skull);
 	if (instant)
 	{
-		skulls_keep(1UL << skull);
-		run.unlocked_mask |= 1UL << skull;
+		skulls_keep(skull_set_of(skull));
+		skull_set_add(&run.unlocked, skull);
 	}
 	else
-		finding->found_mask |= 1UL << skull;
+		skull_set_add(&finding->found, skull);
 	run_saved();
 	if (skull_hums[slot] != NONE)
 		sound_stop_impulse(skull_hums[slot]);
@@ -1803,9 +1928,9 @@ int skulls_item_take(short local_player_index, long unit_index, long object_inde
 	return TRUE;
 }
 
-/* the skulls of the mask lost to the run, each said once on the screen;
+/* the skulls of the set lost to the run, each said once on the screen;
 to be found again in another level */
-static void run_lose(unsigned long mask, char const *why)
+static void run_lose(struct skull_set set, char const *why)
 {
 	short local_player_index;
 	int skull;
@@ -1816,9 +1941,9 @@ static void run_lose(unsigned long mask, char const *why)
 		wchar_t line[64];
 		short character;
 
-		if (!(mask & (1UL << skull)) || (run.lost_mask & (1UL << skull)))
+		if (!skull_set_has(&set, skull) || skull_set_has(&run.lost, skull))
 			continue;
-		run.lost_mask |= 1UL << skull;
+		skull_set_add(&run.lost, skull);
 		error(_error_silent, "skulls: %s lost (%s)", skull_descriptions[skull].key, why);
 		snprintf(text, sizeof(text), "%s SKULL lost.", skull_descriptions[skull].label);
 		for (character = 0; text[character] && character < (short)NUMBEROF(line) - 1; character++)
@@ -1833,12 +1958,12 @@ static void run_lose(unsigned long mask, char const *why)
 /* a player died: the skulls found and not kept are lost */
 static void skulls_lose(char const *why)
 {
-	unsigned long mask = found_mask();
+	struct skull_set set = found_set();
 
-	if (!mask)
+	if (skull_set_is_empty(&set))
 		return;
-	finding->found_mask = 0;
-	run_lose(mask, why);
+	finding->found = skull_set_none();
+	run_lose(set, why);
 }
 
 /* the game state put back (a revert, or a saved game loaded): the skulls
@@ -1847,8 +1972,8 @@ game state found then; one dropped and not taken, gone with the revert,
 is to drop again */
 static void run_restored(char const *why)
 {
-	finding->found_mask = 0;
-	run_lose(run.taken_mask & ~run.unlocked_mask, why);
+	finding->found = skull_set_none();
+	run_lose(skull_set_difference(run.taken, run.unlocked), why);
 }
 
 void skulls_game_state_reverted(void)
@@ -1884,18 +2009,18 @@ menus' bitmaps (display.menus "xbox") */
 void skulls_hud_draw(short local_player_index)
 {
 	long bitmap_index;
-	unsigned long found = found_mask();
-	unsigned long lost_mask = run.lost_mask;
-	unsigned long lying = carried_definition != NONE ? skulls_lying() : 0;
-	unsigned long unlocked = run.unlocked_mask;
-	unsigned long mask = level_mask | found | lost_mask | lying | unlocked;
+	struct skull_set found = found_set();
+	struct skull_set lying = carried_definition != NONE ? skulls_lying() : skull_set_none();
+	struct skull_set unlocked = run.unlocked;
+	struct skull_set shown_set = skull_set_union(skull_set_union(level_set, found),
+		skull_set_union(skull_set_union(run.lost, lying), unlocked));
 	real scale;
 	short width, height;
 	short shown = 0;
 	int skull;
 
 	(void)local_player_index;
-	if (!mask || !global_scenario || global_scenario->type != _scenario_type_solo)
+	if (skull_set_is_empty(&shown_set) || !global_scenario || global_scenario->type != _scenario_type_solo)
 		return;
 	bitmap_index = tag_loaded(BITMAP_GROUP_TAG, SKULL_ICONS_BITMAP);
 	if (bitmap_index == NONE)
@@ -1911,7 +2036,7 @@ void skulls_hud_draw(short local_player_index)
 		short overlay;
 		short column, row;
 
-		if (!(mask & (1UL << skull)))
+		if (!skull_set_has(&shown_set, skull))
 			continue;
 		bitmap = bitmap_group_try_and_get_bitmap(bitmap_index, (short)skull);
 		if (!bitmap)
@@ -1927,19 +2052,19 @@ void skulls_hud_draw(short local_player_index)
 		level: faint, a green check on it; dropped and lying about: faint, a
 		yellow mark on it; lost: faint, crossed out in red. The marks are the
 		frames after the skulls': the cross, the mark, the check) */
-		if (level_mask & (1UL << skull))
+		if (skull_set_has(&level_set, skull))
 			overlay = NONE;
-		else if (unlocked & (1UL << skull))
+		else if (skull_set_has(&unlocked, skull))
 		{
 			alpha = 0.6f;
 			overlay = NUMBER_OF_SKULLS + 2;
 		}
-		else if (found & (1UL << skull))
+		else if (skull_set_has(&found, skull))
 		{
 			alpha = 0.6f + 0.4f * cosine((real)(game_time_get() % TICKS_PER_SECOND) * (2.0f * _pi / TICKS_PER_SECOND));
 			overlay = NONE;
 		}
-		else if (lying & (1UL << skull))
+		else if (skull_set_has(&lying, skull))
 		{
 			alpha = 0.45f;
 			overlay = NUMBER_OF_SKULLS + 1;
@@ -1978,6 +2103,7 @@ void skulls_unit_killed(long unit_index, int headshot, long killer_player_index)
 	}
 	if (carried_definition != NONE)
 		skull_drop_maybe(unit_index, killer_player_index, headshot);
+	skulls_outbreak_kill(unit_index, killer_player_index);
 }
 
 void skulls_unit_died(long unit_index)
@@ -1994,10 +2120,12 @@ void skulls_initialize(void)
 	finding = (struct skulls_finding *)game_state_malloc("skulls finding", NULL,
 		(long)((sizeof(*finding) + 3) & ~(unsigned long)3));
 	finding_reset();
+	skulls_outbreak_initialize();
 }
 
 void skulls_initialize_for_new_map(void)
 {
 	finding_reset();
 	run_reset();
+	skulls_outbreak_initialize_for_new_map();
 }

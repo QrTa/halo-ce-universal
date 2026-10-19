@@ -1081,11 +1081,17 @@ loaded, the value it already has when that is not the default (an older
 setting copied onto a new one) */
 static int config_values_ready;
 
+/* the longest value a setting is written with (the skulls' lists of names
+are the longest), and a line of it: its key, its quotes, each character
+escaped at worst */
+#define CONFIG_VALUE_MAXIMUM 1024
+#define CONFIG_LINE_MAXIMUM (2 * CONFIG_VALUE_MAXIMUM + 80)
+
 static int config_append_value_line(struct config_text *text, const struct config_setting *setting)
 {
 	const char *dot = strchr(setting->name, '.');
 	long index = config_setting_index(setting->name);
-	char buffer[300];
+	char buffer[CONFIG_LINE_MAXIMUM];
 	int at_default = 1;
 
 	if (config_values_ready && index >= 0 && setting->type == _config_string)
@@ -2030,14 +2036,15 @@ int config_write(const char *name, const char *value)
 {
 	const char *dot = strchr(name, '.');
 	long index = config_setting_index(name);
-	char section[64], key[64], wanted[80], current[64] = "", line_text[600], path[1024];
+	char section[64], key[64], wanted[80], current[64] = "", line_text[CONFIG_LINE_MAXIMUM], path[1024];
 	struct config_text out = { 0 };
 	size_t size = 0;
 	char *text;
 	const char *line;
 	int written = 0, in_section = 0, succeeded;
 
-	if (index < 0 || !dot || (size_t)(dot - name) >= sizeof(section) || strlen(value) > 256)
+	if (index < 0 || !dot || (size_t)(dot - name) >= sizeof(section) ||
+		strlen(value) > CONFIG_VALUE_MAXIMUM)
 		return 0;
 	/* (the file read first, as the other settings are) */
 	config_value(name, config_settings[index].type);

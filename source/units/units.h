@@ -961,6 +961,9 @@ boolean unit_drop_current_weapon(long unit_index, boolean immediate);
 void unit_port_drop_grenade(long unit_index, short grenade_type);
 /* port: an object of the definition dropped from the unit's hand (skulls.c's skull); the object, or NONE */
 long unit_port_drop_object(long unit_index, long definition_index);
+/* port: the unit run the way it faces, a unit no actor nor player controls
+(skulls_outbreak.c's spores); facing a real_vector3d, level, normalized */
+void unit_port_run(long unit_index, real_vector3d const *facing);
 boolean unit_drop_selected_weapon(long unit_index);
 
 boolean unit_throw_grenade_begin(long unit_index, real_vector2d const *alignment_vector);

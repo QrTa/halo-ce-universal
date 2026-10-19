@@ -69,7 +69,9 @@ off. Each map read is a donor of one pack or the other.
 keeps the tag cache (halo_port_window.h) */
 #define DONOR_WINDOW 0x803A6000UL
 
-#define DONOR_COUNT 10
+/* the other nine campaign maps, the skull's (wizard) and Outbreak's Flood's
+(c20, again: skulls.pack's) */
+#define DONOR_COUNT 11
 #define WANTED_MAX 8192
 #define IMPORT_MAX 2048
 #define POOL_MAX 256
@@ -2814,6 +2816,64 @@ static void gather_skull(void)
 	release_donor_blob(donor);
 }
 
+/* Outbreak's: The Library's Flood (skulls_outbreak.c): its spore, carrier and
+combat forms, and the carrier's burst. A level that has them all keeps its
+own; the randomizer's copy of one from c20 too (want's aliases) */
+static void gather_outbreak(void)
+{
+	static struct
+	{
+		long group;
+		char const *name;
+	} const roots[] =
+	{
+		{ 'bipd', SKULLS_OUTBREAK_SPORE_TAG },
+		{ 'actv', SKULLS_OUTBREAK_CARRIER_TAG },
+		{ 'effe', SKULLS_OUTBREAK_BURST_TAG },
+		{ 'actv', "characters\\floodcombat elite\\floodcombat elite unarmed" },
+		{ 'actv', "characters\\floodcombat elite\\floodcombat elite plasma rifle" },
+		{ 'actv', "characters\\floodcombat elite\\floodcombat elite needler" },
+		{ 'actv', "characters\\floodcombat_human\\floodcombat_human unarmed" },
+		{ 'actv', "characters\\floodcombat_human\\floodcombat_human assault rifle" },
+		{ 'actv', "characters\\floodcombat_human\\floodcombat_human pistol" },
+	};
+	struct donor *donor = donors + donor_count;
+	short root;
+	short missing = 0;
+	long index;
+
+	for (root = 0; root < (short)NUMBEROF(roots); root++)
+		missing += (short)(tag_loaded(roots[root].group, roots[root].name) == NONE);
+	if (!missing || donor_count >= DONOR_COUNT)
+		return;
+	error(_error_silent, "randomizer: reading Outbreak's Flood from %s.map", SKULLS_OUTBREAK_DONOR);
+	if (!open_donor(donor, SKULLS_OUTBREAK_DONOR, &skulls_pack))
+	{
+		close_donor_bytes(donor);
+		return;
+	}
+	donor_count++;
+	for (root = 0; root < (short)NUMBEROF(roots); root++)
+	{
+		if (tag_loaded(roots[root].group, roots[root].name) != NONE)
+			continue;
+		for (index = 0; index < donor->count; index++)
+		{
+			struct randomizer_tag_instance *instance = donor->instances + index;
+			char const *name = instance_name(donor, instance);
+
+			if (instance->group_tag == roots[root].group && name && !_stricmp(name, roots[root].name))
+			{
+				want_root(donor, index);
+				break;
+			}
+		}
+		if (index == donor->count)
+			error(_error_silent, "randomizer: %s.map has no %s", SKULLS_OUTBREAK_DONOR, roots[root].name);
+	}
+	release_donor_blob(donor);
+}
+
 void randomizer_tags_loaded(char const *scenario_name)
 {
 	struct network_game *game = network_game_get_game();
@@ -2822,6 +2882,7 @@ void randomizer_tags_loaded(char const *scenario_name)
 
 	int randomize = 0;
 	int skull;
+	int outbreak;
 
 	randomizer_tags_unloaded();
 	if (!campaign_leaf(scenario_name, leaf, sizeof(leaf)))
@@ -2844,7 +2905,8 @@ void randomizer_tags_loaded(char const *scenario_name)
 	}
 	/* (and the skull the enemies carry, which the randomizer may be off for) */
 	skull = skulls_carried_wanted();
-	if (!randomize && !skull)
+	outbreak = skulls_outbreak_wanted();
+	if (!randomize && !skull && !outbreak)
 		return;
 	if (randomize && !network_game_distributed_client() && !placement_roll_ready)
 		placement_roll_new();
@@ -2855,6 +2917,8 @@ void randomizer_tags_loaded(char const *scenario_name)
 			gather_campaign(leaf);
 		if (skull)
 			gather_skull();
+		if (outbreak)
+			gather_outbreak();
 		import_wanted();
 	}
 	if (randomize)

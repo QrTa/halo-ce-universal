@@ -2541,6 +2541,59 @@ void actor_customize_unit(
 	return;
 }
 
+/* port: skull: as actor_place makes a squad's actor (its unit, its
+weapons, then the actor), and ai_attach_free attaches it to no encounter */
+long actor_port_place_free(
+	long actor_variant_definition_index,
+	real_point3d const *position,
+	real_vector3d const *forward)
+{
+	struct actor_variant_definition *actor_variant_definition;
+	struct object_placement_data placement_data;
+	long unit_index;
+	long actor_index;
+
+	if (!ai_globals->ai_initialized_for_map || actor_variant_definition_index == NONE)
+		return NONE;
+	actor_variant_definition = actor_variant_definition_get(actor_variant_definition_index);
+	if (actor_variant_definition->unit_reference.index == NONE ||
+		actor_variant_definition->actor_reference.index == NONE)
+	{
+		return NONE;
+	}
+	object_placement_data_new(&placement_data, actor_variant_definition->unit_reference.index, NONE);
+	placement_data.position = *position;
+	placement_data.forward = *forward;
+	unit_index = object_new(&placement_data);
+	if (unit_index == NONE)
+		return NONE;
+	actor_customize_unit(actor_variant_definition_index, unit_index);
+	actor_index = actor_create_for_unit(
+		TEST_FLAG(actor_definition_get(actor_variant_definition->actor_reference.index)->flags,
+			_actor_definition_swarm_actor_bit),
+		unit_index,
+		actor_variant_definition_index,
+		NONE,
+		NONE,
+		FALSE,
+		NONE,
+		FALSE,
+		actor_default_state_alert,
+		actor_default_state_none,
+		NONE,
+		0);
+	if (actor_index == NONE)
+	{
+		object_delete(unit_index);
+		return NONE;
+	}
+	/* (active at once, as actor_place's: else the unit stands unanimated,
+	in its model's pose, until the actor first runs) */
+	actor_verify_activation(actor_index);
+
+	return unit_index;
+}
+
 long actor_create_for_unit(
 	boolean swarm,
 	long unit_index,
@@ -2925,7 +2978,14 @@ short actors_spawn_from_unit(
 			squad_index = source_unit->unit.fake_squad_index;
 		}
 
-		if (encounter_index != NONE && squad_index != NONE)
+		/* port: skull: a carrier Outbreak raised, of no encounter, lets its
+		infection forms loose too, of none (port/linux/game/skulls_outbreak.c) */
+		if (skulls_outbreak_raised(unit_index))
+		{
+			encounter_index = NONE;
+			squad_index = NONE;
+		}
+		if ((encounter_index != NONE && squad_index != NONE) || skulls_outbreak_raised(unit_index))
 		{
 			struct actor_variant_definition *actor_variant_definition =
 				actor_variant_definition_get(actor_variant_definition_index);

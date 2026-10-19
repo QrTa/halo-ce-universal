@@ -32,6 +32,7 @@ Blood Gulch's name is too long for; Wizard's oddball is the same.
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <ctype.h>
 #include <string.h>
 
 #include "cseries.h"
@@ -1000,20 +1001,29 @@ static char const *campaign_map(int index)
 it, that has the oddball; randomizer.c's SKULL_DONOR) */
 static int skull_map_count(void)
 {
-	return 1;
+	return 2;
 }
 
+/* (and Outbreak's Flood, The Library's: skulls_outbreak.c) */
 static char const *skull_map(int index)
 {
-	(void)index;
-	return "wizard";
+	return index == 0 ? "wizard" : SKULLS_OUTBREAK_DONOR;
 }
 
-/* the skull's pixels and samples, and the HUD's it shows held */
+/* the skull's pixels and samples, and the HUD's it shows held; the Flood's
+(named so), and the effects and characters' they share (blood, gibs, the
+carrier's burst): about 30 MB, against 140 of The Library's own */
 static int skull_keep_bytes(unsigned long group, char const *name)
 {
+	char lower[256];
+	int index;
+
 	(void)group;
-	return strstr(name, "ball") != NULL || !strncmp(name, "ui\\hud\\", 7);
+	for (index = 0; name[index] && index + 1 < (int)sizeof(lower); index++)
+		lower[index] = (char)tolower((unsigned char)name[index]);
+	lower[index] = 0;
+	return strstr(lower, "ball") != NULL || !strncmp(lower, "ui\\hud\\", 7) || strstr(lower, "flood") != NULL ||
+		!strncmp(lower, "effects\\", 8) || !strncmp(lower, "characters\\", 11);
 }
 
 static struct pack_kind const randomizer_kind =
@@ -1030,7 +1040,7 @@ static struct pack_kind const randomizer_kind =
 static struct pack_kind const skulls_kind =
 {
 	"skulls.pack", skull_map_count, skull_map, skull_keep_bytes, 1, 0,
-	L"The skulls need some data\r\nfrom a multiplayer map.\r\nIt takes a few seconds.",
+	L"The skulls need some data\r\nfrom other maps.\r\nIt takes a moment.",
 	L"Building skull data:\r\n",
 	L"The skull data is ready.",
 	L"The skull data could not\r\nbe built. Is the card full?",
@@ -1052,7 +1062,10 @@ static int pack_ready(struct pack_kind const *kind)
 	unsigned long count;
 	unsigned long index;
 	int ready;
+	char leaves[PACK_MAPS][8];
+	int level;
 
+	memset(leaves, 0, sizeof(leaves));
 	snprintf(path, sizeof(path), "%s%s", cache_files_map_directory(), kind->file_name);
 	file = CreateFileA(path, GENERIC_READ, 0, NULL, OPEN_EXISTING, 0, NULL);
 	if (file == INVALID_HANDLE_VALUE)
@@ -1074,6 +1087,7 @@ static int pack_ready(struct pack_kind const *kind)
 		}
 		memcpy(leaf, record, 7);
 		leaf[7] = 0;
+		memcpy(leaves[index], leaf, sizeof(leaves[index]));
 		/* (a map no longer there is read from nowhere: the pack's is as good) */
 		if (randomizer_pack_map_header(leaf, &file_length, &tag_offset, &tag_size, NULL) &&
 			(file_length != read_s32(record + 8) || tag_offset != read_s32(record + 12) ||
@@ -1081,6 +1095,19 @@ static int pack_ready(struct pack_kind const *kind)
 			ready = 0;
 	}
 	CloseHandle(file);
+	/* (and each of the kind's maps there is, in it: skulls.pack before
+	Outbreak's Flood was, has not The Library's) */
+	for (level = 0; ready && level < kind->map_count() && level < PACK_MAPS; level++)
+	{
+		long file_length, tag_offset, tag_size;
+
+		if (!randomizer_pack_map_header(kind->map(level), &file_length, &tag_offset, &tag_size, NULL))
+			continue;
+		for (index = 0; index < count && _stricmp(leaves[index], kind->map(level)); index++)
+			;
+		if (index == count)
+			ready = 0;
+	}
 
 	return ready;
 }
@@ -1150,7 +1177,7 @@ void randomizer_pack_update(boolean main_menu)
 		checked = 1;
 		if (config_boolean("game.randomizer"))
 			randomizer_pack_request();
-		if (config_boolean("game.skulls") && skulls_drop())
+		if (skulls_pack_wanted())
 			skulls_pack_request();
 	}
 	switch (pack_step)

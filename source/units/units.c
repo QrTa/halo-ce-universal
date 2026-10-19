@@ -2872,6 +2872,31 @@ void unit_died(
 	return;
 }
 
+/* port: skull: Outbreak's spore, a unit no actor controls, run the way it
+faces (port/linux/game/skulls_outbreak.c): its control as an actor's, each
+tick, actively controlled (else its update stills it) */
+void unit_port_run(
+	long unit_index,
+	real_vector3d const *facing)
+{
+	struct unit_control_data control_data;
+
+	csmemset(&control_data, 0, sizeof(control_data));
+	control_data.animation_state = _unit_animation_state_in_combat;
+	control_data.aiming_speed = 1;
+	control_data.weapon_index = NONE;
+	control_data.grenade_index = NONE;
+	control_data.zoom_level = NONE;
+	control_data.throttle = *global_forward3d;
+	control_data.facing_vector = *facing;
+	control_data.aiming_vector = *facing;
+	control_data.looking_vector = *facing;
+	unit_set_actively_controlled(unit_index, TRUE);
+	unit_control(unit_index, &control_data);
+
+	return;
+}
+
 /* port: skull: an object of the definition dropped from the unit's hand,
 as the unit drops its own (Pinata's grenades, the skull to be found:
 port/linux/game/skulls.c); the object, or NONE */

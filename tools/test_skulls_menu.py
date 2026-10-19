@@ -41,7 +41,7 @@ def test_skulls_menus():
     assert helps[-3].startswith("Forget every skull")
     assert helps[-2].startswith("Press A again")
     assert helps[-1].startswith("Skull progress reset")
-    assert len(port_settings.SKULLS) == 29
+    assert len(port_settings.SKULLS) == 30
     for key, _ in port_settings.SKULLS:
         assert f'name="main_menu/difficulty_select/skulls/skull_{key}"' in screen
     assert screen.count('run="skull toggle"') == 2 * len(port_settings.SKULLS)

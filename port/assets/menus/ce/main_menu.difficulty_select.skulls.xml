@@ -32,16 +32,17 @@
 		<child widget="main_menu/difficulty_select/skulls/skull_iron" x="232" y="219"/>
 		<child widget="main_menu/difficulty_select/skulls/skull_malfunction" x="410" y="219"/>
 		<child widget="main_menu/difficulty_select/skulls/skull_mythic" x="54" y="248"/>
-		<child widget="main_menu/difficulty_select/skulls/skull_pinata" x="232" y="248"/>
-		<child widget="main_menu/difficulty_select/skulls/skull_protected" x="410" y="248"/>
-		<child widget="main_menu/difficulty_select/skulls/skull_recession" x="54" y="277"/>
-		<child widget="main_menu/difficulty_select/skulls/skull_sputnik" x="232" y="277"/>
-		<child widget="main_menu/difficulty_select/skulls/skull_streaking" x="410" y="277"/>
-		<child widget="main_menu/difficulty_select/skulls/skull_swarm" x="54" y="306"/>
-		<child widget="main_menu/difficulty_select/skulls/skull_thats_just_wrong" x="232" y="306"/>
-		<child widget="main_menu/difficulty_select/skulls/skull_thunderstorm" x="410" y="306"/>
-		<child widget="main_menu/difficulty_select/skulls/skull_tough_luck" x="54" y="335"/>
-		<child widget="main_menu/difficulty_select/skulls/skull_vampirism" x="232" y="335"/>
+		<child widget="main_menu/difficulty_select/skulls/skull_outbreak" x="232" y="248"/>
+		<child widget="main_menu/difficulty_select/skulls/skull_pinata" x="410" y="248"/>
+		<child widget="main_menu/difficulty_select/skulls/skull_protected" x="54" y="277"/>
+		<child widget="main_menu/difficulty_select/skulls/skull_recession" x="232" y="277"/>
+		<child widget="main_menu/difficulty_select/skulls/skull_sputnik" x="410" y="277"/>
+		<child widget="main_menu/difficulty_select/skulls/skull_streaking" x="54" y="306"/>
+		<child widget="main_menu/difficulty_select/skulls/skull_swarm" x="232" y="306"/>
+		<child widget="main_menu/difficulty_select/skulls/skull_thats_just_wrong" x="410" y="306"/>
+		<child widget="main_menu/difficulty_select/skulls/skull_thunderstorm" x="54" y="335"/>
+		<child widget="main_menu/difficulty_select/skulls/skull_tough_luck" x="232" y="335"/>
+		<child widget="main_menu/difficulty_select/skulls/skull_vampirism" x="410" y="335"/>
 		<child widget="main_menu/difficulty_select/skulls/button_all_off" x="0" y="415"/>
 		<child widget="main_menu/difficulty_select/skulls/button_ok" x="380" y="415"/>
 		<child widget="main_menu/difficulty_select/skulls/button_cancel" x="510" y="415"/>
@@ -281,6 +282,19 @@
 		<on event="stick_right" run="skulls right"/>
 	</widget>
 	<widget name="main_menu/difficulty_select/skulls/skull_mythic" type="text" width="170" height="28" bitmap="skulls/option" font="ui\small_ui" color="#FF2896FF" text_x="10" text_y="7">
+		<on event="a" run="skull toggle"/>
+		<on event="start" run="skull toggle"/>
+		<on event="left_mouse" run="mouse emit accept event"/>
+		<on event="up" run="skulls up"/>
+		<on event="stick_up" run="skulls up"/>
+		<on event="down" run="skulls down"/>
+		<on event="stick_down" run="skulls down"/>
+		<on event="left" run="skulls left"/>
+		<on event="stick_left" run="skulls left"/>
+		<on event="right" run="skulls right"/>
+		<on event="stick_right" run="skulls right"/>
+	</widget>
+	<widget name="main_menu/difficulty_select/skulls/skull_outbreak" type="text" width="170" height="28" bitmap="skulls/option" font="ui\small_ui" color="#FF2896FF" text_x="10" text_y="7">
 		<on event="a" run="skull toggle"/>
 		<on event="start" run="skull toggle"/>
 		<on event="left_mouse" run="mouse emit accept event"/>
