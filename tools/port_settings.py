@@ -776,14 +776,21 @@ def _randomizer_screen() -> list:
 # skull): each one's key in game.skulls_active and its name on the screen.
 # Their helps are skulls.c's, which the screen shows
 SKULLS = [
-    ("anger", "ANGER"), ("bandanna", "BANDANNA"), ("black_eye", "BLACK EYE"), ("blind", "BLIND"),
-    ("boom", "BOOM"), ("catch", "CATCH"), ("eye_patch", "EYE PATCH"), ("famine", "FAMINE"), ("fog", "FOG"),
-    ("foreign", "FOREIGN"), ("ghost", "GHOST"), ("grunt_birthday_party", "BIRTHDAY PARTY"),
-    ("grunt_funeral", "GRUNT FUNERAL"), ("iron", "IRON"), ("malfunction", "MALFUNCTION"), ("mythic", "MYTHIC"),
-    ("pinata", "PINATA"), ("recession", "RECESSION"), ("sputnik", "SPUTNIK"), ("thats_just_wrong", "JUST... WRONG"),
+    ("anger", "ANGER"), ("assassins", "ASSASSINS"), ("bandanna", "BANDANNA"), ("black_eye", "BLACK EYE"),
+    ("blind", "BLIND"), ("boom", "BOOM"), ("catch", "CATCH"), ("envy", "ENVY"), ("eye_patch", "EYE PATCH"),
+    ("famine", "FAMINE"), ("fog", "FOG"), ("foreign", "FOREIGN"), ("ghost", "GHOST"),
+    ("grunt_birthday_party", "BIRTHDAY PARTY"), ("grunt_funeral", "GRUNT FUNERAL"), ("iron", "IRON"),
+    ("malfunction", "MALFUNCTION"), ("mythic", "MYTHIC"), ("pinata", "PINATA"), ("recession", "RECESSION"),
+    ("sputnik", "SPUTNIK"), ("streaking", "STREAKING"), ("swarm", "SWARM"), ("thats_just_wrong", "JUST... WRONG"),
     ("thunderstorm", "THUNDERSTORM"), ("tough_luck", "TOUGH LUCK"),
 ]
-SKULL_COLUMNS = 2
+SKULL_COLUMNS = 3
+# a skull's place in the grid: its bar (port/assets/skulls/option, as
+# option_bkds_sm is, as narrow as three to a row need) and the rows' pitch
+SKULL_WIDTH = 170
+SKULL_PITCH_X = 178
+SKULL_PITCH_Y = 30
+SKULL_TOP = 76
 # the grid's moves, which menu_functions.c's "skulls up" (and so on) make:
 # the screen's list steps none itself
 SKULL_MOVES = [('up', 'skulls up'), ('stick_up', 'skulls up'), ('down', 'skulls down'),
@@ -819,10 +826,10 @@ def _skulls_screen() -> list:
     # not, which a string list's text would overwrite)
     for index, (key, _) in enumerate(SKULLS):
         row, column = divmod(index, SKULL_COLUMNS)
-        children.append(f'<child{attributes([("widget", f"{base}/skull_{key}"), ("x", 54 + column * 266), ("y", 70 + row * 26)])}/>')
+        children.append(f'<child{attributes([("widget", f"{base}/skull_{key}"), ("x", 54 + column * SKULL_PITCH_X), ("y", SKULL_TOP + row * SKULL_PITCH_Y)])}/>')
         extra += _widget(f"{base}/skull_{key}",
-                         [("type", "text"), ("width", 256), ("height", 28), ("bitmap", "bitmaps/option_bkds_sm"),
-                          ("font", "ui\\large_ui"), ("color", "#FF2896FF"), ("text_x", 13), ("text_y", 4)],
+                         [("type", "text"), ("width", SKULL_WIDTH), ("height", 28), ("bitmap", "skulls/option"),
+                          ("font", "ui\\small_ui"), ("color", "#FF2896FF"), ("text_x", 10), ("text_y", 7)],
                          ['<on event="a" run="skull toggle"/>', '<on event="start" run="skull toggle"/>',
                           '<on event="left_mouse" run="mouse emit accept event"/>', *moves])
     for name, x in (("button_all_off", 0), ("button_ok", 380), ("button_cancel", 510)):

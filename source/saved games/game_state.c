@@ -371,6 +371,8 @@ void game_state_revert(
 		main_reset_map();
 	}
 	game_state_call_after_load_procs();
+	/* port: the skulls found and not kept are lost (port/linux/game/skulls.c) */
+	skulls_game_state_reverted();
 
 	return;
 }
@@ -1023,6 +1025,8 @@ void game_state_try_and_load_from_persistent_storage(
 			GAME_STATE_SIZE);
 		game_difficulty_level_set(main_get_difficulty());
 		game_state_call_after_load_procs();
+		/* port: the skulls lost before it was saved (port/linux/game/skulls.c) */
+		skulls_game_state_loaded();
 		game_state_save();
 	}
 

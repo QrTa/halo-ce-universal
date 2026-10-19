@@ -338,6 +338,19 @@ class Art:
         lines.append("\t</bitmap>")
         return "\n".join(lines)
 
+    def port_pngs(self, name: str, frames: list) -> str:
+        """a <bitmap> of PNGs of this port's own: each frame a PNG (path,
+        width, height), copied as it is"""
+        lines = [f"\t<bitmap{attributes([('name', name)])}>"]
+        for index, (source, width, height) in enumerate(frames):
+            png = f"ce/port/{name}__{index}.png"
+            (MENUS / png).parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(source, MENUS / png)
+            self.pngs.append(png)
+            lines.append(f"\t\t<frame{attributes([('png', png), ('width', width), ('height', height)])}/>")
+        lines.append("\t</bitmap>")
+        return "\n".join(lines)
+
     def frame_sources(self, relative: str, index: int, count: int) -> list:
         return [relative, f"{relative}__0"] if count == 1 else [f"{relative}__{index}"]
 
@@ -637,6 +650,17 @@ def main() -> None:
     # menu_tags.c)
     lines.append(art.port_picture("blank", [
         ('<svg xmlns="http://www.w3.org/2000/svg" width="4" height="4" viewBox="0 0 4 4"/>\n', 4, 4)]))
+    # (the skulls' icons, Halopedia's of the Master Chief Collection's
+    # (MCC:Skulls), port/assets/skulls: a frame each, in skulls.c's order,
+    # then the red cross over one lost, which skulls.c draws at the bottom
+    # right of the HUD)
+    # (the skulls screen's bar of a skull, a third of a row: as option_bkds_sm,
+    # plain and chosen)
+    lines.append(art.port_pngs("skulls/option", [(ROOT / "port/assets/skulls" / f"option__{index}.png",
+                                                  port_settings.SKULL_WIDTH, 32) for index in (0, 1)]))
+    lines.append(art.port_pngs("skulls/icons", [(ROOT / "port/assets/skulls" / f"{key}.png", 24, 24)
+                                                for key, _ in port_settings.SKULLS] +
+                               [(ROOT / "port/assets/skulls/lost.png", 24, 24)]))
     lines.append("</menus>")
     (CE / "bitmaps.xml").write_text("\n".join(lines) + "\n")
     # what is not hand-drawn

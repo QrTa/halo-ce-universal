@@ -23,7 +23,7 @@ def test_skulls_menus():
     assert 'setting="game.skulls_all_unlocked"' in gameplay
     assert 'name="main_menu/settings_select/player_setup/player_profile_edit/gameplay/op_skulls_all_unlocked"' in gameplay
     assert 'input="gameplay screen update"' in gameplay
-    assert len(port_settings.SKULLS) == 22
+    assert len(port_settings.SKULLS) == 26
     for key, _ in port_settings.SKULLS:
         assert f'name="main_menu/difficulty_select/skulls/skull_{key}"' in screen
     assert screen.count('run="skull toggle"') == 2 * len(port_settings.SKULLS)
@@ -81,6 +81,25 @@ def test_screens_after_the_difficulty_keep_the_menu_going():
     files = port_settings.settings_files()
     for name in ("main_menu.difficulty_select.randomizer.xml", "main_menu.difficulty_select.skulls.xml"):
         assert "pause_game" not in "\n".join(files[name]), name
+
+
+def test_each_skull_has_its_icon():
+    """port/assets/skulls has an icon of each skull, and the menus' bitmap
+    skulls/icons has them in the skulls' order (skulls.c draws frame n for
+    skull n), embedded."""
+    import json
+    bitmaps = (ROOT / "port/assets/menus/ce/bitmaps.xml").read_text()
+    files = json.loads((ROOT / "port/assets/menus/menus.json").read_text())["files"]
+    frames = re.search(r'<bitmap name="skulls/icons">(.*?)</bitmap>', bitmaps, re.DOTALL).group(1)
+    pngs = re.findall(r'png="([^"]+)"', frames)
+
+    # (the skulls', then the cross over one lost)
+    assert len(pngs) == len(port_settings.SKULLS) + 1
+    for index, key in enumerate([key for key, _ in port_settings.SKULLS] + ["lost"]):
+        source = ROOT / "port/assets/skulls" / f"{key}.png"
+        assert source.is_file(), key
+        assert pngs[index] in files
+        assert (ROOT / "port/assets/menus" / pngs[index]).read_bytes() == source.read_bytes(), key
 
 
 def test_skull_handlers_are_registered():

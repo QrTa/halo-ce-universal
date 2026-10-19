@@ -13,11 +13,13 @@ the menus write game.skulls_active, and a co-op client takes the host's.
 enum skull
 {
 	_skull_anger = 0,
+	_skull_assassins,
 	_skull_bandanna,
 	_skull_black_eye,
 	_skull_blind,
 	_skull_boom,
 	_skull_catch,
+	_skull_envy,
 	_skull_eye_patch,
 	_skull_famine,
 	_skull_fog,
@@ -31,6 +33,8 @@ enum skull
 	_skull_pinata,
 	_skull_recession,
 	_skull_sputnik,
+	_skull_streaking,
+	_skull_swarm,
 	_skull_thats_just_wrong,
 	_skull_thunderstorm,
 	_skull_tough_luck,
@@ -72,6 +76,14 @@ level, which a checkpoint keeps), made with the game's; and made new with
 each map, and each start again of the level (game.c) */
 void skulls_initialize(void);
 void skulls_initialize_for_new_map(void);
+/* the game state gone back to a checkpoint (or to save and quit): the
+skulls found and not kept are lost (game_state.c) */
+void skulls_game_state_reverted(void);
+/* a saved game loaded (Continue): its lost skulls the level's (game_state.c) */
+void skulls_game_state_loaded(void);
+/* the skulls on in the level, their icons at the bottom right of the local
+player's screen (hud.c) */
+void skulls_hud_draw(short local_player_index);
 
 /* a level loaded: the skulls it is played with, taken now (the host's for
 a client), and Grunt Birthday Party's sound added to its tags; the level
@@ -130,6 +142,12 @@ a wchar_t string, of the 16-bit wchar_t every build has: this header comes
 before <stddef.h>) */
 unsigned short const *skulls_item_name(long object_index);
 int skulls_item_take(short local_player_index, long unit_index, long object_index);
+
+/* Envy: a player's unit's flashlight button pressed: TRUE when it is the
+skull's active camo instead (taken, or still recharging); Swarm: whether an
+object's definition is a hunter's */
+int skulls_envy(long unit_index);
+int skulls_object_is_hunter(long definition_index);
 
 /* Famine: the weapon an actor drops, with half its ammunition */
 void skulls_famine_weapon(long weapon_index);

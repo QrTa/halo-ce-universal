@@ -2528,6 +2528,12 @@ void actor_customize_unit(
 			actor_definition->flags,
 			_actor_definition_crouch_try_not_to_move_bit) ? 1.f : 0.f;
 	}
+	/* port: skull: Assassins, every enemy cloaked (port/linux/game/skulls.c) */
+	if (skull_active(_skull_assassins) && skulls_unit_is_enemy(unit_index))
+	{
+		SET_FLAG(unit->unit.flags, _unit_active_camouflaged_bit, TRUE);
+		unit->unit.active_camouflage = 1.f;
+	}
 
 	return;
 }

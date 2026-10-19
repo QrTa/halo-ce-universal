@@ -27,6 +27,10 @@ makes the same.
 #include "effects/effects.h"
 #include "effects/particles.h"
 #include "interface/hud_messaging.h"
+#include "interface/ui_widget.h"
+#include "bitmaps/bitmap_group.h"
+#include "bitmaps/bitmap_group_lookup.h"
+#include "render/render.h"
 #include "game/game.h"
 #include "game/game_allegiance.h"
 #include "game/game_engine.h"
@@ -45,6 +49,7 @@ makes the same.
 #include "tag_files/tag_files.h"
 #include "tag_files/tag_groups.h"
 #include "units/units.h"
+#include "game/players.h"
 
 #include "halo_port_limits.h"
 #include "platform.h"
@@ -61,11 +66,13 @@ on the skulls screen's help line, which wraps it (88 characters at most) */
 struct skull_description const skull_descriptions[NUMBER_OF_SKULLS] =
 {
 	{ "anger", "ANGER", "Enemies fire faster." },
+	{ "assassins", "ASSASSINS", "All enemies are permanently cloaked." },
 	{ "bandanna", "BANDANNA", "Infinite ammo and grenades, never overheat." },
 	{ "black_eye", "BLACK EYE", "Your shield only recharges when you punch an enemy." },
 	{ "blind", "BLIND", "No HUD and no weapon on screen." },
 	{ "boom", "BOOM", "Explosions reach twice as far." },
 	{ "catch", "CATCH", "Enemies throw grenades more often. Also drop more." },
+	{ "envy", "ENVY", "Your flashlight is active camo instead: ten seconds of it, then a recharge." },
 	{ "eye_patch", "EYE PATCH", "No aim assist: no magnetism, no red reticle." },
 	{ "famine", "FAMINE", "Weapons dropped by enemies have half\ntheir ammo." },
 	{ "fog", "FOG", "No motion tracker." },
@@ -79,6 +86,8 @@ struct skull_description const skull_descriptions[NUMBER_OF_SKULLS] =
 	{ "pinata", "PINATA", "Punching an enemy knocks a grenade loose." },
 	{ "recession", "RECESSION", "Every shot uses twice the ammo." },
 	{ "sputnik", "SPUTNIK", "Hits and blasts throw bodies, vehicles and weapons 3x as far." },
+	{ "streaking", "STREAKING", "Your shields slowly drain and never recharge. Every kill gives some back." },
+	{ "swarm", "SWARM", "Hunters are much stronger." },
 	{ "thats_just_wrong", "JUST... WRONG", "Enemies see and hear you from twice as far away." },
 	{ "thunderstorm", "THUNDERSTORM", "Enemies are promoted." },
 	{ "tough_luck", "TOUGH LUCK", "Enemies always go berserk, dive from grenades, and never flee." },
@@ -267,9 +276,12 @@ static unsigned long found_mask(void);
 NONE when its enemies carry none */
 static long carried_definition = NONE;
 
+static void running_skulls_reset(void);
+
 void skulls_level_loaded(long scenario_tag_index)
 {
 	malfunction_reset();
+	running_skulls_reset();
 	if (network_game_distributed_client())
 		level_mask = remote_on ? remote_mask : 0;
 	else
@@ -884,8 +896,15 @@ struct skulls_finding
 	long deaths;
 	long kills;
 	short dropped;
-	/* the skulls taken this level: on, not yet kept */
+	/* the skulls taken this level: on, not yet kept; and those lost (as the
+	level's lost_mask, below, which a saved game keeps through this) */
 	unsigned long found_mask;
+	unsigned long lost_mask;
+	/* rolled when the level starts (and starts again): the order the skulls
+	drop in, and the odds of each kill's, so a revert drops the same skull at
+	the same kill; another start of the level, other skulls */
+	unsigned long seed;
+	signed char order[(NUMBER_OF_SKULLS + 3) & ~3];
 	struct
 	{
 		long object_index;
@@ -896,6 +915,9 @@ struct skulls_finding
 };
 
 static struct skulls_finding *finding;
+/* the skulls found in the level and lost by a death or a revert: not the
+game state's, which a revert puts back, and not dropped again in the level */
+static unsigned long lost_mask;
 /* the hum each dropped skull plays (a sound of this machine's, not the
 game state's: forgotten when a revert takes the game back), and when */
 static long skull_hums[SKULLS_DROPPED_MAX] = { NONE, NONE, NONE, NONE, NONE, NONE, NONE, NONE };
@@ -907,6 +929,20 @@ static unsigned long found_mask(void)
 	return finding ? finding->found_mask : 0;
 }
 
+/* a number of the seed's, for the step (a kill's odds, a place in the
+order): the same for the same seed and step */
+static unsigned long finding_random(unsigned long step)
+{
+	unsigned long value = finding->seed ^ (step * 0x9E3779B9UL);
+
+	value ^= value >> 16;
+	value *= 0x7FEB352DUL;
+	value ^= value >> 15;
+	value *= 0x846CA68BUL;
+	value ^= value >> 16;
+	return value & 0xFFFFFFFFUL;
+}
+
 static void finding_reset(void)
 {
 	short index;
@@ -916,6 +952,19 @@ static void finding_reset(void)
 	finding->kills = 0;
 	finding->dropped = 0;
 	finding->found_mask = 0;
+	finding->lost_mask = 0;
+	/* (the order, shuffled from the clock: each start of the level its own) */
+	finding->seed = (unsigned long)system_milliseconds() * 2654435761UL ^ 0x5EED5EEDUL;
+	for (index = 0; index < NUMBER_OF_SKULLS; index++)
+		finding->order[index] = (signed char)index;
+	for (index = NUMBER_OF_SKULLS - 1; index > 0; index--)
+	{
+		short other = (short)(finding_random(0x1000UL + (unsigned long)index) % (unsigned long)(index + 1));
+		signed char swap = finding->order[index];
+
+		finding->order[index] = finding->order[other];
+		finding->order[other] = swap;
+	}
 	for (index = 0; index < SKULLS_DROPPED_MAX; index++)
 	{
 		finding->skulls[index].object_index = NONE;
@@ -956,7 +1005,7 @@ static long carriers_left(long dying_index)
 lying about */
 static unsigned long skulls_to_find(void)
 {
-	unsigned long mask = ~skulls_unlocked_mask() & ~finding->found_mask & ((1UL << NUMBER_OF_SKULLS) - 1);
+	unsigned long mask = ~skulls_unlocked_mask() & ~finding->found_mask & ~lost_mask & ((1UL << NUMBER_OF_SKULLS) - 1);
 	short slot;
 
 	for (slot = 0; slot < SKULLS_DROPPED_MAX; slot++)
@@ -967,21 +1016,16 @@ static unsigned long skulls_to_find(void)
 	return mask;
 }
 
-/* one of the mask's skulls, at random */
-static int skull_pick(unsigned long mask)
+/* the mask's skull first in the level's order */
+static int skull_next(unsigned long mask)
 {
-	int count = 0;
-	int skull;
-	int chosen;
+	short index;
 
-	for (skull = 0; skull < NUMBER_OF_SKULLS; skull++)
-		count += (mask >> skull) & 1;
-	if (!count)
-		return NONE;
-	chosen = (int)(local_random() % (unsigned long)count);
-	for (skull = 0; skull < NUMBER_OF_SKULLS; skull++)
+	for (index = 0; index < NUMBER_OF_SKULLS; index++)
 	{
-		if (((mask >> skull) & 1) && chosen-- == 0)
+		int skull = finding->order[index];
+
+		if (skull >= 0 && skull < NUMBER_OF_SKULLS && (mask & (1UL << skull)))
 			return skull;
 	}
 	return NONE;
@@ -1037,7 +1081,8 @@ static void skull_drop_maybe(long unit_index, long killer_player_index)
 		finding->kills++;
 		return;
 	}
-	drop = finding->kills == 0 || (long)(local_random() % (unsigned long)left) == 0;
+	/* (the kill's odds, the level's own: the same kill drops after a revert) */
+	drop = finding->kills == 0 || (long)(finding_random((unsigned long)finding->deaths) % (unsigned long)left) == 0;
 	finding->kills++;
 	if (!drop)
 		return;
@@ -1045,7 +1090,7 @@ static void skull_drop_maybe(long unit_index, long killer_player_index)
 		;
 	if (slot == SKULLS_DROPPED_MAX)
 		return;
-	skull = skull_pick(skulls_to_find());
+	skull = skull_next(skulls_to_find());
 	skull_index = skull == NONE ? NONE : unit_port_drop_object(unit_index, carried_definition);
 	if (skull_index == NONE)
 		return;
@@ -1064,11 +1109,144 @@ static void skull_drop_maybe(long unit_index, long killer_player_index)
 	confetti(unit_index, skull_colors, (short)NUMBEROF(skull_colors), SKULL_CONFETTI_RISE);
 }
 
+/* ---------- the skulls that change things as the game runs */
+
+/* the players' camo powerup (players.c's) */
+extern boolean player_handle_powerup(long player_index, short powerup_type, short duration);
+
+/* Envy: the camo a press gives, and the wait after it before another */
+#define ENVY_CAMO_TICKS (10 * TICKS_PER_SECOND)
+#define ENVY_RECHARGE_TICKS (15 * TICKS_PER_SECOND)
+#define ENVY_PLAYERS 16
+
+static long envy_ready_time[ENVY_PLAYERS];
+
+int skulls_envy(long unit_index)
+{
+	struct unit_datum *unit = (struct unit_datum *)object_try_and_get_and_verify_type(unit_index, _object_mask_unit);
+	long now = game_time_get();
+	short slot;
+
+	if (!unit || unit->unit.player_index == NONE || !skull_active(_skull_envy))
+		return FALSE;
+	slot = (short)(DATUM_INDEX_TO_ABSOLUTE_INDEX(unit->unit.player_index) % ENVY_PLAYERS);
+	/* (the light stays off; a revert to before the last press, ready) */
+	SET_FLAG(unit->unit.flags, _unit_integrated_light_on_bit, FALSE);
+	if (now + ENVY_CAMO_TICKS + ENVY_RECHARGE_TICKS < envy_ready_time[slot])
+		envy_ready_time[slot] = 0;
+	if (now >= envy_ready_time[slot] && !TEST_FLAG(unit->unit.flags, _unit_active_camouflaged_bit) &&
+		player_handle_powerup(unit->unit.player_index, _player_powerup_active_camouflage, ENVY_CAMO_TICKS))
+	{
+		envy_ready_time[slot] = now + ENVY_CAMO_TICKS + ENVY_RECHARGE_TICKS;
+	}
+	return TRUE;
+}
+
+/* Swarm: whether a definition is a hunter's, by its tag's name, remembered
+for the level (asked of every object whose vitality is read) */
+#define HUNTER_KINDS 32
+
+static struct
+{
+	long definition_index;
+	boolean hunter;
+} hunter_kinds[HUNTER_KINDS];
+static short hunter_kind_count;
+
+int skulls_object_is_hunter(long definition_index)
+{
+	short index;
+	boolean hunter;
+
+	for (index = 0; index < hunter_kind_count; index++)
+	{
+		if (hunter_kinds[index].definition_index == definition_index)
+			return hunter_kinds[index].hunter;
+	}
+	hunter = definition_index != NONE && randomizer_unit_is_hunter(tag_get_name(definition_index));
+	if (hunter_kind_count < HUNTER_KINDS)
+	{
+		hunter_kinds[hunter_kind_count].definition_index = definition_index;
+		hunter_kinds[hunter_kind_count].hunter = hunter;
+		hunter_kind_count++;
+	}
+	return hunter;
+}
+
+/* a level's: no hunters known, Envy ready */
+static void running_skulls_reset(void)
+{
+	short slot;
+
+	hunter_kind_count = 0;
+	for (slot = 0; slot < ENVY_PLAYERS; slot++)
+		envy_ready_time[slot] = 0;
+}
+
+/* Streaking: the players' shields drain from full to none in this long,
+and a kill gives back this share of them */
+#define STREAKING_DRAIN_TICKS (40 * TICKS_PER_SECOND)
+#define STREAKING_KILL_SHIELD 0.25f
+
+/* the units' skulls, each tick: Assassins cloaks the enemies (those placed
+before it was on too), Streaking drains the players' shields; where the
+shields are run (not a distributed client's: the host's) */
+static void skulls_units_tick(void)
+{
+	struct object_iterator iterator;
+	struct unit_datum *unit;
+	boolean assassins = skull_active(_skull_assassins) && game_time_get() % TICKS_PER_SECOND == 0;
+	boolean streaking = skull_active(_skull_streaking) && !network_game_distributed_client();
+
+	if (!assassins && !streaking)
+		return;
+	object_iterator_new(&iterator, _object_mask_unit, 0);
+	while ((unit = object_iterator_next(&iterator)) != NULL)
+	{
+		if (TEST_FLAG(unit->object.damage_flags, _object_dead_bit))
+			continue;
+		if (streaking && unit->unit.player_index != NONE && unit->object.shield_vitality > 0.0f)
+		{
+			unit->object.shield_vitality -= 1.0f / STREAKING_DRAIN_TICKS;
+			if (unit->object.shield_vitality < 0.0f)
+				unit->object.shield_vitality = 0.0f;
+		}
+		if (assassins && !TEST_FLAG(unit->unit.flags, _unit_active_camouflaged_bit) &&
+			skulls_unit_is_enemy(iterator.index))
+		{
+			SET_FLAG(unit->unit.flags, _unit_active_camouflaged_bit, TRUE);
+			unit->unit.active_camouflage = 1.0f;
+		}
+	}
+}
+
+/* Streaking: a kill of the player's gives back some shield */
+static void streaking_kill(long unit_index, long killer_player_index)
+{
+	struct player_datum *player;
+	struct unit_datum *killer;
+
+	if (!skull_active(_skull_streaking) || killer_player_index == NONE || network_game_distributed_client() ||
+		!skulls_unit_is_enemy(unit_index))
+	{
+		return;
+	}
+	player = player_get(killer_player_index);
+	killer = player->unit_index == NONE ? NULL :
+		(struct unit_datum *)object_try_and_get_and_verify_type(player->unit_index, _object_mask_unit);
+	if (!killer)
+		return;
+	killer->object.shield_vitality += STREAKING_KILL_SHIELD;
+	if (killer->object.shield_vitality > 1.0f)
+		killer->object.shield_vitality = 1.0f;
+}
+
 void skulls_tick(void)
 {
 	long now;
 	short slot;
 
+	skulls_units_tick();
 	if (carried_definition == NONE)
 		return;
 	now = game_time_get();
@@ -1170,10 +1348,142 @@ int skulls_item_take(short local_player_index, long unit_index, long object_inde
 	return TRUE;
 }
 
+/* the skulls found and not kept, lost: a player died, or the game went
+back to a checkpoint (or saved and quit, which goes back to one first). Said
+on the screen; they are to be found again in another level */
+static void skulls_lose(char const *why)
+{
+	unsigned long mask = found_mask();
+	short local_player_index;
+	int skull;
+
+	if (!mask)
+		return;
+	finding->found_mask = 0;
+	for (skull = 0; skull < NUMBER_OF_SKULLS; skull++)
+	{
+		char text[64];
+		wchar_t line[64];
+		short character;
+
+		if (!(mask & (1UL << skull)))
+			continue;
+		error(_error_silent, "skulls: %s lost (%s)", skull_descriptions[skull].key, why);
+		/* (said once, though a death and its revert both take it) */
+		if (lost_mask & (1UL << skull))
+			continue;
+		lost_mask |= 1UL << skull;
+		finding->lost_mask |= 1UL << skull;
+		snprintf(text, sizeof(text), "%s SKULL lost.", skull_descriptions[skull].label);
+		for (character = 0; text[character] && character < (short)NUMBEROF(line) - 1; character++)
+			line[character] = (wchar_t)(unsigned char)text[character];
+		line[character] = 0;
+		for (local_player_index = 0; local_player_index < local_player_count(); local_player_index++)
+			hud_print_message(local_player_index, line);
+	}
+}
+
+/* the lost skulls, the level's and the game state's together: a revert
+puts back the game state's of then, which a death since added to; a saved
+game loaded has its own, which the level knew nothing of */
+static void lost_merge(void)
+{
+	if (!finding)
+		return;
+	finding->lost_mask |= lost_mask;
+	lost_mask |= finding->lost_mask;
+}
+
+void skulls_game_state_reverted(void)
+{
+	lost_merge();
+	skulls_lose("the game went back to a checkpoint");
+}
+
+void skulls_game_state_loaded(void)
+{
+	lost_merge();
+	skulls_lose("a saved game was loaded");
+}
+
+/* ---------- the skulls on, on the screen
+
+each skull on in the level a small icon at the bottom right, in a row from
+the right (on top of another past eleven): those turned on, and those found
+and not yet kept, pulsing, and those lost, crossed out. The icons are Halopedia's of the Master Chief
+Collection's (MCC:Skulls), the menus' bitmap skulls/icons, a frame each in
+the skulls' order (port/assets/skulls, tools/ce_menus.py); none without the
+menus' bitmaps (display.menus "xbox") */
+#define SKULL_ICONS_BITMAP "pc\\skulls\\icons"
+#define SKULL_ICON_SIZE 22
+#define SKULL_ICON_SPACING 24
+#define SKULL_ICON_MARGIN 12
+#define SKULL_ICONS_PER_ROW 11
+
+void skulls_hud_draw(short local_player_index)
+{
+	long bitmap_index;
+	unsigned long found = found_mask();
+	unsigned long mask = level_mask | found | lost_mask;
+	real scale;
+	short width, height;
+	short shown = 0;
+	int skull;
+
+	(void)local_player_index;
+	if (!mask || !global_scenario || global_scenario->type != _scenario_type_solo)
+		return;
+	bitmap_index = tag_loaded(BITMAP_GROUP_TAG, SKULL_ICONS_BITMAP);
+	if (bitmap_index == NONE)
+		return;
+	width = (short)(render.camera.viewport_bounds.x1 - render.camera.viewport_bounds.x0);
+	height = (short)(render.camera.viewport_bounds.y1 - render.camera.viewport_bounds.y0);
+	scale = (real)height / 480.0f;
+	for (skull = NUMBER_OF_SKULLS - 1; skull >= 0; skull--)
+	{
+		struct bitmap_data *bitmap;
+		rectangle2d bounds;
+		real alpha = 1.0f;
+		short column, row;
+
+		if (!(mask & (1UL << skull)))
+			continue;
+		bitmap = bitmap_group_try_and_get_bitmap(bitmap_index, (short)skull);
+		if (!bitmap)
+			continue;
+		column = (short)(shown % SKULL_ICONS_PER_ROW);
+		row = (short)(shown / SKULL_ICONS_PER_ROW);
+		shown++;
+		bounds.x1 = (short)(width - (SKULL_ICON_MARGIN + column * SKULL_ICON_SPACING) * scale);
+		bounds.x0 = (short)(bounds.x1 - SKULL_ICON_SIZE * scale);
+		bounds.y1 = (short)(height - (SKULL_ICON_MARGIN + row * SKULL_ICON_SPACING) * scale);
+		bounds.y0 = (short)(bounds.y1 - SKULL_ICON_SIZE * scale);
+		/* (found, not yet kept: pulsing, once a second; lost: faint, and
+		crossed out in red, the frame after the skulls') */
+		if ((found & (1UL << skull)) && !(level_mask & (1UL << skull)))
+			alpha = 0.6f + 0.4f * cosine((real)(game_time_get() % TICKS_PER_SECOND) * (2.0f * _pi / TICKS_PER_SECOND));
+		else if (!(level_mask & (1UL << skull)) && (lost_mask & (1UL << skull)))
+			alpha = 0.45f;
+		draw_bitmap_in_rect(bitmap, &bounds, NULL, NULL,
+			((pixel32)(alpha * 255.0f + 0.5f) << 24) | 0x00FFFFFF, NULL, TRUE);
+		if (!(level_mask & (1UL << skull)) && !(found & (1UL << skull)) && (lost_mask & (1UL << skull)))
+		{
+			struct bitmap_data *cross = bitmap_group_try_and_get_bitmap(bitmap_index, NUMBER_OF_SKULLS);
+
+			if (cross)
+				draw_bitmap_in_rect(cross, &bounds, NULL, NULL, 0xFFFFFFFF, NULL, TRUE);
+		}
+	}
+}
+
 /* ---------- a unit's death */
 
 void skulls_unit_killed(long unit_index, int headshot, long killer_player_index)
 {
+	streaking_kill(unit_index, killer_player_index);
+	/* (a player's death: the skulls found and not kept are lost) */
+	if (skulls_unit_is_player(unit_index))
+		skulls_lose("a player died");
 	/* (the Master Chief Collection's confetti and cheer) */
 	if (headshot && skull_active(_skull_grunt_birthday_party) && skulls_unit_is_grunt(unit_index))
 	{
@@ -1203,4 +1513,5 @@ void skulls_initialize(void)
 void skulls_initialize_for_new_map(void)
 {
 	finding_reset();
+	lost_mask = 0;
 }

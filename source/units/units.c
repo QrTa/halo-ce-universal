@@ -5578,6 +5578,14 @@ boolean unit_update(
 		unit->unit.throttle = *global_zero_vector3d;
 		unit->unit.control_flags = 0;
 	}
+	/* port: skull: Envy, a player's flashlight button is active camo, not
+	the light (port/linux/game/skulls.c) */
+	if (unit->unit.player_index != NONE &&
+		TEST_FLAG(unit->unit.control_flags, _unit_control_integrated_light_bit) &&
+		skulls_envy(unit_index))
+	{
+		SET_FLAG(unit->unit.control_flags, _unit_control_integrated_light_bit, FALSE);
+	}
 
 	if (!TEST_FLAG(unit_definition->unit.flags, _unit_simple_creature_bit))
 	{

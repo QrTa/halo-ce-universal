@@ -25,6 +25,7 @@ long randomizer_enemy_weapon(long weapon_definition, long unit_index, long attem
 (the skulls': skulls.c) */
 int randomizer_weapon_is_covenant(char const *tag_name);
 int randomizer_unit_is_grunt(char const *tag_name);
+int randomizer_unit_is_hunter(char const *tag_name);
 /* whether a unit holds things, to carry a skull: a grunt, an elite, a
 jackal or a combat form (not a carrier or infection form, a hunter, a
 sentinel or an engineer) */

@@ -372,4 +372,37 @@
 	<bitmap name="blank">
 		<frame png="ce/port/blank__0.png" width="4" height="4"/>
 	</bitmap>
+	<bitmap name="skulls/option">
+		<frame png="ce/port/skulls/option__0.png" width="170" height="32"/>
+		<frame png="ce/port/skulls/option__1.png" width="170" height="32"/>
+	</bitmap>
+	<bitmap name="skulls/icons">
+		<frame png="ce/port/skulls/icons__0.png" width="24" height="24"/>
+		<frame png="ce/port/skulls/icons__1.png" width="24" height="24"/>
+		<frame png="ce/port/skulls/icons__2.png" width="24" height="24"/>
+		<frame png="ce/port/skulls/icons__3.png" width="24" height="24"/>
+		<frame png="ce/port/skulls/icons__4.png" width="24" height="24"/>
+		<frame png="ce/port/skulls/icons__5.png" width="24" height="24"/>
+		<frame png="ce/port/skulls/icons__6.png" width="24" height="24"/>
+		<frame png="ce/port/skulls/icons__7.png" width="24" height="24"/>
+		<frame png="ce/port/skulls/icons__8.png" width="24" height="24"/>
+		<frame png="ce/port/skulls/icons__9.png" width="24" height="24"/>
+		<frame png="ce/port/skulls/icons__10.png" width="24" height="24"/>
+		<frame png="ce/port/skulls/icons__11.png" width="24" height="24"/>
+		<frame png="ce/port/skulls/icons__12.png" width="24" height="24"/>
+		<frame png="ce/port/skulls/icons__13.png" width="24" height="24"/>
+		<frame png="ce/port/skulls/icons__14.png" width="24" height="24"/>
+		<frame png="ce/port/skulls/icons__15.png" width="24" height="24"/>
+		<frame png="ce/port/skulls/icons__16.png" width="24" height="24"/>
+		<frame png="ce/port/skulls/icons__17.png" width="24" height="24"/>
+		<frame png="ce/port/skulls/icons__18.png" width="24" height="24"/>
+		<frame png="ce/port/skulls/icons__19.png" width="24" height="24"/>
+		<frame png="ce/port/skulls/icons__20.png" width="24" height="24"/>
+		<frame png="ce/port/skulls/icons__21.png" width="24" height="24"/>
+		<frame png="ce/port/skulls/icons__22.png" width="24" height="24"/>
+		<frame png="ce/port/skulls/icons__23.png" width="24" height="24"/>
+		<frame png="ce/port/skulls/icons__24.png" width="24" height="24"/>
+		<frame png="ce/port/skulls/icons__25.png" width="24" height="24"/>
+		<frame png="ce/port/skulls/icons__26.png" width="24" height="24"/>
+	</bitmap>
 </menus>

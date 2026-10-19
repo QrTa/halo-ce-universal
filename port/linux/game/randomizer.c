@@ -3297,6 +3297,11 @@ int randomizer_unit_is_grunt(char const *tag_name)
 	return classify(tag_name) == TYPE_GRUNT;
 }
 
+int randomizer_unit_is_hunter(char const *tag_name)
+{
+	return classify(tag_name) == TYPE_HUNTER;
+}
+
 int randomizer_unit_can_carry(char const *tag_name)
 {
 	int type = classify(tag_name);

@@ -460,6 +460,9 @@ real object_get_maximum_body_vitality(
 		/* port: skull: Mythic, the enemies' health doubled (port/linux/game/skulls.c) */
 		if (skull_active(_skull_mythic) && skulls_team_is_enemy(object->object.owner_team_index))
 			result *= 2.f;
+		/* port: skull: Swarm, the hunters' three times over */
+		if (skull_active(_skull_swarm) && skulls_object_is_hunter(object->definition_index))
+			result *= 3.f;
 	}
 
 	return result;
@@ -478,6 +481,9 @@ real object_get_maximum_shield_vitality(
 		/* port: skull: Mythic, and their shields */
 		if (skull_active(_skull_mythic) && skulls_team_is_enemy(object->object.owner_team_index))
 			result *= 2.f;
+		/* port: skull: Swarm, and the hunters' */
+		if (skull_active(_skull_swarm) && skulls_object_is_hunter(object->definition_index))
+			result *= 3.f;
 	}
 
 	return result;
@@ -2106,7 +2112,8 @@ void object_damage_update(
 		{
 			/* port: skull: Black Eye, a player's shield only a punch fills */
 			if (object->object.shield_stun_ticks == 0 &&
-				!(skull_active(_skull_black_eye) && skulls_unit_is_player(object_index)))
+				!((skull_active(_skull_black_eye) || skull_active(_skull_streaking)) &&
+					skulls_unit_is_player(object_index)))
 			{
 				real shield_recharge =
 					collision_model->resistance.runtime_shield_recharge_velocity;

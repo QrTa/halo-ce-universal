@@ -1466,8 +1466,16 @@ void hud_draw_screen(
 		}
 		else
 		{
+			/* port: skull: Blind, the action prompts still kept up to date
+			(the messages are drawn under Blind, and a prompt not updated
+			would stay on: port/linux/game/skulls.c) */
+			if (hud_scripted_globals->show_hud)
+				hud_show_action_response(player_index);
 			hud_play_unit_sounds(player, FALSE);
 		}
+		/* port: the skulls on, their icons (port/linux/game/skulls.c) */
+		if (hud_scripted_globals->show_hud && !cinematic_in_progress())
+			skulls_hud_draw(render.local_player_index);
 
 		hud_messaging_update(render.local_player_index);
 	}

@@ -2129,10 +2129,10 @@ static boolean skull_toggle(struct widget_instance *widget)
 }
 
 /* the skulls screen's grid (tools/port_settings.py's _skulls_screen): its
-list has the skulls row by row, two to a row, then a row of its buttons
+list has the skulls row by row, three to a row, then a row of its buttons
 (All Off, OK, Cancel). The list steps none itself: each of its items moves
 the focus here, so only the item focused is lit */
-#define SKULL_COLUMNS 2
+#define SKULL_COLUMNS 3
 #define SKULL_BUTTONS 3
 
 void ui_widget_port_give_focus(struct widget_instance *widget);
@@ -2167,9 +2167,9 @@ static boolean skulls_move(struct widget_instance *widget, short across, short d
 
 		/* (wrapping round, the buttons' row below the last of the skulls) */
 		row = (short)((row + down + rows + 1) % (rows + 1));
-		/* (All Off under the first column, OK and Cancel under the second) */
+		/* (All Off, OK and Cancel under the three columns) */
 		if (buttons_row != (row == rows))
-			column = column == 0 ? 0 : 1;
+			column = (short)MIN(column, (row == rows ? SKULL_BUTTONS : SKULL_COLUMNS) - 1);
 	}
 	if (row == rows)
 		target = (short)(NUMBER_OF_SKULLS + column);
