@@ -38,6 +38,7 @@ that stay inside it.
 
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 
 /* (8K's lines: more than any display the console drives) */
 #define LINES_HIGHEST 4320
@@ -231,4 +232,16 @@ int ps5_update_entry_path(const char *name, const char *folder, char *out, unsig
 	}
 	memcpy(out, rest, strlen(rest) + 1);
 	return 1;
+}
+
+char *ps5_update_strcasestr(const char *text, const char *wanted)
+{
+	size_t length = strlen(wanted);
+
+	for (; *text; text++)
+	{
+		if (!strncasecmp(text, wanted, length))
+			return (char *)text;
+	}
+	return length ? NULL : (char *)text;
 }

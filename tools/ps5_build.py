@@ -686,8 +686,10 @@ def _generate(n: Writer, sln: Any, config_path: Path) -> None:
         if source.name == "posix_update.c":
             # (its update_launch starts a new executable, which a title
             # cannot, and the title's updater never asks it to: no module
-            # exports execl, answered by host_update_ps5.c)
-            cflags += " -Dexecl=ps5_update_execl"
+            # exports execl; and strcasestr, for a chunked answer, is only
+            # libScePosixForWebKit's, which a title's import of is left null,
+            # as phase 5 found for gethostbyname: both host_update_ps5.c's)
+            cflags += " -Dexecl=ps5_update_execl -Dstrcasestr=ps5_update_strcasestr"
         if source.name == "host_update_ps5.c":
             cflags += " " + updater_defines(release)
         n.build(outputs=obj, rule="ps5_host_cc", inputs=source, variables={"cflags": cflags},

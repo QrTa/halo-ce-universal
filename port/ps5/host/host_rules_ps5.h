@@ -102,4 +102,10 @@ for a name the title refuses (a part "..", "." or empty, a backslash, or
 too long for out) */
 int ps5_update_entry_path(const char *name, const char *folder, char *out, unsigned long size);
 
+/* strcasestr, for posix_update.c, which reads a chunked answer's header
+with it (tools/ps5_build.py gives it this name): only libScePosixForWebKit
+exports it, and a title's import of it is null (phase 8: a run crashed
+there when api.github.com answered chunked) */
+char *ps5_update_strcasestr(const char *text, const char *wanted);
+
 #endif

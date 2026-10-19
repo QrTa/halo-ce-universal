@@ -290,6 +290,19 @@ static void test_update_paths(void)
 		"PPSA99500/", out, sizeof(out)) == -1);
 }
 
+static void test_update_strcasestr(void)
+{
+	const char *value = "gzip, Chunked";
+
+	CHECK(ps5_update_strcasestr(value, "chunked") == value + 6);
+	CHECK(ps5_update_strcasestr("chunked", "chunked") != NULL);
+	CHECK(ps5_update_strcasestr("CHUNKED", "chunked") != NULL);
+	CHECK(ps5_update_strcasestr("identity", "chunked") == NULL);
+	CHECK(ps5_update_strcasestr("chunke", "chunked") == NULL);
+	CHECK(ps5_update_strcasestr("", "chunked") == NULL);
+	CHECK(ps5_update_strcasestr(value, "") == value);
+}
+
 int main(void)
 {
 	test_resolution_lines();
@@ -299,6 +312,7 @@ int main(void)
 	test_update_release();
 	test_update_zip();
 	test_update_paths();
+	test_update_strcasestr();
 	if (failures)
 		printf("%d failures\n", failures);
 	else
