@@ -1787,6 +1787,23 @@ def _server_settings() -> list:
                                                  ("font", "ui\\large_ui"), ("color", "#FF2896FF"), ("text_x", 13),
                                                  ("text_y", 4)], [])
         rows.append((f"{base}/op_{key}", None, SETUP_OPTIONS_PLACE + index))
+    # the campaign's own screens, after co-op's options (shown with the
+    # randomizer or the skulls on, for a campaign map: menu_functions.c's
+    # server_settings_update): rows that open the screens a level's
+    # difficulty opens, whose OK comes back here (CAMPAIGN_SETUP_SCREENS)
+    for index, (key, _, _) in enumerate(CAMPAIGN_SETUP_SCREENS):
+        extra += _widget(f"{base}/op_{key}", [("width", 512), ("height", 28),
+                                             ("flags", "pass_unhandled_to_focused_child"),
+                                             ("bitmap", "bitmaps/option_bkds"), ("color", "#FF2896FF")],
+                         [f'<on event="a" run="ss {key}"/>', f'<on event="start" run="ss {key}"/>',
+                          '<on event="left_mouse" run="mouse emit accept event"/>',
+                          f'<child widget="{base}/{key}_label"/>'])
+        extra += _widget(f"{base}/{key}_label", [("type", "text"), ("controller", 1), ("width", 300), ("height", 22),
+                                                 ("string_list", f"{base}/labels"),
+                                                 ("string_index", 12 + len(COOP_SETUP_SCREENS) + index),
+                                                 ("font", "ui\\large_ui"), ("color", "#FF2896FF"), ("text_x", 13),
+                                                 ("text_y", 4)], [])
+        rows.append((f"{base}/op_{key}", None, SETUP_OPTIONS_PLACE + len(COOP_SETUP_SCREENS) + index))
     # the gametype's options for this game (the gametype editor's screens,
     # editing a copy of the gametype chosen: "port setup edit")
     for index, (key, screen) in enumerate(SETUP_OPTION_SCREENS):
@@ -1818,7 +1835,8 @@ def _server_settings() -> list:
                                          "PLAYER OPTIONS:", "ITEM OPTIONS:", "VEHICLE OPTIONS:", "INDICATOR OPTIONS:",
                                          "TEAMPLAY OPTIONS:", "LISTING:",
                                          *(f"{title}:" for _, title, _, _ in COOP_SETUP_SCREENS), "PASSWORD:",
-                                         f"{MAP_SHARE_SETUP[1]}:"])
+                                         f"{MAP_SHARE_SETUP[1]}:",
+                                         *(f"{title}:" for _, title, _ in CAMPAIGN_SETUP_SCREENS)])
     extra += _strings(f"{base}/help_strings", [
         "",
         "The name the game shows in the lists of games.\\nEnter changes it.",
@@ -1839,6 +1857,8 @@ def _server_settings() -> list:
         "Players from the Server Browser must type it to\\njoin (an invite link needs none). Enter sets it.",
         # (MAP SHARING's)
         MAP_SHARE_SETUP[2],
+        # (the campaign's screens' rows: CAMPAIGN_SETUP_SCREENS)
+        *(help_text for _, _, help_text in CAMPAIGN_SETUP_SCREENS),
     ])
     lines = _screen(base, spec, rows, ["server settings update"],
                     ['<on event="created" run="server settings init"/>'], extra)
@@ -1899,6 +1919,13 @@ COOP_SETUP_SCREENS = [
     ]),
     ("voice_options", "VOICE AND VOTING", "Voice chat, text chat and votes to kick a player,\\nfor this game.",
      TEAMPLAY_ROWS),
+]
+# Server Setup's rows for a co-op game's campaign screens: the randomizer's
+# and the skulls', as a level's difficulty opens them (its key, which its
+# row runs as "ss <key>", its title and its row's help)
+CAMPAIGN_SETUP_SCREENS = [
+    ("randomizer", "RANDOMIZER", "How this level's enemies and weapons are swapped,\nfor every player."),
+    ("skulls", "SKULLS", "The skulls every player plays this level with."),
 ]
 # Server Setup's map sharing (port/linux/game/map_share.c), for any game,
 # laid out as co-op's options are (its key, its title, its row's help and

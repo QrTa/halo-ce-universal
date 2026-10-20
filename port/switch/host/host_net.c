@@ -92,16 +92,21 @@ offer.
 static __thread int last_error;
 
 /* Socket buffers on the console come out of one budget per process, which
-the bsd service is given when sockets are initialised (libnx's default: four
-times the largest TCP and UDP buffers, about 2.2 MB). Running out of it is
+the bsd service is given when sockets are initialised (eight times the
+largest TCP and UDP buffers, about 4.6 MB: host_main.c; libnx's default is
+four times, 2.2 MB). Running out of it is
 WSAENOBUFS to the game, which gives up whatever it was making - the first
 internet join failed that way, on creating its client - so it is always
 said. It is rare by nature, unlike the per-datagram failures, so saying it
 costs nothing in an ordinary run. */
 #define BUFFER_FAILURES_LOGGED 20
-/* the most a socket's buffer is set to (posix_socket_setsockopt): libnx's
-default tcp_tx_buf_max_size and tcp_rx_buf_max_size */
-#define SOCKET_BUFFER_LIMIT (256 * 1024)
+/* the most a socket's buffer is set to (posix_socket_setsockopt): half
+libnx's default tcp_tx_buf_max_size and tcp_rx_buf_max_size, so that a
+console hosting (the server's sockets, its own client's, a connection for
+each joiner, internet play's tunnel and brokers) has room for them all in
+the budget: some 18 sockets at this size. A co-op game's traffic to one
+machine is a few kilobytes a tick */
+#define SOCKET_BUFFER_LIMIT (128 * 1024)
 
 static int fail(void)
 {
@@ -420,9 +425,10 @@ int posix_socket_setsockopt(int socket, int level, int name, const void *value, 
 	against the socket budget (fail(), above) when they are set, so two
 	sockets granted that much leave too little for the next one: joining
 	from the list opened the signalling brokers' connections as well, and
-	the game's own client then could not make its sockets. The console only
-	joins, and a joiner's traffic is the host's to one machine, so the
-	sizes are held to libnx's largest TCP buffer. */
+	the game's own client then could not make its sockets; hosting, its
+	client could not join its own server. The sizes are held to
+	SOCKET_BUFFER_LIMIT, which a console's game, joined or hosted, does not
+	come near. */
 	if (host_level == SOL_SOCKET && (host_name == SO_SNDBUF || host_name == SO_RCVBUF) &&
 		value && length >= (int)sizeof(int) && *(const int *)value > SOCKET_BUFFER_LIMIT)
 	{
@@ -759,67 +765,25 @@ void posix_random_bytes(void *buffer, posix_ulong size)
 /* ---------- internet play with browsers (port/linux/src/p2p_webrtc.c)
 
 The native builds hold WebRTC connections with browsers through DTLS
-(port/linux/src/posix_dtls.c, with Mbed TLS), which the Switch's host does not
-build: it has no certificate, so it says so (its machine is signalled as one
-without WebRTC, and no browser connects to it), and the rest are never asked.
-Games with other native machines do not use them. STUN's HMAC-SHA-1 is libnx's. */
+(port/linux/src/posix_dtls.c, with Mbed TLS), which the Switch's host builds
+too (tools/switch_build.py), so that a browser joins a console's game and
+the console a browser's. Mbed TLS's random numbers are libnx's
+(mbedtls_config_switch.h). */
 
-int posix_dtls_fingerprint(unsigned char *fingerprint)
-{
-	(void)fingerprint;
-	return 0;
-}
+int mbedtls_hardware_poll(void *data, unsigned char *output, size_t length, size_t *written);
 
-int posix_dtls_open(void)
+int mbedtls_hardware_poll(void *data, unsigned char *output, size_t length, size_t *written)
 {
-	return -1;
-}
-
-void posix_dtls_close(int handle)
-{
-	(void)handle;
-}
-
-void posix_dtls_input(int handle, const void *data, int size)
-{
-	(void)handle;
 	(void)data;
-	(void)size;
-}
-
-int posix_dtls_receive(int handle, posix_ulong now, void *buffer, int size)
-{
-	(void)handle;
-	(void)now;
-	(void)buffer;
-	(void)size;
-	return -1;
-}
-
-int posix_dtls_send(int handle, const void *data, int size)
-{
-	(void)handle;
-	(void)data;
-	(void)size;
+	randomGet(output, length);
+	*written = length;
 	return 0;
 }
 
-int posix_dtls_output(int handle, void *buffer, int size)
-{
-	(void)handle;
-	(void)buffer;
-	(void)size;
-	return 0;
-}
+/* (and its clock in milliseconds: the console's, since it started) */
+int64_t mbedtls_ms_time(void);
 
-int posix_dtls_peer_fingerprint(int handle, unsigned char *fingerprint)
+int64_t mbedtls_ms_time(void)
 {
-	(void)handle;
-	(void)fingerprint;
-	return 0;
-}
-
-void posix_hmac_sha1(const void *key, int key_size, const void *data, int size, unsigned char *digest)
-{
-	hmacSha1CalculateMac(digest, key, (size_t)key_size, data, (size_t)size);
+	return (int64_t)(armTicksToNs(armGetSystemTick()) / 1000000ULL);
 }

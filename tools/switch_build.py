@@ -49,6 +49,10 @@ TOML_DIR = Path("port/third_party/tomlc17")
 KCP_DIR = Path("port/third_party/kcp")
 EXPAT_DIR = Path("port/third_party/expat")
 MONOCYPHER_DIR = Path("port/third_party/monocypher")
+# internet play's DTLS with browsers (port/linux/src/posix_dtls.c, in the
+# host), with the Switch's additions to Mbed TLS's configuration
+# (port/switch/host/mbedtls_config_switch.h: the console's random numbers)
+MBEDTLS_DIR = Path("port/third_party/mbedtls")
 MUSL_DIR = THIRD_PARTY / f"musl-{MUSL_VERSION}"
 SDL_DIR = THIRD_PARTY / "SDL3"
 
@@ -716,6 +720,17 @@ def generate_switch_build(n: Writer, sln: Any) -> None:
             cflags = f"{host_cflags} -I{ZLIB_DIR}"
         n.build(outputs=obj, rule="switch_host_cc", inputs=source, variables={"cflags": cflags},
                 implicit=[syscall_h])
+        host_objects.append(obj)
+    # internet play's DTLS with browsers (posix_dtls.c, with Mbed TLS), as the
+    # Android and PS5 hosts have it: without it no browser joins a console's
+    # game, nor the console a browser's
+    mbedtls_cflags = " ".join([host_cflags, f"-I{MBEDTLS_DIR / 'include'}", f"-I{MBEDTLS_DIR / 'library'}",
+                               "'-DMBEDTLS_USER_CONFIG_FILE=\"mbedtls_config_switch.h\"'"])
+    for source in [LINUX_DIR / "src" / "posix_dtls.c", *sorted((MBEDTLS_DIR / "library").glob("*.c"))]:
+        obj = host_obj_dir / ("mbedtls_" + source.name + ".o" if source.parent.parent == MBEDTLS_DIR
+                              else source.name + ".o")
+        n.build(outputs=obj, rule="switch_host_cc", inputs=source,
+                variables={"cflags": mbedtls_cflags + (" -w" if source.name != "posix_dtls.c" else "")})
         host_objects.append(obj)
     # UAM's compiler, linked into the host as the probe links it (DEKO3D.md,
     # phase 5, step 2; the probe's Makefile is the control for this). One C++

@@ -1186,7 +1186,19 @@ int main(int argc, char *argv[])
 	 * nxlink attached, and every line went somewhere the host side never
 	 * saw. That is the whole of why the previous attempts produced no output
 	 * despite deploying correctly. */
-	socketInitializeDefault();
+	/* (and with twice libnx's buffer budget, sb_efficiency 8 rather than 4:
+	about 4.6 MB from the heap rather than 2.2. Hosting holds the server's
+	sockets, its own client's and each joiner's connection at once, and
+	internet play's tunnel and brokers on top: the default ran out at the
+	console's own client, the game's join of its own server, with
+	WSAENOBUFS. Each socket is held to SOCKET_BUFFER_LIMIT, host_net.c) */
+	{
+		SocketInitConfig config = *socketGetDefaultInitConfig();
+
+		config.sb_efficiency = 8;
+		if (R_FAILED(socketInitialize(&config)))
+			socketInitializeDefault();
+	}
 	if (nxlinkConnectToHost(false, true) >= 0)
 		host_logf(HOST_LOG_INFO, "output is going to a nxlink host as well as here");
 	else

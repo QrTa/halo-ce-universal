@@ -157,3 +157,22 @@ def test_skull_handlers_are_registered():
                  "skulls death keep", "skulls death back", "skulls screen update", "gameplay screen update"):
         assert f'"{name}"' in tags
         assert f'!strcmp(name, "{name}")' in functions
+
+
+def test_server_setup_campaign_rows():
+    """Server Setup has rows opening the randomizer's and the skulls'
+    screens for a co-op game, which menu_tags.c names and menu_functions.c
+    runs and shows."""
+    server = "\n".join(port_settings.multiplayer_files()["main_menu.multiplayer_type_select.server_settings.xml"])
+    functions = (ROOT / "port/linux/game/menu_functions.c").read_text()
+    # (a function the menus run is one menu_tags.c names: one it does not
+    # is a problem, and the game then keeps its own menus, every file of ours
+    # left out)
+    tags = (ROOT / "port/linux/game/menu_tags.c").read_text(encoding="latin-1")
+    for key, title, _ in port_settings.CAMPAIGN_SETUP_SCREENS:
+        assert f'"ss {key}"' in tags
+        assert f'name="main_menu/multiplayer_type_select/server_settings/op_{key}"' in server
+        assert f'run="ss {key}"' in server
+        assert f'"{title}:"' in server or f'text="{title}:"' in server
+        assert f'"ss {key}"' in functions
+        assert f'"op_{key}"' in functions

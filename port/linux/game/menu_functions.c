@@ -1665,6 +1665,10 @@ by its OK (tools/port_settings.py's SKULLS); and the screen Back returns to
 from it, or from the question of how the skulls are had before it */
 static struct skull_set skulls_menu_set;
 static long skulls_menu_back_tag = NONE;
+/* the randomizer's and the skulls' screens opened from Server Setup (a
+co-op game's: "ss randomizer", "ss skulls"), whose OK writes them and goes
+back there, rather than from a level's difficulty, whose OK starts it */
+static boolean campaign_screens_for_server;
 
 static boolean skulls_open(struct widget_instance *widget, boolean *widget_deleted);
 
@@ -1950,6 +1954,14 @@ game.skulls on) or the level */
 static boolean randomizer_ok(struct widget_instance *widget, boolean *widget_deleted)
 {
 	settings_each(screen_of(widget), setting_changed_save);
+	/* (from Server Setup: back there, which has the skulls' row) */
+	if (campaign_screens_for_server)
+	{
+		ui_play_audio_feedback_sound(SOUND_FORWARD);
+		ui_widget_port_go_back(widget);
+		*widget_deleted = TRUE;
+		return TRUE;
+	}
 	if (config_boolean("game.skulls") && skulls_open(widget, widget_deleted))
 		return TRUE;
 	campaign_start(campaign_pending.map_name, campaign_pending.difficulty, campaign_pending.controller, FALSE);
@@ -2274,8 +2286,9 @@ static boolean skulls_move(struct widget_instance *widget, short across, short d
 	return TRUE;
 }
 
-/* "skulls start" (OK): the skulls shown written, then the level */
-static boolean skulls_start(void)
+/* "skulls start" (OK): the skulls shown written, then the level (from
+Server Setup: back there) */
+static boolean skulls_start(struct widget_instance *widget, boolean *widget_deleted)
 {
 	char text[SKULLS_TEXT_LENGTH];
 
@@ -2286,6 +2299,13 @@ static boolean skulls_start(void)
 	this level, which reads the map until then) */
 	if (skulls_pack_wanted())
 		skulls_pack_request();
+	if (campaign_screens_for_server)
+	{
+		ui_play_audio_feedback_sound(SOUND_FORWARD);
+		ui_widget_port_go_back(widget);
+		*widget_deleted = TRUE;
+		return TRUE;
+	}
 	campaign_start(campaign_pending.map_name, campaign_pending.difficulty, campaign_pending.controller, FALSE);
 	return TRUE;
 }
@@ -2458,6 +2478,7 @@ static boolean difficulty_start(struct widget_instance *widget, short difficulty
 	snprintf(campaign_pending.map_name, sizeof(campaign_pending.map_name), "%s", map_name);
 	campaign_pending.controller = controller;
 	campaign_pending.difficulty = difficulty;
+	campaign_screens_for_server = FALSE;
 	if (config_boolean("game.randomizer") && base_campaign)
 	{
 		long screen_tag = screen_of(widget)->definition_tag_index;
@@ -4708,6 +4729,16 @@ static boolean hosting_cooperative(void)
 	return server && game_cooperative(network_game_server_get_game(server));
 }
 
+/* whether the co-op game hosted is one of the ten campaign levels, which
+the randomizer swaps (randomizer.c's campaign_leaf) */
+static boolean hosting_campaign_level(void)
+{
+	void *server = global_network_game_server_get();
+	struct network_game *game = server ? network_game_server_get_game(server) : NULL;
+
+	return game && game_cooperative(game) && campaign_level_of(game->map.name) != NONE;
+}
+
 /* Server Setup's gametype rows, which co-op hides */
 static char const *const server_settings_gametype_rows[] =
 {
@@ -4723,6 +4754,12 @@ VOTING), PASSWORD's and MAP SHARING's (its help_strings, tools/port_settings.py)
 #define COOPERATIVE_VOICE_OPTIONS_HELP 13
 #define SERVER_PASSWORD_HELP 14
 #define MAP_SHARE_OPTIONS_HELP 15
+/* Server Setup's RANDOMIZER and SKULLS rows (tools/port_settings.py's
+CAMPAIGN_SETUP_SCREENS), a co-op game's: their help, and the rows' spacing,
+SKULLS taking RANDOMIZER's place when that is hidden */
+#define RANDOMIZER_SETUP_HELP 16
+#define SKULLS_SETUP_HELP 17
+#define SERVER_SETTINGS_ROW_SPACING 24
 
 /* co-op's EXTRA ENEMIES' choices (network.coop_enemies_mode's values, as
 gametype_options' coop_extra_enemies_spinner has them, in this order): its
@@ -4856,9 +4893,25 @@ static void server_settings_update(struct widget_instance *list)
 		{
 			struct widget_instance *help = list->parameters.list.extended_description;
 
+			struct widget_instance *randomizer_row = named(list, "op_randomizer", 0);
+			struct widget_instance *skulls_row = named(list, "op_skulls", 0);
+
 			visible_set(named(list, "op_coop_options", 0), cooperative);
 			visible_set(named(list, "op_voice_options", 0), cooperative);
-			if (help && list->focused_child == named(list, "op_coop_options", 0))
+			/* (the randomizer's and the skulls' screens, with them on in
+			Settings > Gameplay: a level of the campaign's, any campaign map) */
+			visible_set(randomizer_row, cooperative && config_boolean("game.randomizer") && hosting_campaign_level());
+			visible_set(skulls_row, cooperative && config_boolean("game.skulls"));
+			if (randomizer_row && skulls_row)
+			{
+				skulls_row->vertical_offset = (short)(randomizer_row->vertical_offset +
+					(randomizer_row->visible ? SERVER_SETTINGS_ROW_SPACING : 0));
+			}
+			if (help && randomizer_row && list->focused_child == randomizer_row)
+				help->parameters.text_box.string_list_index = RANDOMIZER_SETUP_HELP;
+			else if (help && skulls_row && list->focused_child == skulls_row)
+				help->parameters.text_box.string_list_index = SKULLS_SETUP_HELP;
+			else if (help && list->focused_child == named(list, "op_coop_options", 0))
 				help->parameters.text_box.string_list_index = COOPERATIVE_OPTIONS_HELP;
 			else if (help && list->focused_child == named(list, "op_voice_options", 0))
 				help->parameters.text_box.string_list_index = COOPERATIVE_VOICE_OPTIONS_HELP;
@@ -4943,6 +4996,24 @@ static boolean invite_copy(void)
 		return campaign_fail();
 	platform_clipboard_set(link);
 	ui_play_audio_feedback_sound(SOUND_FORWARD);
+	return TRUE;
+}
+
+/* "ss randomizer" and "ss skulls" (a co-op game's rows): the randomizer's
+screen, or the skulls' (their question first, the first time), over Server
+Setup, whose OK writes them and comes back (campaign_screens_for_server) */
+static boolean server_campaign_screen(struct widget_instance *widget, boolean skulls, boolean *widget_deleted)
+{
+	campaign_screens_for_server = TRUE;
+	if (skulls)
+		return skulls_open(widget, widget_deleted);
+	if (!ui_widget_load_by_name_or_tag("pc\\main_menu\\difficulty_select\\randomizer\\randomizer_screen", NONE, NULL,
+		NONE, screen_of(widget)->definition_tag_index, NONE, NONE))
+	{
+		return campaign_fail();
+	}
+	ui_play_audio_feedback_sound(SOUND_FORWARD);
+	*widget_deleted = TRUE;
 	return TRUE;
 }
 
@@ -7685,6 +7756,10 @@ boolean pc_menu_event_function_invoke(
 		{
 			return server_start();
 		}
+		else if (!strcmp(name, "ss randomizer") || !strcmp(name, "ss skulls"))
+		{
+			return server_campaign_screen(widget, !strcmp(name, "ss skulls"), widget_deleted);
+		}
 		else if (!strcmp(name, "single prev cl item activated"))
 		{
 			item_activated(widget, event_controller(widget, event), widget_deleted);
@@ -7865,7 +7940,7 @@ boolean pc_menu_event_function_invoke(
 		}
 		else if (!strcmp(name, "skulls start"))
 		{
-			return skulls_start();
+			return skulls_start(widget, widget_deleted);
 		}
 		else if (!strcmp(name, "skulls reset progress"))
 		{
