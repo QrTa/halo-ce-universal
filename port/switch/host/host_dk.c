@@ -171,6 +171,9 @@ static struct
 	int timing_armed;
 	uint64_t gpu_busy_total_ns, gpu_busy_peak_ns;
 	uint32_t gpu_frames;
+	/* the GPU's time on a frame, averaged over the last 16 or so, in
+	microseconds (host_dk_gpu_frame_us) */
+	volatile uint32_t gpu_average_us;
 	uint32_t command_rollovers;
 	/* set when the last piece is given: the rest of the frame's commands will
 	not fit unless the host submits and starts over (host_dk_submit does, between
@@ -700,6 +703,9 @@ struct capture_entry
 	uint32_t count, primitive;
 	uint32_t color, depth;
 	uint32_t texture0;
+	/* the draw's blend (on, source, destination, equation, as the guest's
+	state says them) and depth test and write */
+	uint32_t blend, blend_source, blend_destination, blend_equation, depth_state;
 };
 
 static struct
@@ -782,6 +788,11 @@ static void command_done(struct trace_event *event)
 		entry->color = dk.color ? dk.color->surface.data : 0;
 		entry->depth = dk.depth ? dk.depth->surface.data : 0;
 		entry->texture0 = event->kind == DK_COMMAND_DRAW ? event->a[8] : 0;
+		entry->blend = dk.state.blend;
+		entry->blend_source = dk.state.blend_source;
+		entry->blend_destination = dk.state.blend_destination;
+		entry->blend_equation = dk.state.blend_equation;
+		entry->depth_state = dk.state.depth_test | dk.state.depth_write << 1;
 		capture.count++;
 	}
 }
@@ -819,10 +830,17 @@ static void fences_forget(void)
 }
 
 /* the queue drained, unless it has faulted (queue_faulted) */
+/* what the render thread is doing, for its watchdog (render_watchdog) */
+static const char *volatile render_where = "starting";
+
 static void queue_wait_idle(void)
 {
+	const char *was = render_where;
+
+	render_where = "waiting for the GPU to go idle (dkQueueWaitIdle)";
 	if (!queue_faulted())
 		dkQueueWaitIdle(dk.queue);
+	render_where = was;
 }
 
 /* gives the command buffer the next piece of this frame's command memory */
@@ -984,6 +1002,7 @@ static void fence_wait_said(int index, const char *what)
 {
 	int said = 0;
 
+	render_where = what;
 	while (dkFenceWait(&dk.fences[index], 2000000000LL) != DkResult_Success)
 	{
 		if (queue_faulted())
@@ -998,6 +1017,31 @@ static void fence_wait_said(int index, const char *what)
 	}
 	if (said)
 		host_logf(HOST_LOG_ERROR, "deko3d: %s: the GPU finished after all", what);
+}
+
+/* ---------- the slow frames' figures (host_sdl2.c's frame_statistics)
+
+What each thread waited for since the last report: the game thread for room
+in the render queue (host_dk_submit), the render thread for a screen image
+(dkQueueAcquireImage) and for the GPU to give back a frame's slot
+(frame_begin's fence), and how many frames it presented. Written by their
+own threads, read by the game thread's report: a figure a frame late is no
+matter in a line about a slow frame. */
+/* (the frame's pace, below with host_dk_frame_pacing) */
+static void pace_present_run(void);
+
+static struct
+{
+	uint64_t submit_wait_ns;
+	uint32_t streams;
+	volatile uint64_t acquire_max_ns, fence_max_ns;
+	volatile uint32_t presents;
+	volatile uint32_t gpu_last_us;
+} slow;
+
+static uint64_t slow_now_ns(void)
+{
+	return armTicksToNs(armGetSystemTick());
 }
 
 /* ---------- the GPU's time a frame
@@ -1052,6 +1096,15 @@ static void gpu_timing_frame_begin(void)
 	}
 	if (dk.timing_count[dk.frame])
 	{
+		/* (an average over about 16 frames, for host_dk_gpu_frame_us) */
+		{
+			uint32_t busy_us = (uint32_t)(busy / 1000);
+
+			slow.gpu_last_us = busy_us;
+
+			dk.gpu_average_us = dk.gpu_average_us ? dk.gpu_average_us + ((int32_t)busy_us - (int32_t)dk.gpu_average_us) / 16
+				: busy_us;
+		}
 		capture_slow_frame(busy);
 		dk.gpu_busy_total_ns += busy;
 		if (busy > dk.gpu_busy_peak_ns)
@@ -1082,6 +1135,21 @@ static int gpu_timing_bracket(void)
 	return 1;
 }
 
+void host_dk_frame_report(struct host_dk_frame_report *report)
+{
+	report->submit_wait_us = (uint32_t)(slow.submit_wait_ns / 1000);
+	report->streams = slow.streams;
+	report->acquire_max_us = (uint32_t)(slow.acquire_max_ns / 1000);
+	report->fence_max_us = (uint32_t)(slow.fence_max_ns / 1000);
+	report->presents = slow.presents;
+	report->gpu_last_us = slow.gpu_last_us;
+	report->gpu_average_us = dk.gpu_average_us;
+	slow.submit_wait_ns = 0;
+	slow.streams = 0;
+	slow.acquire_max_ns = slow.fence_max_ns = 0;
+	slow.presents = 0;
+}
+
 static void frame_begin(void)
 {
 	/* (under the lock: the guest's other threads read the fences through
@@ -1091,7 +1159,12 @@ static void frame_begin(void)
 		fences_forget();
 	if (dk.fence_pending[dk.frame])
 	{
+		uint64_t waited = slow_now_ns();
+
 		fence_wait_said(dk.frame, "the next frame");
+		waited = slow_now_ns() - waited;
+		if (waited > slow.fence_max_ns)
+			slow.fence_max_ns = waited;
 		dk.fence_pending[dk.frame] = 0;
 		if (dk.fence_serial[dk.frame] > dk.serial_retired)
 			dk.serial_retired = dk.fence_serial[dk.frame];
@@ -1350,6 +1423,12 @@ static void commands_submit_serial(uint32_t finished)
 	dk.fence_serial[dk.frame] = finished;
 	dk.serial_fenced = finished;
 	pthread_mutex_unlock(&dk_lock);
+	/* Sent to the GPU now: dkQueueSubmitCommands only queues them, and until
+	a present or a wait for the queue nothing reaches the GPU. A submission
+	the game ends mid-frame to wait for (a resource lock: c40's opening
+	draws into a 320x240 target and waits for it) was then never run, the
+	game waited for it forever, and the picture froze. */
+	dkQueueFlush(dk.queue);
 	dk.cleaned_count = 0;
 	dk.recorded = 0;
 }
@@ -1403,7 +1482,14 @@ uint32_t host_dk_retired(void)
 {
 	uint32_t retired;
 
-	pthread_mutex_lock(&dk_lock);
+	/* (the fences polled when the lock is free; while the render thread
+	holds it, the count as it last left it, which only ever falls behind:
+	a buffer is busy a little longer, and renamed or waited for, never
+	taken early. Waiting for the lock was where the game thread spent its
+	time at the Halo level's falls, 79% of it zoomed, as each dynamic
+	vertex buffer's lock asked here) */
+	if (pthread_mutex_trylock(&dk_lock) != 0)
+		return __atomic_load_n(&dk.serial_retired, __ATOMIC_ACQUIRE);
 	if (dk.ready)
 		fences_poll();
 	retired = dk.serial_retired;
@@ -1413,10 +1499,21 @@ uint32_t host_dk_retired(void)
 
 /* the queue drained, before a map's memory goes or the process exits: a
 submission still running reads that memory */
+static void render_queue_drain(void);
+
 void host_dk_idle(void)
 {
+	render_queue_drain();
 	if (dk.ready)
 		queue_wait_idle();
+}
+
+/* the guest's, for display.dynamic_resolution (d3d8_dk.c, between frames):
+the GPU's time on a frame, averaged over the last 16 or so, in
+microseconds; 0 before the first */
+unsigned int host_dk_gpu_frame_us(void)
+{
+	return dk.gpu_average_us;
 }
 
 /* the height host_dk_output_height last chose: 720 in handheld, 1080 docked */
@@ -1725,7 +1822,16 @@ static void present(const struct dk_command_present *command)
 	}
 	if (output_height != dk.screen_height)
 		swapchain_remake();
-	slot = dkQueueAcquireImage(dk.queue, dk.swapchain);
+	{
+		uint64_t waited = slow_now_ns();
+
+		render_where = "acquiring a screen image (dkQueueAcquireImage)";
+		slot = dkQueueAcquireImage(dk.queue, dk.swapchain);
+		render_where = "presenting";
+		waited = slow_now_ns() - waited;
+		if (waited > slow.acquire_max_ns)
+			slow.acquire_max_ns = waited;
+	}
 	DkImageView screen_view;
 	DkImageView const *screen_views[1] = { &screen_view };
 	DkScissor scissor = { 0, 0, dk.screen_width, dk.screen_height };
@@ -1803,6 +1909,7 @@ static void present(const struct dk_command_present *command)
 		}
 	}
 	dkQueuePresentImage(dk.queue, dk.swapchain, slot);
+	slow.presents++;
 	host_dk_presenting = 1;
 	if (++dk.frames_presented == 1)
 		host_logf(HOST_LOG_INFO, "deko3d: first frame presented");
@@ -1875,7 +1982,7 @@ struct texture
 	DkImage image;
 	uint32_t slot;
 	uint32_t block, offset, size;
-	uint32_t kind, format, width, height, depth, levels;
+	uint32_t kind, format, width, height, depth, levels, swizzle;
 };
 
 /* what is waiting for the GPU to be done with a submission */
@@ -2351,7 +2458,15 @@ static int texture_make(struct texture *texture, const struct dk_command_texture
 	}
 	dkImageInitialize(&texture->image, &layout, tex.blocks[texture->block].memory, texture->offset);
 	dkImageViewDefaults(&view, &texture->image);
+	if (command->swizzle)
+	{
+		uint32_t channel;
+
+		for (channel = 0; channel < 4; channel++)
+			view.swizzle[channel] = (DkImageSwizzle)(DkImageSwizzle_Red + ((command->swizzle >> (8 * channel)) & 3));
+	}
 	dkImageDescriptorInitialize(&descriptors[texture->slot], &view, false, false);
+	texture->swizzle = command->swizzle;
 	texture->kind = command->kind;
 	texture->format = command->format;
 	texture->width = command->width;
@@ -2607,10 +2722,10 @@ static void texture_receive(const struct dk_command_texture *command)
 	event->a[5] = command->source;
 	event->a[6] = command->source_bytes;
 	event->a[11] = texture->present;
-	/* the same shape: written in place; else remade */
+	/* the same shape (and channels): written in place; else remade */
 	if (texture->present && (texture->kind != command->kind || texture->format != command->format ||
 		texture->width != command->width || texture->height != command->height || texture->depth != command->depth ||
-		texture->levels != command->levels))
+		texture->levels != command->levels || texture->swizzle != command->swizzle))
 		texture_release(texture);
 	if (!texture->present && !texture_make(texture, command))
 		return;
@@ -2711,6 +2826,157 @@ static void texture_free_receive(const struct dk_command_texture_free *command)
 		texture_release(&tex.table[command->id]);
 		tex.stages_dirty = 1;
 	}
+}
+
+/* ---------- the high-res HUD's sheets (host_dk_hud.c)
+
+An image made from a sheet's decoded levels: the buffer they are in is the
+storage of a memory block of its own, which the GPU copies them from, so
+nothing is copied by a CPU; the block and its buffer are let go once the
+GPU has run the copy (its submission retired). */
+
+#define HUD_SOURCES 64
+
+static struct
+{
+	uint32_t serial;
+	DkMemBlock memory;
+	unsigned char *texels;
+} hud_sources[HUD_SOURCES];
+static uint32_t hud_source_count;
+
+static void hud_sources_collect(int all)
+{
+	uint32_t retired = host_dk_retired(), index, kept = 0;
+
+	/* (every one: what is recorded submitted, and the GPU waited for) */
+	if (all && hud_source_count)
+	{
+		if (dk.recorded)
+			commands_submit_partial();
+		queue_wait_idle();
+	}
+	for (index = 0; index < hud_source_count; index++)
+	{
+		if (!all && hud_sources[index].serial > retired)
+		{
+			hud_sources[kept++] = hud_sources[index];
+			continue;
+		}
+		dkMemBlockDestroy(hud_sources[index].memory);
+		free(hud_sources[index].texels);
+	}
+	hud_source_count = kept;
+}
+
+static void hud_prepare_receive(const struct dk_command_hud_prepare *command)
+{
+	if (command->header.size < sizeof(*command) ||
+		command->count > (command->header.size - sizeof(*command)) / sizeof(command->sheets[0]))
+	{
+		host_logf(HOST_LOG_ERROR, "deko3d: a bad HUD prepare command (%u sheets in %u bytes)",
+			(unsigned)command->count, (unsigned)command->header.size);
+		return;
+	}
+	host_dk_hud_prepare(command->sheets, command->count);
+}
+
+static void hud_image_receive(const struct dk_command_hud_image *command)
+{
+	struct dk_command_texture made;
+	struct host_dk_hud_levels levels;
+	struct texture *texture;
+	DkMemBlock memory;
+	DkGpuAddr source;
+	uint64_t start = armGetSystemTick();
+	uint32_t level, offset = 0;
+	int late = 0;
+
+	if (!dk.ready || !tex.image_descriptors || !command->id || command->id >= DK_TEXTURE_LIMIT)
+		return;
+	render_where = "making a high-res HUD image (hud_image_receive)";
+	hud_sources_collect(0);
+	if (!host_dk_hud_take(command->sheet.asset, &levels))
+	{
+		/* (let go since the guest was told it was ready: a map's change) */
+		late = 1;
+		if (!host_dk_hud_decode((const unsigned char *)(uintptr_t)command->sheet.png, command->sheet.png_size,
+			&levels))
+		{
+			texture_problem("high-res hud sheet %u could not be decoded for image %u", (unsigned)command->sheet.asset,
+				(unsigned)command->id);
+			return;
+		}
+	}
+	if (hud_source_count == HUD_SOURCES)
+		hud_sources_collect(1);
+	memset(&made, 0, sizeof(made));
+	made.id = command->id;
+	made.kind = DK_TEXTURE_2D;
+	made.format = DK_TEXTURE_BGRA;
+	made.width = levels.width;
+	made.height = levels.height;
+	made.depth = 1;
+	made.levels = levels.levels;
+	texture = &tex.table[command->id];
+	if (!texture_command_valid(&made))
+	{
+		texture_problem("high-res hud sheet %u is %ux%u, %u levels: no image", (unsigned)command->sheet.asset,
+			(unsigned)levels.width, (unsigned)levels.height, (unsigned)levels.levels);
+		free(levels.texels);
+		return;
+	}
+	if (texture->present && (texture->kind != made.kind || texture->format != made.format ||
+		texture->width != made.width || texture->height != made.height || texture->depth != 1 ||
+		texture->levels != made.levels || texture->swizzle != 0))
+		texture_release(texture);
+	render_where = "making a high-res HUD image's memory block (dkMemBlockCreate)";
+	memory = memory_block(levels.bytes, DkMemBlockFlags_CpuCached | DkMemBlockFlags_GpuCached, levels.texels);
+	render_where = "making a high-res HUD image (hud_image_receive)";
+	if (!memory || (!texture->present && !texture_make(texture, &made)))
+	{
+		texture_problem("no memory for high-res hud sheet %u's image %u", (unsigned)command->sheet.asset,
+			(unsigned)command->id);
+		if (memory)
+			dkMemBlockDestroy(memory);
+		free(levels.texels);
+		return;
+	}
+	source = dkMemBlockGetGpuAddr(memory);
+	textures_fence(1);
+	for (level = 0; level < levels.levels; level++)
+	{
+		DkImageView view;
+		DkImageRect rectangle;
+		DkCopyBuf copy;
+
+		dkImageViewDefaults(&view, &texture->image);
+		view.mipLevelOffset = (uint8_t)level;
+		view.mipLevelCount = 1;
+		rectangle.x = rectangle.y = rectangle.z = 0;
+		rectangle.width = level_size(levels.width, level);
+		rectangle.height = level_size(levels.height, level);
+		rectangle.depth = 1;
+		copy.addr = source + offset;
+		copy.rowLength = 0;
+		copy.imageHeight = 0;
+		dkCmdBufCopyBufferToImage(dk.commands, &copy, &view, &rectangle, 0);
+		offset += rectangle.width * rectangle.height * 4;
+	}
+	tex.written_unfenced = 1;
+	tex.stages_dirty = 1;
+	dk.recorded = 1;
+	profile.frame.texture_writes++;
+	profile.frame.texture_bytes += offset;
+	hud_sources[hud_source_count].serial = dk.serial;
+	hud_sources[hud_source_count].memory = memory;
+	hud_sources[hud_source_count].texels = levels.texels;
+	hud_source_count++;
+	if (host_dk_hud_log)
+		host_logf(HOST_LOG_INFO, "deko3d: high-res hud: %s made image %u (%ux%u) in %.2f ms%s",
+			command->sheet.tag ? (const char *)(uintptr_t)command->sheet.tag : "?", (unsigned)command->id,
+			(unsigned)levels.width, (unsigned)levels.height, armTicksToNs(armGetSystemTick() - start) / 1e6,
+			late ? " (decoded here: let go before it was drawn)" : "");
 }
 
 /* ---------- the dummy a stage with no image samples: opaque black, as OpenGL's
@@ -3821,13 +4087,12 @@ static void draw(const struct dk_command_draw *command)
 
 /* runs size bytes of commands at commands (a guest address): one
 submission, which the guest numbers as this does (host_dk_retired) */
-void host_dk_submit(uint32_t commands, uint32_t size)
+/* one stream of the guest's, run: on the render thread (below), or on the
+game thread with debug.render_thread = false */
+static void submit_run(const unsigned char *at, uint32_t size)
 {
-	const unsigned char *at = (const unsigned char *)(uintptr_t)commands;
 	const unsigned char *end = at + size;
 
-	if (!dk.ready && !initialize())
-		return;
 	trace_dump_if_faulted();
 	dk.serial++;
 	chunks_map();
@@ -3866,6 +4131,7 @@ void host_dk_submit(uint32_t commands, uint32_t size)
 			break;
 		case DK_COMMAND_PRESENT:
 			present((const struct dk_command_present *)header);
+			pace_present_run();
 			break;
 		case DK_COMMAND_STATE:
 			state_receive((const struct dk_command_state *)header);
@@ -3916,6 +4182,16 @@ void host_dk_submit(uint32_t commands, uint32_t size)
 			if (header->size >= sizeof(struct dk_command_marker))
 				marker_receive((const struct dk_command_marker *)header);
 			break;
+		case DK_COMMAND_HUD_PREPARE:
+			hud_prepare_receive((const struct dk_command_hud_prepare *)header);
+			break;
+		case DK_COMMAND_HUD_IMAGE:
+			if (header->size >= sizeof(struct dk_command_hud_image))
+				hud_image_receive((const struct dk_command_hud_image *)header);
+			break;
+		case DK_COMMAND_HUD_FORGET:
+			host_dk_hud_forget();
+			break;
 		default:
 			host_logf(HOST_LOG_ERROR, "deko3d: unknown command %u", (unsigned)header->type);
 			break;
@@ -3929,6 +4205,344 @@ void host_dk_submit(uint32_t commands, uint32_t size)
 	if (dk.recorded || dk.serial_fenced != dk.serial)
 		commands_submit();
 	trace_dump_if_faulted();
+}
+
+/* ---------- the render thread
+
+The guest hands its stream over at each frame's end (and when it fills, or
+a busy check needs it submitted); running it - turning its commands into
+deko3d's, presenting - took the game thread a sixth of its time in a
+40-player match, while the console's other cores waited. The stream is
+copied into one of RENDER_QUEUE buffers and run by a thread of its own, on
+a helper core, in order; the game goes on with its next frame. It waits
+when all of them are still to run; how far ahead it goes is the frame's
+pace's (below), not the queue's. The guest's checks against the GPU (host_dk_retired) count
+submissions the GPU has finished, which this thread has run before, so
+what the guest keeps for a submission is kept until it is run; the queue
+drains before host_dk_idle waits for the GPU. debug.render_thread = false
+runs each stream on the game thread, as before. */
+int host_dk_render_thread = 1;
+
+/* ---------- the frame's pace (debug.frame_pacing)
+
+With the render thread, the game thread was held back only by a full render
+queue: it ran frames ahead in a burst (under 15 ms apart), then waited out
+two of the display's refreshes at once inside the next frame (the slow
+frames' lines: 79 of 87 at the Halo level, the game thread running 4-12 ms
+and waiting 20-39 ms while two presents waited 16 ms each for a screen
+image). Shown a refresh apart, frames begun 5 ms and then 33 ms apart
+judder under the interpolation, though the display shows 60. Here the game
+thread, as it hands a frame over (the stand-in window's swap), waits for
+the present of the frame before it: never more than one frame ahead, and
+each begun a refresh after the last. 100 ms at most, should a present
+never come (a faulted queue presents nothing). */
+int host_dk_frame_pacing = 1;
+
+#define PACE_AHEAD 1
+#define PACE_LIMIT_NS 100000000ULL
+
+static Mutex pace_lock;
+static CondVar pace_presented;
+/* the presents the render thread has run, and the frames the game thread
+has handed over */
+static uint32_t pace_run, pace_handed;
+
+static void pace_present_run(void)
+{
+	mutexLock(&pace_lock);
+	pace_run++;
+	condvarWakeAll(&pace_presented);
+	mutexUnlock(&pace_lock);
+}
+
+void host_dk_pace(void)
+{
+	static int said;
+	uint64_t start;
+
+	if (!host_dk_frame_pacing || !host_dk_render_thread)
+		return;
+	mutexLock(&pace_lock);
+	pace_handed++;
+	start = slow_now_ns();
+	while ((int32_t)(pace_handed - pace_run) > PACE_AHEAD)
+	{
+		uint64_t waited = slow_now_ns() - start;
+
+		if (waited >= PACE_LIMIT_NS)
+		{
+			if (!said)
+			{
+				said = 1;
+				host_logf(HOST_LOG_WARN, "deko3d: a frame's pace waited 100 ms for a present (%u handed over, %u "
+					"presented); it goes on", (unsigned)pace_handed, (unsigned)pace_run);
+			}
+			/* (caught up, so as not to wait so again for the same) */
+			pace_run = pace_handed - PACE_AHEAD;
+			break;
+		}
+		condvarWaitTimeout(&pace_presented, &pace_lock, PACE_LIMIT_NS - waited);
+	}
+	mutexUnlock(&pace_lock);
+}
+
+/* (8: room for a frame's streams and the next one's. A slot is held while
+its stream runs, a present's wait for a screen image included, so at 3 a
+frame flushed three times - a busy check, KickPushBuffer, the frees after
+handover - waited mid-frame for the frame before it to be presented:
+33 ms frames at 60 fps, the game thread running 11 ms of them. The
+streams' buffers grow as used, 1 MB at most each.) */
+#define RENDER_QUEUE 8
+#define RENDER_THREAD_STACK (1024 * 1024)
+
+static struct
+{
+	pthread_mutex_t lock;
+	pthread_cond_t work;
+	pthread_cond_t room;
+	int started;
+	int failed;
+	unsigned head, count;
+	struct
+	{
+		unsigned char *data;
+		uint32_t capacity, size;
+	} streams[RENDER_QUEUE];
+} render_queue = { PTHREAD_MUTEX_INITIALIZER, PTHREAD_COND_INITIALIZER, PTHREAD_COND_INITIALIZER };
+
+/* (read without the lock: the watchdog's look) */
+static uint32_t render_queued(void)
+{
+	return (uint32_t)render_queue.count;
+}
+
+/* ---------- the render thread's watchdog
+
+A render thread that stops says nothing: what it waits in (a screen image,
+a lock, deko3d itself) has no time limit there, and the game thread then
+waits for its submissions (a resource lock) with the picture frozen. So a
+thread of its own looks once a second: with streams queued and none run for
+RENDER_STALL_SECONDS, it logs what the render thread was doing and its
+stack (host_debug_thread_backtrace), once for each stop. */
+
+#define RENDER_STALL_SECONDS 3
+
+static Handle render_handle;
+static volatile uint32_t render_progress;
+
+/* (libnx's mutex word: the owner's thread handle, with the waiters' bit) */
+#define LOCK_WAITERS 0x40000000u
+
+/* The other two ways the picture has stopped with nothing said (c40's
+opening): dk_lock held and never let go, which host_dk_retired's trylock
+then answers with a count that never moves; and the GPU never finishing a
+submission while nothing waits for it with a limit (the render thread idle,
+the game thread in a resource lock). Each said once a stop, with the lock's
+holder's stack, or the GPU's state and its trace (debug.gpu_trace). */
+static void watchdog_lock_and_gpu(void)
+{
+	static uint32_t lock_owner, lock_seconds, retired_seen, gpu_seconds;
+	static int lock_said, gpu_said;
+	uint32_t owner = __atomic_load_n(&dk_lock.normal, __ATOMIC_ACQUIRE) & ~LOCK_WAITERS;
+
+	if (owner && owner == lock_owner)
+	{
+		if (++lock_seconds >= RENDER_STALL_SECONDS && !lock_said)
+		{
+			lock_said = 1;
+			host_logf(HOST_LOG_ERROR, "deko3d: dk_lock has been held for %u s by thread handle 0x%x%s (render "
+				"thread: %s)", (unsigned)lock_seconds, (unsigned)owner, owner == render_handle ? ", the render thread" :
+				"", render_where);
+			host_debug_thread_backtrace(owner, "deko3d: dk_lock's holder");
+		}
+		return;
+	}
+	lock_owner = owner;
+	lock_seconds = 0;
+	lock_said = 0;
+	if (owner || pthread_mutex_trylock(&dk_lock) != 0)
+		return;
+	{
+		uint32_t retired, waiting = 0;
+		int index, error;
+
+		if (dk.ready)
+			fences_poll();
+		retired = dk.serial_retired;
+		for (index = 0; index < FRAMES; index++)
+			if (dk.fence_pending[index] && dk.fence_serial[index] > waiting)
+				waiting = dk.fence_serial[index];
+		error = dk.queue && dkQueueIsInErrorState(dk.queue);
+		pthread_mutex_unlock(&dk_lock);
+		if (!waiting || retired != retired_seen || render_queued())
+		{
+			retired_seen = retired;
+			gpu_seconds = 0;
+			gpu_said = 0;
+			return;
+		}
+		if (++gpu_seconds >= RENDER_STALL_SECONDS && !gpu_said)
+		{
+			gpu_said = 1;
+			host_logf(HOST_LOG_ERROR, "deko3d: the GPU has finished nothing for %u s: submissions up to %u retired, %u "
+				"waited for, %u recorded; the queue %s; the render thread idle (%s)%s", (unsigned)gpu_seconds,
+				(unsigned)retired, (unsigned)waiting, (unsigned)dk.serial, error ? "in an error state" :
+				"not in an error state", render_where, host_dk_trace ? "; the trace follows" :
+				"; debug.gpu_trace = true would say which command");
+			if (host_dk_trace)
+				trace_dump();
+		}
+	}
+}
+
+static void *render_watchdog(void *unused)
+{
+	uint32_t seen = render_progress, still = 0;
+	int said = 0;
+
+	(void)unused;
+	for (;;)
+	{
+		svcSleepThread(1000000000LL);
+		watchdog_lock_and_gpu();
+		if (render_progress != seen || !render_queued())
+		{
+			seen = render_progress;
+			still = 0;
+			said = 0;
+			continue;
+		}
+		if (++still < RENDER_STALL_SECONDS || said)
+			continue;
+		said = 1;
+		host_logf(HOST_LOG_ERROR, "deko3d: the render thread has run nothing for %u s with %u streams queued: %s "
+			"(submission %u, %u retired, the queue %s)", (unsigned)still, (unsigned)render_queued(), render_where,
+			(unsigned)dk.serial, (unsigned)dk.serial_retired,
+			dk.queue && dkQueueIsInErrorState(dk.queue) ? "in an error state" : "not in an error state");
+		host_debug_thread_backtrace(render_handle, "deko3d: the render thread");
+	}
+	return NULL;
+}
+
+static void *render_thread(void *unused)
+{
+	(void)unused;
+	host_thread_place_on_helper_core();
+	render_handle = threadGetCurHandle();
+	{
+		pthread_t watchdog;
+
+		if (pthread_create(&watchdog, NULL, render_watchdog, NULL) == 0)
+			pthread_detach(watchdog);
+	}
+	for (;;)
+	{
+		unsigned index;
+
+		pthread_mutex_lock(&render_queue.lock);
+		while (!render_queue.count)
+			pthread_cond_wait(&render_queue.work, &render_queue.lock);
+		index = render_queue.head;
+		pthread_mutex_unlock(&render_queue.lock);
+		render_where = "running a stream";
+
+		submit_run(render_queue.streams[index].data, render_queue.streams[index].size);
+
+		render_progress++;
+		render_where = "waiting for a stream";
+		pthread_mutex_lock(&render_queue.lock);
+		render_queue.head = (render_queue.head + 1) % RENDER_QUEUE;
+		render_queue.count--;
+		pthread_cond_broadcast(&render_queue.room);
+		pthread_mutex_unlock(&render_queue.lock);
+	}
+	return NULL;
+}
+
+/* the queue's buffers and its thread, the first time; FALSE if they cannot
+be made (the stream is then run on the game thread) */
+static int render_thread_start(void)
+{
+	pthread_attr_t attributes;
+	pthread_t thread;
+
+	if (render_queue.started || render_queue.failed)
+		return render_queue.started;
+	pthread_attr_init(&attributes);
+	pthread_attr_setstacksize(&attributes, RENDER_THREAD_STACK);
+	if (pthread_create(&thread, &attributes, render_thread, NULL) != 0)
+	{
+		host_logf(HOST_LOG_ERROR, "deko3d: the render thread could not be made; the game thread runs the commands");
+		render_queue.failed = 1;
+	}
+	else
+	{
+		pthread_detach(thread);
+		render_queue.started = 1;
+		host_logf(HOST_LOG_INFO, "deko3d: a render thread runs the commands (%d streams queued at most)", RENDER_QUEUE);
+	}
+	pthread_attr_destroy(&attributes);
+	return render_queue.started;
+}
+
+/* every stream handed over run (not the GPU's work: queue_wait_idle) */
+static void render_queue_drain(void)
+{
+	if (!render_queue.started)
+		return;
+	pthread_mutex_lock(&render_queue.lock);
+	while (render_queue.count)
+		pthread_cond_wait(&render_queue.room, &render_queue.lock);
+	pthread_mutex_unlock(&render_queue.lock);
+}
+
+void host_dk_submit(uint32_t commands, uint32_t size)
+{
+	const unsigned char *at = (const unsigned char *)(uintptr_t)commands;
+	unsigned index;
+
+	if (!dk.ready && !initialize())
+		return;
+	if (!host_dk_render_thread || !render_thread_start())
+	{
+		submit_run(at, size);
+		return;
+	}
+	pthread_mutex_lock(&render_queue.lock);
+	slow.streams++;
+	if (render_queue.count == RENDER_QUEUE)
+	{
+		uint64_t waited = slow_now_ns();
+
+		while (render_queue.count == RENDER_QUEUE)
+			pthread_cond_wait(&render_queue.room, &render_queue.lock);
+		slow.submit_wait_ns += slow_now_ns() - waited;
+	}
+	index = (render_queue.head + render_queue.count) % RENDER_QUEUE;
+	pthread_mutex_unlock(&render_queue.lock);
+	/* (the buffer is the game thread's until counted: the render thread
+	takes only those counted) */
+	if (render_queue.streams[index].capacity < size)
+	{
+		unsigned char *grown = realloc(render_queue.streams[index].data, size);
+
+		if (!grown)
+		{
+			host_logf(HOST_LOG_ERROR, "deko3d: no memory to queue a stream of %u bytes; run on the game thread",
+				(unsigned)size);
+			render_queue_drain();
+			submit_run(at, size);
+			return;
+		}
+		render_queue.streams[index].data = grown;
+		render_queue.streams[index].capacity = size;
+	}
+	memcpy(render_queue.streams[index].data, at, size);
+	render_queue.streams[index].size = size;
+	pthread_mutex_lock(&render_queue.lock);
+	render_queue.count++;
+	pthread_cond_signal(&render_queue.work);
+	pthread_mutex_unlock(&render_queue.lock);
 }
 
 /* the deko3d device, on the game thread only: the shader cache's code
@@ -4453,10 +5067,13 @@ static void capture_report(void)
 		capture_target_name(entry->color, target, sizeof(target));
 		if (entry->kind == DK_COMMAND_DRAW)
 			host_logf(HOST_LOG_INFO, "deko3d capture:   %.3f ms, #%u %s [%s]: primitive %u, %u %s, pixel %s, vertex %s, "
-				"texture %08x, into %s", (double)ns[longest[index]] / 1e6, (unsigned)longest[index],
-				trace_kind_name(entry->kind), trace_pass_name(entry->pass), (unsigned)(entry->primitive & 0xff),
-				(unsigned)entry->count, ((entry->primitive >> 16) & 0xff) ? "indices" : "vertices", name, vertex_name,
-				(unsigned)entry->texture0, target);
+				"texture %08x, blend %u (%u, %u, op %u), depth test %u write %u, into %s", (double)ns[longest[index]] / 1e6,
+				(unsigned)longest[index], trace_kind_name(entry->kind), trace_pass_name(entry->pass),
+				(unsigned)(entry->primitive & 0xff), (unsigned)entry->count,
+				((entry->primitive >> 16) & 0xff) ? "indices" : "vertices", name, vertex_name, (unsigned)entry->texture0,
+				(unsigned)entry->blend, (unsigned)entry->blend_source, (unsigned)entry->blend_destination,
+				(unsigned)entry->blend_equation, (unsigned)(entry->depth_state & 1), (unsigned)(entry->depth_state >> 1 & 1),
+				target);
 		else
 			host_logf(HOST_LOG_INFO, "deko3d capture:   %.3f ms, #%u %s [%s], into %s", (double)ns[longest[index]] / 1e6,
 				(unsigned)longest[index], trace_kind_name(entry->kind), trace_pass_name(entry->pass), target);

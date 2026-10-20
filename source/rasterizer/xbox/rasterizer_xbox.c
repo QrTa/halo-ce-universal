@@ -1577,6 +1577,100 @@ boolean rasterizer_port_shadow_slot_select(
 	return TRUE;
 }
 
+/* port: a draw that changes nothing outside a box of the world - an object's
+shadow cast on the level, a dynamic light's pass, each of whole level
+triangles much bigger than what they change - is rasterized only inside
+that box's rectangle on the screen (halo_draw_scissor): the pixels outside
+were shaded only to be let go (halo_texture_clip), and starting their
+shaders was most of those draws' time. The points are a box's eight
+corners, corner i at the low or high end of each axis by its bits 0, 1 and
+2: the rectangle is that of the box's part in front of the camera - the
+corners in front, and where its edges cross a plane just in front of the
+camera - as render_camera_view_to_screen puts points in the window, and a
+pixel more. count 0: the whole viewport. */
+#define RASTERIZER_PORT_SCISSOR_NEAR 0.01f
+
+static void rasterizer_port_scissor_add(
+	struct render_frustum const *frustum,
+	real_point3d const *view_point,
+	real bounds[4])
+{
+	real inverse_depth = -1.0f / view_point->z;
+	real x = (frustum->projection_matrix[0][0] * view_point->x + frustum->projection_matrix[2][0] * view_point->z) *
+		inverse_depth;
+	real y = -(frustum->projection_matrix[1][1] * view_point->y + frustum->projection_matrix[2][1] * view_point->z) *
+		inverse_depth;
+
+	bounds[0] = MIN(bounds[0], x);
+	bounds[1] = MIN(bounds[1], y);
+	bounds[2] = MAX(bounds[2], x);
+	bounds[3] = MAX(bounds[3], y);
+}
+
+void rasterizer_port_scissor_points(
+	real_point3d const *points,
+	short count)
+{
+	struct render_frustum const *frustum = &global_window_parameters.frustum;
+	struct render_camera const *camera = &global_window_parameters.camera;
+	real_point3d view_points[8];
+	real bounds[4] = { 1.0f, 1.0f, -1.0f, -1.0f };
+	real width, height;
+	short index;
+
+	if (count != 8 || !frustum->projection_valid)
+	{
+		halo_draw_scissor(FALSE, 0.0f, 0.0f, 0.0f, 0.0f);
+		return;
+	}
+	for (index = 0; index < 8; index++)
+	{
+		matrix4x3_transform_point(&frustum->world_to_view, &points[index], &view_points[index]);
+		if (view_points[index].z <= -RASTERIZER_PORT_SCISSOR_NEAR)
+			rasterizer_port_scissor_add(frustum, &view_points[index], bounds);
+	}
+	/* (each edge, corners a bit apart, that crosses the plane) */
+	for (index = 0; index < 8; index++)
+	{
+		short bit;
+
+		for (bit = 1; bit < 8; bit <<= 1)
+		{
+			real_point3d const *a = &view_points[index];
+			real_point3d const *b = &view_points[index | bit];
+
+			if ((index & bit) == 0 &&
+				(a->z <= -RASTERIZER_PORT_SCISSOR_NEAR) != (b->z <= -RASTERIZER_PORT_SCISSOR_NEAR))
+			{
+				real t = (-RASTERIZER_PORT_SCISSOR_NEAR - a->z) / (b->z - a->z);
+				real_point3d crossing;
+
+				crossing.x = a->x + (b->x - a->x) * t;
+				crossing.y = a->y + (b->y - a->y) * t;
+				crossing.z = -RASTERIZER_PORT_SCISSOR_NEAR;
+				rasterizer_port_scissor_add(frustum, &crossing, bounds);
+			}
+		}
+	}
+	width = (real)(camera->viewport_bounds.x1 - camera->viewport_bounds.x0);
+	height = (real)(camera->viewport_bounds.y1 - camera->viewport_bounds.y0);
+	/* (none of it in front: nothing of it on the screen) */
+	if (bounds[0] > bounds[2])
+	{
+		halo_draw_scissor(TRUE, 0.0f, 0.0f, 0.0f, 0.0f);
+		return;
+	}
+	bounds[0] = PIN(bounds[0], -1.0f, 1.0f);
+	bounds[1] = PIN(bounds[1], -1.0f, 1.0f);
+	bounds[2] = PIN(bounds[2], -1.0f, 1.0f);
+	bounds[3] = PIN(bounds[3], -1.0f, 1.0f);
+	halo_draw_scissor(TRUE,
+		(bounds[0] + 1.0f) * 0.5f * width + camera->viewport_bounds.x0 - 1.0f,
+		(bounds[1] + 1.0f) * 0.5f * height + camera->viewport_bounds.y0 - 1.0f,
+		(bounds[2] + 1.0f) * 0.5f * width + camera->viewport_bounds.x0 + 1.0f,
+		(bounds[3] + 1.0f) * 0.5f * height + camera->viewport_bounds.y0 + 1.0f);
+}
+
 void rasterizer_set_target(
 	short target,
 	short mipmap_index,
@@ -2940,6 +3034,21 @@ void rasterizer_set_vertex_shader(
 		if (!success)
 			error(_error_silent, "### ERROR rasterizer_set_vertex_shader failed");
 	}
+	return;
+}
+
+/* port: the loading screen (progress_bar.c) sets the device's vertex shader
+(the fixed-function pipeline), render states and texture stage states
+itself, not through these caches: after it, the next draw sets its vertex
+shader again, and the smart states' shadows are the device's (on the Xbox
+only a map's load followed it; the screen of a map's download is drawn
+over the menus, every frame) */
+void rasterizer_forget_hardware_state(
+	void)
+{
+	rasterizer_state_cache.vertex_shader_index = INVALID_RASTERIZER_HARDWARE_STATE;
+	rasterizer_vertex_shader_runtime_forget();
+	SetupSmartStates();
 	return;
 }
 

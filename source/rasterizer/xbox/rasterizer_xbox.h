@@ -127,6 +127,14 @@ target, NONE the game's own (rasterizer_xbox.c); FALSE if it cannot be made */
 boolean rasterizer_port_shadow_slot_select(
 	short slot);
 
+/* port: the draws that follow rasterized only inside the screen's rectangle
+of a box (its eight corners, by their bits: one a draw changes nothing
+outside, an object's shadow or a dynamic light's reach), or (count 0) the
+whole viewport (rasterizer_xbox.c) */
+void rasterizer_port_scissor_points(
+	union real_point3d const *points,
+	short count);
+
 /* ---------- prototypes/RASTERIZER_XBOX_SHADOWS.C */
 
 void _rasterizer_environment_shadows_begin(

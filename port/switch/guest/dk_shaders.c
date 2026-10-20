@@ -812,20 +812,16 @@ static void status_frame(void)
 	}
 }
 
-/* the startup pass: eight keys a frame, each asked of the host in turn and
-queued if the host does not have it. Runs until every key is asked, and
-says when it is done - the second launch's numbers come from these lines */
-void dk_shader_frame(void)
+/* the startup pass: eight keys a frame (limit), each asked of the host in
+turn and queued if the host does not have it. Runs until every key is asked,
+and says when it is done - the second launch's numbers come from these lines */
+static void pass_frame(unsigned long limit)
 {
 	unsigned long taken = 0;
 
-	if (!started)
-		return;
-	status_frame();
-	preload_frame();
 	if (pass_finished)
 		return;
-	while (taken < DK_PASS_PER_FRAME && pass_index < key_count)
+	while (taken < limit && pass_index < key_count)
 	{
 		struct dk_key *key = &keys[pass_index++];
 
@@ -870,6 +866,15 @@ void dk_shader_frame(void)
 	}
 }
 
+void dk_shader_frame(void)
+{
+	if (!started)
+		return;
+	status_frame();
+	preload_frame();
+	pass_frame(DK_PASS_PER_FRAME);
+}
+
 /* the map the game finished loading (d3d8_gl_map_loaded): its keys go to
 the front of the background compile's queue, raised in priority */
 void dk_shader_map_loaded(uint32_t map_hash)
@@ -895,7 +900,12 @@ void dk_shader_map_loaded(uint32_t map_hash)
 	{
 		unsigned long waited = 0;
 
-		/* (not before the startup pass is done, which the preload follows) */
+		/* the rest of the startup pass first, which the preload follows: a
+		map started within the pass's first seconds waited for none of it,
+		and drew a second and more of the level with draws missing (frames
+		of 1500 skipped), the intro's fade and bars among them. Asking the
+		host is cheap for a shader on the card (it loads nothing) */
+		pass_frame(key_count);
 		while (pass_finished && waited < DK_MAP_WAIT_MS &&
 			((DK_PRELOAD_ENABLED && !preload_finished) || host_dk_shader_loading()))
 		{

@@ -24,7 +24,7 @@ The exceptions are
 #include <poll.h>
 
 /* The numbers the guest passes are musl's, and musl is compiled for the
-Android port from port/android/guest/libc/arch/arm64_32/bits/syscall.h.in,
+Android port from port/android/guest/libc/arch/generic/bits/syscall.h.in,
 which the build turns into bits/syscall.h with __NR_ renamed to SYS_. This
 file includes that generated header rather than writing the numbers out, so
 the host's dispatch and the guest's libc cannot drift apart: they are the
@@ -1582,21 +1582,34 @@ static long long host_syscall_inner(long long number, long long a, long long b, 
 		guest_descriptor_forget((int)a);
 		return result_of(0);
 	}
-	case SYS_lseek:
+	case SYS__llseek:
 	{
+		/* _llseek(fd, offset_high, offset_low, result, whence): the guest's
+		 * result is a 32-bit long, so the 64-bit offset comes in two halves
+		 * and the new position goes back through the pointer
+		 * (port/android/include/halo_guest_syscall.h) */
 		int host_fd = host_descriptor((int)a);
-		off_t where;
+		long long offset = (long long)(((uint64_t)(uint32_t)b << 32) | (uint32_t)c);
+		long long where;
 
 		if (host_fd < 0)
 			return result_of(-EBADF);
+		if (!d)
+			return -EFAULT;
 		if (host_memory_file_is(host_fd))
-			return host_memory_file_seek(host_fd, (long long)b, (int)c);
-		host_sd_lock();
-		if ((int)c == SEEK_SET)
-			note_large_offset("lseek", a, b);
-		where = lseek(host_fd, (off_t)b, (int)c);
-		host_sd_unlock();
-		return result_of(where);
+			where = host_memory_file_seek(host_fd, offset, (int)e);
+		else
+		{
+			host_sd_lock();
+			if ((int)e == SEEK_SET)
+				note_large_offset("lseek", a, offset);
+			where = result_of(lseek(host_fd, (off_t)offset, (int)e));
+			host_sd_unlock();
+		}
+		if (where < 0)
+			return where;
+		memcpy(GUEST(void *, d), &where, sizeof(where));
+		return 0;
 	}
 	case SYS_pread64:
 	{

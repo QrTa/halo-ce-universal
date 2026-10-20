@@ -83,7 +83,7 @@ static int names_differ(const char *a, const char *b)
 	return tolower((unsigned char)*a) != tolower((unsigned char)*b);
 }
 
-static int text_enabled(void)
+int text_hires_enabled(void)
 {
 	static int enabled;
 	static unsigned long read_at = (unsigned long)-1;
@@ -131,7 +131,7 @@ long text_hires_font(char const *tag_name, float cap_height, short const *letter
 	int x0, y0, x1, y1;
 	int letter;
 
-	if (!text_enabled() || !tag_name || cap_height <= 0.0f || !letter_widths)
+	if (!text_hires_enabled() || !tag_name || cap_height <= 0.0f || !letter_widths)
 		return -1;
 	/* (text is never drawn with fewer pixels than the display's) */
 	if (oversample < 1.0f)
@@ -346,7 +346,7 @@ unsigned int text_hires_atlas_texture(unsigned long data)
 	return atlas_texture;
 }
 
-#if defined(HALO_SWITCH) || defined(HALO_ANDROID)
+#if defined(HALO_SWITCH) || defined(HALO_ANDROID) || defined(HALO_PS5)
 const unsigned char *text_hires_atlas_rows(unsigned long data, long *size, int all, long *top, long *bottom)
 {
 	if (!data || data != placeholder_data || !atlas)

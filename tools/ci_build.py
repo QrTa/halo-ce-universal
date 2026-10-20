@@ -4,11 +4,14 @@
 
     python tools/ci_build.py linux debug
     python tools/ci_build.py android release
+    python tools/ci_build.py linux_arm64 release   (on a 64-bit ARM computer)
+    python tools/ci_build.py linux_x86_64 release  (on a 64-bit x86 computer)
     python tools/ci_build.py linux profile
     python tools/ci_build.py web release
+    python tools/ci_build.py ps5 release
 
-Builds are portable (any x86-64 processor), so they run on other
-computers. Debug builds skip link-time and profile-guided optimisation,
+Builds are portable (any x86-64 processor; any ARMv8.0 one for
+linux_arm64 and android), so they run on other computers. Debug builds skip link-time and profile-guided optimisation,
 which only make the build slower; release builds use both, as a local
 release build does (profile-guided optimisation needs clang 22 or later,
 and is skipped with an older one). A profile build is a debug build with
@@ -22,6 +25,11 @@ The web build (port/web/README.md) needs Emscripten (emcc on the PATH, as
 emsdk_env.sh puts it); dist/halo-web-<config>/ is the whole site, which a
 static host serves as it is: the workflow publishes the release build's to
 GitHub Pages.
+
+The PS5 build (port/ps5/README.md) needs PS5_Vulkan's toolchain, set up as
+its README and tools/ps5_build.py say; dist/halo-ps5-<config>/ is the
+release as a player installs it: the title's folder, PPSA99500/, and beside
+it README.txt, COPYING and licenses/ (tools/ps5_build.py's RELEASE_LICENSES).
 """
 
 import argparse
@@ -35,9 +43,14 @@ ROOT = Path(__file__).resolve().parent.parent
 
 # what each port's build leaves, and what goes into dist/
 OUTPUTS = {
-    # (and the SDL3 the portable build brings, tools/linux_build.py, with its
-    # zlib license, as the release carries the other libraries')
+    # (and the SDL3 the portable build and the desktop guest builds bring,
+    # tools/linux_build.py and tools/linux_guest_build.py, with its zlib
+    # license, as the release carries the other libraries')
     "linux": ["build/linux/halo", "build/linux/libSDL3.so.0", "build/linux/SDL3-LICENSE.txt"],
+    "linux_arm64": ["build/linux_arm64/halo", "build/linux_arm64/libSDL3.so.0",
+                    "build/linux_arm64/SDL3-LICENSE.txt"],
+    "linux_x86_64": ["build/linux_x86_64/halo", "build/linux_x86_64/libSDL3.so.0",
+                     "build/linux_x86_64/SDL3-LICENSE.txt"],
     "windows": ["build/windows/halo.exe", "build/windows/SDL3.dll"],
     "android": [],  # the APK, below
     # the Switch is a host and a guest, and both are wanted: the NRO is the
@@ -46,6 +59,7 @@ OUTPUTS = {
     # start.
     "switch": ["build/switch/halo.nro", "build/switch/halo_guest.elf"],
     "web": [],  # the site, below
+    "ps5": [],  # the title's folder and what goes beside it, below
 }
 APKS = {
     "debug": "port/android/app/build/outputs/apk/debug/app-debug.apk",
@@ -71,6 +85,14 @@ def main() -> int:
         configure += ["--lto=off", "--pgo=off"]
     if args.config == "profile":
         configure.append("--profile")
+    if args.platform == "linux_x86_64":
+        # (not this computer's default build, which configure.py generates
+        # only when asked)
+        configure.append("--linux-x86-64")
+    if args.platform == "ps5":
+        # (the same: the checkouts are configure.py's defaults, or
+        # PS5_VULKAN's)
+        configure.append("--ps5")
     launcher = os.environ.get("CI_COMPILER_LAUNCHER")
     if launcher:
         configure += ["--compiler-launcher", launcher]
@@ -93,6 +115,18 @@ def main() -> int:
         shutil.copytree(ROOT / "build/web/site", dist)
         print(f"build/web/site -> {dist.relative_to(ROOT)}", flush=True)
         return 0
+    if args.platform == "ps5":
+        # the title's folder whole, and the release's README, COPYING and
+        # licenses/ beside it (tools/ps5_build.py: the brokers, the notice and
+        # the rest are in the folder, the licences in licenses/)
+        run(["ninja", "ps5"])
+        dist = ROOT / "dist" / f"halo-ps5-{args.config}"
+        if dist.exists():
+            shutil.rmtree(dist)
+        shutil.copytree(ROOT / "build/ps5/title/PPSA99500", dist / "PPSA99500")
+        shutil.copytree(ROOT / "build/ps5/release", dist, dirs_exist_ok=True)
+        print(f"build/ps5/title/PPSA99500, build/ps5/release -> {dist.relative_to(ROOT)}", flush=True)
+        return 0
     if args.platform == "android":
         # the native part, then the app around it (Gradle's variant of the
         # same name: release is signed with the debug key, not debuggable)
@@ -105,7 +139,9 @@ def main() -> int:
         run(["ninja", args.platform])
         outputs = OUTPUTS[args.platform]
 
-    dist = ROOT / "dist" / f"halo-{args.platform}-{args.config}"
+    # (halo-linux-arm64-release and halo-linux-x86_64-release, the names the
+    # self-updater asks for: the target's first underscore only)
+    dist = ROOT / "dist" / f"halo-{args.platform.replace('_', '-', 1)}-{args.config}"
     if dist.exists():
         shutil.rmtree(dist)
     dist.mkdir(parents=True)
@@ -125,10 +161,8 @@ def main() -> int:
         for pdb in [ROOT / "build/windows/halo.pdb", *sorted((ROOT / "build/windows/third_party").glob("SDL3-*/lib/x86/SDL3.pdb"))]:
             shutil.copy2(pdb, symbols)
             print(f"{pdb.relative_to(ROOT)} -> {symbols.relative_to(ROOT)}", flush=True)
-    # the disc image readers (port/linux/src/xiso.c, and the Android app's
-    # XisoExtractor.java) follow extract-xiso, whose license asks binaries
-    # to carry its notice
-    shutil.copy2(ROOT / "port/third_party/extract-xiso/LICENSE.TXT", dist / "extract-xiso-LICENSE.txt")
+    # OpenCE's own licence, the AGPL, which asks each copy to carry its text
+    shutil.copy2(ROOT / "LICENSE", dist / "LICENSE.txt")
     if args.platform != "web":
         # internet play's DTLS with browsers, and the Linux self-updater's TLS
         # (port/third_party/mbedtls), whose Apache license asks the same
@@ -145,8 +179,9 @@ def main() -> int:
     # voice chat's codec (port/third_party/opus), in every build, whose BSD
     # license asks binaries to carry its notice
     shutil.copy2(ROOT / "port/third_party/opus/COPYING", dist / "opus-COPYING.txt")
-    # voice chat's speaker icons (port/assets/icons/lucide, drawn into the
-    # menus' bitmaps), whose ISC license asks copies to carry its notice
+    # voice chat's speaker icons and the Mods menu's warning icons
+    # (port/assets/icons/lucide, drawn into the menus' bitmaps), whose ISC
+    # license asks copies to carry its notice
     shutil.copy2(ROOT / "port/assets/icons/lucide/LICENSE", dist / "lucide-LICENSE.txt")
     # internet play's MQTT brokers, a file beside the game (network.brokers_file;
     # Android's APK has its own copy)

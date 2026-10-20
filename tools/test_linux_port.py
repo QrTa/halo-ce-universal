@@ -11,6 +11,10 @@ import pytest
 
 from tools import linux_build, linux_link_check, linux_msvc_semantics
 
+# for tests that compile for the Linux target (and run what they build)
+linux_host_only = pytest.mark.skipif(not sys.platform.startswith("linux"),
+                                     reason="builds for the Linux target, so needs a Linux host")
+
 
 # ---------- MSVC semantics header
 
@@ -80,6 +84,7 @@ def test_xdk_headers_use_the_sdk_spellings():
         assert not re.findall(r"\bhalo_\w+", text), header.name
 
 
+@linux_host_only
 @pytest.mark.skipif(shutil.which("clang") is None, reason="clang is needed to compile the headers")
 def test_xdk_headers_compile_for_the_game(tmp_path):
     root = XDK_INCLUDE.parent.parent.parent
@@ -176,8 +181,8 @@ MENU_ATTRIBUTES = {
     "menus": {"root"},
     "bitmap": {"name", "width", "height", "frames", "platform"},
     "frame": {"png", "map", "index", "width", "height", "x", "y", "platform"},
-    "strings": {"name", "platform"},
-    "string": {"text", "platform"},
+    "strings": {"name", "map", "platform"},
+    "string": {"text", "map", "platform"},
     "widget": {"name", "type", "controller", "flags", "bitmap", "text", "strings", "values", "setting", "font",
                "color", "align", "description", "string_list", "list_flags", "text_flags", "header_bitmap",
                "footer_bitmap", "header_bounds", "footer_bounds", "child_controller", "x", "y", "left", "top",
@@ -234,7 +239,7 @@ def test_menus_are_well_formed():
             assert set(element.attrib) <= MENU_ATTRIBUTES[element.tag], where
             # (the platforms that show it: menu_files.c's MENU_PLATFORM)
             assert element.get("platform") is None or \
-                set(element.get("platform").split()) <= {"desktop", "android", "switch", "web"}, where
+                set(element.get("platform").split()) <= {"desktop", "android", "switch", "ps5", "web"}, where
             # (menu_files.c's whole numbers, which the tags keep in shorts,
             # its true/false attributes, and no text but whitespace outside
             # <string>s)
@@ -259,6 +264,9 @@ def test_menus_are_well_formed():
                     assert width % logical[0] == 0 and width // logical[0] == height // logical[1], where
             elif element.tag == "strings":
                 strings[element.get("name")] = element
+                # (a string's map= is its number in the list's map list, menu_tags.c)
+                for string in element.findall("string"):
+                    assert string.get("map") is None or (element.get("map") and string.get("map").isdigit()), where
             elif element.tag == "widget":
                 name = element.get("name")
                 assert name and name not in widgets, where
@@ -345,7 +353,7 @@ def test_config_sections_join(tmp_path):
     flags = _platform_compile_flags("build/linux/obj/port/linux/src/port_config.o")
     program = tmp_path / "config_sections_check"
     built = subprocess.run(["clang", *flags, "-O1", "-no-pie", "-Wl,--unresolved-symbols=ignore-all",
-                            "-DHALO_ANDROID", "-DHALO_SWITCH", "-DHALO_ARM64_GUEST", "-DHALO_CONFIG_SECTIONS_TEST",
+                            "-DHALO_ANDROID", "-DHALO_SWITCH", "-DHALO_GUEST", "-DHALO_CONFIG_SECTIONS_TEST",
                             "-o", str(program), "port/linux/src/port_config.c",
                             "port/third_party/tomlc17/tomlc17.c"],
                            capture_output=True, text=True)
@@ -355,6 +363,18 @@ def test_config_sections_join(tmp_path):
     assert "PASS" in result.stdout
 
 
+def test_default_brokers_are_brokers_txt():
+    """The brokers a game uses with no brokers.txt beside its config.toml
+    (p2p_signal.c's DEFAULT_BROKERS) are port/assets/network/brokers.txt's."""
+    root = MENUS.parent.parent.parent
+    listed = [line.split("#", 1)[0].strip()
+              for line in (root / "port/assets/network/brokers.txt").read_text().splitlines()]
+    default = re.search(r'^#define DEFAULT_BROKERS "([^"]*)"',
+                        (root / "port/linux/src/p2p_signal.c").read_text(), re.M).group(1)
+    assert default.split(",") == [line for line in listed if line]
+
+
+@linux_host_only
 def test_p2p_signatures_and_listings(tmp_path):
     """internet play's Ed25519 (RFC 8032), the X25519 key of a seed, and the
     server browser's listings from host to browser (tools/p2p_lobby_check.c),
@@ -441,7 +461,7 @@ def test_config_has_each_section_once(tmp_path):
         shutil.copy(root / "port/linux/src" / name, stubs / name)
     (tmp_path / "main.c").write_text(CONFIG_PROGRAM)
     program = tmp_path / "config_program"
-    subprocess.run([compiler, "-DHALO_ANDROID=1", "-DHALO_ARM64_GUEST=1", f"-I{stubs}",
+    subprocess.run([compiler, "-DHALO_ANDROID=1", "-DHALO_GUEST=1", f"-I{stubs}",
                     f"-I{root}/port/third_party/tomlc17", "-o", str(program),
                     str(tmp_path / "main.c"), str(stubs / "port_config.c"),
                     str(root / "port/third_party/tomlc17/tomlc17.c"), "-lpthread"], check=True)

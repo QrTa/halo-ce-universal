@@ -44,12 +44,20 @@ struct hud_hires_embedded
 	int point_threshold; /* red: exact discrete meter thresholds, zero elsewhere */
 	int title;
 	unsigned int sprites;
+	/* drawn for a Custom Edition map's stock bitmap of its name too, whose
+	layout is its own (port/assets/hud/custom_edition.json) */
+	int custom_edition;
 	const unsigned int *png;
 	unsigned int png_size;
 };
 
 extern const struct hud_hires_embedded hud_hires_embedded[];
 extern const unsigned int hud_hires_embedded_count;
+
+/* At the frame boundary, identify cached bitmaps affected by committed HUD
+ * or title setting changes. Pixel/CRC validation still occurs on upload. */
+unsigned long hud_hires_settings_changed(void);
+int hud_hires_bitmap_affected(unsigned long address, long width, long height, unsigned long changed);
 
 /* the texture standing for the bitmap whose pixels are uploaded from address
 (guest virtual) with this size, its first mip level being level0_size bytes,
@@ -65,20 +73,46 @@ unsigned int hud_hires_override_texture(long asset, unsigned long *levels);
 /* a GL texture drawn from an 8-bit RGBA PNG (as the tools write them), with
 all its mip levels, and their number; 0 if it could not be */
 unsigned int hud_hires_png_texture(const void *png, unsigned long size, unsigned long *levels);
+/* the HUD's textures for a map's bitmaps (port/linux/game/hud_hires_tags.c),
+decoded from their PNGs as it loads, on a thread of their own, so that they
+are only uploaded when first drawn; and, as it is unloaded, that stopped and
+what was decoded and not drawn let go. The desktop builds' alone: Android
+and the web decode each when it is first drawn */
+void hud_hires_map_loaded(const long *assets, long count);
+void hud_hires_map_unloaded(void);
+#ifdef HALO_SWITCH
+/* the deko3d renderer's (xbox_textures_dk.c): a map's sheets, for the host
+to decode now; and those decoded and not drawn let go */
+void dk_hud_prepare(const long *assets, long count);
+void dk_hud_forget(void);
+#endif
 /* whether its green is its coverage (d3d8_gl.c, nv2a_psh.c: coverage_alpha) */
 int hud_hires_override_coverage(long asset);
 /* the GL texture of the texture drawn for some of a bitmap's sprites whose
 placeholder's D3D texture has this Data, and the number of its mip levels;
 0 if data is no placeholder's */
 unsigned int hud_hires_placeholder_texture(unsigned long data, unsigned long *levels);
+/* the texture drawn for the placeholder whose D3D texture has this Data
+(the gameplay buttons' bitmaps too: hud_hires_tags.c), or -1; for the
+texture caches that make their own images of it (xbox_textures_dk.c,
+xbox_textures_vk.c) */
+long hud_hires_placeholder_asset(unsigned long data);
+/* changes whenever a placeholder is registered or forgotten, for caching
+hud_hires_placeholder_asset's answer */
+unsigned long hud_hires_placeholder_serial(void);
 /* whether its red holds exact segment thresholds, read unfiltered (d3d8_gl.c,
 nv2a_psh.c: point_threshold) */
 int hud_hires_override_point_threshold(long asset);
 
-#if defined(HALO_SWITCH) || defined(HALO_ANDROID)
-/* the deko3d renderer's: an 8-bit RGBA PNG's pixels (malloc'd, red first,
+#if defined(HALO_SWITCH) || defined(HALO_ANDROID) || defined(HALO_PS5)
+/* the deko3d and Vulkan renderers': an 8-bit RGBA PNG's pixels (malloc'd, red first,
 rows top down) and size; NULL if it could not be decoded */
 unsigned char *hud_hires_png_pixels(const void *png, unsigned long size, unsigned long *width, unsigned long *height);
 #endif
+/* Original HUD sheets lacking redraws, with their tag coordinates unchanged.
+ * The cache owns the upscaled texture and invalidates it with the source. */
+long hud_hires_upscale_at(unsigned long address, long width, long height);
+unsigned int hud_hires_upscale_texture(const unsigned char *bgra, unsigned long width,
+	unsigned long height, long kind, unsigned long *levels);
 
 #endif

@@ -28,6 +28,10 @@ C heap there, do not run.
 #include "platform.h"
 #include "port_config.h"
 #include "../game/cache_file_formats.h"
+#ifdef HALO_GUEST
+/* the window the guests' host reserves (port/android/host/host_memory.c) */
+#include "halo_android_abi.h"
+#endif
 
 #include <errno.h>
 #include <string.h>
@@ -37,6 +41,24 @@ C heap there, do not run.
 #ifdef HALO_WEB
 /* the memory's size: whether it covers the window */
 #define web_memory_bytes() ((unsigned long long)__builtin_wasm_memory_size(0) << 16)
+#endif
+
+/* (Android's window is where and as large as the host found room for, at
+run time: its caches are half of it, halo_port_capacity.h) */
+#ifndef HALO_ANDROID
+#ifdef HALO_GUEST
+typedef char window_is_the_hosts[
+#ifndef HALO_MOVABLE_WINDOW
+	PLATFORM_CONTIGUOUS_BASE == HALO_GUEST_WINDOW_BASE &&
+#endif
+	PLATFORM_CONTIGUOUS_SIZE == HALO_GUEST_WINDOW_SIZE ? 1 : -1];
+#endif
+/* the texture and sound caches, which the window hands out top-down, fit
+above the game state (halo_port_capacity.h; measured from where the game
+data is linked, as the window may be elsewhere) */
+typedef char caches_fit_the_window[HALO_PORT_GAME_STATE_BASE_ADDRESS + HALO_PORT_GAME_STATE_SIZE -
+	0x80000000UL + HALO_PORT_TEXTURE_CACHE_SIZE + HALO_PORT_SOUND_CACHE_SIZE <=
+	PLATFORM_CONTIGUOUS_SIZE ? 1 : -1];
 #endif
 
 #define PAGE_SIZE_BYTES 0x1000UL
@@ -55,6 +77,9 @@ static void *custom_edition_tag_cache = NULL;
 address in the boot structure, before the constructor below runs */
 unsigned long platform_contiguous_base = 0x80000000UL;
 unsigned long platform_contiguous_size = 0x08000000UL;
+#elif defined(HALO_MOVABLE_WINDOW)
+/* (the PS5's x32 guest: the base only, its size is fixed) */
+unsigned long platform_contiguous_base = 0x80000000UL;
 #endif
 
 static int protection_to_host(DWORD protect)

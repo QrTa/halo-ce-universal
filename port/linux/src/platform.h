@@ -105,6 +105,35 @@ const char *platform_custom_edition_root(void);
 out of an Xbox disc image into destination (sdl_platform.c), and quits if
 the player declines; nonzero once destination has one */
 BOOL platform_offer_game_data(const char *destination);
+/* what the data root's maps folder holds, which should be the Xbox maps
+(sdl_platform.c tells the player when it is not, rather than the game
+failing on Halo PC's ui.map) */
+enum
+{
+	_maps_folder_xbox,
+	/* its ui.map is Halo PC's (retail's, version 7, or Custom Edition's, 609) */
+	_maps_folder_halo_pc,
+	/* it has no ui.map (or one that is not a map) */
+	_maps_folder_no_ui,
+};
+#define PLATFORM_MAPS_FOLDER_NAMED 4
+struct platform_maps_folder
+{
+	int state;
+	/* the data root, whole */
+	char root[1024];
+	long ui_version;
+	/* Halo PC maps in maps/ itself, which play only from custom_maps: how
+	many, and the first PLATFORM_MAPS_FOLDER_NAMED's names */
+	long stray_pc_maps;
+	char stray_names[256];
+};
+void platform_maps_folder_check(struct platform_maps_folder *maps);
+/* asks the player, in a box of its own that waits for the answer (before
+the window opens, or between frames), with `count` buttons (3 at most: Android's),
+`default_index` Enter's and Escape's: the index of the one chosen, or -1
+when it cannot ask */
+int platform_ask(const char *title, const char *text, const char *const *labels, int count, int default_index);
 const char *platform_save_root(void);
 
 /* ---------- contiguous ("physical") memory
@@ -118,9 +147,13 @@ memory of its own there, so the host looks for the window where the address
 space is free and passes its address to the guest in the boot structure
 (port/android). Everything that names a fixed place in the window must then
 be PLATFORM_CONTIGUOUS_ADDRESS(offset) rather than a literal. The window
-stays a multiple of 256 MB, which keeps the masking below correct. */
+stays a multiple of 256 MB, which keeps the masking below correct.
 
-#ifdef HALO_ANDROID
+The PS5's x32 guest (HALO_MOVABLE_WINDOW) is told its base the same way, as
+the console loads a system module at 0x80000000; its size stays the x86-64
+guest's 512 MB. */
+
+#if defined(HALO_ANDROID) || defined(HALO_MOVABLE_WINDOW)
 extern unsigned long platform_contiguous_base;
 #define PLATFORM_CONTIGUOUS_BASE (platform_contiguous_base)
 #else
@@ -134,16 +167,20 @@ large as the largest */
 extern unsigned long platform_contiguous_size;
 #define PLATFORM_CONTIGUOUS_SIZE (platform_contiguous_size)
 #define PLATFORM_CONTIGUOUS_MAXIMUM 0x20000000UL
-#elif defined(HALO_WEB)
-/* 128 MB, a development kit's: the web build's WebAssembly memory ends with
-it (tools/web_build.py) */
+#elif defined(HALO_WEB) || (defined(HALO_GUEST) && defined(__aarch64__))
+/* 128 MB, a development kit's: 64-bit ARM Linux's guest image is linked
+just above the window, and the web build's WebAssembly memory ends with it
+(tools/web_build.py). The guests' host reserves HALO_GUEST_WINDOW_SIZE
+(port/android/include/halo_android_abi.h), which must agree; so must
+halo_port_capacity.h's test of the same builds. */
 #define PLATFORM_CONTIGUOUS_SIZE 0x08000000UL
 #define PLATFORM_CONTIGUOUS_MAXIMUM PLATFORM_CONTIGUOUS_SIZE
 #else
 /* 512 MB on the desktop builds, whose caches outgrow the Xbox's (Custom
-Edition maps' textures and geometry: halo_port_capacity.h). Its pages are
-backed as they are used. port/windows/src/win32_memory_watch.c has the
-same size. */
+Edition maps' textures and geometry: halo_port_capacity.h), the x86-64
+guest's too, whose image is linked below the window. Its pages are backed
+as they are used. port/windows/src/win32_memory_watch.c has the same
+size. */
 #define PLATFORM_CONTIGUOUS_SIZE 0x20000000UL
 #define PLATFORM_CONTIGUOUS_MAXIMUM PLATFORM_CONTIGUOUS_SIZE
 #endif

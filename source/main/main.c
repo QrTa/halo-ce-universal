@@ -381,6 +381,8 @@ symbols in this file:
 #include "networking/network_server_manager.h" /* port: a co-op game's level won */
 #include "network_coop.h" /* port: port/linux/game/network_coop.c */
 #include "network_voice.h" /* port: port/linux/game/network_voice.c */
+#include "network_chat.h" /* port: port/linux/game/network_chat.c */
+#include "network_aim_assist.h" /* port: port/linux/game/network_aim_assist.c */
 #include "map_share.h" /* port: port/linux/game/map_share.c */
 #include "profile_sections.h" /* port: port/linux/include/profile_sections.h */
 #ifdef HALO_PROFILE
@@ -727,6 +729,8 @@ static struct _main_globals main_globals = { 0 };
 /* Keep the original globals layout; these clocks belong to pending requests. */
 static long main_loss_last_tick;
 static long main_respawn_last_tick;
+/* port: the game tick a checkpoint last counted (main_save_map_private) */
+static long main_save_last_tick;
 boolean debug_force_frame_rate_update = FALSE;
 boolean debug_no_drawing = FALSE;
 boolean debug_game_save = FALSE;
@@ -1617,6 +1621,8 @@ void main_save_map_safe(
 		main_globals.ticks_until_next_save_check = 0;
 		main_globals.ticks_unable_to_save = 0;
 		main_globals.safe_intervals = 0;
+		/* port: the tick before: the first check is at once */
+		main_save_last_tick = game_time_get()-1;
 	}
 	return;
 }
@@ -1631,6 +1637,8 @@ void main_save_map_no_timeout(
 		main_globals.ticks_until_next_save_check = 0;
 		main_globals.ticks_unable_to_save = 0;
 		main_globals.safe_intervals = 0;
+		/* port: the tick before: the first check is at once */
+		main_save_last_tick = game_time_get()-1;
 	}
 	main_globals.save_map_timeout = FALSE;
 	return;
@@ -2086,26 +2094,40 @@ static void main_save_map_private(
 
 		if (save_map_safely)
 		{
-			if (main_globals.ticks_unable_to_save++ >= 240 &&
-				main_globals.save_map_timeout)
+			/* port: the counts below are of game ticks, as on the Xbox, whose
+			loop ran once a tick (30 a second). This loop runs once a frame, and
+			at 60 frames a second or more a checkpoint gave up in a few seconds,
+			before the fight it waited on was over: few checkpoints came */
+			long current_tick = game_time_get();
+			long ticks = current_tick-main_save_last_tick;
+
+			if (current_tick < main_save_last_tick)
+				ticks = 0;
+			main_save_last_tick = current_tick;
+
+			while (ticks-- > 0 && !save_map)
 			{
-				if (debug_game_save)
-					console_printf(FALSE, "gave up trying to save");
-				main_globals.saving_map = FALSE;
-				return;
-			}
-			else if (main_globals.ticks_until_next_save_check-- <= 0)
-			{
-				if (game_safe_to_save())
+				if (main_globals.ticks_unable_to_save++ >= 240 &&
+					main_globals.save_map_timeout)
 				{
-					if (main_globals.safe_intervals++ >= 3)
-						save_map = TRUE;
+					if (debug_game_save)
+						console_printf(FALSE, "gave up trying to save");
+					main_globals.saving_map = FALSE;
+					return;
 				}
-				else
+				else if (main_globals.ticks_until_next_save_check-- <= 0)
 				{
-					main_globals.safe_intervals = 0;
+					if (game_safe_to_save())
+					{
+						if (main_globals.safe_intervals++ >= 3)
+							save_map = TRUE;
+					}
+					else
+					{
+						main_globals.safe_intervals = 0;
+					}
+					main_globals.ticks_until_next_save_check = 10;
 				}
-				main_globals.ticks_until_next_save_check = 10;
 			}
 		}
 		else
@@ -2474,6 +2496,13 @@ static void main_update_time_unthrottled(
 	{
 		seconds_elapsed = main_globals.recording_dt;
 	}
+	else if (halo_fixed_step() && main_globals.connection == _game_connection_local)
+	{
+		/* port: debug.fixed_step, a frame a tick whatever time has passed, as
+		a movie's frames are its recording's: what runs once a frame (aiming)
+		sees the game's time, and the game plays the same every time */
+		seconds_elapsed = 1.0f / TICKS_PER_SECOND;
+	}
 	else
 	{
 		seconds_elapsed = PIN(seconds_elapsed, 0.0f, 1.0f);
@@ -2715,6 +2744,11 @@ static void main_update_time(
 	if (main_globals.movie)
 	{
 		seconds_elapsed = main_globals.recording_dt;
+	}
+	else if (halo_fixed_step() && main_globals.connection == _game_connection_local)
+	{
+		/* port: debug.fixed_step, as main_update_time_unthrottled */
+		seconds_elapsed = 1.0f / TICKS_PER_SECOND;
 	}
 	else
 	{
@@ -2977,10 +3011,21 @@ static void screenshot_render(
 	return;
 }
 
+/* port: debug.show_resolution shows the frame rate with the resolution
+drawn at (halo_screen_width and halo_screen_pixel_scale, every renderer's),
+and the Switch's renderer says whether display.dynamic_resolution has
+dropped a step (weak: NULL elsewhere) */
+int config_boolean(const char *name);
+long halo_screen_width(void);
+float halo_screen_pixel_scale(void);
+extern int halo_screen_dynamic_resolution_dropped(void) __attribute__((weak));
+
 void main_framerate_render(
 	void)
 {
-	if (display_framerate)
+	boolean show_resolution = config_boolean("debug.show_resolution") != 0;
+
+	if (display_framerate || show_resolution)
 	{
 		long font_tag_index;
 
@@ -2992,8 +3037,9 @@ void main_framerate_render(
 			long frame_rate;
 			rectangle2d bounds;
 			/* room for three digits under C99 snprintf, which (unlike MSVC's
-			_snprintf) keeps a byte of the count for the terminator */
-			char frame_rate_string[8];
+			_snprintf) keeps a byte of the count for the terminator; and with
+			debug.show_resolution, the resolution after them */
+			char frame_rate_string[48];
 
 			bounds = render.camera.window_bounds;
 			/* The native ports draw at the display's refresh rate, up to
@@ -3023,13 +3069,30 @@ void main_framerate_render(
 				(void)frame_rate_real;
 			}
 
-			_snprintf(
-				frame_rate_string,
-				NUMBEROF(frame_rate_string) - 1,
-				"%d",
-				(short)frame_rate);
+			if (show_resolution)
+			{
+				float pixel_scale = halo_screen_pixel_scale();
+
+				_snprintf(
+					frame_rate_string,
+					NUMBEROF(frame_rate_string) - 1,
+					"%d %ldx%ld%s",
+					(short)frame_rate,
+					(long)(halo_screen_width() * pixel_scale + 0.5f),
+					(long)(480 * pixel_scale + 0.5f),
+					halo_screen_dynamic_resolution_dropped && halo_screen_dynamic_resolution_dropped() ?
+						" (dynamic)" : "");
+			}
+			else
+			{
+				_snprintf(
+					frame_rate_string,
+					NUMBEROF(frame_rate_string) - 1,
+					"%d",
+					(short)frame_rate);
+			}
 			frame_rate_string[NUMBEROF(frame_rate_string) - 1] = 0;
-			bounds.x0 = (short)(bounds.x1 - 50);
+			bounds.x0 = (short)(bounds.x1 - (show_resolution ? 230 : 50));
 			bounds.y0 = (short)(bounds.y1 - 50);
 			draw_string_set_format(NONE, _text_justification_left, 0);
 			draw_string_set_color(
@@ -3547,6 +3610,8 @@ static boolean main_loop_iteration(
 			network_test_update(main_globals.main_menu_scenario_loaded, main_globals.seconds_elapsed);
 			/* port: voice chat, in the lobby and in game (port/linux/game/network_voice.c) */
 			network_voice_update();
+			/* port: apply and replicate the host's mouse aim-assist policy. */
+			network_aim_assist_update();
 			/* port: map sharing, in the lobby and in game (port/linux/game/map_share.c) */
 			map_share_update();
 			/* port: the campaign randomizer's profile being named, and its
@@ -3559,6 +3624,8 @@ static boolean main_loop_iteration(
 				randomizer_profiles_poll();
 				randomizer_pack_update(main_globals.main_menu_scenario_loaded);
 			}
+			/* port: network games' text chat (port/linux/game/network_chat.c) */
+			network_chat_update();
 			profile_scope_enter(main_network_start_frame_section)
 			connection = main_globals.connection;
 			if (connection==_game_connection_network_client)
@@ -3624,7 +3691,9 @@ static boolean main_loop_iteration(
 
 				if (!console_update() || main_globals.connection!=_game_connection_local)
 				{
-					debug_keys_update();
+					/* port: not while a chat line is typed (its K plays an animation) */
+					if (!network_chat_typing())
+						debug_keys_update();
 					cheats_update();
 					player_control_update((real)main_globals.halt_time_scale*main_globals.seconds_elapsed);
 
@@ -3643,9 +3712,14 @@ static boolean main_loop_iteration(
 					render_frame = main_globals.main_menu_scenario_loaded ||
 						(main_globals.halt_time_scale &&
 							(game_time_get_paused() || game_time_get_elapsed()>0 || game_time_get_speed()<1.0f));
-					/* frames between ticks too (render_interpolation.c) */
+					/* frames between ticks too (render_interpolation.c), but
+					none of a map before its first tick: the frame after a load
+					runs none (the load stopped the clock), and drawn it showed
+					the map before the startup scripts' fade and cinematic. On
+					the Xbox every frame ran a tick */
 					if (halo_interpolation_enabled())
-						render_frame = main_globals.main_menu_scenario_loaded || main_globals.halt_time_scale;
+						render_frame = main_globals.main_menu_scenario_loaded ||
+							(main_globals.halt_time_scale && game_time_get()>0);
 					render_frame &= !game_engine_running() || game_time_get()>=3;
 
 					profile_scope_enter(main_non_deterministic_update_section)

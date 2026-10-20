@@ -32,6 +32,42 @@ when texture coordinate 0 is clipped (halo_texture_clip, d3d8_dk.c): the
 shader lets a pixel go first if its u or v is outside the limits in its
 alpha_reference. The Xbox leaves the bit 0. */
 #define NV2A_PIXEL_KEY_CLIP 0x10000000u
+/* and the stage whose coordinates are clipped (0 for the shadows' stage 0,
+so their keys stay as they were), and whether its w is clipped too: a 3D
+texture's (the dynamic lights' distance attenuation) */
+#define NV2A_PIXEL_KEY_CLIP_STAGE_SHIFT 20
+#define NV2A_PIXEL_KEY_CLIP_STAGE_MASK (3u << NV2A_PIXEL_KEY_CLIP_STAGE_SHIFT)
+#define NV2A_PIXEL_KEY_CLIP_3D 0x00400000u
+/* and, with it, the pixels past the texture's reach let go too (a ball in
+its box: dk_texture_reach), the reach in texture_scale[stage].w */
+#define NV2A_PIXEL_KEY_CLIP_SPHERE 0x20000000u
+/* and the pixel let go too where the clipped stage's texel is black: an
+object's shadow cast on the level adds nothing where its map is
+(halo_texture_clip) */
+#define NV2A_PIXEL_KEY_CLIP_BLACK 0x80000000u
+/* A blended draw's pixels that would leave the target as it was, let go
+(blend_discard, d3d8_dk.c; nv2a_psh_dk.c): how the blend leaves it, and
+whether alpha is written too. 0 for a draw it is not for, so its key stays
+as it was. */
+#define NV2A_PIXEL_KEY_DISCARD_SHIFT 25
+#define NV2A_PIXEL_KEY_DISCARD_MASK (7u << NV2A_PIXEL_KEY_DISCARD_SHIFT)
+/* the destination kept whole and the source added (or taken away) in some
+proportion: kept where the source's colour is black */
+#define NV2A_PIXEL_DISCARD_ADD 1u
+/* the same, the proportion the source's alpha: kept also where that is 0 */
+#define NV2A_PIXEL_DISCARD_ADD_ALPHA 2u
+/* the source over the destination by its alpha: kept where that is 0 */
+#define NV2A_PIXEL_DISCARD_OVER 3u
+/* the destination times the source: kept where the source is white */
+#define NV2A_PIXEL_DISCARD_MULTIPLY 4u
+/* the source (its alpha already in its colour) over the destination by its
+alpha: kept where both are 0 */
+#define NV2A_PIXEL_DISCARD_PREMULTIPLIED 5u
+/* the larger of the two: kept where the source is black */
+#define NV2A_PIXEL_DISCARD_MAX 6u
+/* the smaller of the two: kept where the source is white */
+#define NV2A_PIXEL_DISCARD_MIN 7u
+#define NV2A_PIXEL_KEY_DISCARD_ALPHA_WRITTEN 0x00800000u
 /* and this one for the zoom's blend of its blurred small copy of the screen
 over the screen (halo_screen_warp_blend, d3d8_dk.c; nv2a_psh_dk.c) */
 #define NV2A_PIXEL_KEY_WARP_BLEND 0x40000000u

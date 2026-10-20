@@ -311,11 +311,13 @@ enum
 };
 
 /* makes image id (the same description again keeps the image it has; another replaces it), its texels undefined until the
-data comes */
+data comes. swizzle is where each channel the shaders sample (red, green, blue, alpha, a byte each from the lowest) is taken
+from in the image (0 to 3, the same four), or 0 for each from its own: Halo PC's multipurpose maps and HUD meters, in a Custom
+Edition map or a mod (xbox_textures_vk.c) */
 struct vk_command_texture
 {
 	struct vk_command_header header;
-	uint32_t id, kind, format, width, height, depth, levels;
+	uint32_t id, kind, format, width, height, depth, levels, swizzle;
 };
 
 /* the texels of one level of one face (face 0 unless a cube), all of it (rows 0: the host knows its size from the image's), or

@@ -38,6 +38,9 @@ struct text_hires_glyph
 /* the letters a font is fitted to its tag by: A to Z, then a to z */
 #define TEXT_HIRES_FIT_LETTERS 52
 
+/* The committed setting; checked before looking up cached font choices. */
+int text_hires_enabled(void);
+
 /* the font standing for a font tag, sized so that its capitals are
 cap_height units tall and narrowed where its letters are wider than the
 tag's letter_widths (TEXT_HIRES_FIT_LETTERS of them, 0 for a letter the tag
@@ -64,8 +67,8 @@ void text_hires_set_reset_hook(void (*hook)(void));
 /* d3d8_gl.c: the display's pixels for each of the 480 lines */
 float halo_screen_pixel_scale(void);
 
-#if defined(HALO_SWITCH) || defined(HALO_ANDROID)
-/* the deko3d renderer's text_hires_atlas_texture: the atlas's coverage (*size
+#if defined(HALO_SWITCH) || defined(HALO_ANDROID) || defined(HALO_PS5)
+/* the deko3d and Vulkan renderers' text_hires_atlas_texture: the atlas's coverage (*size
 texels square, a byte each) if data is its placeholder bitmap's, else NULL,
 and the rows written since the last call, [*top, *bottom) (empty if *top >=
 *bottom; all of them if all), which it then counts as sent */

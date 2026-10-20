@@ -856,11 +856,37 @@ void _rasterizer_environment_shadow_draw(
 		need not be shaded there; a margin of a texel's width keeps the
 		linear filter's fringe at the border. */
 		halo_texture_clip(TRUE, -1.0f / 64.0f, 1.0f + 1.0f / 64.0f);
+		/* port: and rasterized only inside the screen's rectangle of the
+		shadow's volume (render_object_shadow_end's: the map's square, and
+		along the shadow from half the radius before the object to four
+		past, where the corner fade ends it), a tenth more each way
+		(rasterizer_port_scissor_points) */
+		{
+			real_point3d corners[8];
+			real radius = local_object_bounding_radius;
+			short corner;
+
+			for (corner = 0; corner < 8; corner++)
+			{
+				real across = (corner & 1) ? radius * 1.1f : -radius * 1.1f;
+				real side = (corner & 2) ? radius * 1.1f : -radius * 1.1f;
+				real along = (corner & 4) ? radius * 4.4f : -radius * 0.6f;
+
+				corners[corner].x = local_shadow_matrix.position.x + local_shadow_matrix.forward.i * across +
+					local_shadow_matrix.left.i * side + local_shadow_matrix.up.i * along;
+				corners[corner].y = local_shadow_matrix.position.y + local_shadow_matrix.forward.j * across +
+					local_shadow_matrix.left.j * side + local_shadow_matrix.up.j * along;
+				corners[corner].z = local_shadow_matrix.position.z + local_shadow_matrix.forward.k * across +
+					local_shadow_matrix.left.k * side + local_shadow_matrix.up.k * along;
+			}
+			rasterizer_port_scissor_points(corners, 8);
+		}
 		rasterizer_draw_dynamic_triangles_static_vertices(
 			dynamic_triangle_buffer_index,
 			first_triangle_index,
 			triangle_count,
 			vertex_buffer);
+		rasterizer_port_scissor_points(NULL, 0);
 		halo_texture_clip(FALSE, 0.0f, 0.0f);
 
 		if (rasterizer_debug_options.statistics_mode ==

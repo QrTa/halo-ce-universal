@@ -132,11 +132,6 @@ symbols in this file:
 #include "tag_files/files.h"
 #include "cache_files.h"
 #include "physical_memory_map.h"
-#ifdef HALO_ANDROID
-/* (the window's address, and the moving of the data with it) */
-#include "platform.h"
-#include "halo_port_window.h"
-#endif
 #include "sound_cache.h"
 #include "texture_cache.h"
 #include "interface/ui_widget.h"
@@ -266,6 +261,8 @@ static boolean cache_file_structure_bsp_tag_valid(
 /* ---------- globals */
 
 static struct cache_file_globals cache_file_globals = { 0 };
+/* port: the name the map loaded last was loaded by (scenario_tags_load) */
+static char cache_file_loaded_name[64];
 extern struct cache_file_tag_instance *global_tag_instances;
 /* port: global_tag_instances' count. The menus add their tags to a copy of
 the table (port/linux/game/menu_tags.c); the map's tag header keeps its own,
@@ -283,7 +280,7 @@ static char const *data_00316820[] =
 
 /* ---------- private code */
 
-#ifdef HALO_ANDROID
+#if defined(HALO_ANDROID) || defined(HALO_MOVABLE_WINDOW)
 /* A map's tag directory is linked to the addresses of the window the game
 was built for: the header names its vertex and index buffers, and every tag
 instance names where its data and its name live. Where the host put the
@@ -501,7 +498,7 @@ static boolean cache_file_tag_header_verify(
 		{
 			void const *base_address = tag_header->tag_instances[absolute_index].base_address;
 
-#ifdef HALO_ANDROID
+#if defined(HALO_ANDROID) || defined(HALO_MOVABLE_WINDOW)
 			/* (checked where it is moved to, as it is once this passes) */
 			base_address = cache_file_rebase_address((void *)base_address);
 #endif
@@ -656,23 +653,23 @@ void scenario_tags_unload(
 		hud_hires_tags_unloaded();
 	}
 	sound_cache_close();
-	/* port: the sounds of tag files go, after the sound cache that held them
-	(port/linux/game/loose_sounds.c) */
-	{
-		extern void loose_sounds_tags_unloaded(void);
-
-		loose_sounds_tags_unloaded();
-	}
 	texture_cache_close();
 	/* port: the level's skulls go, and the sound they added to the tags,
 	before the randomizer's tags (port/linux/game/skulls.c) */
 	skulls_level_unloaded();
 	/* port: the randomizer's tags go, and the table without them comes
-	back, before the menus restore the map's own (port/linux/game/randomizer.c) */
+	back, before the mods' (port/linux/game/randomizer.c) */
 	{
 		extern void randomizer_tags_unloaded(void);
 
 		randomizer_tags_unloaded();
+	}
+	/* port: the mods' tags go, after the sound and texture caches that held
+	their sounds and bitmaps (port/linux/game/mods.c) */
+	{
+		extern void mods_tags_unloaded(void);
+
+		mods_tags_unloaded();
 	}
 	/* port: the menus' tags go, and the map's own table comes back
 	(port/linux/game/menu_tags.c): after the texture cache, which writes to
@@ -928,6 +925,14 @@ long tag_iterator_next(
 	}
 
 	return result;
+}
+
+/* port: the name the map loaded (or being loaded) was loaded by: its file's,
+<file>@ce and the like for the families past the Xbox's */
+char const *cache_file_loaded_map_name(
+	void)
+{
+	return cache_file_loaded_name;
 }
 
 boolean cache_file_header_verify(
@@ -1259,6 +1264,9 @@ long scenario_tags_load(
 
 	stripped_scenario_name = tag_name_strip_path(scenario_name);
 	result = NONE;
+	/* port: the map being loaded, by its name (cache_file_loaded_map_name) */
+	csstrncpy(cache_file_loaded_name, stripped_scenario_name, sizeof(cache_file_loaded_name) - 1);
+	cache_file_loaded_name[sizeof(cache_file_loaded_name) - 1] = 0;
 	texture_cache_open();
 	sound_cache_open();
 	/* port: a Halo Custom Edition map (custom_maps\<name>) is read in place
@@ -1282,11 +1290,11 @@ long scenario_tags_load(
 
 				menu_tags_loaded(cache_file_globals.header.name);
 			}
-			/* (and the sounds of tag files, as below) */
+			/* (and the mods' tags, as below) */
 			{
-				extern void loose_sounds_tags_loaded(void);
+				extern void mods_tags_loaded(char const *map_name);
 
-				loose_sounds_tags_loaded();
+				mods_tags_loaded(stripped_scenario_name);
 			}
 			result = cache_file_globals.tag_header->scenario_tag_index;
 		}
@@ -1321,7 +1329,7 @@ long scenario_tags_load(
 
 				return NONE;
 			}
-#ifdef HALO_ANDROID
+#if defined(HALO_ANDROID) || defined(HALO_MOVABLE_WINDOW)
 			/* the header's own addresses are moved before they are checked
 			against where the tags were read; its tags', once they are */
 			{
@@ -1341,7 +1349,7 @@ long scenario_tags_load(
 
 				return NONE;
 			}
-#ifdef HALO_ANDROID
+#if defined(HALO_ANDROID) || defined(HALO_MOVABLE_WINDOW)
 			/* the tags' names and data moved too, before the validator
 			follows them (it moves every other address it reads:
 			port/linux/game/tag_validate.c) */
@@ -1403,16 +1411,18 @@ long scenario_tags_load(
 			}
 			/* port: the bitmaps the high-res HUD stands for (port/linux/game/hud_hires_tags.c) */
 			{
-				extern void hud_hires_tags_loaded(void);
+				extern void hud_hires_tags_loaded(long scenario_index);
 
-				hud_hires_tags_loaded();
+				hud_hires_tags_loaded(cache_file_globals.tag_header->scenario_tag_index);
 			}
-			/* port: the sounds of tag files played over the map's
-			(audio.loose_sounds: port/linux/game/loose_sounds.c) */
+			/* port: the mods' sounds, bitmaps, text and models played over
+			the map's, last, over the menus' tags too, and with the high-res
+			HUD standing for the map's bitmaps, not a mod's (the main menu's
+			Mods: port/linux/game/mods.c) */
 			{
-				extern void loose_sounds_tags_loaded(void);
+				extern void mods_tags_loaded(char const *map_name);
 
-				loose_sounds_tags_loaded();
+				mods_tags_loaded(stripped_scenario_name);
 			}
 			/* port: a campaign randomizer's tags, copied from the other
 			campaign maps (port/linux/game/randomizer.c) */
@@ -1444,7 +1454,7 @@ boolean scenario_structure_bsp_load(
 	/* port: the bsp's header, once read and checked */
 	struct cache_file_structure_bsp_header *structure_bsp_header;
 
-#ifdef HALO_ANDROID
+#if defined(HALO_ANDROID) || defined(HALO_MOVABLE_WINDOW)
 	/* the scenario's own tag data names where the level is read to, in an
 	address the map was written with */
 	reference->base_address = cache_file_rebase_address(reference->base_address);
@@ -1502,7 +1512,7 @@ boolean scenario_structure_bsp_load(
 		/* port: a bsp that did not all read, or whose header's pointers
 		leave what was read, is not loaded */
 		structure_bsp_header = reference->base_address;
-#ifdef HALO_ANDROID
+#if defined(HALO_ANDROID) || defined(HALO_MOVABLE_WINDOW)
 		if (read_complete == TRUE)
 		{
 			cache_file_rebase_structure_bsp(structure_bsp_header);

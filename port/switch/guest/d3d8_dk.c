@@ -72,6 +72,98 @@ static long ui_offset;
 /* the host's (host_dk.c): the height it presents at, 1080 docked and 720 in
 handheld */
 unsigned int host_dk_output_height(void);
+unsigned int host_dk_gpu_frame_us(void);
+
+/* ---------- display.dynamic_resolution
+
+While the GPU's frame, averaged over the last 16 or so (host_dk_gpu_frame_us),
+is over DYNAMIC_DROP_US for DYNAMIC_DROP_FRAMES frames in a row, the screen
+is drawn one step lower (1080 to 900, 900 to 720, 720 to 480: never more);
+it goes back once the frame at the chosen lines, reckoned from the lower
+one's by their pixels, would be under DYNAMIC_RAISE_US for
+DYNAMIC_RAISE_FRAMES frames. A change waits DYNAMIC_HOLD_FRAMES after the
+last (the targets are made again at each), and the average its first
+DYNAMIC_SETTLE_FRAMES (it is the old size's until then). Asked between
+frames (screen_mode_choose, from halo_screen_commit), once a frame. */
+/* (dropped under 55 frames a second, 1/55 s of the GPU, for half a second;
+back up within 90% of a 60 Hz frame for a second) */
+#define DYNAMIC_DROP_US 18182
+#define DYNAMIC_RAISE_US 15000
+#define DYNAMIC_DROP_FRAMES 30
+#define DYNAMIC_RAISE_FRAMES 60
+#define DYNAMIC_HOLD_FRAMES 120
+#define DYNAMIC_SETTLE_FRAMES 20
+
+static struct
+{
+	unsigned int chosen, lower;
+	int dropped;
+	unsigned long frames_since_change, over, under;
+} dynamic;
+
+/* the lines a step below these (the steps 480, 720, 900 and 1080) */
+static unsigned int dynamic_step_below(unsigned int lines)
+{
+	return lines > 900 ? 900 : lines > 720 ? 720 : 480;
+}
+
+static unsigned int dynamic_resolution(unsigned int lines)
+{
+	unsigned int gpu_us;
+
+	if (!config_boolean("display.dynamic_resolution") || lines <= SCREEN_HEIGHT)
+	{
+		dynamic.dropped = 0;
+		dynamic.chosen = lines;
+		return lines;
+	}
+	if (lines != dynamic.chosen)
+	{
+		/* (another choice of lines, or the console docked or undocked:
+		begun again at it) */
+		dynamic.chosen = lines;
+		dynamic.dropped = 0;
+		dynamic.frames_since_change = dynamic.over = dynamic.under = 0;
+	}
+	dynamic.lower = dynamic_step_below(lines);
+	dynamic.frames_since_change++;
+	gpu_us = host_dk_gpu_frame_us();
+	if (dynamic.frames_since_change < DYNAMIC_SETTLE_FRAMES || !gpu_us)
+		return dynamic.dropped ? dynamic.lower : lines;
+	if (!dynamic.dropped)
+	{
+		dynamic.over = gpu_us > DYNAMIC_DROP_US ? dynamic.over + 1 : 0;
+		if (dynamic.over >= DYNAMIC_DROP_FRAMES && dynamic.frames_since_change >= DYNAMIC_HOLD_FRAMES)
+		{
+			dynamic.dropped = 1;
+			dynamic.frames_since_change = dynamic.over = dynamic.under = 0;
+			platform_log("dynamic resolution: the GPU at %.1f ms a frame: %u lines, from %u", gpu_us / 1000.0,
+				dynamic.lower, lines);
+		}
+	}
+	else
+	{
+		float ratio = (float)lines / (float)dynamic.lower;
+		float reckoned = gpu_us * ratio * ratio;
+
+		dynamic.under = reckoned < DYNAMIC_RAISE_US ? dynamic.under + 1 : 0;
+		if (dynamic.under >= DYNAMIC_RAISE_FRAMES && dynamic.frames_since_change >= DYNAMIC_HOLD_FRAMES)
+		{
+			dynamic.dropped = 0;
+			dynamic.frames_since_change = dynamic.over = dynamic.under = 0;
+			platform_log("dynamic resolution: the GPU at %.1f ms a frame at %u lines, %.1f at %u: back to %u",
+				gpu_us / 1000.0, dynamic.lower, reckoned / 1000.0, lines, lines);
+		}
+	}
+	return dynamic.dropped ? dynamic.lower : lines;
+}
+
+/* for debug.show_resolution's corner (main.c): whether the screen is a
+step under the chosen lines now */
+int halo_screen_dynamic_resolution_dropped(void)
+{
+	return dynamic.dropped;
+}
 #endif
 
 static void screen_mode_choose(long *width, float scale[2])
@@ -92,15 +184,21 @@ static void screen_mode_choose(long *width, float scale[2])
 	scale[0] = scale[1] = 1.0f;
 #ifdef HALO_SWITCH
 	/* display.resolution_limit: the lines the screen's targets are drawn at,
-	"480" (the game's own), "720" or "1080", no more than the host presents
-	at (1080 docked, 720 in handheld), which the host scales them up to */
+	"480" (the game's own), "720", "900", "1080" or any number of lines
+	between, no more than the host presents at (1080 docked, 720 in handheld),
+	which the host scales them up to: "900" docked is 69% of 1080p's pixels,
+	the GPU's room for 60 a second in a heavy scene */
 	{
-		const char *limit = config_string("display.resolution_limit");
-		unsigned int height = !strcmp(limit, "1080") ? 1080 : !strcmp(limit, "720") ? 720 : SCREEN_HEIGHT;
+		long lines = atol(config_string("display.resolution_limit"));
+		unsigned int height = lines > SCREEN_HEIGHT ? (unsigned int)(lines < 1080 ? lines : 1080) : SCREEN_HEIGHT;
 		unsigned int output = host_dk_output_height();
 
-		if (height > output)
+		/* (debug.resolution_uncapped: drawn at those lines all the same, and
+		scaled down to the screen: a Lite's handheld 720p drawing docked
+		1080p's load, for testing it) */
+		if (height > output && !config_boolean("debug.resolution_uncapped"))
 			height = output;
+		height = dynamic_resolution(height);
 		if (height > SCREEN_HEIGHT)
 			scale[0] = scale[1] = (float)height / (float)SCREEN_HEIGHT;
 	}
@@ -151,6 +249,69 @@ float halo_screen_scale(void)
 	return screen_scale[0] > screen_scale[1] ? screen_scale[0] : screen_scale[1];
 }
 
+/* display.model_detail (as d3d8_gl.c's): "stock" chooses a model's level of
+detail by the Xbox's 480 lines, "native" by the display's, "highest" draws
+the most detailed level of whatever is drawn at all */
+enum
+{
+	_model_detail_stock,
+	_model_detail_native,
+	_model_detail_highest,
+};
+
+/* (read again only when a setting changes: every model asks, every frame) */
+static int model_detail_setting(void)
+{
+	static unsigned long read_at = (unsigned long)-1;
+	static int value;
+
+	if (read_at != config_changes())
+	{
+		const char *setting = config_string("display.model_detail");
+
+		read_at = config_changes();
+		value = !strcmp(setting, "native") ? _model_detail_native :
+			!strcmp(setting, "highest") ? _model_detail_highest : _model_detail_stock;
+	}
+	return value;
+}
+
+int halo_model_detail_stock(void)
+{
+	return model_detail_setting() == _model_detail_stock;
+}
+
+float halo_model_detail_scale(int level)
+{
+	float display_scale;
+
+	if (model_detail_setting() == _model_detail_stock)
+		return 1.0f;
+	if (model_detail_setting() == _model_detail_highest && level)
+		return 1.0e6f;
+	display_scale = halo_screen_pixel_scale();
+	return display_scale > 1.0f ? display_scale : 1.0f;
+}
+
+/* (the OpenGL renderer's alone, which the settings offer only there:
+display.overshield_effect's fade up the body, which this renderer's vertex
+shaders do not draw, and display.hdr's tone mapping) */
+void d3d8_gl_set_height_fade(float inverse_softness, float height, float offset, float scale)
+{
+	(void)inverse_softness;
+	(void)height;
+	(void)offset;
+	(void)scale;
+}
+
+void halo_screen_tone_map(short x0, short y0, short x1, short y1)
+{
+	(void)x0;
+	(void)y0;
+	(void)x1;
+	(void)y1;
+}
+
 void halo_screen_ui_offset(unsigned char centered)
 {
 	ui_offset = centered ? (halo_screen_width() - 640) / 2 : 0;
@@ -181,6 +342,11 @@ static void *stream_command(uint32_t type, unsigned long size);
 highest u and v as the texture is sampled (0 to 1 across it), and whether
 to clip (the pixel parameters' alpha_reference.y to .w) */
 static float texture_clip[3];
+/* the stage clipped, whether in three coordinates, and whether its black
+texels add nothing (the shadows': halo_texture_clip) */
+static int texture_clip_stage;
+static int texture_clip_3d;
+static int texture_clip_black;
 
 /* The draws that follow shaded only where texture coordinate 0's u and v are
 in [low, high], or everywhere: an object's shadow cast on the level
@@ -190,8 +356,25 @@ The pixel key has NV2A_PIXEL_KEY_CLIP while it is on, and that shader lets
 the pixels outside go before it reads a texture (nv2a_psh_dk.c). (The vertex
 shaders' clip distances were tried first: the clipper did not clip by the
 values they were given.) */
+void halo_texture_clip_stage(short stage, unsigned char three_dimensional, float low, float high);
+
 void halo_texture_clip(unsigned char clip, float low, float high)
 {
+	halo_texture_clip_stage(clip ? 0 : -1, FALSE, low, high);
+	/* (an object's shadow cast on the level darkens it by its map times
+	its colour, corner fade and vertex alpha, each no more than 1: where the
+	map is black it darkens nothing - rasterizer_xbox_shadows.c) */
+	texture_clip_black = texture_clip[2] != 0.0f;
+}
+
+/* as halo_texture_clip, for a stage's coordinates (stage -1 for none), in
+two or three: the dynamic lights' passes on the level
+(rasterizer_xbox_environment.c) add nothing where their distance
+attenuation, black past its border, is past the light's box */
+void halo_texture_clip_stage(short stage, unsigned char three_dimensional, float low, float high)
+{
+	unsigned char clip = stage >= 0 && stage < 4;
+
 	/* debug.gpu_texture_clip: "on", "off" (never clipped), "wide" (clipped
 	by limits nothing reaches: the clip's own effect, apart from where), or
 	"<low>,<high>": the limits to clip by, whatever the caller asks */
@@ -223,6 +406,37 @@ void halo_texture_clip(unsigned char clip, float low, float high)
 	texture_clip[0] = clip ? low : 0.0f;
 	texture_clip[1] = clip ? high : 0.0f;
 	texture_clip[2] = clip ? 1.0f : 0.0f;
+	texture_clip_stage = clip ? stage : 0;
+	texture_clip_3d = clip && three_dimensional;
+	texture_clip_black = FALSE;
+}
+
+/* the rectangle the draws that follow are rasterized in, if on (in the
+target's game pixels), as well as the viewport (halo_draw_scissor) */
+static unsigned char draw_scissor_on;
+static float draw_scissor[4];
+
+/* A draw that changes nothing outside a box of the world - an object's
+shadow cast on the level, a dynamic light's pass - rasterized only inside
+that box's rectangle on the screen (rasterizer_xbox.c): their triangles,
+the level's, are much bigger than what they change, and the pixels outside
+were shaded only to be let go (halo_texture_clip). debug.gpu_draw_scissor =
+false: never. */
+void halo_draw_scissor(unsigned char on, float x0, float y0, float x1, float y1)
+{
+	static int enabled = -1;
+
+	if (enabled < 0)
+	{
+		enabled = config_boolean("debug.gpu_draw_scissor") != 0;
+		if (!enabled)
+			platform_log("draw scissor: off (debug.gpu_draw_scissor)");
+	}
+	draw_scissor_on = on && enabled;
+	draw_scissor[0] = x0;
+	draw_scissor[1] = y0;
+	draw_scissor[2] = x1;
+	draw_scissor[3] = y1;
 }
 
 /* the zoom's blend of its blur over the screen, for the draws that follow
@@ -249,6 +463,21 @@ unsigned char halo_screen_fast_warp(void)
 void halo_screen_warp_blend(unsigned char on)
 {
 	warp_blend = on;
+}
+
+/* a blur drawn small (rasterizer_xbox_screen_effect.c); debug.original_blur
+draws it as the game does */
+unsigned char halo_screen_fast_blur(void)
+{
+	static int on = -1;
+
+	if (on < 0)
+	{
+		on = !config_boolean("debug.original_blur");
+		if (!on)
+			platform_log("screen blur: as the game draws it (debug.original_blur)");
+	}
+	return (unsigned char)on;
 }
 
 /* the part of a frame the game is about to draw, for the host's record of
@@ -343,6 +572,11 @@ struct dk_device
 	float *immediate_vertices;
 	unsigned long immediate_count;
 	unsigned long immediate_capacity;
+	/* the registers written since Begin, the vertex each was first written
+	at, and the values they had at Begin (for the vertices before that) */
+	unsigned long immediate_mask;
+	unsigned long immediate_first[XGPU_VERTEX_ATTRIBUTE_COUNT];
+	float immediate_begin[XGPU_VERTEX_ATTRIBUTE_COUNT][4];
 
 	BOOL visibility_test_active;
 
@@ -393,13 +627,45 @@ host numbers them: this is the number of the one being written. */
 static unsigned long submission = 1;
 
 /* buffers of the guest's that commands name (a decoded texture's texels): the
-host reads them when it runs the stream, so they are freed once it has */
+host reads them when it runs the stream - on its render thread, after the
+stream is handed over (host_dk.c) - so each is freed once the GPU has
+finished its submission, which the host ran before */
 #define PENDING_FREE_LIMIT 256
 #define PENDING_FREE_BYTES (8 * 1024 * 1024)
+/* the buffers of submissions handed over and not yet finished */
+#define HANDED_FREE_LIMIT 2048
 
 static void *pending_frees[PENDING_FREE_LIMIT];
 static unsigned long pending_free_count;
 static unsigned long pending_free_bytes;
+
+static struct
+{
+	void *buffer;
+	unsigned long submission;
+} handed_frees[HANDED_FREE_LIMIT];
+static unsigned long handed_free_first, handed_free_count;
+
+/* the handed-over buffers whose submissions the GPU has finished, freed;
+with wait, all of them, waiting as long as it takes */
+static void handed_frees_release(BOOL wait)
+{
+	while (handed_free_count)
+	{
+		unsigned long index = handed_free_first;
+
+		if (host_dk_retired() < handed_frees[index].submission)
+		{
+			if (!wait)
+				return;
+			usleep(200);
+			continue;
+		}
+		free(handed_frees[index].buffer);
+		handed_free_first = (handed_free_first + 1) % HANDED_FREE_LIMIT;
+		handed_free_count--;
+	}
+}
 
 static void stream_flush(void)
 {
@@ -407,10 +673,19 @@ static void stream_flush(void)
 		return;
 	host_dk_submit((unsigned int)(uintptr_t)stream, (unsigned int)stream_used);
 	stream_used = 0;
-	submission++;
+	/* (this submission's buffers kept until the GPU has finished it) */
 	while (pending_free_count)
-		free(pending_frees[--pending_free_count]);
+	{
+		if (handed_free_count == HANDED_FREE_LIMIT)
+			handed_frees_release(TRUE);
+		handed_frees[(handed_free_first + handed_free_count) % HANDED_FREE_LIMIT].buffer =
+			pending_frees[--pending_free_count];
+		handed_frees[(handed_free_first + handed_free_count) % HANDED_FREE_LIMIT].submission = submission;
+		handed_free_count++;
+	}
 	pending_free_bytes = 0;
+	submission++;
+	handed_frees_release(FALSE);
 }
 
 /* room for a command of size bytes, its header filled in */
@@ -1912,6 +2187,22 @@ static void draw_state_make(BOOL has_depth, struct dk_draw_state *state)
 	defaults to the viewport, so fragment clipping follows the viewport: this is
 	what keeps a split-screen window's geometry from bleeding across the divider */
 	memcpy(state->scissor, state->viewport, sizeof(state->scissor));
+	/* (narrowed to the rectangle a draw changes anything in, if one is set:
+	halo_draw_scissor) */
+	if (draw_scissor_on)
+	{
+		int x0 = target_pixel(draw_scissor[0], 0), y0 = target_pixel(draw_scissor[1], 1);
+		int x1 = target_pixel(draw_scissor[2], 0), y1 = target_pixel(draw_scissor[3], 1);
+		int left = state->viewport[0] > x0 ? state->viewport[0] : x0;
+		int top = state->viewport[1] > y0 ? state->viewport[1] : y0;
+		int right = state->viewport[0] + state->viewport[2] < x1 ? state->viewport[0] + state->viewport[2] : x1;
+		int bottom = state->viewport[1] + state->viewport[3] < y1 ? state->viewport[1] + state->viewport[3] : y1;
+
+		state->scissor[0] = left;
+		state->scissor[1] = top;
+		state->scissor[2] = right > left ? right - left : 0;
+		state->scissor[3] = bottom > top ? bottom - top : 0;
+	}
 
 	state->depth_test = depth_test;
 	if (depth_test)
@@ -2197,6 +2488,88 @@ static void sampler_make(int stage, BOOL mipmapped, BOOL hires, struct dk_sample
 	color_to_vec4(state[D3DTSS_BORDERCOLOR], sampler->border);
 }
 
+/* A blended draw whose pixels leave the target as it was wherever the
+source adds nothing: particles and glows near the camera, many layers of
+large sprites whose soft edges and empty corners are most of what they
+cover, were up to 11 ms of a 1080p frame, blending each of those pixels in
+for nothing. Their pixel shader lets such a pixel go (nv2a_psh_dk.c); the
+picture is the same, as the blend would have rounded back to what was there.
+Not while depth or stencil is written (a stencil only tested is not) or the
+samples are counted (the lens flares' visibility tests), which a let-go
+pixel would change.
+debug.gpu_blend_discard = false: never. */
+static unsigned long blend_discard(void)
+{
+	static int enabled = -1;
+	DWORD source = D3D__RenderState[D3DRS_SRCBLEND];
+	DWORD destination = D3D__RenderState[D3DRS_DESTBLEND];
+	DWORD operation = D3D__RenderState[D3DRS_BLENDOP];
+	DWORD writes = D3D__RenderState[D3DRS_COLORWRITEENABLE];
+	unsigned long mode = 0;
+
+	if (enabled < 0)
+	{
+		enabled = config_boolean("debug.gpu_blend_discard") != 0;
+		if (!enabled)
+			platform_log("blend discard: off (debug.gpu_blend_discard)");
+	}
+	if (!enabled || !D3D__RenderState[D3DRS_ALPHABLENDENABLE] || device.visibility_test_active ||
+		!(writes & D3DCOLORWRITEENABLE_ALL))
+		return 0;
+	/* (a stencil only tested - the game's stencil modes that accept or
+	reject, the most of a frame's - is not written, whatever is let go) */
+	if ((D3D__RenderState[D3DRS_ZENABLE] && D3D__RenderState[D3DRS_ZWRITEENABLE]) ||
+		(D3D__RenderState[D3DRS_STENCILENABLE] && D3D__RenderState[D3DRS_STENCILWRITEMASK] &&
+		(D3D__RenderState[D3DRS_STENCILFAIL] != D3DSTENCILOP_KEEP ||
+		D3D__RenderState[D3DRS_STENCILZFAIL] != D3DSTENCILOP_KEEP ||
+		D3D__RenderState[D3DRS_STENCILPASS] != D3DSTENCILOP_KEEP)))
+	{
+		static int said;
+
+		if (!said++)
+			platform_log("blend discard: not for blended draws that write depth or stencil");
+		return 0;
+	}
+	if (destination == D3DBLEND_ONE && (operation == D3DBLENDOP_ADD || operation == D3DBLENDOP_REVSUBTRACT))
+		mode = source == D3DBLEND_SRCALPHA ? NV2A_PIXEL_DISCARD_ADD_ALPHA : NV2A_PIXEL_DISCARD_ADD;
+	else if (operation == D3DBLENDOP_ADD && source == D3DBLEND_SRCALPHA && destination == D3DBLEND_INVSRCALPHA)
+		mode = NV2A_PIXEL_DISCARD_OVER;
+	else if (operation == D3DBLENDOP_ADD && ((source == D3DBLEND_ZERO && destination == D3DBLEND_SRCCOLOR) ||
+		(source == D3DBLEND_DESTCOLOR && destination == D3DBLEND_ZERO)))
+		mode = NV2A_PIXEL_DISCARD_MULTIPLY;
+	else if (operation == D3DBLENDOP_ADD && source == D3DBLEND_ONE && destination == D3DBLEND_INVSRCALPHA)
+		mode = NV2A_PIXEL_DISCARD_PREMULTIPLIED;
+	/* (the destination times one less the source: kept where the source is
+	black, as an added one) */
+	else if (operation == D3DBLENDOP_ADD && source == D3DBLEND_ZERO && destination == D3DBLEND_INVSRCCOLOR)
+		mode = NV2A_PIXEL_DISCARD_ADD;
+	/* (min and max take no factors) */
+	else if (operation == D3DBLENDOP_MAX)
+		mode = NV2A_PIXEL_DISCARD_MAX;
+	else if (operation == D3DBLENDOP_MIN)
+		mode = NV2A_PIXEL_DISCARD_MIN;
+	if (!mode)
+	{
+		/* (each blend no pixel is let go for, said once: what is left) */
+		static DWORD said[16];
+		static int said_count;
+		DWORD blend = (source & 0xff) | (destination & 0xff) << 8 | (operation & 0xffff) << 16;
+		int index;
+
+		for (index = 0; index < said_count && said[index] != blend; index++)
+			;
+		if (index == said_count && said_count < 16)
+		{
+			said[said_count++] = blend;
+			platform_log("blend discard: not for a blend of source %lu, destination %lu, operation %lu",
+				(unsigned long)source, (unsigned long)destination, (unsigned long)operation);
+		}
+		return 0;
+	}
+	return (mode << NV2A_PIXEL_KEY_DISCARD_SHIFT) |
+		((writes & D3DCOLORWRITEENABLE_ALPHA) ? NV2A_PIXEL_KEY_DISCARD_ALPHA_WRITTEN : 0);
+}
+
 /* The pixel shader's key as prepare_draw builds it, and with it what the
 stages sample: every stage's texture is found here (finding one may send its
 texels to the host), as bind_textures does. */
@@ -2214,7 +2587,8 @@ static void pixel_key_make(struct nv2a_pixel_shader_key *key, float texture_scal
 	key->combiner_state[D3DRS_PSFINALCOMBINERCONSTANT1] = 0;
 	key->texture_modes = D3D__RenderState[D3DRS_PSTEXTUREMODES];
 	if (texture_clip[2] != 0.0f)
-		key->texture_modes |= NV2A_PIXEL_KEY_CLIP;
+		key->texture_modes |= NV2A_PIXEL_KEY_CLIP | ((unsigned long)texture_clip_stage << NV2A_PIXEL_KEY_CLIP_STAGE_SHIFT) |
+			(texture_clip_3d ? NV2A_PIXEL_KEY_CLIP_3D : 0) | (texture_clip_black ? NV2A_PIXEL_KEY_CLIP_BLACK : 0);
 	if (warp_blend)
 		key->texture_modes |= NV2A_PIXEL_KEY_WARP_BLEND;
 	for (stage = 0; stage < D3DTSS_MAXSTAGES; stage++)
@@ -2285,6 +2659,21 @@ static void pixel_key_make(struct nv2a_pixel_shader_key *key, float texture_scal
 	key->alpha_test_function = D3D__RenderState[D3DRS_ALPHATESTENABLE] ? D3D__RenderState[D3DRS_ALPHAFUNC] : 0;
 	key->fog_enable = D3D__RenderState[D3DRS_FOGENABLE] != 0;
 	key->fog_table_mode = (unsigned char)D3D__RenderState[D3DRS_FOGTABLEMODE];
+	key->texture_modes |= blend_discard();
+	/* a 3D clip (a dynamic light's distance attenuation): the pixels past the
+	texture's reach go too, if it is known (dk_texture_reach) */
+	if (texture_clip[2] != 0.0f && texture_clip_3d)
+	{
+		D3DBaseTexture *texture = device.textures[texture_clip_stage];
+		float reach = texture && texture->Data ?
+			dk_texture_reach((unsigned long)PLATFORM_PHYSICAL_TO_VIRTUAL(texture->Data)) : -1.0f;
+
+		if (reach >= 0.0f)
+		{
+			texture_scale[texture_clip_stage][3] = reach;
+			key->texture_modes |= NV2A_PIXEL_KEY_CLIP_SPHERE;
+		}
+	}
 }
 
 static void draw_textures_send(const struct dk_command_textures *textures)
@@ -2538,11 +2927,17 @@ void WINAPI D3DDevice_Begin(D3DPRIMITIVETYPE primitive_type)
 	device.immediate_active = TRUE;
 	device.immediate_type = primitive_type;
 	device.immediate_count = 0;
+	device.immediate_mask = 0;
+	memcpy(device.immediate_begin, device.attributes, sizeof(device.immediate_begin));
 }
 
+/* a vertex: the registers written since Begin, each in its own place of
+the vertex's sixteen (the others are the same for every vertex of the draw,
+and go with it as constants) */
 static void immediate_emit(void)
 {
-	unsigned long floats = XGPU_VERTEX_ATTRIBUTE_COUNT * 4;
+	unsigned long floats = XGPU_VERTEX_ATTRIBUTE_COUNT * 4, mask = device.immediate_mask;
+	float *vertex;
 
 	if (device.immediate_count == device.immediate_capacity)
 	{
@@ -2550,25 +2945,36 @@ static void immediate_emit(void)
 		device.immediate_vertices = realloc(device.immediate_vertices,
 			device.immediate_capacity * floats * sizeof(float));
 	}
-	memcpy(device.immediate_vertices + device.immediate_count * floats, device.attributes, floats * sizeof(float));
+	vertex = device.immediate_vertices + device.immediate_count * floats;
+	while (mask)
+	{
+		unsigned long reg = (unsigned long)__builtin_ctzl(mask);
+
+		memcpy(vertex + reg * 4, device.attributes[reg], 4 * sizeof(float));
+		mask &= mask - 1;
+	}
 	device.immediate_count++;
 }
+
 void WINAPI D3DDevice_End(void)
 {
-	/* every register's four floats, a vertex at a time, as immediate_emit
-	keeps them */
-	unsigned long stride = XGPU_VERTEX_ATTRIBUTE_COUNT * 4 * sizeof(float);
-	unsigned long count = device.immediate_count, index;
+	/* the registers written since Begin, four floats each, a vertex at a
+	time; the rest are the draw's constants, their values throughout */
+	unsigned long floats = XGPU_VERTEX_ATTRIBUTE_COUNT * 4, mask = device.immediate_mask;
+	unsigned long count = device.immediate_count, index, fed = 0, stride, vertex;
 	D3DPRIMITIVETYPE type = device.immediate_type;
 	struct dk_vertex_format format;
 	struct dk_command_draw *command;
+	float *out;
 
 	device.immediate_active = FALSE;
 	device.immediate_count = 0;
+	device.immediate_mask = 0;
 	if (type == D3DPT_QUADLIST)
 		count &= ~3UL;
 	if (!count)
 		return;
+	stride = (unsigned long)__builtin_popcountl(mask) * 4 * sizeof(float);
 	/* the vertices go in the stream with the draw: the next Begin reuses
 	the buffer they are in before the stream is handed over */
 	if (count * stride + 4096 > STREAM_SIZE)
@@ -2581,9 +2987,17 @@ void WINAPI D3DDevice_End(void)
 	memset(&format, 0, sizeof(format));
 	for (index = 0; index < XGPU_VERTEX_ATTRIBUTE_COUNT; index++)
 	{
-		format.attributes[index].format = DK_ATTRIBUTE_FLOAT4;
-		format.attributes[index].stream = 0;
-		format.attributes[index].offset = (uint32_t)(index * 4 * sizeof(float));
+		if (mask & (1UL << index))
+		{
+			format.attributes[index].format = DK_ATTRIBUTE_FLOAT4;
+			format.attributes[index].stream = 0;
+			format.attributes[index].offset = (uint32_t)(fed++ * 4 * sizeof(float));
+		}
+		else
+		{
+			format.attributes[index].format = DK_ATTRIBUTE_UNFED;
+			memcpy(format.constants[index], device.attributes[index], sizeof(format.constants[index]));
+		}
 	}
 	format.strides[0] = (uint32_t)stride;
 	format.stream_mask = 1;
@@ -2597,7 +3011,24 @@ void WINAPI D3DDevice_End(void)
 	command->stream_count = 1;
 	command->streams[0][0] = 0;
 	command->streams[0][1] = (uint32_t)(count * stride);
-	memcpy(&command->streams[1], device.immediate_vertices, count * stride);
+	out = (float *)&command->streams[1];
+	for (vertex = 0; vertex < count; vertex++)
+	{
+		const float *in = device.immediate_vertices + vertex * floats;
+		unsigned long left = mask;
+
+		while (left)
+		{
+			unsigned long reg = (unsigned long)__builtin_ctzl(left);
+
+			/* a vertex made before the register was first written has its
+			value from before Begin */
+			memcpy(out, vertex < device.immediate_first[reg] ? device.immediate_begin[reg] : in + reg * 4,
+				4 * sizeof(float));
+			out += 4;
+			left &= left - 1;
+		}
+	}
 	draw_resources_used(FALSE, FALSE);
 }
 
@@ -2612,6 +3043,11 @@ static void set_attribute(INT reg, float a, float b, float c, float d)
 	}
 	if (reg < 0 || reg >= XGPU_VERTEX_ATTRIBUTE_COUNT)
 		return;
+	if (device.immediate_active && !(device.immediate_mask & (1UL << reg)))
+	{
+		device.immediate_mask |= 1UL << reg;
+		device.immediate_first[reg] = device.immediate_count;
+	}
 	device.attributes[reg][0] = a;
 	device.attributes[reg][1] = b;
 	device.attributes[reg][2] = c;
@@ -2813,6 +3249,9 @@ void WINAPI D3DDevice_Present(CONST RECT *source_rectangle, CONST RECT *destinat
 	stream_flush();
 	if (screenshot_pixels)
 	{
+		/* (the host writes the pixels as it runs the present, on its render
+		thread: all of it run, and the GPU done) */
+		host_dk_idle();
 		screenshot_write();
 		free(screenshot_pixels);
 		screenshot_pixels = NULL;

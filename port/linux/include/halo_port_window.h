@@ -30,8 +30,10 @@ the original constants. port/linux/src/platform.h owns the window itself.
 #define __HALO_PORT_WINDOW_H
 
 /* where the window is; game sources do not include platform.h, so the base
-is named here (the desktop ports have always had it at 0x80000000) */
-#ifdef HALO_ANDROID
+is named here (the desktop ports have always had it at 0x80000000; the PS5's
+x32 guest, HALO_MOVABLE_WINDOW, has it where its host put it, since the
+console loads a system module at 0x80000000) */
+#if defined(HALO_ANDROID) || defined(HALO_MOVABLE_WINDOW)
 extern unsigned long platform_contiguous_base;
 #define PORT_WINDOW_BASE (platform_contiguous_base)
 #else

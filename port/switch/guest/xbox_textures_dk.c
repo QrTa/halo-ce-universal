@@ -32,7 +32,9 @@ a time, and only the atlas's rows that changed are sent again.
 #include "hud_hires.h"
 #include "menu_files.h"
 #include "text_hires.h"
+#include "../../linux/game/cache_file_formats.h"
 
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -401,7 +403,86 @@ static void decode_level(const struct xgpu_texture_description *description, uns
 		free(x_offsets);
 	}
 }
+/* ---------- the 3D textures' reach (dk_texture_reach) */
+
+#define REACH_LIMIT 16
+
+static unsigned long decoded_bytes(const struct xgpu_texture_description *description, unsigned long level);
+
+static struct
+{
+	unsigned long address;
+	float reach;
+} reaches[REACH_LIMIT];
+static unsigned long reach_count, reach_next;
+
+static void reach_note(const struct xgpu_texture_description *description, unsigned long address,
+	const unsigned char *decoded)
+{
+	float reach = 0.0f;
+	unsigned long level, index;
+
+	/* (its two finest levels: a coarser one is sampled only where the whole
+	of the texture is a few pixels on the screen, a light whose pixels are
+	few, and every texel of the coarsest is a margin of the whole box) */
+	for (level = 0; level < description->levels && level < 2; level++)
+	{
+		unsigned long width = level_dimension(description->width, level);
+		unsigned long height = level_dimension(description->height, level);
+		unsigned long depth = level_dimension(description->depth, level);
+		const unsigned long *texels = (const unsigned long *)decoded;
+		float margin = sqrtf(1.0f / (float)(width * width) + 1.0f / (float)(height * height) +
+			1.0f / (float)(depth * depth));
+		unsigned long x, y, z;
+
+		for (z = 0; z < depth; z++)
+			for (y = 0; y < height; y++)
+				for (x = 0; x < width; x++)
+				{
+					float u, v, w, distance;
+
+					if (!texels[(z * height + y) * width + x])
+						continue;
+					u = ((float)x + 0.5f) / (float)width - 0.5f;
+					v = ((float)y + 0.5f) / (float)height - 0.5f;
+					w = ((float)z + 0.5f) / (float)depth - 0.5f;
+					distance = sqrtf(u * u + v * v + w * w) + margin;
+					if (distance > reach)
+						reach = distance;
+				}
+		decoded += decoded_bytes(description, level);
+	}
+	for (index = 0; index < reach_count && reaches[index].address != address; index++)
+		;
+	if (index == reach_count)
+	{
+		if (reach_count < REACH_LIMIT)
+			reach_count++;
+		else
+			index = reach_next++ % REACH_LIMIT;
+	}
+	reaches[index].address = address;
+	reaches[index].reach = reach;
+	platform_log("3D texture %lux%lux%lu at %08lx: reaches %.3f of its box's 0.866 from its centre", description->width,
+		description->height, description->depth, address, reach);
+}
+
+float dk_texture_reach(unsigned long address)
+{
+	unsigned long index;
+
+	for (index = 0; index < reach_count; index++)
+	{
+		if (reaches[index].address == address)
+			return reaches[index].reach;
+	}
+	return -1.0f;
+}
+
 /* ---------- upload */
+
+/* (Custom Edition channel orders, below) */
+static uint32_t custom_edition_texels_swizzle(unsigned long address);
 
 /* the bytes of a decoded level: 32 bits a texel, whatever the format was */
 static unsigned long decoded_bytes(const struct xgpu_texture_description *description, unsigned long level)
@@ -425,7 +506,7 @@ read where the game keeps it; any other is decoded (all its faces and levels,
 each level after the last, with no padding) into a buffer the host reads when
 it runs the command, which the stream frees once it has been handed over. */
 static void upload(uint32_t id, uint32_t kind, const struct xgpu_texture_description *description,
-	const unsigned char *base, const D3DCOLOR *palette)
+	const unsigned char *base, const D3DCOLOR *palette, uint32_t swizzle)
 {
 	struct format_information information = format_information(description->format);
 	unsigned long face_count = description->cube_map ? 6 : 1;
@@ -463,6 +544,8 @@ static void upload(uint32_t id, uint32_t kind, const struct xgpu_texture_descrip
 				at += decoded_bytes(description, level);
 			}
 		}
+		if (description->depth > 1 && !description->cube_map)
+			reach_note(description, (unsigned long)base, decoded);
 		command = dk_stream_command(DK_COMMAND_TEXTURE, sizeof(*command));
 		command->format = DK_TEXTURE_BGRA;
 		command->source = (uint32_t)(uintptr_t)decoded;
@@ -475,6 +558,7 @@ static void upload(uint32_t id, uint32_t kind, const struct xgpu_texture_descrip
 	command->height = (uint32_t)description->height;
 	command->depth = (uint32_t)description->depth;
 	command->levels = (uint32_t)description->levels;
+	command->swizzle = swizzle;
 	/* (last: it may hand the stream over, which the command is in) */
 	if (decoded)
 		dk_stream_free_after_handover(decoded, total);
@@ -500,6 +584,11 @@ struct texture_entry
 	unsigned long menu_serial;
 	uint32_t menu_id;
 	unsigned long menu_levels;
+	/* the high-res texture drawn for it as a placeholder (the gameplay
+	buttons', and a message icon sheet's: hud_hires_tags.c), or -1, as of
+	placeholder_serial */
+	unsigned long placeholder_serial;
+	long placeholder_asset;
 };
 
 #define TEXTURE_BUCKET_COUNT 4096
@@ -596,6 +685,7 @@ static void image_make(uint32_t id, unsigned long width, unsigned long height, u
 	command->source = 0;
 	command->face_bytes = 0;
 	command->source_bytes = 0;
+	command->swizzle = 0;
 }
 
 /* sends a whole level of BGRA texels, a piece at a time */
@@ -770,36 +860,107 @@ static uint32_t menu_image(unsigned long data, unsigned long *levels)
 	return menu_images[menu_image_count++].id;
 }
 
-/* a high-res HUD bitmap (hud_hires.h): made on first use, and kept */
+/* a high-res HUD bitmap (hud_hires.h): its image made by the host from the
+sheet it decoded, on a thread of its own, as the map loaded or when first
+asked for (host_dk_hud.c), and kept. Till the host has it the original
+bitmap is drawn: made here, at the first frame to draw it, a 2048 by 2048
+sheet held that frame 135 to 180 ms. */
 static struct
 {
 	uint32_t id;
 	unsigned long levels;
 	BOOL tried;
+	/* (the host asked once a frame at most) */
+	unsigned long asked_frame;
 } *hud_images;
 
+static BOOL hud_images_made(void)
+{
+	if (!hud_images)
+		hud_images = calloc(hud_hires_embedded_count, sizeof(*hud_images));
+	return hud_images != NULL;
+}
+
+static void hud_sheet_fill(long asset, struct dk_hud_sheet *sheet)
+{
+	const struct hud_hires_embedded *embedded = &hud_hires_embedded[asset];
+
+	sheet->asset = (uint32_t)asset;
+	sheet->png = (uint32_t)(uintptr_t)embedded->png;
+	sheet->png_size = embedded->png_size;
+	sheet->tag = (uint32_t)(uintptr_t)embedded->tag;
+}
+
+void dk_hud_prepare(const long *assets, long count)
+{
+	struct dk_command_hud_prepare *command;
+	long index, queued = 0;
+
+	if (!hud_images_made() || count <= 0)
+		return;
+	command = dk_stream_command(DK_COMMAND_HUD_PREPARE, sizeof(*command) + (unsigned long)count * sizeof(command->sheets[0]));
+	for (index = 0; index < count; index++)
+	{
+		/* (not one already made) */
+		if (assets[index] >= 0 && assets[index] < (long)hud_hires_embedded_count && !hud_images[assets[index]].tried)
+			hud_sheet_fill(assets[index], &command->sheets[queued++]);
+	}
+	command->count = (uint32_t)queued;
+}
+
+void dk_hud_forget(void)
+{
+	dk_stream_command(DK_COMMAND_HUD_FORGET, sizeof(struct dk_command_hud_forget));
+}
+
+/* its image, or 0: the host's not decoded yet (the original drawn
+meanwhile), or never */
 static uint32_t hud_image(long asset, unsigned long *levels)
 {
-	if (asset < 0 || asset >= (long)hud_hires_embedded_count)
+	*levels = 1;
+	if (asset < 0 || asset >= (long)hud_hires_embedded_count || !hud_images_made())
 		return 0;
-	if (!hud_images)
-	{
-		hud_images = calloc(hud_hires_embedded_count, sizeof(*hud_images));
-		if (!hud_images)
-			return 0;
-	}
 	if (!hud_images[asset].tried)
 	{
 		const struct hud_hires_embedded *embedded = &hud_hires_embedded[asset];
+		const unsigned char *png = (const unsigned char *)embedded->png;
+		int answer;
 
+		if (hud_images[asset].asked_frame == texture_frame + 1)
+			return 0;
+		hud_images[asset].asked_frame = texture_frame + 1;
+		answer = host_dk_hud_ready((unsigned int)asset, (unsigned int)(uintptr_t)embedded->png, embedded->png_size,
+			(unsigned int)(uintptr_t)embedded->tag);
+		if (!answer)
+			return 0;
 		hud_images[asset].tried = TRUE;
-		hud_images[asset].id = png_image(embedded->png, embedded->png_size, &hud_images[asset].levels);
-		if (!hud_images[asset].id)
+		if (answer > 0 && embedded->png_size >= 24 && (hud_images[asset].id = id_take()) != 0)
+		{
+			struct dk_command_hud_image *command = dk_stream_command(DK_COMMAND_HUD_IMAGE, sizeof(*command));
+			unsigned long width = (unsigned long)png[16] << 24 | png[17] << 16 | png[18] << 8 | png[19];
+			unsigned long height = (unsigned long)png[20] << 24 | png[21] << 16 | png[22] << 8 | png[23];
+			unsigned long largest = width > height ? width : height;
+
+			command->id = hud_images[asset].id;
+			hud_sheet_fill(asset, &command->sheet);
+			/* (the host's levels: every one down to 1 by 1) */
+			hud_images[asset].levels = 1;
+			while (largest >> hud_images[asset].levels)
+				hud_images[asset].levels++;
+		}
+		else
 			platform_log("high-res hud: could not decode the texture for %s bitmap %d", embedded->tag,
 				embedded->bitmap);
 	}
 	*levels = hud_images[asset].levels;
 	return hud_images[asset].id;
+}
+
+/* whether it never will have one (not decoded): the original is drawn */
+static BOOL hud_image_failed(long asset)
+{
+	return asset < 0 || asset >= (long)hud_hires_embedded_count ||
+		(hud_images && hud_images[asset].tried && !hud_images[asset].id);
 }
 
 /* an entry's image and description: its replacement's, if it has one (as
@@ -828,6 +989,20 @@ static uint32_t texture_entry_result(struct texture_entry *entry, int *kind, str
 	}
 	levels = entry->menu_levels;
 	if ((id = entry->menu_id) != 0)
+	{
+		*kind = DK_TEXTURE_2D;
+		description->levels = levels;
+		description->hires = TRUE;
+		return id;
+	}
+	/* (a placeholder's texture, looked up again only when the placeholders
+	have changed: as xbox_textures.c's hud_hires_placeholder_texture) */
+	if (entry->placeholder_serial != hud_hires_placeholder_serial())
+	{
+		entry->placeholder_serial = hud_hires_placeholder_serial();
+		entry->placeholder_asset = hud_hires_placeholder_asset(entry->data);
+	}
+	if (entry->placeholder_asset >= 0 && (id = hud_image(entry->placeholder_asset, &levels)) != 0)
 	{
 		*kind = DK_TEXTURE_2D;
 		description->levels = levels;
@@ -922,26 +1097,31 @@ uint32_t dk_texture_get(const DWORD *resource, const D3DCOLOR *palette, int *kin
 		entry->generation = memory_watch_generation(entry->address, entry->size);
 		if (!entry->generation)
 			entry->generation = 1;
+		unsigned long levels;
+
 		/* (which bitmap is here may have changed with the pixels) */
 		entry->override = -1;
 		if (!palettized && !entry->description.cube_map && entry->description.depth == 1)
 		{
-			unsigned long levels;
-
 			entry->override = hud_hires_override_find(entry->address, entry->description.width,
 				entry->description.height, entry->description.levels > 1 ?
 				xgpu_texture_level_offset(&entry->description, 1) : xgpu_texture_face_size(&entry->description));
-			if (entry->override >= 0 && !hud_image(entry->override, &levels))
+			/* (the original uploaded too while the host decodes the sheet: drawn
+			till then) */
+			if (entry->override >= 0 && !hud_image(entry->override, &levels) && hud_image_failed(entry->override))
 				entry->override = -1;
 		}
-		if (entry->override < 0 && platform_is_contiguous((void *)entry->address) &&
+		if ((entry->override < 0 || !hud_image(entry->override, &levels)) &&
+			platform_is_contiguous((void *)entry->address) &&
 			platform_is_contiguous((void *)(entry->address + entry->size - 1)))
 		{
 			if (config_boolean("debug.texture_log"))
-				platform_log("texture upload %08lx fmt %02lx %lux%lu size %lu gen %lu id %u", (unsigned long)data,
-					(unsigned long)entry->description.format, entry->description.width, entry->description.height,
+				platform_log("texture upload %08lx fmt %02lx %lux%lux%lu, %lu levels, kind %u, size %lu gen %lu id %u",
+					(unsigned long)data, (unsigned long)entry->description.format, entry->description.width,
+					entry->description.height, entry->description.depth, entry->description.levels, (unsigned)entry->kind,
 					entry->size, entry->generation, (unsigned)entry->id);
-			upload(entry->id, entry->kind, &entry->description, (const unsigned char *)entry->address, palette);
+			upload(entry->id, entry->kind, &entry->description, (const unsigned char *)entry->address, palette,
+				custom_edition_texels_swizzle(entry->address));
 		}
 	}
 	entry->last_used_frame = texture_frame;
@@ -993,19 +1173,102 @@ void xgpu_texture_cache_begin_frame(void)
 
 /* ---------- Custom Edition channel orders (platform.h)
 
-xbox_textures.c samples the textures of a Halo Custom Edition map whose
-channels Halo PC keeps elsewhere with each channel taken from where it is.
-This cache does not: a Custom Edition map's tag data is linked at 0x40440000,
-where this build's game image is (port/android/include/halo_android_abi.h),
-so its tag cache is never reserved (xbox_memory.c) and no Custom Edition map
-loads here. Every texture is sampled in the Xbox's order. */
+Halo PC keeps what some textures hold in other channels than the game reads
+it from (enum custom_edition_channel_order): a model shader's multipurpose
+masks, and a HUD meter's shape and fill order. A Custom Edition map's
+loading (port/linux/game/custom_edition_bitmaps.c) and the mods, whose
+bitmaps are Halo PC's too (port/linux/game/mod_bitmaps.c), say which texels
+hold which order as they arrive. A texture made of them is sampled with each
+channel taken from where Halo PC keeps it, by its image's swizzle, which
+leaves it as compressed as it was; unlisted, a multipurpose map lent its
+specular mask's place to its auxiliary mask (a mod's cyborg visor did not
+reflect). Addresses stay listed until other texels arrive there, which the
+loading also says, or the map goes; the game and the cache share a thread.
+As xbox_textures.c, whose list this is. */
+
+/* for each order, the channel (red, green, blue, alpha) of the texels each
+channel is sampled from */
+static const unsigned char custom_edition_channel_sources[NUMBER_OF_CUSTOM_EDITION_CHANNEL_ORDERS][4] =
+{
+	{ 0, 1, 2, 3 },
+	/* specular, self-illumination, color change and the auxiliary mask */
+	{ 2, 1, 3, 0 },
+	/* the fill order in color, the shape in alpha */
+	{ 3, 3, 3, 0 },
+};
+
+struct custom_edition_texels
+{
+	unsigned long address;
+	unsigned char channel_order;
+};
+
+static struct custom_edition_texels *custom_edition_texels;
+static unsigned long custom_edition_texel_count;
+static unsigned long custom_edition_texel_capacity;
+
+/* the swizzle of the texels at address (dk_command_texture's), 0 for the
+Xbox's order */
+static uint32_t custom_edition_texels_swizzle(unsigned long address)
+{
+	unsigned long index;
+
+	for (index = 0; index < custom_edition_texel_count; index++)
+	{
+		if (custom_edition_texels[index].address == address)
+		{
+			const unsigned char *sources = custom_edition_channel_sources[custom_edition_texels[index].channel_order];
+
+			return (uint32_t)sources[0] | (uint32_t)sources[1] << 8 | (uint32_t)sources[2] << 16 |
+				(uint32_t)sources[3] << 24;
+		}
+	}
+	return 0;
+}
 
 void halo_custom_edition_texels_channels(const void *texels, unsigned char channel_order)
 {
-	(void)texels;
-	(void)channel_order;
+	unsigned long address = (unsigned long)texels;
+	unsigned long index;
+
+	if (channel_order >= NUMBER_OF_CUSTOM_EDITION_CHANNEL_ORDERS)
+		channel_order = _custom_edition_channels_xbox;
+	for (index = 0; index < custom_edition_texel_count && custom_edition_texels[index].address != address; index++)
+	{
+	}
+	if (index < custom_edition_texel_count)
+	{
+		if (channel_order == _custom_edition_channels_xbox)
+			custom_edition_texels[index] = custom_edition_texels[--custom_edition_texel_count];
+		else
+			custom_edition_texels[index].channel_order = channel_order;
+	}
+	else if (channel_order != _custom_edition_channels_xbox)
+	{
+		if (custom_edition_texel_count == custom_edition_texel_capacity)
+		{
+			unsigned long capacity = custom_edition_texel_capacity ? custom_edition_texel_capacity * 2 : 64;
+			struct custom_edition_texels *grown = realloc(custom_edition_texels, capacity * sizeof(*grown));
+
+			if (!grown)
+			{
+				platform_log("no memory to list the texels at %08lx: they are sampled in Halo PC's channel order",
+					address);
+				return;
+			}
+			custom_edition_texels = grown;
+			custom_edition_texel_capacity = capacity;
+		}
+		custom_edition_texels[custom_edition_texel_count].address = address;
+		custom_edition_texels[custom_edition_texel_count].channel_order = channel_order;
+		custom_edition_texel_count++;
+	}
 }
 
 void halo_custom_edition_texels_forget(void)
 {
+	free(custom_edition_texels);
+	custom_edition_texels = NULL;
+	custom_edition_texel_count = 0;
+	custom_edition_texel_capacity = 0;
 }

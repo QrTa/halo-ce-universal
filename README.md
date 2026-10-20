@@ -2,13 +2,14 @@
 
 # OpenCE Ports
 
-**Halo: Combat Evolved on Android phones and handhelds and on the Nintendo Switch, built from the decompilation of the Xbox game.**
+**Halo: Combat Evolved on Android phones and handhelds, the Nintendo Switch and the PlayStation 5, built from the decompilation of the Xbox game.**
 
 [![Latest release](https://img.shields.io/github/v/release/thelinkin3000/halo-ce-universal?label=latest&color=2ea44f)](https://github.com/thelinkin3000/halo-ce-universal/releases/latest)
 [![Downloads](https://img.shields.io/github/downloads/thelinkin3000/halo-ce-universal/total?color=blue)](https://github.com/thelinkin3000/halo-ce-universal/releases)
 [![Android](https://img.shields.io/badge/Android-Vulkan%20%C2%B7%20Turnip%20%C2%B7%20OpenGL%20ES-3ddc84?logo=android&logoColor=white)](#android)
 [![Nintendo Switch](https://img.shields.io/badge/Switch-deko3d-e60012)](#nintendo-switch)
-[![License: CC0](https://img.shields.io/badge/license-CC0--1.0-lightgrey)](LICENSE.md)
+[![PlayStation 5](https://img.shields.io/badge/PS5-Vulkan%20%C2%B7%20RADV-003791)](#playstation-5)
+[![License: AGPL-3.0-or-later](https://img.shields.io/badge/license-AGPL--3.0--or--later-blue)](LICENSE)
 [![Discord](https://img.shields.io/badge/Discord-join%20the%20server-5865F2?logo=discord&logoColor=white)](https://discord.gg/9gqcHyr5km)
 
 [**Download**](#download) ·
@@ -21,14 +22,14 @@
 [Discord](https://discord.gg/9gqcHyr5km)
 
 <!-- Videos and screenshots from a contributor go here: one large capture,
-then a row of three, each taken on a phone or on a Switch. -->
+then a row of three, each taken on a phone, a Switch or a PS5. -->
 
 </div>
 
 It is not an emulator. The game's own code, decompiled from the Xbox build
-2342, is compiled for the device's ARM processor. Its Direct3D 8 rendering
-is translated to **Vulkan** on Android and to **deko3d**, the Switch's own
-GPU interface, on the Switch.
+2342, is compiled for the device's processor (ARM, or the PS5's x86-64).
+Its Direct3D 8 rendering is translated to **Vulkan** on Android and the PS5
+and to **deko3d**, the Switch's own GPU interface, on the Switch.
 
 > [!IMPORTANT]
 > **No game data is included.** You need your own **Xbox** disc image of
@@ -41,10 +42,18 @@ GPU interface, on the Switch.
 > "updates" or donation requests offered anywhere else under this project's
 > name are not from us.
 
+<div align="center">
+
+[![Halo Combat Evolved - Nintendo Switch: watch on YouTube](https://img.youtube.com/vi/imNdnKszCVI/maxresdefault.jpg)](https://www.youtube.com/watch?v=imNdnKszCVI)
+
+*Halo: Combat Evolved on the Nintendo Switch (video by puginatux).*
+
+</div>
+
 ## Contents
 
 - [What works](#what-works) · [Known issues](#known-issues)
-- [Download](#download) · [Install](#install): [Android](#android), [Nintendo Switch](#nintendo-switch), [updating](#updating)
+- [Download](#download) · [Install](#install): [Android](#android), [Nintendo Switch](#nintendo-switch), [PlayStation 5](#playstation-5), [updating](#updating)
 - [Graphics: Vulkan, Turnip and deko3d](#graphics-vulkan-turnip-and-deko3d)
 - [Multiplayer](#multiplayer) · [Controls](#controls)
 - [Reporting a problem](#reporting-a-problem)
@@ -57,6 +66,7 @@ GPU interface, on the Switch.
 | 🎮 **Campaign** | The whole campaign, with checkpoints, saves and cinematics. Xbox maps of every region; PAL maps are made to play as NTSC ones. |
 | 🖼️ **Vulkan on Android** | The default renderer. On Qualcomm Adreno GPUs the app can download and use **Turnip**, Mesa's open-source driver, in place of the phone's own. OpenGL ES 3 is still there as a fallback. |
 | 🟥 **deko3d on the Switch** | A renderer written for the console's GPU, docked at 1080p or handheld at 720p, switching on its own when you dock. |
+| 🟦 **The PS5** | A homebrew title for a jailbroken console: up to native 4K at 120 frames a second, aiming with the DualSense's gyroscope, voice chat through the pad's microphone. |
 | 👥 **Split screen** | Up to four players on one device, with one controller each. |
 | 🌐 **Multiplayer** | System link on the local network and internet play through invite links and the server browser, with voice chat. |
 | 🗺️ **Custom maps** | Xbox maps and Halo PC / Custom Edition maps, downloaded from the host when you join without them. |
@@ -88,6 +98,7 @@ These links always point to the latest one:
 | --- | --- | --- |
 | Android | [halo-android-release.zip](https://github.com/thelinkin3000/halo-ce-universal/releases/latest/download/halo-android-release.zip) | [halo-android-debug.zip](https://github.com/thelinkin3000/halo-ce-universal/releases/latest/download/halo-android-debug.zip) |
 | Nintendo Switch | [halo-switch-release.zip](https://github.com/thelinkin3000/halo-ce-universal/releases/latest/download/halo-switch-release.zip) | [halo-switch-debug.zip](https://github.com/thelinkin3000/halo-ce-universal/releases/latest/download/halo-switch-debug.zip) |
+| PlayStation 5 | [halo-ps5-release.zip](https://github.com/thelinkin3000/halo-ce-universal/releases/latest/download/halo-ps5-release.zip) | [halo-ps5-debug.zip](https://github.com/thelinkin3000/halo-ce-universal/releases/latest/download/halo-ps5-debug.zip) |
 
 Use the release build to play. The debug build stops at the first failed
 assertion and writes it to the log, which makes it the one to use when
@@ -128,12 +139,31 @@ well. Saves go in `sdmc:/switch/halo/save/` and settings in
 `sdmc:/switch/halo/config.toml`. See
 [port/switch/README.md](port/switch/README.md).
 
+### PlayStation 5
+
+The PS5 build is a homebrew title, for a console on system software 13.60
+or lower, jailbroken (the Relapse exploit, or another kernel exploit, then
+kstuff), with ShadowMountPlus 1.7beta5 or later and an FTP server such as
+ftpsrv.
+
+1. Unzip the download on your computer, and copy its `PPSA99500` folder
+   into `/data/homebrew` on the console over FTP.
+2. Make the folder `/data/halo` and copy your disc image into it.
+3. Start Halo: Combat Evolved from the home screen. On the first start it
+   unpacks the maps (under a minute); notifications show how far it has
+   got.
+
+Saves and settings go in `/data/halo`. See
+[port/ps5/README.md](port/ps5/README.md).
+
 ### Updating
 
 The game updates itself: when it starts, it looks for a newer release and
 asks whether you want it. `update.auto = false` in `config.toml` turns the
-check off. To update by hand, install the new APK over the old one, or
-copy the new files over the old ones on the SD card. Your saves and settings stay.
+check off. On the PS5 it downloads the new release while you play and
+tells you to close the game and start it again. To update by hand, install
+the new APK over the old one, or copy the new files over the old ones on
+the SD card or the console. Your saves and settings stay.
 
 ## Graphics: Vulkan, Turnip and deko3d
 
@@ -155,15 +185,21 @@ Vulkan" in [port/android/README.md](port/android/README.md).
 through a renderer written for it ([port/switch/DEKO3D.md](port/switch/DEKO3D.md)).
 There is nothing to set.
 
+**The PS5** draws with the same Vulkan renderer as Android, on RADV, Mesa's
+driver for AMD's GPUs, built for the console by
+[PS5_Vulkan](https://github.com/mpereiraesaa/PS5_Vulkan). Its VIDEO SETUP has
+MAXIMUM RESOLUTION (2160P, 1440P or 1080P). The first visit to each place
+can stutter while its shaders are made; the second is smooth.
+
 ## Multiplayer
 
-- **System link** on a local network, with up to 128 players. Android phones
-  and Switches on the same network see each other's games.
+- **System link** on a local network, with up to 128 players. Android phones,
+  Switches and PS5s on the same network see each other's games.
 - **Internet play:** the host's invite link (Android puts it on the
   clipboard, and opens `halo://join/...` links), or the server browser.
   No server of this project is needed.
-- **Voice chat**, with the phone's microphone or a headset in the Switch's
-  jack.
+- **Voice chat**, with the phone's microphone, a headset in the Switch's
+  jack, or the DualSense's microphone.
 - **Split screen** for up to four players on one device.
 - **Custom maps** are sent by the host to players who don't have them.
 
@@ -265,7 +301,9 @@ To build the game:
 | Target | Result |
 | --- | --- |
 | `ninja linux` | `build/linux/halo` |
-| `ninja windows` (on Windows) | `build/windows/halo.exe` and `SDL3.dll` |
+| `ninja linux_arm64` (on 64-bit ARM Linux) | `build/linux_arm64/halo` and `libSDL3.so.0` |
+| `ninja linux_x86_64` (on 64-bit x86 Linux, after `python configure.py --linux-x86-64`) | `build/linux_x86_64/halo` and `libSDL3.so.0` |
+| `ninja windows` (on Windows, or on Linux after `configure.py --windows-cross`) | `build/windows/halo.exe` and `SDL3.dll` |
 | `ninja android_apk` | `port/android/app/build/outputs/apk/debug/app-debug.apk` |
 | `ninja switch` | `build/switch/halo.nro` and `build/switch/halo_guest.elf` |
 
@@ -286,7 +324,7 @@ sudo dkp-pacman -S --needed devkitA64 libnx switch-sdl2 switch-mesa switch-libdr
 ELF is the game image it loads from the card.
 
 If you enter `ninja` without a target, ninja builds the game for the
-computer that you use.
+computer that you use: on 64-bit x86 Linux, the x86 build (`ninja linux`).
 
 `tools/ci_build.py` makes the same builds as GitHub Actions. For example,
 enter `python tools/ci_build.py linux release`.
@@ -387,5 +425,11 @@ endorsed by Microsoft, Bungie or 343 Industries.
 
 ## License
 
-[CC0 1.0](LICENSE.md). Third-party code under `port/third_party` keeps its
-own license.
+This fork includes OpenCE's code, which OpenCE moved to the GNU Affero
+General Public License, version 3 or (at your option) any later version
+(`AGPL-3.0-or-later`), in its commit `4b09168e7`. The full text is in
+[LICENSE](LICENSE). The commits before that change came into this fork,
+and the releases built from them (up to Build 106), were released under
+[CC0 1.0](LICENSES/CC0-1.0.txt) and stay that way. Third-party code under
+`port/third_party`, and the fonts and art under `port/assets`, keep their
+own licenses.

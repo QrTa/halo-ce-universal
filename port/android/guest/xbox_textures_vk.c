@@ -25,6 +25,7 @@ VK_HIRES says whether they are on).
 #include "hud_hires.h"
 #include "menu_files.h"
 #include "text_hires.h"
+#include "../../linux/game/cache_file_formats.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -399,6 +400,9 @@ static void decode_level(const struct xgpu_texture_description *description, uns
 }
 /* ---------- upload */
 
+/* (Custom Edition channel orders, below) */
+static uint32_t custom_edition_texels_swizzle(unsigned long address);
+
 /* the bytes of a decoded level: 32 bits a texel, whatever the format was */
 static unsigned long decoded_bytes(const struct xgpu_texture_description *description, unsigned long level)
 {
@@ -574,7 +578,7 @@ static void data_send(uint32_t id, unsigned long level, unsigned long face, cons
 /* Sends a texture's texels to the host as image id: the image's description, then every level of every face. A compressed
 texture is read where the game keeps it (BC) or decoded; any other is decoded to BGRA. */
 static void upload(uint32_t id, uint32_t kind, const struct xgpu_texture_description *description,
-	const unsigned char *base, const D3DCOLOR *palette)
+	const unsigned char *base, const D3DCOLOR *palette, uint32_t swizzle)
 {
 	struct format_information information = format_information(description->format);
 	unsigned long face_count = description->cube_map ? 6 : 1;
@@ -592,6 +596,7 @@ static void upload(uint32_t id, uint32_t kind, const struct xgpu_texture_descrip
 	command->height = (uint32_t)description->height;
 	command->depth = (uint32_t)description->depth;
 	command->levels = (uint32_t)description->levels;
+	command->swizzle = swizzle;
 	if (!native)
 	{
 		converted = malloc(decoded_bytes(description, 0));
@@ -640,6 +645,11 @@ struct texture_entry
 	unsigned long menu_serial;
 	uint32_t menu_id;
 	unsigned long menu_levels;
+	/* the high-res texture drawn for it as a placeholder (the gameplay
+	buttons', and a message icon sheet's: hud_hires_tags.c), or -1, as of
+	placeholder_serial */
+	unsigned long placeholder_serial;
+	long placeholder_asset;
 };
 
 #define TEXTURE_BUCKET_COUNT 4096
@@ -724,6 +734,7 @@ static void image_make(uint32_t id, unsigned long width, unsigned long height, u
 	command->height = (uint32_t)height;
 	command->depth = 1;
 	command->levels = (uint32_t)levels;
+	command->swizzle = 0;
 }
 
 /* sends a whole level of BGRA texels */
@@ -975,6 +986,20 @@ static uint32_t texture_entry_result(struct texture_entry *entry, int *kind, str
 		description->hires = TRUE;
 		return id;
 	}
+	/* (a placeholder's texture, looked up again only when the placeholders
+	have changed: as xbox_textures.c's hud_hires_placeholder_texture) */
+	if (entry->placeholder_serial != hud_hires_placeholder_serial())
+	{
+		entry->placeholder_serial = hud_hires_placeholder_serial();
+		entry->placeholder_asset = hud_hires_placeholder_asset(entry->data);
+	}
+	if (entry->placeholder_asset >= 0 && (id = hud_image(entry->placeholder_asset, &levels)) != 0)
+	{
+		*kind = VK_IMAGE_2D;
+		description->levels = levels;
+		description->hires = TRUE;
+		return id;
+	}
 	if (entry->override >= 0 && (id = hud_image(entry->override, &levels)) != 0)
 	{
 		*kind = VK_IMAGE_2D;
@@ -1086,7 +1111,8 @@ uint32_t vk_texture_get(const DWORD *resource, const D3DCOLOR *palette, int *kin
 				platform_log("texture upload %08lx fmt %02lx %lux%lu size %lu gen %lu id %u", (unsigned long)data,
 					(unsigned long)entry->description.format, entry->description.width, entry->description.height,
 					entry->size, entry->generation, (unsigned)entry->id);
-			upload(entry->id, entry->kind, &entry->description, (const unsigned char *)entry->address, palette);
+			upload(entry->id, entry->kind, &entry->description, (const unsigned char *)entry->address, palette,
+				custom_edition_texels_swizzle(entry->address));
 		}
 	}
 	entry->last_used_frame = texture_frame;
@@ -1138,19 +1164,102 @@ void vk_texture_cache_begin_frame(void)
 
 /* ---------- Custom Edition channel orders (platform.h)
 
-xbox_textures.c samples the textures of a Halo Custom Edition map whose
-channels Halo PC keeps elsewhere with each channel taken from where it is.
-This cache does not: a Custom Edition map's tag data is linked at 0x40440000,
-where this build's game image is (port/android/include/halo_android_abi.h),
-so its tag cache is never reserved (xbox_memory.c) and no Custom Edition map
-loads here. Every texture is sampled in the Xbox's order. */
+Halo PC keeps what some textures hold in other channels than the game reads
+it from (enum custom_edition_channel_order): a model shader's multipurpose
+masks, and a HUD meter's shape and fill order. A Custom Edition map's
+loading (port/linux/game/custom_edition_bitmaps.c) and the mods, whose
+bitmaps are Halo PC's too (port/linux/game/mod_bitmaps.c), say which texels
+hold which order as they arrive. A texture made of them is sampled with each
+channel taken from where Halo PC keeps it, by its image's swizzle, which
+leaves it as compressed as it was; unlisted, a multipurpose map lent its
+specular mask's place to its auxiliary mask (a mod's cyborg visor did not
+reflect). Addresses stay listed until other texels arrive there, which the
+loading also says, or the map goes; the game and the cache share a thread.
+As xbox_textures.c, whose list this is. */
+
+/* for each order, the channel (red, green, blue, alpha) of the texels each
+channel is sampled from */
+static const unsigned char custom_edition_channel_sources[NUMBER_OF_CUSTOM_EDITION_CHANNEL_ORDERS][4] =
+{
+	{ 0, 1, 2, 3 },
+	/* specular, self-illumination, color change and the auxiliary mask */
+	{ 2, 1, 3, 0 },
+	/* the fill order in color, the shape in alpha */
+	{ 3, 3, 3, 0 },
+};
+
+struct custom_edition_texels
+{
+	unsigned long address;
+	unsigned char channel_order;
+};
+
+static struct custom_edition_texels *custom_edition_texels;
+static unsigned long custom_edition_texel_count;
+static unsigned long custom_edition_texel_capacity;
+
+/* the swizzle of the texels at address (dk_command_texture's), 0 for the
+Xbox's order */
+static uint32_t custom_edition_texels_swizzle(unsigned long address)
+{
+	unsigned long index;
+
+	for (index = 0; index < custom_edition_texel_count; index++)
+	{
+		if (custom_edition_texels[index].address == address)
+		{
+			const unsigned char *sources = custom_edition_channel_sources[custom_edition_texels[index].channel_order];
+
+			return (uint32_t)sources[0] | (uint32_t)sources[1] << 8 | (uint32_t)sources[2] << 16 |
+				(uint32_t)sources[3] << 24;
+		}
+	}
+	return 0;
+}
 
 void halo_custom_edition_texels_channels(const void *texels, unsigned char channel_order)
 {
-	(void)texels;
-	(void)channel_order;
+	unsigned long address = (unsigned long)texels;
+	unsigned long index;
+
+	if (channel_order >= NUMBER_OF_CUSTOM_EDITION_CHANNEL_ORDERS)
+		channel_order = _custom_edition_channels_xbox;
+	for (index = 0; index < custom_edition_texel_count && custom_edition_texels[index].address != address; index++)
+	{
+	}
+	if (index < custom_edition_texel_count)
+	{
+		if (channel_order == _custom_edition_channels_xbox)
+			custom_edition_texels[index] = custom_edition_texels[--custom_edition_texel_count];
+		else
+			custom_edition_texels[index].channel_order = channel_order;
+	}
+	else if (channel_order != _custom_edition_channels_xbox)
+	{
+		if (custom_edition_texel_count == custom_edition_texel_capacity)
+		{
+			unsigned long capacity = custom_edition_texel_capacity ? custom_edition_texel_capacity * 2 : 64;
+			struct custom_edition_texels *grown = realloc(custom_edition_texels, capacity * sizeof(*grown));
+
+			if (!grown)
+			{
+				platform_log("no memory to list the texels at %08lx: they are sampled in Halo PC's channel order",
+					address);
+				return;
+			}
+			custom_edition_texels = grown;
+			custom_edition_texel_capacity = capacity;
+		}
+		custom_edition_texels[custom_edition_texel_count].address = address;
+		custom_edition_texels[custom_edition_texel_count].channel_order = channel_order;
+		custom_edition_texel_count++;
+	}
 }
 
 void halo_custom_edition_texels_forget(void)
 {
+	free(custom_edition_texels);
+	custom_edition_texels = NULL;
+	custom_edition_texel_count = 0;
+	custom_edition_texel_capacity = 0;
 }

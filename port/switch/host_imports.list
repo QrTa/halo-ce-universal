@@ -23,3 +23,7 @@ host_sdl_gamepad_gyro
 host_storage_commit
 host_clock_cpu
 host_dk_output_height
+host_dk_gpu_frame_us
+# the high-res HUD's sheets, decoded by the host (port/switch/host/host_dk_hud.c):
+# png and tag are guest addresses
+host_dk_hud_ready

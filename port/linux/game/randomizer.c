@@ -56,7 +56,7 @@ off. Each map read is a donor of one pack or the other.
 #include "units/units.h"
 
 #include "halo_port_limits.h"
-#include "platform.h"
+void platform_log(char const *format, ...);
 #include "randomizer.h"
 #include "tag_schema.h"
 

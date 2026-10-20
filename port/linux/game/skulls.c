@@ -53,7 +53,6 @@ makes the same.
 #include "game/players.h"
 
 #include "halo_port_limits.h"
-#include "platform.h"
 #include "custom_edition_cache.h"
 #include "randomizer.h"
 

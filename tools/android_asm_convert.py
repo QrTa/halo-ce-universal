@@ -9,13 +9,24 @@ symbol decoration and relocation operators are Darwin-specific. This script
 rewrites them for the ELF assembler, so the objects can be linked by ld.lld
 into an image that the Android loader maps into the low 4 GB of the process.
 
+One kind of instruction is also replaced: a conversion from floating point
+to an integer that stays in a SIMD register (``fcvtzs s0, s1``). The ARM
+translation of the x86 Android emulator does not have these, and stops the
+app with SIGILL at the first one (the HUD's, once a game is drawn).
+
 Usage: android_asm_convert.py input.s output.s
 """
 
 import re
 import sys
 
-IDENT = re.compile(r'"[^"]*"|[A-Za-z_.$][\w.$]*')
+# a quoted name (its escapes kept: \" does not end it) or a plain one
+IDENT = re.compile(r'"(?:[^"\\]|\\.)*"|[A-Za-z_.$][\w.$]*')
+
+# directives whose operands are string literals, the same in both
+# syntaxes: they go through as they are, never renamed as symbols (data
+# starting with "_" would lose that byte)
+STRING_DIRECTIVES = {".ascii", ".asciz", ".string"}
 
 # Names the ELF assembler parses as registers. A Mach-O symbol is written with
 # a leading underscore (_x16 is Monocypher's static x16); stripping it leaves
@@ -27,9 +38,6 @@ REGISTERS = frozenset(
     + [f"{prefix}{index}" for prefix in ("x", "w") for index in range(31)]
     + [f"{prefix}{index}" for prefix in ("v", "q", "d", "s", "h", "b") for index in range(32)]
 )
-
-# directives whose quoted operands are text, not symbols' names
-STRING_DIRECTIVES = {".ascii", ".asciz", ".string"}
 
 DROP_DIRECTIVES = {
     ".subsections_via_symbols", ".build_version", ".watchos_version_min",
@@ -47,6 +55,12 @@ RODATA_SECTIONS = {
     "__cstring", "__const", "__literal4", "__literal8", "__literal16",
     "__ustring",
 }
+
+# the scalar conversions to an integer in a SIMD register, which the
+# emulator's ARM translation lacks: fcvt{a,m,n,p,z}{s,u} sN/dN, sM/dM, with
+# an optional number of fraction bits
+SCALAR_FP_TO_INT = re.compile(r"^fcvt[amnpz][su]$")
+SCALAR_FP_TO_INT_OPERANDS = re.compile(r"^([sd])(\d+)\s*,\s*([sd])(\d+)\s*(,\s*#\d+)?$")
 
 
 class ConvertError(Exception):
@@ -255,6 +269,17 @@ class Converter:
             if op != "ldr" or not gm:
                 raise ConvertError("unsupported GOT access: " + stripped)
             self.emit(f"\tadd x{gm.group(2)}, {gm.group(3)}, :lo12:{self.sym(gm.group(4))}")
+            return
+        cm = SCALAR_FP_TO_INT_OPERANDS.match(args) if SCALAR_FP_TO_INT.match(op) else None
+        if cm and cm.group(1) == cm.group(3):
+            # the vector form on a copy of the operand: the copy clears the
+            # rest of the register, whose lanes then convert 0.0 to 0, so the
+            # register and the exception flags end as the scalar form leaves
+            # them
+            size, d, n = cm.group(1), cm.group(2), cm.group(4)
+            lanes = "2s" if size == "s" else "2d"
+            self.emit(f"\tfmov {size}{d}, {size}{n}")
+            self.emit(f"\t{op} v{d}.{lanes}, v{d}.{lanes}{cm.group(5) or ''}")
             return
         self.emit(f"\t{op} {self.operands(args)}" if args else f"\t{op}")
 

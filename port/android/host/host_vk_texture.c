@@ -316,7 +316,8 @@ void host_vk_texture_command(const struct vk_command_texture *command)
 	}
 	image = images[command->id];
 	if (image && image->kind == command->kind && image->format == command->format && image->width == command->width &&
-		image->height == command->height && image->depth == command->depth && image->levels == command->levels)
+		image->height == command->height && image->depth == command->depth && image->levels == command->levels &&
+		image->swizzle == command->swizzle)
 		return; /* the same image: its texels are replaced by the data that follows */
 	if (image)
 	{
@@ -337,6 +338,7 @@ void host_vk_texture_command(const struct vk_command_texture *command)
 	image->depth = command->kind == VK_IMAGE_3D ? command->depth : 1;
 	image->levels = command->levels;
 	image->layers = layers;
+	image->swizzle = command->swizzle;
 	image->layout = VK_IMAGE_LAYOUT_UNDEFINED;
 	info.imageType = command->kind == VK_IMAGE_3D ? VK_IMAGE_TYPE_3D : VK_IMAGE_TYPE_2D;
 	info.flags = command->kind == VK_IMAGE_CUBE ? VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT : 0;
@@ -368,6 +370,14 @@ void host_vk_texture_command(const struct vk_command_texture *command)
 	view.viewType = command->kind == VK_IMAGE_3D ? VK_IMAGE_VIEW_TYPE_3D : command->kind == VK_IMAGE_CUBE ?
 		VK_IMAGE_VIEW_TYPE_CUBE : VK_IMAGE_VIEW_TYPE_2D;
 	view.format = format;
+	if (command->swizzle)
+	{
+		VkComponentSwizzle *components[4] = { &view.components.r, &view.components.g, &view.components.b, &view.components.a };
+		uint32_t channel;
+
+		for (channel = 0; channel < 4; channel++)
+			*components[channel] = (VkComponentSwizzle)(VK_COMPONENT_SWIZZLE_R + ((command->swizzle >> (8 * channel)) & 3));
+	}
 	view.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
 	view.subresourceRange.levelCount = command->levels;
 	view.subresourceRange.layerCount = layers;

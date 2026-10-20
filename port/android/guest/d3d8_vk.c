@@ -44,8 +44,11 @@ void d3d8_surface_initialize(D3DSurface *surface, D3DFORMAT format, unsigned lon
 void d3d8_surface_resize(D3DSurface *surface, D3DFORMAT format, unsigned long width, unsigned long height);
 
 /* what the context supports: xbox_textures.c reads it (as d3d8_gl.c
-defines it on Android); nothing here is OpenGL, so nothing is supported */
+defines it on Android); nothing here is OpenGL, so nothing is supported.
+(OpenGL ES's only, xgpu.h: a desktop guest, the PS5's, has none.) */
+#ifdef HALO_GLES
 struct xgpu_capabilities xgpu_capabilities;
+#endif
 
 /* whether two copies of a state are the same, compared a word at a time:
 musl's memcmp goes a byte at a time, and every draw compares several
@@ -107,7 +110,8 @@ static void screen_mode_choose(long *width, float scale[2])
 	if (*width > 1600)
 		*width = 1600;
 	*width &= ~1L;
-	scale[0] = scale[1] = 1.0f;
+	/* (display.resolution_limit's lines, the screen's at most: sdl_platform.c) */
+	scale[0] = scale[1] = platform_resolution_scale();
 #else
 	long display_width, display_height;
 
@@ -152,6 +156,69 @@ float halo_screen_scale(void)
 {
 	halo_screen_width();
 	return screen_scale[0] > screen_scale[1] ? screen_scale[0] : screen_scale[1];
+}
+
+/* display.model_detail (as d3d8_gl.c's): "stock" chooses a model's level of
+detail by the Xbox's 480 lines, "native" by the display's, "highest" draws
+the most detailed level of whatever is drawn at all */
+enum
+{
+	_model_detail_stock,
+	_model_detail_native,
+	_model_detail_highest,
+};
+
+/* (read again only when a setting changes: every model asks, every frame) */
+static int model_detail_setting(void)
+{
+	static unsigned long read_at = (unsigned long)-1;
+	static int value;
+
+	if (read_at != config_changes())
+	{
+		const char *setting = config_string("display.model_detail");
+
+		read_at = config_changes();
+		value = !strcmp(setting, "native") ? _model_detail_native :
+			!strcmp(setting, "highest") ? _model_detail_highest : _model_detail_stock;
+	}
+	return value;
+}
+
+int halo_model_detail_stock(void)
+{
+	return model_detail_setting() == _model_detail_stock;
+}
+
+float halo_model_detail_scale(int level)
+{
+	float display_scale;
+
+	if (model_detail_setting() == _model_detail_stock)
+		return 1.0f;
+	if (model_detail_setting() == _model_detail_highest && level)
+		return 1.0e6f;
+	display_scale = halo_screen_pixel_scale();
+	return display_scale > 1.0f ? display_scale : 1.0f;
+}
+
+/* (the OpenGL renderer's alone, which the settings offer only there:
+display.overshield_effect's fade up the body, which this renderer's vertex
+shaders do not draw, and display.hdr's tone mapping) */
+void d3d8_gl_set_height_fade(float inverse_softness, float height, float offset, float scale)
+{
+	(void)inverse_softness;
+	(void)height;
+	(void)offset;
+	(void)scale;
+}
+
+void halo_screen_tone_map(short x0, short y0, short x1, short y1)
+{
+	(void)x0;
+	(void)y0;
+	(void)x1;
+	(void)y1;
 }
 
 void halo_screen_ui_offset(unsigned char centered)
@@ -529,6 +596,8 @@ Commands are written here over a frame and handed to the host half
 host reads them during the call and nothing later. */
 
 void host_vk_submit(unsigned int commands, unsigned int size);
+/* the highest submission the GPU has finished (imported, not yet called) */
+unsigned int host_vk_retired(void);
 /* the shader service (host_vk_shaders.c; the imports pass a 64-bit hash in one register) */
 void host_vk_shader_compile(uint32_t stage, uint64_t hash, uint32_t glsl, uint32_t glsl_size);
 uint32_t host_vk_shader_find(uint32_t stage, uint64_t hash, uint32_t status_out);
@@ -789,6 +858,24 @@ void halo_texture_clip(unsigned char clip, float low, float high)
 	(void)high;
 }
 
+void halo_texture_clip_stage(short stage, unsigned char three_dimensional, float low, float high)
+{
+	(void)stage;
+	(void)three_dimensional;
+	(void)low;
+	(void)high;
+}
+
+/* (only the Switch's renderer narrows its scissor: d3d8_dk.c) */
+void halo_draw_scissor(unsigned char on, float x0, float y0, float x1, float y1)
+{
+	(void)on;
+	(void)x0;
+	(void)y0;
+	(void)x1;
+	(void)y1;
+}
+
 /* (only the Switch's renderer draws the zoom's blur small: d3d8_dk.c) */
 unsigned char halo_screen_fast_warp(void)
 {
@@ -798,6 +885,11 @@ unsigned char halo_screen_fast_warp(void)
 void halo_screen_warp_blend(unsigned char on)
 {
 	(void)on;
+}
+
+unsigned char halo_screen_fast_blur(void)
+{
+	return 0;
 }
 
 /* display.anti_aliasing's FXAA over a window's 3D view (render.c calls this before the HUD and menus are drawn over it):
@@ -1849,6 +1941,40 @@ sampler (mode 0x11 a 2D one); otherwise the sampler is the texture's own type, a
 its bitmap has a high-res meter (hud_hires.h) whose green is its coverage. The cache there finds the override when it
 uploads the pixels; here it is asked the same way, without the GL texture (the texture's own decoding failing, which
 d3d8_gl.c would see, is not seen) */
+/* hud_hires_override_find's answer for stage 0's texture, kept until the pixels at its address are written or a setting
+changes: it checks the bitmap's pixels (a CRC of the whole of its first level), and every textured draw asks (on the Fold
+8 at the Halo level's falls, 10% of the game thread's work; 99% of the asks are answered again) */
+#define OVERRIDE_MEMO_SLOTS 1024
+
+static struct
+{
+	unsigned long address, width, height, level0_size;
+	unsigned long generation, settings;
+	long override;
+} override_memo[OVERRIDE_MEMO_SLOTS];
+
+static long override_find_kept(unsigned long address, unsigned long width, unsigned long height,
+	unsigned long level0_size)
+{
+	/* (every bit of the address mixed in: bitmaps lie at round addresses in the texture cache's blocks, which a slot of
+	address bits alone put in a few slots, each pushing the other out, so that every draw checked its bitmap anyway) */
+	unsigned long slot = (unsigned long)(((uint32_t)address * 2654435761u) >> 22) % OVERRIDE_MEMO_SLOTS;
+	unsigned long generation = memory_watch_generation(address, level0_size);
+
+	if (override_memo[slot].address == address && override_memo[slot].width == width &&
+		override_memo[slot].height == height && override_memo[slot].level0_size == level0_size &&
+		override_memo[slot].generation == generation && override_memo[slot].settings == config_changes())
+		return override_memo[slot].override;
+	override_memo[slot].override = hud_hires_override_find(address, width, height, level0_size);
+	override_memo[slot].address = address;
+	override_memo[slot].width = width;
+	override_memo[slot].height = height;
+	override_memo[slot].level0_size = level0_size;
+	override_memo[slot].generation = generation;
+	override_memo[slot].settings = config_changes();
+	return override_memo[slot].override;
+}
+
 static void key_textures(struct nv2a_pixel_shader_key *key)
 {
 	int stage;
@@ -1881,7 +2007,7 @@ static void key_textures(struct nv2a_pixel_shader_key *key)
 			palettized = ((texture->Format & D3DFORMAT_FORMAT_MASK) >> D3DFORMAT_FORMAT_SHIFT) == 0x0b;
 			if (!palettized && !description.cube_map && description.depth == 1)
 			{
-				long override = hud_hires_override_find((unsigned long)PLATFORM_PHYSICAL_TO_VIRTUAL(texture->Data),
+				long override = override_find_kept((unsigned long)PLATFORM_PHYSICAL_TO_VIRTUAL(texture->Data),
 					description.width, description.height, description.levels > 1 ?
 					xgpu_texture_level_offset(&description, 1) : xgpu_texture_face_size(&description));
 
@@ -1947,11 +2073,20 @@ static unsigned long dump_pixel_count, dump_vertex_count, dump_collisions;
 static FILE *dump_manifest;
 static BOOL dump_present_done;
 
+/* (read again only when a setting changes: every draw asks) */
 static const char *dump_folder(void)
 {
-	const char *folder = config_string("debug.gpu_dump_shaders");
+	static unsigned long read_at = (unsigned long)-1;
+	static const char *folder;
 
-	return folder && *folder ? folder : NULL;
+	if (read_at != config_changes())
+	{
+		read_at = config_changes();
+		folder = config_string("debug.gpu_dump_shaders");
+		if (folder && !*folder)
+			folder = NULL;
+	}
+	return folder;
 }
 
 static void dump_file(const char *folder, const char *name, const void *data, unsigned long size, const char *what)
@@ -1984,26 +2119,39 @@ static void dump_text(const char *folder, const char *name, const char *text, co
 	dump_file(folder, name, text, strlen(text), what);
 }
 
-/* the GL ES generators' text, for the comparison: they write the context's #version, which this image has none of */
+/* the GL ES generators' text, for the comparison: they write the context's #version, which this image has none of
+(on a desktop guest, the PS5's, the desktop generators', which write none) */
 static char *gl_vertex_shader(const struct vertex_shader_object *program, unsigned long mask)
 {
+#ifdef HALO_GLES
 	const char *saved = xgpu_capabilities.shading_language;
+#endif
 	char *text;
 
+#ifdef HALO_GLES
 	xgpu_capabilities.shading_language = "310 es";
+#endif
 	text = nv2a_vertex_shader_to_glsl(program->instructions, program->instruction_count, mask, NULL);
+#ifdef HALO_GLES
 	xgpu_capabilities.shading_language = saved;
+#endif
 	return text;
 }
 
 static char *gl_pixel_shader(const struct nv2a_pixel_shader_key *key)
 {
+#ifdef HALO_GLES
 	const char *saved = xgpu_capabilities.shading_language;
+#endif
 	char *text;
 
+#ifdef HALO_GLES
 	xgpu_capabilities.shading_language = "310 es";
+#endif
 	text = nv2a_pixel_shader_to_glsl(key);
+#ifdef HALO_GLES
 	xgpu_capabilities.shading_language = saved;
+#endif
 	return text;
 }
 

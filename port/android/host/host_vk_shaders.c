@@ -91,6 +91,26 @@ static int glslang_load(char *message, size_t message_size)
 {
 	if (G.initialized)
 		return 1;
+#ifdef HALO_PS5
+	/* glslang is in the title's link (a title cannot load a library: port/ps5/PS5.md, phase 4): each field is the
+	function of its name */
+	G.library = (void *)1;
+	G.initialize_process = glslang_initialize_process;
+	G.shader_create = glslang_shader_create;
+	G.shader_delete = glslang_shader_delete;
+	G.shader_preprocess = glslang_shader_preprocess;
+	G.shader_parse = glslang_shader_parse;
+	G.shader_info_log = glslang_shader_get_info_log;
+	G.program_create = glslang_program_create;
+	G.program_delete = glslang_program_delete;
+	G.program_add_shader = glslang_program_add_shader;
+	G.program_link = glslang_program_link;
+	G.program_spirv_generate = glslang_program_SPIRV_generate;
+	G.program_spirv_size = glslang_program_SPIRV_get_size;
+	G.program_spirv_ptr = glslang_program_SPIRV_get_ptr;
+	G.program_info_log = glslang_program_get_info_log;
+	G.default_resource = glslang_default_resource;
+#else
 	if (G.library)
 	{
 		snprintf(message, message_size, "glslang did not load");
@@ -127,6 +147,7 @@ static int glslang_load(char *message, size_t message_size)
 	LOAD(program_info_log, "glslang_program_get_info_log")
 	LOAD(default_resource, "glslang_default_resource")
 #undef LOAD
+#endif
 	if (!G.initialize_process())
 	{
 		host_logf(HOST_LOG_ERROR, "vk: glslang_initialize_process failed");
@@ -678,10 +699,32 @@ void host_vk_shader_compile(uint32_t stage, uint64_t hash, uint32_t glsl_address
 
 /* ---------- pipelines */
 
+/* (a word at a time: the state is words, and every draw hashes it; a byte at a time was 2.4% of the game thread at the
+Halo level's falls on a Fold 8. The hash is the lookup's alone, never kept) */
+typedef char pipeline_state_words_assert[sizeof(struct vk_pipeline_state) % 4 == 0 ? 1 : -1];
+
 static uint64_t state_hash_of(const struct vk_pipeline_state *state)
 {
-	return vk_hash_mix(vk_hash_init(), state, sizeof(*state));
+	const uint32_t *word = (const uint32_t *)state;
+	unsigned long count = sizeof(*state) / 4;
+	uint64_t hash = vk_hash_init();
+
+	while (count--)
+		hash = (hash ^ *word++) * 1099511628211ull;
+	return hash;
 }
+
+/* the pipelines the latest draws found ready, with what found them: a draw with the same shaders and state is given its
+pipeline without the hash or the lock (a ready pipeline is kept until the device goes) */
+#define RECENT_PIPELINES 4
+
+static struct
+{
+	uint32_t vertex_handle, pixel_handle;
+	struct vk_pipeline_state state;
+	VkPipeline pipeline;
+} recent_pipelines[RECENT_PIPELINES];
+static unsigned recent_pipeline_next;
 
 static struct pipeline *pipeline_lookup(uint64_t vertex_hash, uint64_t pixel_hash, uint64_t state_hash)
 {
@@ -716,6 +759,20 @@ VkPipeline host_vk_pipeline_find(uint32_t vertex_handle, uint32_t pixel_handle, 
 	{
 		B.counts.draws_skipped_shader++;
 		return VK_NULL_HANDLE;
+	}
+	{
+		unsigned index;
+
+		for (index = 0; index < RECENT_PIPELINES; index++)
+		{
+			if (recent_pipelines[index].pipeline && recent_pipelines[index].vertex_handle == vertex_handle &&
+				recent_pipelines[index].pixel_handle == pixel_handle &&
+				!memcmp(&recent_pipelines[index].state, state, sizeof(*state)))
+			{
+				B.counts.draws_ready++;
+				return recent_pipelines[index].pipeline;
+			}
+		}
 	}
 	state_hash = state_hash_of(state);
 	pthread_mutex_lock(&S.lock);
@@ -767,8 +824,14 @@ VkPipeline host_vk_pipeline_find(uint32_t vertex_handle, uint32_t pixel_handle, 
 		pthread_cond_wait(&S.pipeline_done, &S.lock);
 	if (pipeline && pipeline->status == PIPELINE_READY)
 	{
+		unsigned slot = recent_pipeline_next++ % RECENT_PIPELINES;
+
 		B.counts.draws_ready++;
 		ready = pipeline->pipeline;
+		recent_pipelines[slot].vertex_handle = vertex_handle;
+		recent_pipelines[slot].pixel_handle = pixel_handle;
+		recent_pipelines[slot].state = *state;
+		recent_pipelines[slot].pipeline = ready;
 	}
 	else
 		B.counts.draws_skipped_pipeline++;
@@ -1037,8 +1100,26 @@ static void pipeline_unqueue(struct pipeline *pipeline)
 static void *compile_thread(void *unused)
 {
 	(void)unused;
+#ifndef HALO_PS5
 	/* below the game thread's priority: Android lets an app raise its own niceness */
 	setpriority(PRIO_PROCESS, (id_t)syscall(SYS_gettid), 10);
+#else
+	/* below the game thread's priority: the console takes pthread_setschedparam in the title's policy (FIFO), whose
+	priorities run from 256, the highest, to 767, the lowest, and a title's threads start at 700 (port/ps5/PS5.md,
+	phase 6) */
+	{
+		struct sched_param parameters;
+		int policy = 0, was, result;
+
+		pthread_getschedparam(pthread_self(), &policy, &parameters);
+		was = parameters.sched_priority;
+		parameters.sched_priority = was + 32 < sched_get_priority_max(policy) ? was + 32 : sched_get_priority_max(policy);
+		result = pthread_setschedparam(pthread_self(), policy, &parameters);
+		pthread_getschedparam(pthread_self(), &policy, &parameters);
+		host_logf(HOST_LOG_INFO, "vk: the compile thread's priority %d (it was %d; policy %d, %d to %d): %s", parameters.sched_priority,
+			was, policy, sched_get_priority_min(policy), sched_get_priority_max(policy), result ? strerror(result) : "set");
+	}
+#endif
 	pthread_mutex_lock(&S.lock);
 	for (;;)
 	{
@@ -1237,6 +1318,7 @@ void host_vk_exit(void)
 	}
 }
 
+#ifndef HALO_PS5
 /* ---------- the app goes to the background
 
 Android stops the game thread then (the surface's loss is found only when it returns), and may end the process while it is
@@ -1249,6 +1331,7 @@ static bool lifecycle_watch(void *unused, SDL_Event *event)
 		host_vk_pipeline_cache_save("the app went to the background");
 	return true;
 }
+#endif
 
 /* ---------- start */
 
@@ -1346,7 +1429,12 @@ void host_vk_services_start(void)
 	VkDescriptorSetLayoutBinding bindings[7];
 	VkDescriptorSetLayoutCreateInfo set_info = { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO };
 	VkPipelineLayoutCreateInfo layout_info = { VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO };
+#ifdef HALO_PS5
+	/* (the data folder: the title's own folder is replaced by every install) */
+	const char *internal = "/data/halo";
+#else
 	const char *internal = SDL_GetAndroidInternalStoragePath();
+#endif
 	pthread_attr_t attributes;
 	pthread_t thread;
 	unsigned index;
@@ -1407,5 +1495,7 @@ void host_vk_services_start(void)
 	}
 	pthread_attr_destroy(&attributes);
 	S.started = 1;
+#ifndef HALO_PS5
 	SDL_AddEventWatch(lifecycle_watch, NULL);
+#endif
 }

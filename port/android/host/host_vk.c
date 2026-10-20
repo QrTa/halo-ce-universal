@@ -334,15 +334,21 @@ int host_vk_startup(const char *vk_driver, int validation, char *line, size_t si
 		free(available);
 		return fail(line, size, "vkEnumerateInstanceExtensionProperties failed (%d, %s)", (int)result, result_name(result));
 	}
+#ifdef HALO_PS5
+	/* the console's surface is a display plane on VideoOut (host_vk_present.c) */
+#define HOST_VK_SURFACE_EXTENSION_NAME VK_KHR_DISPLAY_EXTENSION_NAME
+#else
+#define HOST_VK_SURFACE_EXTENSION_NAME VK_KHR_ANDROID_SURFACE_EXTENSION_NAME
+#endif
 	if (!has_name(available, count, VK_KHR_SURFACE_EXTENSION_NAME) ||
-		!has_name(available, count, VK_KHR_ANDROID_SURFACE_EXTENSION_NAME))
+		!has_name(available, count, HOST_VK_SURFACE_EXTENSION_NAME))
 	{
 		free(available);
 		return fail(line, size, "the instance does not offer %s and %s (%s)", VK_KHR_SURFACE_EXTENSION_NAME,
-			VK_KHR_ANDROID_SURFACE_EXTENSION_NAME, description);
+			HOST_VK_SURFACE_EXTENSION_NAME, description);
 	}
 	extensions[extension_count++] = VK_KHR_SURFACE_EXTENSION_NAME;
-	extensions[extension_count++] = VK_KHR_ANDROID_SURFACE_EXTENSION_NAME;
+	extensions[extension_count++] = HOST_VK_SURFACE_EXTENSION_NAME;
 	if (host_vk.instance_api < VK_API_VERSION_1_1)
 	{
 		if (!has_name(available, count, VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME))

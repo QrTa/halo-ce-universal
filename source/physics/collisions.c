@@ -115,6 +115,7 @@ symbols in this file:
 #include "units/bipeds.h"
 /* port: object_bounds_cache.c's */
 boolean object_bounds_cache_out_of_reach(long object_index, real_point3d const *point, real radius);
+boolean object_bounds_cache_vector_misses(long object_index, unsigned long flags, short first_type_bit, real_point3d const *point, real_vector3d const *vector);
 
 #undef REAL_MATH_EXTERNAL_POINT_FROM_LINE3D
 
@@ -667,7 +668,10 @@ boolean collision_test_vector(
 						object_index != NONE;
 						object_index = cluster_get_next_collideable_object(&reference_index))
 					{
-						if (object_mark_function(object_index) &&
+						/* port: an object the vector is known to miss is passed by before
+						it is looked up and marked (object_bounds_cache.c) */
+						if (!object_bounds_cache_vector_misses(object_index, flags, _collision_test_objects_first_type_bit, point, vector) &&
+							object_mark_function(object_index) &&
 							object_test_vector(
 								object_index,
 								flags,

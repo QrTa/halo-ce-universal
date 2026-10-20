@@ -149,6 +149,88 @@ enum
 #define OBJECT_SHADOW_MINIMUM_PIXELS 30.f
 #define OBJECT_SHADOW_MINIMUM_DARKNESS 0.19f
 
+/* port: display.shadow_limit, the most objects' shadows a window draws a
+frame (0: as the Xbox, as many as are big enough). The game fades an
+object's shadow in as the object grows from 30 pixels across to 45
+(render_object); past the limit the size it starts at is raised to the
+size of the last shadow within it, ranked by size the frame before, and
+moved there a part at a time, so that shadows fade in and out as the crowd
+moves rather than appear and go. */
+#define PORT_SHADOW_CANDIDATE_LIMIT 256
+#define PORT_SHADOW_WINDOWS 4
+/* the part of the way to the new size the threshold moves each frame */
+#define PORT_SHADOW_THRESHOLD_EASE 0.15f
+/* the fade's width past the threshold, a part of it (the game's own: 15
+of 30) */
+#define PORT_SHADOW_FADE_PART 0.5f
+
+/* (the port's, port/linux/src/port_config.c) */
+long config_integer(const char *name);
+
+static struct
+{
+	real sizes[PORT_SHADOW_CANDIDATE_LIMIT];
+	short count;
+	real threshold;
+} port_shadow_windows[PORT_SHADOW_WINDOWS];
+
+/* render_object_shadows' start: this frame's threshold from the last
+frame's shadows, and their list emptied for this one's */
+static void port_shadow_limit_begin(
+	void)
+{
+	short window = (short)PIN(render.window_index, 0, PORT_SHADOW_WINDOWS - 1);
+	long limit = config_integer("display.shadow_limit");
+	real target = OBJECT_SHADOW_MINIMUM_PIXELS;
+
+	if (limit > 0 && port_shadow_windows[window].count > limit)
+	{
+		short index, rank;
+		real *sizes = port_shadow_windows[window].sizes;
+		short count = port_shadow_windows[window].count;
+
+		/* (the limit-th largest, by a partial selection) */
+		for (rank = 0; rank < limit; rank++)
+		{
+			short largest = rank;
+
+			for (index = (short)(rank + 1); index < count; index++)
+			{
+				if (sizes[index] > sizes[largest])
+					largest = index;
+			}
+			{
+				real swap = sizes[rank];
+
+				sizes[rank] = sizes[largest];
+				sizes[largest] = swap;
+			}
+		}
+		target = MAX(sizes[limit - 1], OBJECT_SHADOW_MINIMUM_PIXELS);
+	}
+	if (port_shadow_windows[window].threshold < OBJECT_SHADOW_MINIMUM_PIXELS)
+		port_shadow_windows[window].threshold = OBJECT_SHADOW_MINIMUM_PIXELS;
+	port_shadow_windows[window].threshold +=
+		(target - port_shadow_windows[window].threshold) * PORT_SHADOW_THRESHOLD_EASE;
+	port_shadow_windows[window].count = 0;
+}
+
+/* the size an object's shadow starts at in this window this frame, and the
+object counted for the next one's */
+static real port_shadow_minimum_pixels(
+	real level_of_detail_pixels)
+{
+	short window = (short)PIN(render.window_index, 0, PORT_SHADOW_WINDOWS - 1);
+
+	/* (a cutscene's movie star is always big enough, and not ranked:
+	object_get_level_of_detail_pixels) */
+	if (level_of_detail_pixels >= REAL_MAX * 0.5f)
+		return OBJECT_SHADOW_MINIMUM_PIXELS;
+	if (port_shadow_windows[window].count < PORT_SHADOW_CANDIDATE_LIMIT)
+		port_shadow_windows[window].sizes[port_shadow_windows[window].count++] = level_of_detail_pixels;
+	return MAX(port_shadow_windows[window].threshold, OBJECT_SHADOW_MINIMUM_PIXELS);
+}
+
 #define OBJECT_LIGHTING_MAXIMUM_COLOR_DELTA 0.03f
 #define OBJECT_LIGHTING_MAXIMUM_SHADOW_VECTOR_DELTA 0.012f
 
@@ -389,6 +471,8 @@ boolean first_person_legs_wanted(long object_index);
 real_matrix4x3 const *first_person_legs_node_matrices(long object_index, real_matrix4x3 const *nodes);
 /* port: port/linux/game/shield_color.c */
 real_rgb_color const *shield_color_colors(long unit_index, real_rgb_color const *colors);
+/* port: port/linux/game/overshield_effect.c */
+real const *overshield_effect_values(long unit_index, real const *values, boolean arms);
 
 void render_object_shadows(
 	void)
@@ -403,6 +487,8 @@ void render_object_shadows(
 
 		data.shadow = TRUE;
 		deferred_shadow_volume_count = 0;
+		/* port: display.shadow_limit's threshold for this frame */
+		port_shadow_limit_begin();
 		process_rendered_objects(&data);
 
 		/* port: the deferred shadows cast, the frame's target bound once for
@@ -573,8 +659,12 @@ static void render_object_list(
 								TEST_FLAG(_object_mask_unit, object->object.type) ?
 									shield_color_colors(object_index, object->object.outgoing_change_colors) :
 									object->object.outgoing_change_colors;
+							/* port: an overshield as it rises and lasts
+							(port/linux/game/overshield_effect.c) */
 							model_effect.modifier_animation.values =
-								object->object.outgoing_function_values;
+								TEST_FLAG(_object_mask_unit, object->object.type) ?
+									overshield_effect_values(object_index, object->object.outgoing_function_values, FALSE) :
+									object->object.outgoing_function_values;
 						}
 						else
 						{
@@ -827,6 +917,12 @@ static boolean render_object_shadow_begin(
 	shadow_color.green = shadow_color.green * shadow_intensity + (1.f - shadow_intensity);
 	shadow_color.blue = shadow_color.blue * shadow_intensity + (1.f - shadow_intensity);
 
+	/* port: the rasterizer writes the shadow volume's radius only when it
+	draws the shadow (into the main target, with environment shadows on), and
+	answers TRUE either way: without this, render_object_shadow_end cast a
+	volume of whatever the stack held, and a negative one halted the game in
+	structure_clusters_in_sphere (radius>=0.f, Two Betrayals on the PS5) */
+	data->shadow_bounding_radius = 0.f;
 	return rasterizer_environment_shadow_begin(
 		data->object_index,
 		&data->shadow_matrix,
@@ -854,6 +950,14 @@ static void render_object_shadow_end(
 {
 	real_plane3d shadow_volume_planes[NUMBER_OF_SHADOW_VOLUME_PLANES];
 	real_rectangle3d shadow_volume_bounds;
+
+	/* port: no shadow was drawn (render_object_shadow_begin): no volume to
+	cast (a NaN fails the test too) */
+	if (!(data->shadow_bounding_radius > 0.f))
+	{
+		rasterizer_environment_shadow_end();
+		return;
+	}
 
 	shadow_volume_plane_pair(
 		&data->shadow_matrix.up,
@@ -1185,11 +1289,17 @@ static void render_object(
 			level_of_detail_pixels = object_get_level_of_detail_pixels(data->object_index);
 			shadow_darkness = 1.f - real_rgb_color_brightness(&data->lighting->shadow_color);
 
-			if (level_of_detail_pixels > OBJECT_SHADOW_MINIMUM_PIXELS &&
+			/* port: the size it starts at, raised past display.shadow_limit's
+			(port_shadow_minimum_pixels), and its fade as wide a part of it as
+			the game's own */
+			real minimum_pixels = shadow_darkness > OBJECT_SHADOW_MINIMUM_DARKNESS ?
+				port_shadow_minimum_pixels(level_of_detail_pixels) : OBJECT_SHADOW_MINIMUM_PIXELS;
+
+			if (level_of_detail_pixels > minimum_pixels &&
 				shadow_darkness > OBJECT_SHADOW_MINIMUM_DARKNESS)
 			{
 				real size_fraction =
-					(level_of_detail_pixels - OBJECT_SHADOW_MINIMUM_PIXELS) * 0.06666667f;
+					(level_of_detail_pixels - minimum_pixels) / (minimum_pixels * PORT_SHADOW_FADE_PART);
 				real darkness_fraction =
 					(shadow_darkness - OBJECT_SHADOW_MINIMUM_DARKNESS) * 9.0909081f;
 

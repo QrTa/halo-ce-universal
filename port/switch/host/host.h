@@ -51,6 +51,20 @@ void host_storage_commit(void);
 void host_clock_cpu(unsigned int mhz);
 /* the height presented at: 1080 docked, 720 in handheld (host_dk.c) */
 unsigned int host_dk_output_height(void);
+/* the GPU's time on a frame, averaged over the last 16 or so, in
+microseconds (display.dynamic_resolution: d3d8_dk.c) */
+unsigned int host_dk_gpu_frame_us(void);
+/* what the threads waited for since the last call, for the log's line about
+a slow frame (host_sdl2.c's frame_statistics); the call starts the count
+again */
+struct host_dk_frame_report
+{
+	uint32_t submit_wait_us, streams;
+	uint32_t acquire_max_us, fence_max_us;
+	uint32_t presents;
+	uint32_t gpu_last_us, gpu_average_us;
+};
+void host_dk_frame_report(struct host_dk_frame_report *report);
 
 /* the host descriptor behind a guest one, or -1 (host_syscall.c) */
 int host_guest_fd(int guest_fd);
@@ -215,6 +229,34 @@ extern int host_dk_profile;
 /* debug.gpu_capture: with the profile, one frame of each 300 timed draw by
 draw, and the GPU's time by shader, target and kind of command logged */
 extern int host_dk_capture;
+/* debug.render_thread (host_dk.c): the guest's commands run on a thread of
+their own, not the game's */
+extern int host_dk_render_thread;
+/* the high-res HUD's sheets, decoded on a thread of the host's own
+(host_dk_hud.c, dk_commands.h's DK_COMMAND_HUD_PREPARE) */
+struct dk_hud_sheet;
+struct host_dk_hud_levels
+{
+	/* every level, blue first, the largest first, one after another; aligned
+	and rounded (bytes) to DK_MEMBLOCK_ALIGNMENT, out of the CPU's cache */
+	unsigned char *texels;
+	uint32_t bytes;
+	uint32_t width, height, levels;
+};
+extern int host_dk_hud_log;
+void host_dk_hud_prepare(const struct dk_hud_sheet *list, uint32_t count);
+void host_dk_hud_forget(void);
+/* the guest's (host_imports.list): 1 the sheet decoded, 0 not yet (queued if
+it was not), -1 never */
+int host_dk_hud_ready(unsigned int asset, unsigned int png, unsigned int png_size, unsigned int tag);
+/* the render thread's: the decoded levels, now its own; 0 if there are none */
+int host_dk_hud_take(uint32_t asset, struct host_dk_hud_levels *levels);
+int host_dk_hud_decode(const unsigned char *data, uint32_t size, struct host_dk_hud_levels *levels);
+/* debug.frame_pacing: the game thread waits, as it hands a frame over, for
+the present of the frame before it (host_dk_pace, from the stand-in
+window's swap) */
+extern int host_dk_frame_pacing;
+void host_dk_pace(void);
 /* debug.gpu_experiment: what-ifs that measure what part of the GPU's time a
 change could take back, comma-separated: "no_compression" (render targets
 without hardware compression), "no_target_barriers" (no wait before a
@@ -310,6 +352,13 @@ void host_debug_start_sampler(const char *setting);
 counted and written to the profile folder (0 none); image names the guest
 image running, for tools/switch_profile.py */
 void host_debug_start_profiler(unsigned hz, const char *image);
+/* a frame of frame_ns just ended: with the profiler on, a frame of 40 ms or
+more has the game threads' samples in it written alone (profile/spike_NNN.txt) */
+void host_debug_profile_spike(uint64_t frame_ns);
+#ifdef __SWITCH__
+/* a host thread's stack, logged (it is paused to read it) */
+void host_debug_thread_backtrace(uint32_t handle, const char *who);
+#endif
 
 /* The host's own stack, at the moment it decides it cannot continue. Called
  * from host_fatal and anywhere else that has a failure worth attributing. */
@@ -356,6 +405,29 @@ void host_update_finish(void);
 void *host_resolve_import(const char *name);
 
 /* ---------- SDL / GL (host_sdl.c, host_gl.c) */
+
+/* SDL_ShowMessageBox's question and the player's answer (the guest's
+struct message_box, port/android/guest/runtime/guest_sdl.c): 32-bit members
+only, and one pointer to it, so that every argument of the call has a
+register on x86-64 (tools/check_host_imports.py); title, message and
+button_texts are guest addresses, the texts one after another, each NUL
+terminated, in button_texts_size bytes */
+#define HOST_MESSAGE_BOX_BUTTONS 8
+
+struct host_message_box
+{
+	uint32_t flags;
+	uint32_t title;
+	uint32_t message;
+	int32_t button_count;
+	int32_t button_flags[HOST_MESSAGE_BOX_BUTTONS];
+	int32_t button_ids[HOST_MESSAGE_BOX_BUTTONS];
+	uint32_t button_texts;
+	uint32_t button_texts_size;
+	int32_t chosen;
+};
+
+typedef char host_message_box_size_check[sizeof(struct host_message_box) == 92 ? 1 : -1];
 
 void *host_gl_resolve(const char *name);
 
