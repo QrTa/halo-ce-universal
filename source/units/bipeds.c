@@ -433,6 +433,9 @@ struct biped_physics
 	real_vector3d new_velocity;
 	real landing_velocity;
 	real collision_velocity;
+	/* port: skull: the object stood on (NONE: the level, or nothing), for
+	Floor Is Lava (port/linux/game/skulls_custom.c) */
+	long port_support_object_index;
 };
 
 struct animation_frame_info_dx_dy
@@ -2388,6 +2391,7 @@ static void biped_update_physics(
 
 	in_flags = physics->in_flags;
 	physics->out_flags = 0;
+	physics->port_support_object_index = NONE;
 	if (TEST_FLAG(in_flags, _biped_physics_in_flying_bit))
 	{
 		real_vector3d up;
@@ -2935,6 +2939,7 @@ static void biped_update_physics(
 				SET_FLAG(physics->out_flags, _biped_physics_out_airborne_bit, FALSE);
 				physics->ground_plane = collision->plane;
 				physics->support_surface_index = collision->surface_index;
+				physics->port_support_object_index = collision->object_index;
 				if (physics->support_surface_index == NONE ||
 					physics->support_surface_index != physics->stick_surface_index)
 				{
@@ -4032,6 +4037,9 @@ static void biped_update_moving(
 		object_translate(biped_index, &new_biped_position, NULL);
 
 		biped->biped.support_surface_index = physics.support_surface_index;
+		/* port: skull: a player's footing, for Floor Is Lava */
+		skulls_biped_footing(biped_index, TEST_FLAG(out_flags, _biped_physics_out_airborne_bit),
+			physics.port_support_object_index);
 		biped->biped.pathfinding_point = new_biped_position;
 		biped->biped.pathfinding_surface_index = NONE;
 		biped->object.translational_velocity = physics.new_velocity;

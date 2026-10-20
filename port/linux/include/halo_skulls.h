@@ -13,6 +13,7 @@ the menus write game.skulls_active, and a co-op client takes the host's.
 enum skull
 {
 	_skull_anger = 0,
+	_skull_armistice,
 	_skull_assassins,
 	_skull_bandanna,
 	_skull_black_eye,
@@ -20,28 +21,37 @@ enum skull
 	_skull_boom,
 	_skull_catch,
 	_skull_confetti_party,
+	_skull_efficient,
 	_skull_envy,
 	_skull_eye_patch,
 	_skull_famine,
+	_skull_floor_is_lava,
 	_skull_fog,
 	_skull_foreign,
 	_skull_ghost,
+	_skull_give_and_take,
 	_skull_grunt_birthday_party,
 	_skull_grunt_funeral,
 	_skull_iron,
+	_skull_johnny_ammo,
+	_skull_leadhead,
+	_skull_m_rating,
 	_skull_malfunction,
 	_skull_mythic,
+	_skull_need_glasses,
 	_skull_outbreak,
 	_skull_pinata,
 	_skull_protected,
 	_skull_recession,
+	_skull_rip_and_tear,
+	_skull_scarab,
 	_skull_sputnik,
 	_skull_streaking,
 	_skull_swarm,
 	_skull_thats_just_wrong,
 	_skull_thunderstorm,
 	_skull_tough_luck,
-	_skull_vampirism,
+	_skull_woe_is_me,
 	NUMBER_OF_SKULLS
 };
 
@@ -175,11 +185,11 @@ void skulls_tick(void);
 
 /* Outbreak (port/linux/game/skulls_outbreak.c): a player's kill may let
 loose Flood spores that run to the bodies about and raise them as Flood.
-The Flood's tags come from The Library (c20), copied into the level as it
+The Flood's tags come from Two Betrayals (c40), copied into the level as it
 loads (randomizer.c, from skulls.pack): the roots below, and what they need.
 Whether a level loading wants them: Outbreak on, a game of this machine's
 alone (solo or split screen) */
-#define SKULLS_OUTBREAK_DONOR "c20"
+#define SKULLS_FLOOD_DONOR "c40"
 #define SKULLS_OUTBREAK_SPORE_TAG "characters\\flood_infection\\flood_infection"
 #define SKULLS_OUTBREAK_CARRIER_TAG "characters\\floodcarrier\\floodcarrier"
 #define SKULLS_OUTBREAK_BURST_TAG "characters\\floodcarrier\\effects\\body destroyed"
@@ -228,7 +238,7 @@ object's definition is a hunter's */
 int skulls_envy(long unit_index);
 int skulls_object_is_hunter(long definition_index);
 
-/* Vampirism: a player's unit fired a shot (a miss, unless an enemy is hit
+/* Give & Take: a player's unit fired a shot (a miss, unless an enemy is hit
 soon); damage of a player's dealt to an object (a hit, if an enemy) */
 void skulls_shot_fired(long unit_index);
 void skulls_damage_dealt(long object_index, long owner_player_index);
@@ -237,8 +247,46 @@ shield (broken by it, or not), shown as the model cannot show it */
 void skulls_protect(long unit_index);
 void skulls_given_shield_hit(long object_index, int broken);
 
-/* Famine: the weapon an actor drops, with half its ammunition */
+/* Famine and Efficient: the weapon an actor drops, with half its
+ammunition, or twice it */
 void skulls_famine_weapon(long weapon_index);
+
+/* ---------- the port's own skulls (port/linux/game/skulls_custom.c) */
+
+/* Woe Is Me and Armistice: a pair of teams' enmity as the skulls have it:
+TRUE, enemies, FALSE, not, NONE (-1), as the game has it; and their
+alliance (game_allegiance.c). Taken each tick (skulls_custom_tick) */
+int skulls_team_enmity(short our_team_index, short other_team_index);
+int skulls_team_alliance(short our_team_index, short other_team_index);
+/* M Rating: how many more of a particle the effects make (1, else) */
+float skulls_particle_count_scale(long particle_definition_index);
+/* Need Glasses?: whether a unit is cloaked by the skull (Assassins' too) */
+int skulls_unit_cloaked(long unit_index);
+/* Scarab: the projectile a unit's shot of the weapon fires instead, a
+player's: the rocket of a human weapon, the fuel rod of a Covenant one;
+NONE, its own (weapons.c) */
+long skulls_scarab_projectile(long weapon_definition_index, long unit_index);
+/* Rip & Tear: whether the unit is a player's that can only punch (its
+triggers and grenades held: units.c), and the shield a unit recharges to
+(1, a player's 3: damage.c); a player's punch's damage, doubled */
+int skulls_rip_and_tear(long unit_index);
+float skulls_shield_cap(long object_index);
+/* Floor Is Lava: a biped's footing, each tick it moves: airborne, or on the
+object (NONE: the level's floor) (bipeds.c) */
+void skulls_biped_footing(long biped_index, int airborne, long support_object_index);
+/* Johnny Ammo: whether a reload of a magazine throws the rounds left in it
+away: a player's weapon (its owner's), a magazine reloaded whole, not round
+by round (weapons.c) */
+int skulls_johnny_ammo(long owner_object_index, int reloads_whole);
+/* the skulls' each tick (skulls_tick), the level's (skulls_level_loaded) */
+void skulls_custom_tick(void);
+void skulls_custom_level_loaded(void);
+/* Scarab's projectiles: the rocket (Wizard's) and the fuel rod (c40's,
+SKULLS_FLOOD_DONOR's), copied into the level as it loads; whether a level
+loading wants them (Scarab on, or to be found; this machine's game alone) */
+#define SKULLS_SCARAB_ROCKET_TAG "weapons\\rocket launcher\\rocket"
+#define SKULLS_SCARAB_FUEL_ROD_TAG "weapons\\fuel rod gun\\fuel rod"
+int skulls_scarab_wanted(void);
 
 /* Malfunction: whether the local player's HUD element is broken. The
 elements are rolled again each time the player has a new body */

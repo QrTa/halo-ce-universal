@@ -194,6 +194,12 @@ boolean game_team_is_enemy(
 	short other_team_index)
 {
 	boolean result = TRUE;
+	/* port: skull: Woe Is Me, every team the player's enemy; Armistice, the
+	player's enemies not each other's (port/linux/game/skulls_custom.c) */
+	int skull_enmity = skulls_team_enmity(our_team_index, other_team_index);
+
+	if (skull_enmity != NONE)
+		return (boolean)skull_enmity;
 
 	if (VALID_INDEX(our_team_index, NUMBER_OF_GAME_TEAMS) &&
 		VALID_INDEX(other_team_index, NUMBER_OF_GAME_TEAMS))
@@ -220,6 +226,11 @@ boolean game_team_is_ally(
 	short other_team_index)
 {
 	boolean result = FALSE;
+	/* port: skull: and their alliances, as their enmity has them */
+	int skull_alliance = skulls_team_alliance(our_team_index, other_team_index);
+
+	if (skull_alliance != NONE)
+		return (boolean)skull_alliance;
 
 	if (VALID_INDEX(our_team_index, NUMBER_OF_GAME_TEAMS) &&
 		VALID_INDEX(other_team_index, NUMBER_OF_GAME_TEAMS))

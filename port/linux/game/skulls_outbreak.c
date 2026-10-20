@@ -6,7 +6,7 @@ kill of an enemy may let loose Flood spores, which run to the bodies about
 and raise each as the Flood its body makes. An elite's body (a combat
 form's too) an elite combat form, a marine's or a crewman's a human combat
 form, a grunt's, a jackal's or a hunter's a carrier. The Flood's tags are
-The Library's (c20), copied into the level as it loads (randomizer.c's
+Two Betrayals' (c40), copied into the level as it loads (randomizer.c's
 gather_outbreak, from skulls.pack); a level of the Flood has its own.
 
 A kill lets loose spores half the time, one to four (rolled), one for each

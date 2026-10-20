@@ -831,20 +831,25 @@ def _randomizer_screen() -> list:
 # skull): each one's key in game.skulls_active and its name on the screen.
 # Their helps are skulls.c's, which the screen shows
 SKULLS = [
-    ("anger", "ANGER"), ("assassins", "ASSASSINS"), ("bandanna", "BANDANNA"), ("black_eye", "BLACK EYE"),
-    ("blind", "BLIND"), ("boom", "BOOM"), ("catch", "CATCH"), ("confetti_party", "CONFETTI PARTY"), ("envy", "ENVY"), ("eye_patch", "EYE PATCH"),
-    ("famine", "FAMINE"), ("fog", "FOG"), ("foreign", "FOREIGN"), ("ghost", "GHOST"),
-    ("grunt_birthday_party", "GRUNT BIRTHDAY"), ("grunt_funeral", "GRUNT FUNERAL"), ("iron", "IRON"),
-    ("malfunction", "MALFUNCTION"), ("mythic", "MYTHIC"), ("outbreak", "OUTBREAK"),
-    ("pinata", "PINATA"), ("protected", "PROTECTED"), ("recession", "RECESSION"),
-    ("sputnik", "SPUTNIK"), ("streaking", "STREAKING"), ("swarm", "SWARM"), ("thats_just_wrong", "JUST... WRONG"),
-    ("thunderstorm", "THUNDERSTORM"), ("tough_luck", "TOUGH LUCK"), ("vampirism", "VAMPIRISM"),
+    ("anger", "ANGER"), ("armistice", "ARMISTICE"), ("assassins", "ASSASSINS"), ("bandanna", "BANDANNA"),
+    ("black_eye", "BLACK EYE"), ("blind", "BLIND"), ("boom", "BOOM"), ("catch", "CATCH"),
+    ("confetti_party", "CONFETTI PARTY"), ("efficient", "EFFICIENT"), ("envy", "ENVY"), ("eye_patch", "EYE PATCH"),
+    ("famine", "FAMINE"), ("floor_is_lava", "FLOOR IS LAVA"), ("fog", "FOG"), ("foreign", "FOREIGN"),
+    ("ghost", "GHOST"), ("give_and_take", "GIVE & TAKE"), ("grunt_birthday_party", "GRUNT BIRTHDAY"),
+    ("grunt_funeral", "GRUNT FUNERAL"), ("iron", "IRON"), ("johnny_ammo", "JOHNNY AMMO"), ("leadhead", "LEADHEAD"),
+    ("m_rating", "M RATING"), ("malfunction", "MALFUNCTION"), ("mythic", "MYTHIC"),
+    ("need_glasses", "NEED GLASSES?"), ("outbreak", "OUTBREAK"), ("pinata", "PINATA"), ("protected", "PROTECTED"),
+    ("recession", "RECESSION"), ("rip_and_tear", "RIP & TEAR"), ("scarab", "SCARAB"), ("sputnik", "SPUTNIK"),
+    ("streaking", "STREAKING"), ("swarm", "SWARM"), ("thats_just_wrong", "JUST... WRONG"),
+    ("thunderstorm", "THUNDERSTORM"), ("tough_luck", "TOUGH LUCK"), ("woe_is_me", "WOE IS ME"),
 ]
-SKULL_COLUMNS = 3
+SKULL_COLUMNS = 4
 # a skull's place in the grid: its bar (port/assets/skulls/option, as
-# option_bkds_sm is, as narrow as three to a row need) and the rows' pitch
-SKULL_WIDTH = 170
-SKULL_PITCH_X = 178
+# option_bkds_sm is, four to a row across the whole screen, end to end)
+# and the rows' pitch
+SKULL_LEFT = 0
+SKULL_WIDTH = 160
+SKULL_PITCH_X = 160
 SKULL_PITCH_Y = 29
 SKULL_TOP = 74
 # the grid's moves, which menu_functions.c's "skulls up" (and so on) make:
@@ -858,7 +863,7 @@ def _skulls_screen() -> list:
     """the screen difficulty opens (after the randomizer's) when the skulls
     are on: the skulls in two columns, A one to turn it on or off
     (menu_functions.c's "skull toggle", which "skulls screen update" ticks,
-    with the chosen one's help), and the buttons: All Off, OK, which starts
+    with the chosen one's help), and the buttons: Toggle All, OK, which starts
     the level, and Cancel. One list of them all, the skulls row by row and
     then the buttons, which menu_functions.c moves the focus through as a
     grid: a list of a row each would keep each row's item lit"""
@@ -882,24 +887,24 @@ def _skulls_screen() -> list:
     # not, which a string list's text would overwrite)
     for index, (key, _) in enumerate(SKULLS):
         row, column = divmod(index, SKULL_COLUMNS)
-        children.append(f'<child{attributes([("widget", f"{base}/skull_{key}"), ("x", 54 + column * SKULL_PITCH_X), ("y", SKULL_TOP + row * SKULL_PITCH_Y)])}/>')
+        children.append(f'<child{attributes([("widget", f"{base}/skull_{key}"), ("x", SKULL_LEFT + column * SKULL_PITCH_X), ("y", SKULL_TOP + row * SKULL_PITCH_Y)])}/>')
         extra += _widget(f"{base}/skull_{key}",
                          [("type", "text"), ("width", SKULL_WIDTH), ("height", 28), ("bitmap", "skulls/option"),
-                          ("font", "ui\\small_ui"), ("color", "#FF2896FF"), ("text_x", 10), ("text_y", 7)],
+                          ("font", "ui\\small_ui"), ("color", "#FF2896FF"), ("text_x", 6), ("text_y", 7)],
                          ['<on event="a" run="skull toggle"/>', '<on event="start" run="skull toggle"/>',
                           '<on event="left_mouse" run="mouse emit accept event"/>', *moves])
-    for name, x in (("button_all_off", 0), ("button_ok", 380), ("button_cancel", 510)):
+    for name, x in (("button_toggle_all", 0), ("button_ok", 380), ("button_cancel", 510)):
         children.append(f'<child{attributes([("widget", f"{base}/{name}"), ("x", x), ("y", 415)])}/>')
     lines += _widget(f"{base}/options_menu",
                      [("type", "column_list"), ("width", 640), ("height", 480),
                       ("flags", "pass_unhandled_to_focused_child"), ("description", f"{base}/help")], children)
     lines += extra
-    lines += _widget(f"{base}/button_all_off",
+    lines += _widget(f"{base}/button_toggle_all",
                      [("type", "text"), ("width", 128), ("height", 24), ("bitmap", "bitmaps/text_button_background"),
-                      ("text", "ALL OFF"), ("font", "ui\\small_ui"), ("color", "#FFFFFFFF"), ("align", "center"),
+                      ("text", "TOGGLE ALL"), ("font", "ui\\small_ui"), ("color", "#FFFFFFFF"), ("align", "center"),
                       ("text_y", 2)],
-                     ['<on event="a" run="skulls all off"/>',
-                      '<on event="start" run="skulls all off"/>',
+                     ['<on event="a" run="skulls toggle all"/>',
+                      '<on event="start" run="skulls toggle all"/>',
                       '<on event="left_mouse" run="mouse emit accept event"/>', *moves])
     lines += _button(f"{base}/button_ok", 1, ['<on event="a" run="skulls start"/>',
                                               '<on event="start" run="skulls start"/>', *moves])

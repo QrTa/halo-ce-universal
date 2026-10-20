@@ -70,7 +70,7 @@ keeps the tag cache (halo_port_window.h) */
 #define DONOR_WINDOW 0x803A6000UL
 
 /* the other nine campaign maps, the skull's (wizard) and Outbreak's Flood's
-(c20, again: skulls.pack's) */
+(c40, again: skulls.pack's) */
 #define DONOR_COUNT 11
 #define WANTED_MAX 8192
 #define IMPORT_MAX 2048
@@ -2781,79 +2781,40 @@ static void gather_campaign(char const *leaf)
 	}
 }
 
-/* the skulls': the skull the enemies carry to be found, a multiplayer map's
-oddball, which no campaign map has (skulls.c). Its pixels and samples are
-skulls.pack's (randomizer_pack.c), else the map's */
+/* the skulls': tags no campaign map has, or not every one, copied from a
+map of skulls.pack's (randomizer_pack.c), else from the map itself. The
+skull the enemies carry to be found, a multiplayer map's oddball
+(skulls.c); Scarab's rocket, Wizard's too; Outbreak's Flood (its spore,
+carrier and combat forms, and the carrier's burst: skulls_outbreak.c) and
+Scarab's fuel rod, Two Betrayals' (c40). A level that has a root keeps its
+own; the randomizer's copy of one from c40 too (want's aliases) */
 #define SKULL_DONOR "wizard"
 
-static void gather_skull(void)
+struct skull_root
 {
-	struct donor *donor = donors + donor_count;
-	long index;
+	long group;
+	char const *name;
+};
 
-	if (donor_count >= DONOR_COUNT || tag_loaded(WEAPON_DEFINITION_TAG, SKULLS_CARRIED_TAG) != NONE)
-		return;
-	error(_error_silent, "randomizer: reading the skull from %s.map", SKULL_DONOR);
-	if (!open_donor(donor, SKULL_DONOR, &skulls_pack))
-	{
-		close_donor_bytes(donor);
-		return;
-	}
-	donor_count++;
-	for (index = 0; index < donor->count; index++)
-	{
-		struct randomizer_tag_instance *instance = donor->instances + index;
-		char const *name = instance_name(donor, instance);
-
-		if (instance->group_tag == WEAPON_DEFINITION_TAG && name && !_stricmp(name, SKULLS_CARRIED_TAG))
-		{
-			want_root(donor, index);
-			break;
-		}
-	}
-	if (index == donor->count)
-		error(_error_silent, "randomizer: %s.map has no %s", SKULL_DONOR, SKULLS_CARRIED_TAG);
-	release_donor_blob(donor);
-}
-
-/* Outbreak's: The Library's Flood (skulls_outbreak.c): its spore, carrier and
-combat forms, and the carrier's burst. A level that has them all keeps its
-own; the randomizer's copy of one from c20 too (want's aliases) */
-static void gather_outbreak(void)
+static void gather_skull_roots(char const *leaf, struct skull_root const *roots, short count)
 {
-	static struct
-	{
-		long group;
-		char const *name;
-	} const roots[] =
-	{
-		{ 'bipd', SKULLS_OUTBREAK_SPORE_TAG },
-		{ 'actv', SKULLS_OUTBREAK_CARRIER_TAG },
-		{ 'effe', SKULLS_OUTBREAK_BURST_TAG },
-		{ 'actv', "characters\\floodcombat elite\\floodcombat elite unarmed" },
-		{ 'actv', "characters\\floodcombat elite\\floodcombat elite plasma rifle" },
-		{ 'actv', "characters\\floodcombat elite\\floodcombat elite needler" },
-		{ 'actv', "characters\\floodcombat_human\\floodcombat_human unarmed" },
-		{ 'actv', "characters\\floodcombat_human\\floodcombat_human assault rifle" },
-		{ 'actv', "characters\\floodcombat_human\\floodcombat_human pistol" },
-	};
 	struct donor *donor = donors + donor_count;
 	short root;
 	short missing = 0;
 	long index;
 
-	for (root = 0; root < (short)NUMBEROF(roots); root++)
+	for (root = 0; root < count; root++)
 		missing += (short)(tag_loaded(roots[root].group, roots[root].name) == NONE);
 	if (!missing || donor_count >= DONOR_COUNT)
 		return;
-	error(_error_silent, "randomizer: reading Outbreak's Flood from %s.map", SKULLS_OUTBREAK_DONOR);
-	if (!open_donor(donor, SKULLS_OUTBREAK_DONOR, &skulls_pack))
+	error(_error_silent, "randomizer: reading %d skull tags from %s.map", missing, leaf);
+	if (!open_donor(donor, leaf, &skulls_pack))
 	{
 		close_donor_bytes(donor);
 		return;
 	}
 	donor_count++;
-	for (root = 0; root < (short)NUMBEROF(roots); root++)
+	for (root = 0; root < count; root++)
 	{
 		if (tag_loaded(roots[root].group, roots[root].name) != NONE)
 			continue;
@@ -2869,9 +2830,54 @@ static void gather_outbreak(void)
 			}
 		}
 		if (index == donor->count)
-			error(_error_silent, "randomizer: %s.map has no %s", SKULLS_OUTBREAK_DONOR, roots[root].name);
+			error(_error_silent, "randomizer: %s.map has no %s", leaf, roots[root].name);
 	}
 	release_donor_blob(donor);
+}
+
+static void gather_skulls(int carried, int outbreak, int scarab)
+{
+	static struct skull_root const flood_roots[] =
+	{
+		{ 'bipd', SKULLS_OUTBREAK_SPORE_TAG },
+		{ 'actv', SKULLS_OUTBREAK_CARRIER_TAG },
+		{ 'effe', SKULLS_OUTBREAK_BURST_TAG },
+		{ 'actv', "characters\\floodcombat elite\\floodcombat elite unarmed" },
+		{ 'actv', "characters\\floodcombat elite\\floodcombat elite plasma rifle" },
+		{ 'actv', "characters\\floodcombat elite\\floodcombat elite needler" },
+		{ 'actv', "characters\\floodcombat_human\\floodcombat_human unarmed" },
+		{ 'actv', "characters\\floodcombat_human\\floodcombat_human assault rifle" },
+		{ 'actv', "characters\\floodcombat_human\\floodcombat_human pistol" },
+	};
+	struct skull_root roots[NUMBEROF(flood_roots) + 2];
+	short count = 0;
+	short index;
+
+	if (carried)
+	{
+		roots[count].group = WEAPON_DEFINITION_TAG;
+		roots[count++].name = SKULLS_CARRIED_TAG;
+	}
+	if (scarab)
+	{
+		roots[count].group = 'proj';
+		roots[count++].name = SKULLS_SCARAB_ROCKET_TAG;
+	}
+	if (count)
+		gather_skull_roots(SKULL_DONOR, roots, count);
+	count = 0;
+	if (outbreak)
+	{
+		for (index = 0; index < (short)NUMBEROF(flood_roots); index++)
+			roots[count++] = flood_roots[index];
+	}
+	if (scarab)
+	{
+		roots[count].group = 'proj';
+		roots[count++].name = SKULLS_SCARAB_FUEL_ROD_TAG;
+	}
+	if (count)
+		gather_skull_roots(SKULLS_FLOOD_DONOR, roots, count);
 }
 
 void randomizer_tags_loaded(char const *scenario_name)
@@ -2883,6 +2889,7 @@ void randomizer_tags_loaded(char const *scenario_name)
 	int randomize = 0;
 	int skull;
 	int outbreak;
+	int scarab;
 
 	randomizer_tags_unloaded();
 	if (!campaign_leaf(scenario_name, leaf, sizeof(leaf)))
@@ -2906,7 +2913,8 @@ void randomizer_tags_loaded(char const *scenario_name)
 	/* (and the skull the enemies carry, which the randomizer may be off for) */
 	skull = skulls_carried_wanted();
 	outbreak = skulls_outbreak_wanted();
-	if (!randomize && !skull && !outbreak)
+	scarab = skulls_scarab_wanted();
+	if (!randomize && !skull && !outbreak && !scarab)
 		return;
 	if (randomize && !network_game_distributed_client() && !placement_roll_ready)
 		placement_roll_new();
@@ -2915,10 +2923,7 @@ void randomizer_tags_loaded(char const *scenario_name)
 	{
 		if (randomize)
 			gather_campaign(leaf);
-		if (skull)
-			gather_skull();
-		if (outbreak)
-			gather_outbreak();
+		gather_skulls(skull, outbreak, scarab);
 		import_wanted();
 	}
 	if (randomize)

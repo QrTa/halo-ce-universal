@@ -67,6 +67,7 @@ on the skulls screen's help line, which wraps it (88 characters at most) */
 struct skull_description const skull_descriptions[NUMBER_OF_SKULLS] =
 {
 	{ "anger", "ANGER", "Enemies fire faster." },
+	{ "armistice", "ARMISTICE", "All enemies stop fighting each other." },
 	{ "assassins", "ASSASSINS", "All enemies are permanently cloaked." },
 	{ "bandanna", "BANDANNA", "Infinite ammo and grenades, never overheat." },
 	{ "black_eye", "BLACK EYE", "Your shield only recharges when you punch an enemy." },
@@ -74,28 +75,37 @@ struct skull_description const skull_descriptions[NUMBER_OF_SKULLS] =
 	{ "boom", "BOOM", "Explosions reach twice as far." },
 	{ "catch", "CATCH", "Enemies throw grenades more often. Also drop more." },
 	{ "confetti_party", "CONFETTI PARTY", "Every enemy killed by a headshot goes out with a celebration." },
+	{ "efficient", "EFFICIENT", "Enemies drop their weapons with twice the ammo." },
 	{ "envy", "ENVY", "Your flashlight is active camo instead." },
 	{ "eye_patch", "EYE PATCH", "No aim assist: no magnetism, no red reticle." },
 	{ "famine", "FAMINE", "Weapons dropped by enemies have half\ntheir ammo." },
+	{ "floor_is_lava", "FLOOR IS LAVA", "Touching the floor burns you. Stand on anything else." },
 	{ "fog", "FOG", "No motion tracker." },
 	{ "foreign", "FOREIGN", "You can't pick up Covenant weapons." },
 	{ "ghost", "GHOST", "Enemies don't flinch when you hit them." },
+	{ "give_and_take", "GIVE & TAKE", "Shooting damages the player, dealing damage recharges it." },
 	{ "grunt_birthday_party", "GRUNT BIRTHDAY", "A grunt killed by a headshot goes out with a celebration." },
 	{ "grunt_funeral", "GRUNT FUNERAL", "Dying grunts blow up like plasma grenades." },
 	{ "iron", "IRON", "Dying reverts to checkpoint. Single player restarts the level." },
+	{ "johnny_ammo", "JOHNNY AMMO", "Reloading throws away the rounds left in the magazine." },
+	{ "leadhead", "LEADHEAD", "No headshots: a hit to the head is like any other." },
+	{ "m_rating", "M RATING", "Enemies bleed much, much more." },
 	{ "malfunction", "MALFUNCTION", "Each time you spawn, one part of your HUD stops working." },
 	{ "mythic", "MYTHIC", "Enemies have twice the health and shields." },
+	{ "need_glasses", "NEED GLASSES?", "Everyone is cloaked: enemies, allies and vehicles." },
 	{ "outbreak", "OUTBREAK", "Kills can release flood spores that infect nearby bodies." },
 	{ "pinata", "PINATA", "Punching an enemy knocks a grenade loose." },
 	{ "protected", "PROTECTED", "All enemies have shields." },
 	{ "recession", "RECESSION", "Every shot uses twice the ammo." },
+	{ "rip_and_tear", "RIP & TEAR", "Overshields, melee only with double damage." },
+	{ "scarab", "SCARAB", "Human weapons fire rockets, Covenant fuel rods." },
 	{ "sputnik", "SPUTNIK", "Hits and blasts throw bodies, vehicles and weapons 3x as far." },
 	{ "streaking", "STREAKING", "Your shields drain over time. Kill to recharge." },
 	{ "swarm", "SWARM", "Hunters are much stronger." },
 	{ "thats_just_wrong", "JUST... WRONG", "Enemies see and hear you from twice as far away." },
 	{ "thunderstorm", "THUNDERSTORM", "Enemies are promoted." },
 	{ "tough_luck", "TOUGH LUCK", "Enemies always go berserk, dive from grenades, and never flee." },
-	{ "vampirism", "VAMPIRISM", "Every shot missed hurts you. Regenerate health by hitting shots." },
+	{ "woe_is_me", "WOE IS ME", "All AI is against you. You have no allies." },
 };
 
 #define SKULLS_LOCAL_PLAYERS 4
@@ -363,23 +373,31 @@ static struct skull_set config_set(void)
 	return skull_set_intersection(skulls_set_from_text(config_string("game.skulls_active")), skulls_unlocked_set());
 }
 
-int skulls_outbreak_wanted(void)
+/* whether a level loading wants the tags a skull needs copied in: the
+skull on, or still to be found in the level (picked up, it is on there); a
+game of this machine's alone (a network game's other machines would have
+none of them) */
+static int skull_tags_wanted(int skull)
 {
 	struct network_game *game = network_game_get_game();
 	struct skull_set set = config_set();
 	struct skull_set unlocked = skulls_unlocked_set();
 
-	/* (on, or still to be found in the level: picked up, it is on there) */
-	if (!skull_set_has(&set, _skull_outbreak) &&
-		!(skulls_carried_wanted() && !skull_set_has(&unlocked, _skull_outbreak)))
-	{
+	if (!skull_set_has(&set, skull) && !(skulls_carried_wanted() && !skull_set_has(&unlocked, skull)))
 		return 0;
-	}
-	/* (solo and split screen: a network game's other machines would have
-	none of the Flood's tags) */
 	if (game_connection() != _game_connection_local || network_game_distributed_client())
 		return 0;
 	return !game || game->variant.game_engine_index == game_engine_none;
+}
+
+int skulls_outbreak_wanted(void)
+{
+	return skull_tags_wanted(_skull_outbreak);
+}
+
+int skulls_scarab_wanted(void)
+{
+	return skull_tags_wanted(_skull_scarab);
 }
 
 int skulls_pack_wanted(void)
@@ -390,7 +408,7 @@ int skulls_pack_wanted(void)
 		return 0;
 	chosen = skull_set_intersection(skulls_set_from_text(config_string("game.skulls_active")),
 		skulls_unlocked_set());
-	return skulls_drop() || skull_set_has(&chosen, _skull_outbreak);
+	return skulls_drop() || skull_set_has(&chosen, _skull_outbreak) || skull_set_has(&chosen, _skull_scarab);
 }
 
 /* the game's own sounds (below) */
@@ -413,13 +431,12 @@ NONE when its enemies carry none */
 static long carried_definition = NONE;
 
 static void running_skulls_reset(void);
-static void vampirism_reset(void);
+static void give_and_take_reset(void);
 
 void skulls_level_loaded(long scenario_tag_index)
 {
 	malfunction_reset();
 	running_skulls_reset();
-	skulls_outbreak_level_loaded();
 	if (network_game_distributed_client())
 		level_set = remote_on ? remote_set : skull_set_none();
 	else
@@ -450,6 +467,9 @@ void skulls_level_loaded(long scenario_tag_index)
 			(carried_definition != NONE ? (1UL << _own_sound_skull_pickup) | (1UL << _own_sound_skull_carrier) |
 				(1UL << _own_sound_skull_floor) : 0));
 	}
+	/* (the port's own skulls': their tags, once the skulls on are known) */
+	skulls_outbreak_level_loaded();
+	skulls_custom_level_loaded();
 }
 
 void skulls_level_unloaded(void)
@@ -557,18 +577,40 @@ void skulls_famine_weapon(long weapon_index)
 	struct weapon_datum *weapon = weapon_index == NONE ? NULL :
 		(struct weapon_datum *)object_try_and_get_and_verify_type(weapon_index, _object_mask_weapon);
 	struct weapon_definition *definition;
+	boolean famine = skull_active(_skull_famine);
+	boolean efficient = skull_active(_skull_efficient);
 	short magazine;
 
-	if (!weapon || !skull_active(_skull_famine))
+	/* (both: as it was) */
+	if (!weapon || famine == efficient)
 		return;
 	definition = weapon_definition_get(weapon->definition_index);
-	/* (a plasma weapon's charge: half of what it has left) */
-	weapon->weapon.age = 1.0f - (1.0f - weapon->weapon.age) * 0.5f;
+	/* (a plasma weapon's charge: half of what it has left, or what it spent
+	halved) */
+	weapon->weapon.age = famine ? 1.0f - (1.0f - weapon->weapon.age) * 0.5f : weapon->weapon.age * 0.5f;
 	for (magazine = 0; magazine < (short)NUMBEROF(weapon->weapon.magazines) &&
 		magazine < definition->weapon.magazines.count; magazine++)
 	{
-		weapon->weapon.magazines[magazine].rounds_total = (short)(weapon->weapon.magazines[magazine].rounds_total / 2);
-		weapon->weapon.magazines[magazine].rounds_loaded = (short)((weapon->weapon.magazines[magazine].rounds_loaded + 1) / 2);
+		struct weapon_magazine *rounds = &weapon->weapon.magazines[magazine];
+		struct weapon_magazine_definition *magazine_definition =
+			TAG_BLOCK_GET_ELEMENT(&definition->weapon.magazines, magazine, struct weapon_magazine_definition);
+
+		if (famine)
+		{
+			rounds->rounds_total = (short)(rounds->rounds_total / 2);
+			rounds->rounds_loaded = (short)((rounds->rounds_loaded + 1) / 2);
+		}
+		/* (Efficient: twice the rounds spare, as many as the weapon holds) */
+		else
+		{
+			long doubled = (long)rounds->rounds_total * 2;
+
+			if (doubled < (long)magazine_definition->rounds_loaded_maximum)
+				doubled = magazine_definition->rounds_loaded_maximum;
+			if (magazine_definition->rounds_total_maximum > 0 && doubled > magazine_definition->rounds_total_maximum)
+				doubled = magazine_definition->rounds_total_maximum;
+			rounds->rounds_total = (short)doubled;
+		}
 	}
 }
 
@@ -1549,7 +1591,7 @@ static void running_skulls_reset(void)
 	hunter_kind_count = 0;
 	for (slot = 0; slot < ENVY_PLAYERS; slot++)
 		envy_ready_time[slot] = 0;
-	vampirism_reset();
+	give_and_take_reset();
 }
 
 /* Streaking: the players' shields drain from full to none in this long,
@@ -1600,56 +1642,56 @@ void skulls_given_shield_hit(long object_index, int broken)
 	}
 }
 
-/* Vampirism: each player's shots not yet known to have hit (the game times
+/* Give & Take: each player's shots not yet known to have hit (the game times
 they were fired, oldest first): a hit on an enemy within this long takes
 the oldest away and heals; one older is a miss, and hurts. Health comes
 back by nothing else (health packs are left: players.c) */
-#define VAMPIRISM_PLAYERS 4
-#define VAMPIRISM_SHOTS 32
-#define VAMPIRISM_HIT_TICKS (TICKS_PER_SECOND * 3 / 2)
-#define VAMPIRISM_HIT_HEALTH 0.03f
-#define VAMPIRISM_MISS_SHIELD 0.04f
-#define VAMPIRISM_MISS_HEALTH 0.02f
+#define GIVE_AND_TAKE_PLAYERS 4
+#define GIVE_AND_TAKE_SHOTS 32
+#define GIVE_AND_TAKE_HIT_TICKS (TICKS_PER_SECOND * 3 / 2)
+#define GIVE_AND_TAKE_HIT_HEALTH 0.03f
+#define GIVE_AND_TAKE_MISS_SHIELD 0.04f
+#define GIVE_AND_TAKE_MISS_HEALTH 0.02f
 /* (a miss never kills: it leaves this much health) */
-#define VAMPIRISM_MISS_FLOOR 0.05f
+#define GIVE_AND_TAKE_MISS_FLOOR 0.05f
 
 static struct
 {
 	long unit_index;
-	long fired[VAMPIRISM_SHOTS];
+	long fired[GIVE_AND_TAKE_SHOTS];
 	short count;
-} vampirism_shots[VAMPIRISM_PLAYERS];
+} give_and_take_shots[GIVE_AND_TAKE_PLAYERS];
 
-static short vampirism_slot(long unit_index, boolean add)
+static short give_and_take_slot(long unit_index, boolean add)
 {
 	short slot;
 	short free_slot = NONE;
 
-	for (slot = 0; slot < VAMPIRISM_PLAYERS; slot++)
+	for (slot = 0; slot < GIVE_AND_TAKE_PLAYERS; slot++)
 	{
-		if (vampirism_shots[slot].unit_index == unit_index && vampirism_shots[slot].count >= 0)
+		if (give_and_take_shots[slot].unit_index == unit_index && give_and_take_shots[slot].count >= 0)
 			return slot;
-		if (free_slot == NONE && (vampirism_shots[slot].count == 0 ||
-			!object_try_and_get_and_verify_type(vampirism_shots[slot].unit_index, _object_mask_unit)))
+		if (free_slot == NONE && (give_and_take_shots[slot].count == 0 ||
+			!object_try_and_get_and_verify_type(give_and_take_shots[slot].unit_index, _object_mask_unit)))
 		{
 			free_slot = slot;
 		}
 	}
 	if (!add || free_slot == NONE)
 		return NONE;
-	vampirism_shots[free_slot].unit_index = unit_index;
-	vampirism_shots[free_slot].count = 0;
+	give_and_take_shots[free_slot].unit_index = unit_index;
+	give_and_take_shots[free_slot].count = 0;
 	return free_slot;
 }
 
-static void vampirism_reset(void)
+static void give_and_take_reset(void)
 {
 	short slot;
 
-	for (slot = 0; slot < VAMPIRISM_PLAYERS; slot++)
+	for (slot = 0; slot < GIVE_AND_TAKE_PLAYERS; slot++)
 	{
-		vampirism_shots[slot].unit_index = NONE;
-		vampirism_shots[slot].count = 0;
+		give_and_take_shots[slot].unit_index = NONE;
+		give_and_take_shots[slot].count = 0;
 	}
 }
 
@@ -1657,19 +1699,19 @@ void skulls_shot_fired(long unit_index)
 {
 	short slot;
 
-	if (!skull_active(_skull_vampirism) || network_game_distributed_client() || !skulls_unit_is_player(unit_index))
+	if (!skull_active(_skull_give_and_take) || network_game_distributed_client() || !skulls_unit_is_player(unit_index))
 		return;
-	slot = vampirism_slot(unit_index, TRUE);
+	slot = give_and_take_slot(unit_index, TRUE);
 	if (slot == NONE)
 		return;
 	/* (full: the oldest is let go, neither hit nor missed) */
-	if (vampirism_shots[slot].count == VAMPIRISM_SHOTS)
+	if (give_and_take_shots[slot].count == GIVE_AND_TAKE_SHOTS)
 	{
-		memmove(vampirism_shots[slot].fired, vampirism_shots[slot].fired + 1,
-			(VAMPIRISM_SHOTS - 1) * sizeof(vampirism_shots[slot].fired[0]));
-		vampirism_shots[slot].count--;
+		memmove(give_and_take_shots[slot].fired, give_and_take_shots[slot].fired + 1,
+			(GIVE_AND_TAKE_SHOTS - 1) * sizeof(give_and_take_shots[slot].fired[0]));
+		give_and_take_shots[slot].count--;
 	}
-	vampirism_shots[slot].fired[vampirism_shots[slot].count++] = game_time_get();
+	give_and_take_shots[slot].fired[give_and_take_shots[slot].count++] = game_time_get();
 }
 
 void skulls_damage_dealt(long object_index, long owner_player_index)
@@ -1678,7 +1720,7 @@ void skulls_damage_dealt(long object_index, long owner_player_index)
 	struct unit_datum *unit;
 	short slot;
 
-	if (!skull_active(_skull_vampirism) || owner_player_index == NONE || !skulls_unit_is_enemy(object_index))
+	if (!skull_active(_skull_give_and_take) || owner_player_index == NONE || !skulls_unit_is_enemy(object_index))
 		return;
 	player = player_get(owner_player_index);
 	unit = player->unit_index == NONE ? NULL :
@@ -1686,57 +1728,57 @@ void skulls_damage_dealt(long object_index, long owner_player_index)
 	if (!unit || TEST_FLAG(unit->object.damage_flags, _object_dead_bit))
 		return;
 	/* (a hit: its shot no miss; and some health back) */
-	slot = vampirism_slot(player->unit_index, FALSE);
-	if (slot != NONE && vampirism_shots[slot].count > 0)
+	slot = give_and_take_slot(player->unit_index, FALSE);
+	if (slot != NONE && give_and_take_shots[slot].count > 0)
 	{
-		memmove(vampirism_shots[slot].fired, vampirism_shots[slot].fired + 1,
-			(VAMPIRISM_SHOTS - 1) * sizeof(vampirism_shots[slot].fired[0]));
-		vampirism_shots[slot].count--;
+		memmove(give_and_take_shots[slot].fired, give_and_take_shots[slot].fired + 1,
+			(GIVE_AND_TAKE_SHOTS - 1) * sizeof(give_and_take_shots[slot].fired[0]));
+		give_and_take_shots[slot].count--;
 	}
-	unit->object.body_vitality += VAMPIRISM_HIT_HEALTH;
+	unit->object.body_vitality += GIVE_AND_TAKE_HIT_HEALTH;
 	if (unit->object.body_vitality > 1.0f)
 		unit->object.body_vitality = 1.0f;
 }
 
 /* the shots that hit nothing in time: each takes some shield, then health */
-static void vampirism_tick(void)
+static void give_and_take_tick(void)
 {
 	long now = game_time_get();
 	short slot;
 
-	if (!skull_active(_skull_vampirism) || network_game_distributed_client())
+	if (!skull_active(_skull_give_and_take) || network_game_distributed_client())
 		return;
-	for (slot = 0; slot < VAMPIRISM_PLAYERS; slot++)
+	for (slot = 0; slot < GIVE_AND_TAKE_PLAYERS; slot++)
 	{
 		struct unit_datum *unit;
 
-		if (vampirism_shots[slot].count <= 0)
+		if (give_and_take_shots[slot].count <= 0)
 			continue;
-		unit = (struct unit_datum *)object_try_and_get_and_verify_type(vampirism_shots[slot].unit_index,
+		unit = (struct unit_datum *)object_try_and_get_and_verify_type(give_and_take_shots[slot].unit_index,
 			_object_mask_unit);
 		/* (gone, dead, or a revert to before the shots) */
 		if (!unit || TEST_FLAG(unit->object.damage_flags, _object_dead_bit) ||
-			now < vampirism_shots[slot].fired[0])
+			now < give_and_take_shots[slot].fired[0])
 		{
-			vampirism_shots[slot].count = 0;
+			give_and_take_shots[slot].count = 0;
 			continue;
 		}
-		while (vampirism_shots[slot].count > 0 && now - vampirism_shots[slot].fired[0] > VAMPIRISM_HIT_TICKS)
+		while (give_and_take_shots[slot].count > 0 && now - give_and_take_shots[slot].fired[0] > GIVE_AND_TAKE_HIT_TICKS)
 		{
-			memmove(vampirism_shots[slot].fired, vampirism_shots[slot].fired + 1,
-				(VAMPIRISM_SHOTS - 1) * sizeof(vampirism_shots[slot].fired[0]));
-			vampirism_shots[slot].count--;
+			memmove(give_and_take_shots[slot].fired, give_and_take_shots[slot].fired + 1,
+				(GIVE_AND_TAKE_SHOTS - 1) * sizeof(give_and_take_shots[slot].fired[0]));
+			give_and_take_shots[slot].count--;
 			if (unit->object.shield_vitality > 0.0f)
 			{
-				unit->object.shield_vitality -= VAMPIRISM_MISS_SHIELD;
+				unit->object.shield_vitality -= GIVE_AND_TAKE_MISS_SHIELD;
 				if (unit->object.shield_vitality < 0.0f)
 					unit->object.shield_vitality = 0.0f;
 			}
-			else if (unit->object.body_vitality > VAMPIRISM_MISS_FLOOR)
+			else if (unit->object.body_vitality > GIVE_AND_TAKE_MISS_FLOOR)
 			{
-				unit->object.body_vitality -= VAMPIRISM_MISS_HEALTH;
-				if (unit->object.body_vitality < VAMPIRISM_MISS_FLOOR)
-					unit->object.body_vitality = VAMPIRISM_MISS_FLOOR;
+				unit->object.body_vitality -= GIVE_AND_TAKE_MISS_HEALTH;
+				if (unit->object.body_vitality < GIVE_AND_TAKE_MISS_FLOOR)
+					unit->object.body_vitality = GIVE_AND_TAKE_MISS_FLOOR;
 			}
 		}
 	}
@@ -1750,14 +1792,15 @@ static void skulls_units_tick(void)
 {
 	struct object_iterator iterator;
 	struct unit_datum *unit;
-	boolean assassins = skull_active(_skull_assassins) && game_time_get() % TICKS_PER_SECOND == 0;
+	boolean assassins = (skull_active(_skull_assassins) || skull_active(_skull_need_glasses)) &&
+		game_time_get() % TICKS_PER_SECOND == 0;
 	boolean protect = skull_active(_skull_protected) && !network_game_distributed_client() &&
 		game_time_get() % TICKS_PER_SECOND == 0;
 	/* (Streaking stops for a cutscene) */
 	boolean streaking = skull_active(_skull_streaking) && !network_game_distributed_client() &&
 		!cinematic_in_progress();
 
-	vampirism_tick();
+	give_and_take_tick();
 	if (!assassins && !streaking && !protect)
 		return;
 	object_iterator_new(&iterator, _object_mask_unit, 0);
@@ -1773,9 +1816,9 @@ static void skulls_units_tick(void)
 		}
 		if (protect && unit->object.maximum_shield_vitality <= 0.0f)
 			skulls_protect(iterator.index);
-		/* (an enemy's body: not a vehicle, whose riders would vanish with it) */
-		if (assassins && unit->object.type == _object_type_biped &&
-			!TEST_FLAG(unit->unit.flags, _unit_active_camouflaged_bit) && skulls_unit_is_enemy(iterator.index))
+		/* (Assassins' enemies, Need Glasses?'s every unit: skulls_custom.c) */
+		if (assassins && !TEST_FLAG(unit->unit.flags, _unit_active_camouflaged_bit) &&
+			skulls_unit_cloaked(iterator.index))
 		{
 			SET_FLAG(unit->unit.flags, _unit_active_camouflaged_bit, TRUE);
 			unit->unit.active_camouflage = 1.0f;
@@ -1811,6 +1854,7 @@ void skulls_tick(void)
 
 	skulls_units_tick();
 	skulls_outbreak_tick();
+	skulls_custom_tick();
 	if (carried_definition == NONE)
 		return;
 	tick_kills_decide();
@@ -1993,7 +2037,7 @@ void skulls_game_state_loaded(void)
 /* ---------- the skulls on, on the screen
 
 each skull on in the level a small icon at the bottom right, in a row from
-the right (on top of another past eleven): those turned on, and those found
+the right (on top of another past ten): those turned on, and those found
 and not yet kept, pulsing, those unlocked in the level, checked green,
 those dropped and lying about, marked yellow, and those lost, crossed out.
 The icons are Halopedia's of the Master Chief
@@ -2004,7 +2048,7 @@ menus' bitmaps (display.menus "xbox") */
 #define SKULL_ICON_SIZE 22
 #define SKULL_ICON_SPACING 24
 #define SKULL_ICON_MARGIN 12
-#define SKULL_ICONS_PER_ROW 11
+#define SKULL_ICONS_PER_ROW 10
 
 void skulls_hud_draw(short local_player_index)
 {

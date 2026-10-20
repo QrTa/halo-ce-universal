@@ -41,12 +41,12 @@ def test_skulls_menus():
     assert helps[-3].startswith("Forget every skull")
     assert helps[-2].startswith("Press A again")
     assert helps[-1].startswith("Skull progress reset")
-    assert len(port_settings.SKULLS) == 30
+    assert len(port_settings.SKULLS) == 40
     for key, _ in port_settings.SKULLS:
         assert f'name="main_menu/difficulty_select/skulls/skull_{key}"' in screen
     assert screen.count('run="skull toggle"') == 2 * len(port_settings.SKULLS)
     assert 'run="skulls start"' in screen
-    assert 'run="skulls all off"' in screen
+    assert 'run="skulls toggle all"' in screen
     assert 'input="skulls screen update"' in screen
     assert 'bitmap="main_menu/difficulty_select/skulls/header_skulls"' in screen
     # (their text is menu_functions.c's: a string list's would overwrite it)
@@ -60,7 +60,7 @@ def test_skulls_grid_is_one_list():
     menu = re.search(r'<widget name="main_menu/difficulty_select/skulls/options_menu"[^>]*>(.*?)</widget>', screen,
                      re.DOTALL)
     children = re.findall(r'<child widget="main_menu/difficulty_select/skulls/([a-z_]+)"', menu.group(1))
-    items = [f"skull_{key}" for key, _ in port_settings.SKULLS] + ["button_all_off", "button_ok", "button_cancel"]
+    items = [f"skull_{key}" for key, _ in port_settings.SKULLS] + ["button_toggle_all", "button_ok", "button_cancel"]
 
     assert 'flags="pass_unhandled_to_focused_child"' in menu.group(0)
     assert children == items
@@ -133,7 +133,7 @@ def test_skull_handlers_are_registered():
     tags = (ROOT / "port/linux/game/menu_tags.c").read_text()
     functions = (ROOT / "port/linux/game/menu_functions.c").read_text()
 
-    for name in ("skull toggle", "skulls all off", "skulls start", "skulls up", "skulls down", "skulls left",
+    for name in ("skull toggle", "skulls toggle all", "skulls start", "skulls up", "skulls down", "skulls left",
                  "skulls right", "skulls unlock all", "skulls unlock play", "skulls unlock pickup", "skulls screen update", "gameplay screen update"):
         assert f'"{name}"' in tags
         assert f'!strcmp(name, "{name}")' in functions

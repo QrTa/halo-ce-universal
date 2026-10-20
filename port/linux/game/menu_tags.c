@@ -390,7 +390,7 @@ static char const *const port_function_names[] =
 	/* (the campaign randomizer's screen, after a campaign level's difficulty) */
 	"randomizer profile save", "randomizer profile load", "randomizer start", "randomizer profile delete",
 	/* (the skulls screen, after a campaign level's difficulty) */
-	"skull toggle", "skulls all off", "skulls start", "skulls up", "skulls down", "skulls left", "skulls right",
+	"skull toggle", "skulls toggle all", "skulls start", "skulls up", "skulls down", "skulls left", "skulls right",
 	"skulls unlock all", "skulls unlock play", "skulls unlock pickup", "skulls reset progress",
 };
 

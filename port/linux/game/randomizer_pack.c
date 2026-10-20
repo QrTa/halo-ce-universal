@@ -1004,15 +1004,16 @@ static int skull_map_count(void)
 	return 2;
 }
 
-/* (and Outbreak's Flood, The Library's: skulls_outbreak.c) */
+/* (and Outbreak's Flood, Two Betrayals': skulls_outbreak.c) */
 static char const *skull_map(int index)
 {
-	return index == 0 ? "wizard" : SKULLS_OUTBREAK_DONOR;
+	return index == 0 ? "wizard" : SKULLS_FLOOD_DONOR;
 }
 
 /* the skull's pixels and samples, and the HUD's it shows held; the Flood's
 (named so), and the effects and characters' they share (blood, gibs, the
-carrier's burst): about 30 MB, against 140 of The Library's own */
+carrier's burst), and Scarab's rocket and fuel rod: about 40 MB, against
+260 of Two Betrayals' own */
 static int skull_keep_bytes(unsigned long group, char const *name)
 {
 	char lower[256];
@@ -1023,7 +1024,8 @@ static int skull_keep_bytes(unsigned long group, char const *name)
 		lower[index] = (char)tolower((unsigned char)name[index]);
 	lower[index] = 0;
 	return strstr(lower, "ball") != NULL || !strncmp(lower, "ui\\hud\\", 7) || strstr(lower, "flood") != NULL ||
-		!strncmp(lower, "effects\\", 8) || !strncmp(lower, "characters\\", 11);
+		!strncmp(lower, "effects\\", 8) || !strncmp(lower, "characters\\", 11) ||
+		strstr(lower, "rocket") != NULL || strstr(lower, "fuel rod") != NULL;
 }
 
 static struct pack_kind const randomizer_kind =
@@ -1096,7 +1098,7 @@ static int pack_ready(struct pack_kind const *kind)
 	}
 	CloseHandle(file);
 	/* (and each of the kind's maps there is, in it: skulls.pack before
-	Outbreak's Flood was, has not The Library's) */
+	Outbreak's Flood was, has not Two Betrayals') */
 	for (level = 0; ready && level < kind->map_count() && level < PACK_MAPS; level++)
 	{
 		long file_length, tag_offset, tag_size;

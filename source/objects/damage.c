@@ -1166,7 +1166,7 @@ static void object_damage_aftermath(
 	shields are run (port/linux/game/skulls.c) */
 	if (objects_update_shields() && damage_effect->damage.category == _damage_category_melee)
 		skulls_melee_damage(object_index, damage->owner_object_index, damage->owner_player_index);
-	/* port: skull: Vampirism, a player's hit on an enemy heals them */
+	/* port: skull: Give & Take, a player's hit on an enemy heals them */
 	if (objects_update_shields())
 		skulls_damage_dealt(object_index, damage->owner_player_index);
 
@@ -1304,7 +1304,9 @@ static void object_damage_body(
 
 	if (!TEST_FLAG(object->object.damage_flags, _object_cannot_take_damage_bit))
 	{
-		if (damage_amount > 0.f && TEST_FLAG(damage_material->flags, _damage_material_head_bit))
+		/* port: skull: Leadhead, no headshots (port/linux/game/skulls_custom.c) */
+		if (damage_amount > 0.f && TEST_FLAG(damage_material->flags, _damage_material_head_bit) &&
+			!skull_active(_skull_leadhead))
 		{
 			if (TEST_FLAG(damage_definition->flags, _damage_can_cause_headshots_bit))
 			{
@@ -2154,7 +2156,9 @@ void object_damage_update(
 				hud_tick_shield(player_index, 0.00074074074f);
 			}
 		}
-		else if (object->object.shield_vitality < 1.f)
+		/* port: skull: Rip & Tear, a player's shield recharging into an
+		overshield (port/linux/game/skulls_custom.c) */
+		else if (object->object.shield_vitality < skulls_shield_cap(object_index))
 		{
 			/* port: skull: Black Eye, a player's shield only a punch fills;
 			and Protected's shield never comes back (the model it was given
@@ -2192,13 +2196,13 @@ void object_damage_update(
 				shield_recharge += object->object.shield_vitality;
 				damage_flags = object->object.damage_flags;
 				object->object.shield_vitality = shield_recharge;
-				if (shield_recharge > 1.f)
+				if (shield_recharge > skulls_shield_cap(object_index))
 				{
 					SET_FLAG(
 						damage_flags,
 						_object_shield_charging_bit,
 						FALSE);
-					object->object.shield_vitality = 1.f;
+					object->object.shield_vitality = skulls_shield_cap(object_index);
 					object->object.damage_flags = damage_flags;
 				}
 			}

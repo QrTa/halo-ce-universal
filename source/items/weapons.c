@@ -1535,8 +1535,15 @@ static void weapon_magazine_finish_reload(
 	if (!magazine)
 		return;
 
-	if (TEST_FLAG(magazine_definition->flags, 0))
+	/* port: skull: Johnny Ammo, a player's magazine reloaded whole throws
+	away the rounds left in it, as a magazine that wastes them does
+	(port/linux/game/skulls_custom.c) */
+	if (TEST_FLAG(magazine_definition->flags, 0) ||
+		skulls_johnny_ammo(weapon_get_owner_object_index(weapon_index),
+			magazine_definition->rounds_reloaded>=magazine_definition->rounds_loaded_maximum))
+	{
 		magazine->rounds_loaded = 0;
+	}
 
 	rounds_to_load = magazine_definition->rounds_reloaded>magazine->rounds_total ? magazine->rounds_total : magazine_definition->rounds_reloaded;
 	rounds_loaded = magazine->rounds_loaded+rounds_to_load;
@@ -2411,6 +2418,7 @@ static void trigger_create_projectiles(
 		struct unit_datum *unit= unit_try_and_get(owner_object_index);
 		long target_object_index= NONE;
 		long projectile_definition_index;
+		long scarab_projectile_index;
 		short projectile_count;
 
 		if (!TEST_FLAG(trigger_definition->flags, _weapon_trigger_projectiles_cannot_be_aimed_bit) &&
@@ -2504,6 +2512,15 @@ static void trigger_create_projectiles(
 			projectile_definition_index= trigger_definition->projectile.index;
 			projectile_count= trigger_definition->projectiles_per_shot;
 		}
+		/* port: skull: Scarab, a player's shot a rocket or a fuel rod, one a
+		shot (port/linux/game/skulls_custom.c) */
+		scarab_projectile_index= projectile_definition_index!=NONE ?
+			skulls_scarab_projectile(weapon->definition_index, owner_object_index) : NONE;
+		if (scarab_projectile_index!=NONE)
+		{
+			projectile_definition_index= scarab_projectile_index;
+			projectile_count= 1;
+		}
 
 		if (projectile_definition_index!=NONE)
 		{
@@ -2518,7 +2535,9 @@ static void trigger_create_projectiles(
 				boolean inside_bsp;
 				long projectile_object_index;
 
-				object_placement_data_new(&data, trigger_definition->projectile.index, projectile_owner_object_index);
+				object_placement_data_new(&data,
+					scarab_projectile_index!=NONE ? scarab_projectile_index : trigger_definition->projectile.index,
+					projectile_owner_object_index);
 				data.position= origin;
 				data.forward= forward;
 
@@ -2770,7 +2789,7 @@ static void weapon_trigger_fire(
 		}
 
 		weapon->weapon.game_time_last_fired= game_time_get();
-		/* port: skull: Vampirism, a player's shot, a miss unless it hits an
+		/* port: skull: Give & Take, a player's shot, a miss unless it hits an
 		enemy soon (port/linux/game/skulls.c) */
 		if (!misfired && TEST_FLAG(weapon->item.flags, _item_belongs_to_player_bit))
 			skulls_shot_fired(owner_object_index);

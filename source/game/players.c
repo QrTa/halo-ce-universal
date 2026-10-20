@@ -4448,9 +4448,9 @@ static void player_handle_powerup_equipment(
 	}
 	else if (powerup_type == _equipment_powerup_health)
 	{
-		/* port: skull: Vampirism, a health pack is not taken
+		/* port: skull: Give & Take, a health pack is not taken
 		(port/linux/game/skulls.c) */
-		if (skull_active(_skull_vampirism))
+		if (skull_active(_skull_give_and_take))
 			return;
 		if (!object_restore_body(player->unit_index))
 			return;

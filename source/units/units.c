@@ -7193,7 +7193,8 @@ void unit_damage_aftermath(
 	/* port: skull: Grunt Birthday Party, a grunt's headshot celebrated
 	(port/linux/game/skulls.c) */
 	if (lethal)
-		skulls_unit_killed(unit_index, body_part == _unit_damage_part_head, damage_data->owner_player_index);
+		skulls_unit_killed(unit_index, body_part == _unit_damage_part_head && !skull_active(_skull_leadhead),
+			damage_data->owner_player_index);
 
 	if (!TEST_FLAG(
 			damage_data->flags,
@@ -9337,6 +9338,9 @@ void unit_cause_player_melee_damage(
 
 			damage_data_new(&damage_data, melee_damage_effect_index);
 			SET_FLAG(damage_data.flags, _damage_area_of_effect_bit, TRUE);
+			/* port: skull: Rip & Tear, a player's punch twice as hard */
+			if (skulls_rip_and_tear(unit_index))
+				damage_data.scale *= 2.0f;
 			damage_data.location = unit->object.location;
 			damage_data.owner_object_index = unit_index;
 			damage_data.owner_team_index = unit->object.owner_team_index;
@@ -11945,6 +11949,14 @@ void unit_control(
 	}
 	unit->unit.desired_zoom_level = (char)control_data->zoom_level;
 	unit->unit.control_flags = control_data->control_flags;
+	/* port: skull: Rip & Tear, a player's fists alone: no trigger, no
+	grenade (port/linux/game/skulls_custom.c) */
+	if (skulls_rip_and_tear(unit_index))
+	{
+		unit->unit.control_flags &= (word)~(FLAG(_unit_control_weapon_primary_trigger_bit) |
+			FLAG(_unit_control_weapon_secondary_trigger_bit) | FLAG(_unit_control_throw_grenade_bit));
+		unit->unit.primary_trigger = 0.0f;
+	}
 	unit->unit.desired_looking_vector = control_data->looking_vector;
 	unit->unit.desired_aiming_vector = control_data->aiming_vector;
 	unit->unit.desired_facing_vector = control_data->facing_vector;

@@ -38,8 +38,9 @@ calls them from PC_MENU_FUNCTION_BASE on):
   "randomizer profiles update" shows the names saved;
 - the skulls screen (tools/port_settings.py), after a campaign level's
   difficulty (and the randomizer's screen) when game.skulls is on: "skull
-  toggle" turns the skull of the item chosen on or off, "skulls all off" all
-  of them, "skulls start" writes game.skulls_active and starts the level,
+  toggle" turns the skull of the item chosen on or off, "skulls toggle all"
+  turns those had all off when any is on, else all on, "skulls start"
+  writes game.skulls_active and starts the level,
   "skulls up", "down", "left" and "right" move through its grid, and
   "skulls screen update" ticks them and shows the chosen one's help;
 - Settings > Gameplay > Skulls: "skulls reset progress" (A twice) forgets
@@ -2144,9 +2145,9 @@ static boolean skull_toggle(struct widget_instance *widget)
 
 /* the skulls screen's grid (tools/port_settings.py's _skulls_screen): its
 list has the skulls row by row, three to a row, then a row of its buttons
-(All Off, OK, Cancel). The list steps none itself: each of its items moves
+(Toggle All, OK, Cancel). The list steps none itself: each of its items moves
 the focus here, so only the item focused is lit */
-#define SKULL_COLUMNS 3
+#define SKULL_COLUMNS 4
 #define SKULL_BUTTONS 3
 
 void ui_widget_port_give_focus(struct widget_instance *widget);
@@ -2181,7 +2182,7 @@ static boolean skulls_move(struct widget_instance *widget, short across, short d
 
 		/* (wrapping round, the buttons' row below the last of the skulls) */
 		row = (short)((row + down + rows + 1) % (rows + 1));
-		/* (All Off, OK and Cancel under the three columns) */
+		/* (Toggle All, OK and Cancel under the four columns) */
 		if (buttons_row != (row == rows))
 			column = (short)MIN(column, (row == rows ? SKULL_BUTTONS : SKULL_COLUMNS) - 1);
 	}
@@ -2248,7 +2249,7 @@ static void skulls_screen_update(struct widget_instance *list)
 		if (!item)
 			continue;
 		/* (one not found yet, faint) */
-		snprintf(line, sizeof(line), "%s %s", locked ? "[--]" : skull_set_has(&skulls_menu_set, skull) ? "[X]" : "[  ]",
+		snprintf(line, sizeof(line), "%s %s", locked ? "[-]" : skull_set_has(&skulls_menu_set, skull) ? "[X]" : "[ ]",
 			skull_descriptions[skull].label);
 		text_widen(text, NUMBEROF(text), line);
 		text_set(item, text);
@@ -2261,7 +2262,7 @@ static void skulls_screen_update(struct widget_instance *list)
 	else if (focused_skull != NONE)
 		snprintf(line, sizeof(line), "%s", skull_descriptions[focused_skull].description);
 	else
-		snprintf(line, sizeof(line), "A turns a skull on or off. The skulls stay\non for the levels after this one.");
+		line[0] = 0;
 	text_widen(text, NUMBEROF(text), line);
 	text_set(help, text);
 }
@@ -7055,10 +7056,14 @@ boolean pc_menu_event_function_invoke(
 		{
 			return skull_toggle(widget);
 		}
-		else if (!strcmp(name, "skulls all off"))
+		else if (!strcmp(name, "skulls toggle all"))
 		{
-			skulls_menu_set = skull_set_none();
-			ui_play_audio_feedback_sound(SOUND_BACK);
+			/* (any of those had on: all off; none on: all those had on) */
+			struct skull_set unlocked = skulls_unlocked_set();
+			struct skull_set on = skull_set_intersection(skulls_menu_set, unlocked);
+
+			skulls_menu_set = skull_set_is_empty(&on) ? unlocked : skull_set_none();
+			ui_play_audio_feedback_sound(skull_set_is_empty(&on) ? SOUND_FORWARD : SOUND_BACK);
 		}
 		else if (!strcmp(name, "skulls start"))
 		{

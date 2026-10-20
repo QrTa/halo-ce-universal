@@ -373,8 +373,8 @@
 		<frame png="ce/port/blank__0.png" width="4" height="4"/>
 	</bitmap>
 	<bitmap name="skulls/option">
-		<frame png="ce/port/skulls/option__0.png" width="170" height="32"/>
-		<frame png="ce/port/skulls/option__1.png" width="170" height="32"/>
+		<frame png="ce/port/skulls/option__0.png" width="160" height="32"/>
+		<frame png="ce/port/skulls/option__1.png" width="160" height="32"/>
 	</bitmap>
 	<bitmap name="skulls/icons">
 		<frame png="ce/port/skulls/icons__0.png" width="24" height="24"/>
@@ -410,5 +410,15 @@
 		<frame png="ce/port/skulls/icons__30.png" width="24" height="24"/>
 		<frame png="ce/port/skulls/icons__31.png" width="24" height="24"/>
 		<frame png="ce/port/skulls/icons__32.png" width="24" height="24"/>
+		<frame png="ce/port/skulls/icons__33.png" width="24" height="24"/>
+		<frame png="ce/port/skulls/icons__34.png" width="24" height="24"/>
+		<frame png="ce/port/skulls/icons__35.png" width="24" height="24"/>
+		<frame png="ce/port/skulls/icons__36.png" width="24" height="24"/>
+		<frame png="ce/port/skulls/icons__37.png" width="24" height="24"/>
+		<frame png="ce/port/skulls/icons__38.png" width="24" height="24"/>
+		<frame png="ce/port/skulls/icons__39.png" width="24" height="24"/>
+		<frame png="ce/port/skulls/icons__40.png" width="24" height="24"/>
+		<frame png="ce/port/skulls/icons__41.png" width="24" height="24"/>
+		<frame png="ce/port/skulls/icons__42.png" width="24" height="24"/>
 	</bitmap>
 </menus>

@@ -1973,6 +1973,9 @@ static void effect_generate_particles(
 
 		if (count_delta <= 0)
 			continue;
+		/* port: skull: M Rating, the blood five times over
+		(port/linux/game/skulls_custom.c) */
+		count_delta = (short)(count_delta * skulls_particle_count_scale(particles->particle.index));
 
 		location_datum_index =
 			effect->location_datum_indices[particles->location_index];
