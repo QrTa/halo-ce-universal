@@ -174,7 +174,7 @@ Then, in the repository:
 ```sh
 python configure.py            # finds emcc on the PATH, else ~/emsdk's (--web-emcc PATH)
 ninja web                      # build/web/site/
-python tools/web_serve.py      # http://localhost:8000/
+python tools/web_serve.py      # http://localhost:1178/
 ```
 
 The first build fetches SDL 3.4.16's source and builds it as an Emscripten

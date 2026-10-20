@@ -28,6 +28,10 @@ struct xgpu_capabilities
 	/* GL_RGBA16F can be drawn into and blended (EXT_color_buffer_half_float
 	or EXT_color_buffer_float): display.hdr's back buffer */
 	BOOL color_buffer_half_float;
+	/* KHR_parallel_shader_compile (the web build's): a program links
+	without the draw waiting for it, and draws that need it are skipped
+	until it is done (d3d8_gl.c program_get) */
+	BOOL parallel_compile;
 	/* "300 es" or "310 es" */
 	const char *shading_language;
 };

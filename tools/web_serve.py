@@ -7,7 +7,7 @@
 
 with the headers that make the page cross-origin isolated (which the game's
 threads need), WebAssembly's type, single byte ranges and no caching, at
-http://localhost:8000/ (a secure context, as https is). --as-github-pages
+http://localhost:1178/ (a secure context, as https is). --as-github-pages
 leaves the isolation headers out, as GitHub Pages does, so that the service
 worker's (port/web/site/sw.js) is what isolates the page.
 """
@@ -111,7 +111,7 @@ def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("root", nargs="?", type=Path, default=ROOT / "build/web/site", help="the site's folder")
     parser.add_argument("--bind", default="127.0.0.1")
-    parser.add_argument("--port", type=int, default=8000)
+    parser.add_argument("--port", type=int, default=1178)
     parser.add_argument("--as-github-pages", action="store_true",
                         help="no isolation headers: the service worker isolates the page")
     args = parser.parse_args(argv)

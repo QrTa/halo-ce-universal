@@ -1134,11 +1134,6 @@ static void pack_request(struct pack_kind const *kind)
 {
 	int index;
 
-#ifdef HALO_WEB
-	/* (the page's storage is not the place for half a gigabyte) */
-	if (kind == &randomizer_kind)
-		return;
-#endif
 	if (pack_current == kind)
 		return;
 	for (index = 0; index < pack_queued; index++)
