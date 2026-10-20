@@ -161,6 +161,12 @@ void skulls_handle_message(long machine_index, unsigned short const *message, un
 /* a co-op host's Outbreak bursts, which its clients play
 (skulls_outbreak.c, network_distributed.c) */
 int skulls_outbreak_handles_message(unsigned short const *message, unsigned short size);
+/* a modded co-op game's level tags (their count and fingerprint), the
+host's sent to a client that is ready, which checks its own against them
+(skulls.c, network_distributed.c) */
+void skulls_send_tags(long machine_index);
+int skulls_tags_handles_message(unsigned short const *message, unsigned short size);
+void skulls_tags_handle_message(long machine_index, unsigned short const *message, unsigned short size);
 void skulls_outbreak_handle_message(long machine_index, unsigned short const *message, unsigned short size);
 
 /* whether the unit (or an object's team) is the players' enemy */

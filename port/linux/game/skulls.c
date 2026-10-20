@@ -65,6 +65,8 @@ has is not kept again.
 #include "randomizer.h"
 #include "network_distributed.h"
 
+void platform_log(char const *format, ...);
+
 extern int config_boolean(char const *name);
 extern long config_integer(char const *name);
 extern char const *config_string(char const *name);
@@ -135,6 +137,12 @@ taken, not played: what was taken and unlocked before is not this
 machine's) */
 static boolean skulls_sent_state_valid;
 static boolean skulls_state_heard;
+/* the level's tags every machine of a co-op game has alike (the map's, the
+randomizer's and the skulls' copies: before this machine's own menus' and
+mods'), as the level loaded: their count and fingerprint
+(skulls_send_tags) */
+static long shared_tag_count;
+static unsigned long shared_tag_hash;
 
 /* ---------- sets of skulls */
 
@@ -509,6 +517,10 @@ void skulls_level_loaded(long scenario_tag_index)
 	/* (the port's own skulls': their tags, once the skulls on are known) */
 	skulls_outbreak_level_loaded();
 	skulls_custom_level_loaded();
+	/* (the tags shared with a co-op game's other machines, all there now:
+	the menus' and the mods' come after, cache_files.c) */
+	randomizer_tag_table_fingerprint(&shared_tag_count, &shared_tag_hash);
+	error(_error_silent, "skulls: the level's shared tags: %ld, fingerprint %08lx", shared_tag_count, shared_tag_hash);
 }
 
 void skulls_level_unloaded(void)
@@ -1599,6 +1611,21 @@ static void tick_kills_decide(void)
 /* the skull dropped by the dead enemy, with its cheer and confetti */
 static void skull_slot_name(short slot, int skull);
 
+/* a skull lying about is never the game's garbage: a dropped weapon come to
+rest is (items.c), which goes when too many are about, or none of a co-op
+host's players is near it (objects.c), and the host's deletion is its
+clients' too. Taken out of the garbage, and kept out (equipment's flag) */
+static void skull_keep_from_garbage(long object_index)
+{
+	struct object_datum *object = object_index == NONE ? NULL : object_try_and_get(object_index);
+
+	if (!object || TEST_FLAG(object->object.flags, _object_cannot_be_garbage_bit))
+		return;
+	if (TEST_FLAG(object->object.flags, _object_garbage_bit))
+		object_set_garbage(object_index, FALSE);
+	SET_FLAG(object->object.flags, _object_cannot_be_garbage_bit, TRUE);
+}
+
 static void skull_drop(long unit_index, int skull, long left, short odds)
 {
 	short slot;
@@ -1613,6 +1640,7 @@ static void skull_drop(long unit_index, int skull, long left, short odds)
 	skull_index = unit_port_drop_object(unit_index, carried_definition);
 	if (skull_index == NONE)
 		return;
+	skull_keep_from_garbage(skull_index);
 	finding->skulls[slot].object_index = skull_index;
 	skull_hums[slot] = NONE;
 	skull_droppers[slot] = unit_index;
@@ -1989,6 +2017,9 @@ void skulls_tick(void)
 				finding->skulls[slot].object_index = NONE;
 			continue;
 		}
+		/* (never garbage: a co-op client's copy too, which comes after the
+		host's word of it) */
+		skull_keep_from_garbage(skull_index);
 		/* (in a unit's hands, which a revert may bring back: not heard) */
 		if (skull->object.parent_object_index != NONE)
 			continue;
@@ -2545,6 +2576,77 @@ void skulls_handle_message(long machine_index, unsigned short const *data, unsig
 			finding->skulls[slot].name[0] = 0;
 	}
 	run_saved();
+}
+
+/* ---------- co-op: the level's tags, alike on every machine
+
+A modded co-op game's machines copy tags into the level (the randomizer's,
+the skulls'), each by the host's advertisement, before their own menus' and
+mods' (cache_files.c); the host's objects name them by index, so a client
+whose shared tags differ has the host's enemies and skulls as other things,
+or none. The host sends its table's count and
+fingerprint to a client when it is ready, and the client says so, loudly,
+when its own differ. */
+
+struct mod_tags_message
+{
+	struct distributed_message_header header;
+	long count;
+	unsigned long hash;
+};
+
+void skulls_send_tags(long machine_index)
+{
+	struct mod_tags_message message;
+	extern int randomizer_show_prefix(void);
+
+	if (game_connection() != _game_connection_network_server || machine_index == NONE ||
+		!(randomizer_show_prefix() || skulls_hosted()))
+	{
+		return;
+	}
+	csmemset(&message, 0, sizeof(message));
+	message.count = shared_tag_count;
+	message.hash = shared_tag_hash;
+	distributed_send_to_machine_reliably(machine_index, &message, _distributed_message_mod_tags, 1, sizeof(message));
+}
+
+int skulls_tags_handles_message(unsigned short const *message, unsigned short size)
+{
+	struct distributed_message_header header;
+
+	if (size < sizeof(header))
+		return FALSE;
+	memcpy(&header, message, sizeof(header));
+	return header.type == _distributed_message_mod_tags;
+}
+
+void skulls_tags_handle_message(long machine_index, unsigned short const *data, unsigned short size)
+{
+	struct mod_tags_message message;
+	long count = shared_tag_count;
+	unsigned long hash = shared_tag_hash;
+	short local_player_index;
+
+	if (machine_index != NONE || !network_game_distributed_client() || size != sizeof(message))
+		return;
+	memcpy(&message, data, sizeof(message));
+	if (GET_MESSAGE_TYPE(message.header.header) != 2 || message.header.count != 1)
+		return;
+	if (count == message.count && hash == message.hash)
+	{
+		error(_error_silent, "skulls: the level's tags are the host's (%ld, %08lx)", count, hash);
+		return;
+	}
+	error(_error_silent, "skulls: the level's tags differ from the host's: %ld tags, %08lx here; %ld, %08lx on the "
+		"host. Its enemies, weapons and skulls will not match", count, hash, message.count, message.hash);
+	platform_log("skulls: this level's tags differ from the host's (%ld here, %ld there): the randomizer's and the "
+		"skulls' copies are not the same on both machines", count, message.count);
+	for (local_player_index = 0; local_player_index < local_player_count(); local_player_index++)
+	{
+		skulls_print(local_player_index, "Expect enemies and items out of sync.");
+		skulls_print(local_player_index, "This level loaded differently from the host's.");
+	}
 }
 
 /* ---------- a unit's death */

@@ -2984,6 +2984,29 @@ static void gather_skulls(int carried, int outbreak, int scarab)
 		gather_skull_roots(SKULLS_FLOOD_DONOR, roots, count);
 }
 
+void randomizer_tag_table_fingerprint(long *count, unsigned long *hash)
+{
+	long index;
+	struct cache_file_tag_instance *instances = cache_files_tag_instances(count);
+	unsigned long value = 0x811C9DC5UL;
+
+	for (index = 0; instances && index < *count; index++)
+	{
+		char const *name = instances[index].name;
+		short byte_index;
+
+		for (byte_index = 0; byte_index < 4; byte_index++)
+			value = ((value ^ ((unsigned long)instances[index].group_tag >> (byte_index * 8) & 0xFF)) * 16777619UL) &
+				0xFFFFFFFFUL;
+		for (; name && *name; name++)
+			value = ((value ^ (unsigned char)*name) * 16777619UL) & 0xFFFFFFFFUL;
+		value = ((value ^ 0xFF) * 16777619UL) & 0xFFFFFFFFUL;
+	}
+	if (!instances)
+		*count = 0;
+	*hash = value;
+}
+
 void randomizer_tags_loaded(char const *scenario_name)
 {
 	struct network_game *game = network_game_get_game();
@@ -3055,6 +3078,15 @@ void randomizer_tags_loaded(char const *scenario_name)
 	wanted_free();
 	error(_error_silent, "randomizer: %s, %ld actors, %ld weapons, %ld model parts in %lu vertex bytes",
 		leaf, variant_count, pickup_choice.count + actor_weapon_choice.count, bound_part_count, bound_vertex_bytes);
+	/* (the table as it is now, which a co-op game's machines must all have
+	alike: skulls.c compares a client's with its host's) */
+	{
+		long count;
+		unsigned long hash;
+
+		randomizer_tag_table_fingerprint(&count, &hash);
+		error(_error_silent, "randomizer: %s's tag table: %ld tags, fingerprint %08lx", leaf, count, hash);
+	}
 }
 
 void randomizer_tags_unloaded(void)

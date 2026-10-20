@@ -4489,6 +4489,11 @@ void network_distributed_handle_message(
 		skulls_outbreak_handle_message(machine_index, message, size);
 		return;
 	}
+	if (skulls_tags_handles_message(message, size))
+	{
+		skulls_tags_handle_message(machine_index, message, size);
+		return;
+	}
 	if (network_voice_handles_message(message, size))
 	{
 		network_voice_handle_message(machine_index, message, size);
@@ -4847,6 +4852,7 @@ void network_distributed_handle_message(
 		the host's objects) */
 		network_aim_assist_send_policy(machine_index);
 		skulls_send_state(machine_index);
+		skulls_send_tags(machine_index);
 		network_objects_client_asked(machine_index, header.count != 0);
 		/* (a machine new at its index, which may have joined the game in
 		progress: every player's statistics and the game type's state, after

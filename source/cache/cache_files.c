@@ -654,16 +654,6 @@ void scenario_tags_unload(
 	}
 	sound_cache_close();
 	texture_cache_close();
-	/* port: the level's skulls go, and the sound they added to the tags,
-	before the randomizer's tags (port/linux/game/skulls.c) */
-	skulls_level_unloaded();
-	/* port: the randomizer's tags go, and the table without them comes
-	back, before the mods' (port/linux/game/randomizer.c) */
-	{
-		extern void randomizer_tags_unloaded(void);
-
-		randomizer_tags_unloaded();
-	}
 	/* port: the mods' tags go, after the sound and texture caches that held
 	their sounds and bitmaps (port/linux/game/mods.c) */
 	{
@@ -671,13 +661,24 @@ void scenario_tags_unload(
 
 		mods_tags_unloaded();
 	}
-	/* port: the menus' tags go, and the map's own table comes back
+	/* port: the menus' tags go, and the table before them comes back
 	(port/linux/game/menu_tags.c): after the texture cache, which writes to
 	the bitmaps it has loaded as it closes, theirs among them */
 	{
 		extern void menu_tags_unloaded(void);
 
 		menu_tags_unloaded();
+	}
+	/* port: the level's skulls go, and the sound they added to the tags,
+	before the randomizer's tags (port/linux/game/skulls.c); then the
+	randomizer's, and the map's own table comes back
+	(port/linux/game/randomizer.c). Added before the mods' and the menus',
+	they go after them */
+	skulls_level_unloaded();
+	{
+		extern void randomizer_tags_unloaded(void);
+
+		randomizer_tags_unloaded();
 	}
 	cache_file_close();
 	/* port: a Halo Custom Edition map has no Xbox vertex or index buffers
@@ -1403,6 +1404,19 @@ long scenario_tags_load(
 
 				powerup_render_bounds_tags_loaded();
 			}
+			/* port: a campaign randomizer's tags, copied from the other
+			campaign maps (port/linux/game/randomizer.c), and the skulls this
+			level is played with, and their sound (port/linux/game/skulls.c):
+			before the menus' and the mods' tags, which are this machine's
+			own (its platform's menus, its mods), so that the tags these copy
+			are at the same indices on every machine of a co-op game, whose
+			host's objects name them by index */
+			{
+				extern void randomizer_tags_loaded(char const *scenario_name);
+
+				randomizer_tags_loaded(scenario_name);
+			}
+			skulls_level_loaded(cache_file_globals.tag_header->scenario_tag_index);
 			/* port: the menus' tags, added to the map's (port/linux/game/menu_tags.c) */
 			{
 				extern void menu_tags_loaded(char const *map_name);
@@ -1424,16 +1438,6 @@ long scenario_tags_load(
 
 				mods_tags_loaded(stripped_scenario_name);
 			}
-			/* port: a campaign randomizer's tags, copied from the other
-			campaign maps (port/linux/game/randomizer.c) */
-			{
-				extern void randomizer_tags_loaded(char const *scenario_name);
-
-				randomizer_tags_loaded(scenario_name);
-			}
-			/* port: the skulls this level is played with, and their sound
-			(port/linux/game/skulls.c) */
-			skulls_level_loaded(cache_file_globals.tag_header->scenario_tag_index);
 			result = cache_file_globals.tag_header->scenario_tag_index;
 		}
 		/* port: a map refused is closed for the next to open */

@@ -9,6 +9,10 @@ in memory; tags it does not have are read from the other campaign maps.
 #define __RANDOMIZER_H
 
 void randomizer_tags_loaded(char const *scenario_name);
+/* the level's tag table: how many tags, and a hash of each one's group and
+name in order, which a co-op game's machines must have alike (the
+randomizer's and the skulls' copies at the same indices on each) */
+void randomizer_tag_table_fingerprint(long *count, unsigned long *hash);
 void randomizer_tags_unloaded(void);
 
 /* a bitmap's or sound's bytes of an imported tag, from the map they were

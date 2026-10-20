@@ -148,6 +148,10 @@ enum
 	the host's burst of Flood spores, which effects being each machine's,
 	every client plays (unreliable) */
 	_distributed_message_skulls_outbreak_burst = 161,
+	/* a modded co-op game's level, as the host has its tags (their count and
+	fingerprint: randomizer.c), to a client when it is ready, which says so
+	when its own differ (port/linux/game/skulls.c) */
+	_distributed_message_mod_tags = 162,
 
 	NUMBER_OF_DISTRIBUTED_MESSAGES
 };
