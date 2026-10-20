@@ -2376,7 +2376,8 @@ static void skulls_reset_progress(struct widget_instance *widget)
 
 /* "gameplay screen update" (Settings > Gameplay > Skulls, and >
 Randomizer): ALL SKULLS only with the skulls on and the skulls screen's
-question answered, INSTANT UNLOCK only with ALL SKULLS off too, Go Crazy's
+question answered, INSTANT UNLOCK, SKULLS PER LEVEL and DROP CHANCE only
+with ALL SKULLS off too, Go Crazy's
 parts only with it on; a hidden row takes no focus. And RESET SKULL
 PROGRESS's question or done in the help line, while it has the focus (its
 help's next strings: tools/port_settings.py) */
@@ -2389,6 +2390,8 @@ static void gameplay_screen_update(struct widget_instance *list)
 	struct widget_instance *all_row = named(list, "op_skulls_all_unlocked", 0);
 	struct widget_instance *instant_row = named(list, "op_skulls_instant_unlock", 0);
 	struct widget_instance *death_row = named(list, "op_skulls_lose_on_death", 0);
+	struct widget_instance *count_row = named(list, "op_skulls_drop_count", 0);
+	struct widget_instance *chance_row = named(list, "op_skulls_drop_chance", 0);
 	struct widget_instance *reset_row = named(list, "op_reset_progress", 0);
 	struct widget_instance *help = list->parameters.list.extended_description;
 	/* (ALL SKULLS once the skulls screen's question is answered; INSTANT
@@ -2414,6 +2417,12 @@ static void gameplay_screen_update(struct widget_instance *list)
 		death_row->visible = answered && !randomizer_spinner_is(list, "skulls_all_unlocked_spinner", "true") &&
 			!randomizer_spinner_is(list, "skulls_instant_unlock_spinner", "true");
 	}
+	/* (SKULLS PER LEVEL and DROP CHANCE with ALL SKULLS off: the skulls
+	dropped to be found) */
+	if (count_row)
+		count_row->visible = answered && !randomizer_spinner_is(list, "skulls_all_unlocked_spinner", "true");
+	if (chance_row)
+		chance_row->visible = answered && !randomizer_spinner_is(list, "skulls_all_unlocked_spinner", "true");
 	if (!reset_row || list->focused_child != reset_row)
 	{
 		skulls_reset_state = _skulls_reset_none;

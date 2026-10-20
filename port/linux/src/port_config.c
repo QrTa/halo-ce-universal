@@ -653,6 +653,18 @@ static const struct config_setting config_settings[] =
 		"GAMEPLAY. true: a death, or a return to a checkpoint, loses the skulls\n"
 		"picked up and not yet unlocked (to be found again). false: they stay\n"
 		"on, and are unlocked once the level is finished." },
+	{ "game.skulls_drop_count", _config_integer, "0", "HALO_SKULLS_DROP_COUNT", _environment_value, _platform_all,
+		"Settings > Gameplay's SKULLS PER LEVEL, with ALL SKULLS off: how many\n"
+		"of the locked skulls the enemies of a campaign level drop (1 to 8), or\n"
+		"0 for the difficulty's (one on easy to four on legendary). A co-op\n"
+		"game drops the host's locked skulls by the host's, and every player\n"
+		"who picks one up or sees it picked up gets it." },
+	{ "game.skulls_drop_chance", _config_integer, "100", "HALO_SKULLS_DROP_CHANCE", _environment_value, _platform_all,
+		"Settings > Gameplay's DROP CHANCE, with ALL SKULLS off: a kill's odds\n"
+		"of dropping a skull, a percentage of the usual (one in as many enemies\n"
+		"as are left, more for a headshot, a punch from behind, an instant kill,\n"
+		"a group's or a vehicle's): 25, 50, 100, 200 or 400. The level's first\n"
+		"skull always drops at the first kill. The host's in co-op." },
 	{ "game.terminal_output", _config_string, "\"menus\"", "HALO_TERMINAL_OUTPUT", _environment_value, _platform_all,
 		"The game's messages at the bottom left of the screen (\"Shaders\n"
 		"preloaded.\", what the console's commands print): \"none\", \"menus\" (in\n"

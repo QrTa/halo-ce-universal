@@ -38,6 +38,13 @@ def test_skulls_menus():
     assert f'name="{base}/skulls/op_skulls_lose_on_death"' in settings
     assert '"op_skulls_lose_on_death"' in (ROOT / "port/linux/game/menu_functions.c").read_text()
     assert '"game.skulls_lose_on_death"' in (ROOT / "port/linux/src/port_config.c").read_text()
+    # (SKULLS PER LEVEL and DROP CHANCE, shown with ALL SKULLS off: the
+    # drops' count and odds, the host's in co-op)
+    for setting in ("skulls_drop_count", "skulls_drop_chance"):
+        assert f'setting="game.{setting}"' in settings
+        assert f'name="{base}/skulls/op_{setting}"' in settings
+        assert f'"op_{setting}"' in (ROOT / "port/linux/game/menu_functions.c").read_text()
+        assert f'"game.{setting}"' in (ROOT / "port/linux/src/port_config.c").read_text()
     # (RESET SKULL PROGRESS, the last row: its help, then the question and
     # the done that menu_functions.c shows after it)
     assert f'name="{base}/skulls/op_reset_progress"' in settings

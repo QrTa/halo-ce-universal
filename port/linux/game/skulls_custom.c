@@ -199,6 +199,13 @@ static boolean weapon_is_covenant(long weapon_definition_index)
 		strstr(name, "plasma") || strstr(name, "needler");
 }
 
+long skulls_scarab_weapon_projectile(long weapon_definition_index)
+{
+	if (weapon_definition_index == NONE || !skull_active(_skull_scarab))
+		return NONE;
+	return weapon_is_covenant(weapon_definition_index) ? scarab_fuel_rod : scarab_rocket;
+}
+
 long skulls_scarab_projectile(long weapon_definition_index, long unit_index)
 {
 	if (weapon_definition_index == NONE || !skull_active(_skull_scarab) || !shots_of_player(unit_index))

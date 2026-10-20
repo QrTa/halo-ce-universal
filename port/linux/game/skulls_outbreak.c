@@ -23,8 +23,12 @@ and its death is not counted in the skulls' odds (skulls_outbreak_raised).
 The spores and the Flood raised are the game state's: a checkpoint's revert
 brings them back as they were.
 
-A game of this machine's alone: a network game's other machines have none
-of the Flood's tags (skulls_outbreak_wanted).
+In co-op every machine copies in the Flood's tags alike (skulls.c's
+skull_tags_wanted, by the host's advertisement), and the host alone lets
+spores loose and raises the Flood: its spores, bodies and raised Flood are
+its objects and actors, which its clients have and move as it does
+(network_objects.c, network_actors.c), and it sends each burst to its
+clients, which play it (_distributed_message_skulls_outbreak_burst).
 */
 
 #include <math.h>
@@ -44,6 +48,7 @@ of the Flood's tags (skulls_outbreak_wanted).
 #include "saved games/game_state.h"
 #include "tag_files/tag_groups.h"
 #include "units/units.h"
+#include "network_distributed.h"
 
 /* cseries_windows.h's */
 unsigned long system_milliseconds(void);
@@ -185,12 +190,13 @@ void skulls_outbreak_level_loaded(void)
 	}
 }
 
-/* Outbreak's on, and the level's Flood is all there */
+/* Outbreak's on, and the level's Flood is all there; in this machine's
+game, or the one it hosts (a co-op client's are the host's) */
 static boolean outbreak_on(void)
 {
 	return outbreak && skull_active(_skull_outbreak) && spore_definition != NONE &&
 		carrier_variant != NONE && elite_variant_count > 0 && human_variant_count > 0 &&
-		game_connection() == _game_connection_local;
+		game_connection() != _game_connection_network_client;
 }
 
 static unsigned long outbreak_random(void)
@@ -410,7 +416,17 @@ static short raised_alive(void)
 
 /* a carrier's burst at the unit, harmless: quiet, its particles alone (a
 raised Flood's), else with its sound; of the size */
-static void burst_at(long unit_index, boolean quiet, float size)
+/* a burst, sent to a co-op host's clients: where, how big, and whether
+quiet */
+struct skulls_outbreak_burst_message
+{
+	struct distributed_message_header header;
+	real_point3d point;
+	real size;
+	long quiet;
+};
+
+static void burst_at_point(real_point3d const *point, long owner_index, boolean quiet, float size)
 {
 	char const *marker_names[1];
 	real_point3d marker_points[1];
@@ -419,16 +435,68 @@ static void burst_at(long unit_index, boolean quiet, float size)
 	if (burst_definition == NONE)
 		return;
 	marker_names[0] = "";
-	object_get_origin(unit_index, &marker_points[0]);
+	marker_points[0] = *point;
 	marker_forwards[0] = *global_up3d;
 	skulls_effect_quiet = quiet;
 	skulls_effect_harmless = TRUE;
 	skulls_effect_size = size;
-	effect_new_unattached_from_markers(burst_definition, unit_index, NULL, 1, marker_names, marker_points,
+	effect_new_unattached_from_markers(burst_definition, owner_index, NULL, 1, marker_names, marker_points,
 		marker_forwards, 0.0f, 0.0f, NULL, NULL, TRUE);
 	skulls_effect_quiet = FALSE;
 	skulls_effect_harmless = FALSE;
 	skulls_effect_size = 1.0f;
+}
+
+static void burst_at(long unit_index, boolean quiet, float size)
+{
+	struct skulls_outbreak_burst_message message;
+	real_point3d point;
+
+	if (burst_definition == NONE)
+		return;
+	object_get_origin(unit_index, &point);
+	burst_at_point(&point, unit_index, quiet, size);
+	/* (a co-op host's clients play it too: effects are each machine's) */
+	if (game_connection() == _game_connection_network_server)
+	{
+		csmemset(&message, 0, sizeof(message));
+		message.point = point;
+		message.size = size;
+		message.quiet = quiet ? 1 : 0;
+		distributed_send(&message, _distributed_message_skulls_outbreak_burst, 1, sizeof(message),
+			_distributed_to_clients);
+	}
+}
+
+int skulls_outbreak_handles_message(unsigned short const *message, unsigned short size)
+{
+	struct distributed_message_header header;
+
+	if (size < sizeof(header))
+		return FALSE;
+	memcpy(&header, message, sizeof(header));
+	return header.type == _distributed_message_skulls_outbreak_burst;
+}
+
+/* a co-op client: the host's burst, played (no owner: the unit may not be
+here yet) */
+void skulls_outbreak_handle_message(long machine_index, unsigned short const *data, unsigned short size)
+{
+	struct skulls_outbreak_burst_message message;
+
+	if (machine_index != NONE || game_connection() != _game_connection_network_client || !game_in_progress() ||
+		size != sizeof(message))
+	{
+		return;
+	}
+	memcpy(&message, data, sizeof(message));
+	if (GET_MESSAGE_TYPE(message.header.header) != 2 || message.header.type != _distributed_message_skulls_outbreak_burst ||
+		message.header.count != 1 || message.quiet > 1 || !(message.size > 0.0f && message.size <= 4.0f) ||
+		!valid_real_point3d(&message.point))
+	{
+		return;
+	}
+	burst_at_point(&message.point, NONE, (boolean)message.quiet, message.size);
 }
 
 /* the body raised as its Flood, the spore gone into it: TRUE, done */

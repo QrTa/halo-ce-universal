@@ -139,15 +139,29 @@ struct sound_permutation;
 unsigned char skulls_sound_read(struct sound_permutation const *permutation, void *buffer);
 
 /* the advertisement's reserved bytes: the skulls flag and set, when the
-host plays a campaign game with skulls; the client's copy of them */
+host plays a campaign game with skulls, and the drops flag when its enemies
+drop skulls to be found; the client's copy of them (the advertisement's
+flags, and its skulls' bytes) */
 void skulls_advertisement(unsigned char *reserved);
-void skulls_set_remote(int on, unsigned char const *bytes);
-/* whether the game this machine hosts is a campaign game with skulls (one
-skulls_advertisement marks) */
+void skulls_set_remote(unsigned char flags, unsigned char const *bytes);
+/* whether the game this machine hosts is a campaign game with skulls, or
+whose enemies drop skulls (one skulls_advertisement marks) */
 int skulls_hosted(void);
-/* whether an advertisement's skulls take tags from skulls.pack: Outbreak's
-Flood, Scarab's projectiles */
-int skulls_advertised_need_pack(unsigned char const *bytes);
+/* whether an advertisement's skulls take tags from skulls.pack: the skull
+the enemies drop, Outbreak's Flood, Scarab's projectiles */
+int skulls_advertised_need_pack(unsigned char flags, unsigned char const *bytes);
+
+/* a co-op game's skulls to be found (the host's, kept the same on its
+clients): the state sent to a client that is ready (NONE: to every
+client, when it changed), and the host's message handled on a client
+(network_distributed.c) */
+void skulls_send_state(long machine_index);
+int skulls_handles_message(unsigned short const *message, unsigned short size);
+void skulls_handle_message(long machine_index, unsigned short const *message, unsigned short size);
+/* a co-op host's Outbreak bursts, which its clients play
+(skulls_outbreak.c, network_distributed.c) */
+int skulls_outbreak_handles_message(unsigned short const *message, unsigned short size);
+void skulls_outbreak_handle_message(long machine_index, unsigned short const *message, unsigned short size);
 
 /* whether the unit (or an object's team) is the players' enemy */
 int skulls_unit_is_enemy(long unit_index);
@@ -184,8 +198,8 @@ void skulls_unit_died(long unit_index);
 /* the skull the enemies carry, to be found (unlocking by playing): a
 multiplayer map's oddball, copied into the level as it loads
 (port/linux/game/randomizer.c, from skulls.pack). Whether a level loading
-wants it: the skulls on, unlocking by playing, a game of this machine's
-alone (solo or split screen) */
+wants it: the skulls on, unlocking by playing, a campaign game (a co-op
+client's: the host's drops, by its advertisement) */
 #define SKULLS_CARRIED_TAG "weapons\\ball\\ball"
 int skulls_carried_wanted(void);
 /* each tick of the game: the skulls lying about, heard */
@@ -195,8 +209,8 @@ void skulls_tick(void);
 loose Flood spores that run to the bodies about and raise them as Flood.
 The Flood's tags come from Two Betrayals (c40), copied into the level as it
 loads (randomizer.c, from skulls.pack): the roots below, and what they need.
-Whether a level loading wants them: Outbreak on, a game of this machine's
-alone (solo or split screen) */
+Whether a level loading wants them: Outbreak on, or to be found (in co-op,
+by the host's advertisement alone, so every machine copies the same) */
 #define SKULLS_FLOOD_DONOR "c40"
 #define SKULLS_OUTBREAK_SPORE_TAG "characters\\flood_infection\\flood_infection"
 #define SKULLS_OUTBREAK_CARRIER_TAG "characters\\floodcarrier\\floodcarrier"
@@ -274,6 +288,10 @@ int skulls_unit_cloaked(long unit_index);
 player's: the rocket of a human weapon, the fuel rod of a Covenant one;
 NONE, its own (weapons.c) */
 long skulls_scarab_projectile(long weapon_definition_index, long unit_index);
+/* ... the projectile the weapon's shots are swapped for, whoever fires it
+(NONE: Scarab off, or not in the level): the damage a co-op host takes from
+a client's reports of them (network_damage.c) */
+long skulls_scarab_weapon_projectile(long weapon_definition_index);
 /* Rip & Tear: whether the unit is a player's that can only punch (its
 triggers and grenades held: units.c), and the shield a unit recharges to
 (1, a player's 3: damage.c); a player's punch's damage, doubled */
@@ -291,7 +309,8 @@ void skulls_custom_tick(void);
 void skulls_custom_level_loaded(void);
 /* Scarab's projectiles: the rocket (Wizard's) and the fuel rod (c40's,
 SKULLS_FLOOD_DONOR's), copied into the level as it loads; whether a level
-loading wants them (Scarab on, or to be found; this machine's game alone) */
+loading wants them (Scarab on, or to be found; in co-op, by the host's
+advertisement alone) */
 #define SKULLS_SCARAB_ROCKET_TAG "weapons\\rocket launcher\\rocket"
 #define SKULLS_SCARAB_FUEL_ROD_TAG "weapons\\fuel rod gun\\fuel rod"
 int skulls_scarab_wanted(void);

@@ -18,7 +18,9 @@
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/gameplay/skulls/op_skulls_all_unlocked" x="54" y="103"/>
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/gameplay/skulls/op_skulls_instant_unlock" x="54" y="133"/>
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/gameplay/skulls/op_skulls_lose_on_death" x="54" y="163"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/gameplay/skulls/op_reset_progress" x="54" y="193"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/gameplay/skulls/op_skulls_drop_count" x="54" y="193"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/gameplay/skulls/op_skulls_drop_chance" x="54" y="223"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/gameplay/skulls/op_reset_progress" x="54" y="253"/>
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/gameplay/skulls/button_bar" y="414"/>
 	</widget>
 	<widget name="main_menu/settings_select/player_setup/player_profile_edit/gameplay/skulls/button_bar" type="column_list" width="640" height="28" flags="pass_unhandled_to_focused_child left_right_tabs_items">
@@ -62,13 +64,31 @@
 	<widget name="main_menu/settings_select/player_setup/player_profile_edit/gameplay/skulls/skulls_lose_on_death_spinner" type="spinner" left="3" top="2" width="147" height="20" flags="pass_unhandled_to_focused_child left_right_tabs_items" strings="OFF|ON" setting="game.skulls_lose_on_death" values="false|true" font="ui\large_ui" color="#FF2896FF" align="center" text_y="1" header_bitmap="bitmaps/arrow_sm_left" footer_bitmap="bitmaps/arrow_sm_right" header_bounds="7 -6 19 0" footer_bounds="7 150 19 156">
 		<on event="created" run="port setting load"/>
 	</widget>
+	<widget name="main_menu/settings_select/player_setup/player_profile_edit/gameplay/skulls/op_skulls_drop_count" width="512" height="28" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/option_bkds" color="#FF2896FF">
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/gameplay/skulls/skulls_drop_count_label"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/gameplay/skulls/skulls_drop_count_spinner" x="320" y="1"/>
+	</widget>
+	<widget name="main_menu/settings_select/player_setup/player_profile_edit/gameplay/skulls/skulls_drop_count_label" type="text" controller="1" width="300" height="22" string_list="main_menu/settings_select/player_setup/player_profile_edit/gameplay/skulls/labels" string_index="4" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
+	</widget>
+	<widget name="main_menu/settings_select/player_setup/player_profile_edit/gameplay/skulls/skulls_drop_count_spinner" type="spinner" left="3" top="2" width="147" height="20" flags="pass_unhandled_to_focused_child left_right_tabs_items" strings="BY DIFFICULTY|1|2|3|4|5|6|7|8" setting="game.skulls_drop_count" values="0|1|2|3|4|5|6|7|8" font="ui\large_ui" color="#FF2896FF" align="center" text_y="1" header_bitmap="bitmaps/arrow_sm_left" footer_bitmap="bitmaps/arrow_sm_right" header_bounds="7 -6 19 0" footer_bounds="7 150 19 156">
+		<on event="created" run="port setting load"/>
+	</widget>
+	<widget name="main_menu/settings_select/player_setup/player_profile_edit/gameplay/skulls/op_skulls_drop_chance" width="512" height="28" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/option_bkds" color="#FF2896FF">
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/gameplay/skulls/skulls_drop_chance_label"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/gameplay/skulls/skulls_drop_chance_spinner" x="320" y="1"/>
+	</widget>
+	<widget name="main_menu/settings_select/player_setup/player_profile_edit/gameplay/skulls/skulls_drop_chance_label" type="text" controller="1" width="300" height="22" string_list="main_menu/settings_select/player_setup/player_profile_edit/gameplay/skulls/labels" string_index="5" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
+	</widget>
+	<widget name="main_menu/settings_select/player_setup/player_profile_edit/gameplay/skulls/skulls_drop_chance_spinner" type="spinner" left="3" top="2" width="147" height="20" flags="pass_unhandled_to_focused_child left_right_tabs_items" strings="1/4X|1/2X|1X|2X|4X" setting="game.skulls_drop_chance" values="25|50|100|200|400" font="ui\large_ui" color="#FF2896FF" align="center" text_y="1" header_bitmap="bitmaps/arrow_sm_left" footer_bitmap="bitmaps/arrow_sm_right" header_bounds="7 -6 19 0" footer_bounds="7 150 19 156">
+		<on event="created" run="port setting load"/>
+	</widget>
 	<widget name="main_menu/settings_select/player_setup/player_profile_edit/gameplay/skulls/op_reset_progress" width="512" height="28" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/option_bkds" color="#FF2896FF">
 		<on event="a" run="skulls reset progress"/>
 		<on event="start" run="skulls reset progress"/>
 		<on event="left_mouse" run="mouse emit accept event"/>
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/gameplay/skulls/reset_progress_label"/>
 	</widget>
-	<widget name="main_menu/settings_select/player_setup/player_profile_edit/gameplay/skulls/reset_progress_label" type="text" controller="1" width="512" height="22" string_list="main_menu/settings_select/player_setup/player_profile_edit/gameplay/skulls/labels" string_index="4" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
+	<widget name="main_menu/settings_select/player_setup/player_profile_edit/gameplay/skulls/reset_progress_label" type="text" controller="1" width="512" height="22" string_list="main_menu/settings_select/player_setup/player_profile_edit/gameplay/skulls/labels" string_index="6" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
 	</widget>
 	<widget name="main_menu/settings_select/player_setup/player_profile_edit/gameplay/skulls/button_defaults" type="text" width="128" height="24" bitmap="bitmaps/text_button_background" string_list="strings/common_button_captions" string_index="3" font="ui\small_ui" color="#FFFFFFFF" align="center" text_y="2">
 		<on event="a" run="port settings defaults"/>
@@ -85,6 +105,8 @@
 		<string text="ALL SKULLS:"/>
 		<string text="INSTANT UNLOCK:"/>
 		<string text="LOSE ON DEATH:"/>
+		<string text="SKULLS PER LEVEL:"/>
+		<string text="DROP CHANCE:"/>
 		<string text="RESET SKULL PROGRESS"/>
 	</strings>
 	<strings name="main_menu/settings_select/player_setup/player_profile_edit/gameplay/skulls/help_strings">
@@ -93,6 +115,8 @@
 		<string text="On: every skull can be picked, and none drop.\nOff: enemies drop the skulls you haven't found."/>
 		<string text="On: a skull you pick up is unlocked at once.\nOff: finish the level to unlock it."/>
 		<string text="On: dying loses the skulls you picked up and\nhave not unlocked yet. Off: you keep them."/>
+		<string text="How many locked skulls a level's enemies drop.\nBy difficulty: 1 on Easy to 4 on Legendary."/>
+		<string text="How likely a kill drops a skull. The first\nskull of a level drops at the first kill."/>
 		<string text="Forget every skull found, and ask again how\nthe skulls are had."/>
 		<string text="Press A again to forget every skull found.\nThis cannot be undone."/>
 		<string text="Skull progress reset. Every skull is to be\nfound again."/>

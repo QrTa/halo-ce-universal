@@ -15,6 +15,14 @@ Only the host runs the AI and deals damage (port/linux/NETCODE.md), so the
 skulls that change those take effect there; those of the HUD, the camera
 and the pickups take effect on each machine, which the advertised mask
 makes the same.
+
+In co-op the host's enemies drop the host's locked skulls to be found, as
+in its own game (a modded game: halo_port_limits.h). Every machine copies
+in the skull they carry; the host decides the drops and the pickups, and
+tells its clients of the skulls dropped, taken, unlocked and lost
+(_distributed_message_skulls_state), which each machine plays and keeps by
+the host's rules (INSTANT UNLOCK, LOSE ON DEATH). A skull a player already
+has is not kept again.
 */
 
 #include <stdio.h>
@@ -55,8 +63,10 @@ makes the same.
 #include "halo_port_limits.h"
 #include "custom_edition_cache.h"
 #include "randomizer.h"
+#include "network_distributed.h"
 
 extern int config_boolean(char const *name);
+extern long config_integer(char const *name);
 extern char const *config_string(char const *name);
 /* cseries_windows.h's */
 unsigned long system_milliseconds(void);
@@ -112,6 +122,19 @@ struct skull_description const skull_descriptions[NUMBER_OF_SKULLS] =
 static struct skull_set level_set;
 static int remote_on;
 static struct skull_set remote_set;
+/* a co-op client's: the host's enemies drop skulls (the advertisement's
+drops flag); the host's rules and its count of those left to find, as
+its state last said (skulls_handle_message) */
+static int remote_drops;
+static int remote_instant;
+static int remote_lose_on_death;
+static short remote_left;
+/* a co-op host's: its skulls' state sent since the level loaded
+(skulls_send_state); a client's: the host's heard since (the first only
+taken, not played: what was taken and unlocked before is not this
+machine's) */
+static boolean skulls_sent_state_valid;
+static boolean skulls_state_heard;
 
 /* ---------- sets of skulls */
 
@@ -345,18 +368,28 @@ int skulls_drop(void)
 	return skulls_unlock_mode() == _skulls_unlock_play && !config_boolean("game.skulls_all_unlocked");
 }
 
+/* whether the enemies of the game this machine runs (its own, or one it
+hosts) drop its locked skulls: unlocking by playing, the skulls on, a
+campaign game */
+static int drops_hosted(void)
+{
+	struct network_game *game = network_game_get_game();
+
+	if (!config_boolean("game.skulls") || !skulls_drop() || network_game_distributed_client())
+		return 0;
+	return !game || game->variant.game_engine_index == game_engine_none;
+}
+
 int skulls_carried_wanted(void)
 {
 	struct network_game *game = network_game_get_game();
 
-	if (!config_boolean("game.skulls") || !skulls_drop())
-		return 0;
-	/* (solo and split screen: a network game's machines would each want
-	to keep a skull another found) */
-	if (game_connection() != _game_connection_local || network_game_distributed_client())
-		return 0;
-	return !game || game->variant.game_engine_index == game_engine_none;
+	/* (a co-op client: the host's, which every machine copies alike) */
+	if (network_game_distributed_client())
+		return remote_drops && (!game || game->variant.game_engine_index == game_engine_none);
+	return drops_hosted();
 }
+
 
 /* the host's (or a game of one machine's) skulls, from its settings: those
 turned on that it has */
@@ -373,20 +406,25 @@ static struct skull_set config_set(void)
 }
 
 /* whether a level loading wants the tags a skull needs copied in: the
-skull on, or still to be found in the level (picked up, it is on there); a
-game of this machine's alone (a network game's other machines would have
-none of them) */
+skull on, or still to be found in the level (picked up, it is on there).
+In co-op every machine copies the same, by the host's advertisement alone
+(the skulls on, and any skull with its drops: one picked up is on), so
+that the tags are at the same indices on each */
 static int skull_tags_wanted(int skull)
 {
 	struct network_game *game = network_game_get_game();
-	struct skull_set set = config_set();
-	struct skull_set unlocked = skulls_unlocked_set();
+	struct skull_set set;
+	struct skull_set unlocked;
 
-	if (!skull_set_has(&set, skull) && !(skulls_carried_wanted() && !skull_set_has(&unlocked, skull)))
+	if (game && game->variant.game_engine_index != game_engine_none)
 		return 0;
-	if (game_connection() != _game_connection_local || network_game_distributed_client())
-		return 0;
-	return !game || game->variant.game_engine_index == game_engine_none;
+	if (network_game_distributed_client())
+		return (remote_on && skull_set_has(&remote_set, skull)) || remote_drops;
+	set = config_set();
+	if (game_connection() == _game_connection_network_server)
+		return skull_set_has(&set, skull) || drops_hosted();
+	unlocked = skulls_unlocked_set();
+	return skull_set_has(&set, skull) || (skulls_carried_wanted() && !skull_set_has(&unlocked, skull));
 }
 
 int skulls_outbreak_wanted(void)
@@ -434,6 +472,8 @@ static void give_and_take_reset(void);
 
 void skulls_level_loaded(long scenario_tag_index)
 {
+	skulls_sent_state_valid = FALSE;
+	skulls_state_heard = FALSE;
 	malfunction_reset();
 	running_skulls_reset();
 	if (network_game_distributed_client())
@@ -491,23 +531,27 @@ int skull_active(int skull)
 	return global_scenario && global_scenario->type == _scenario_type_solo;
 }
 
+static void skull_set_to_bytes(struct skull_set set, unsigned char *bytes);
+
 void skulls_advertisement(unsigned char *reserved)
 {
 	struct skull_set set;
-	short byte_index;
 
-	if (!reserved)
+	if (!reserved || !network_game_get_game())
 		return;
+	/* (the enemies drop the host's locked skulls: every machine copies in
+	the skull they carry) */
+	if (drops_hosted())
+	{
+		reserved[HALO_PORT_ADVERTISED_FLAGS_OFFSET] =
+			(unsigned char)(reserved[HALO_PORT_ADVERTISED_FLAGS_OFFSET] | HALO_PORT_ADVERTISED_SKULL_DROPS_FLAG);
+	}
 	set = config_set();
 	if (skull_set_is_empty(&set))
 		return;
 	reserved[HALO_PORT_ADVERTISED_FLAGS_OFFSET] =
 		(unsigned char)(reserved[HALO_PORT_ADVERTISED_FLAGS_OFFSET] | HALO_PORT_ADVERTISED_SKULLS_FLAG);
-	for (byte_index = 0; byte_index < HALO_PORT_ADVERTISED_SKULLS_SIZE; byte_index++)
-	{
-		reserved[HALO_PORT_ADVERTISED_SKULLS_OFFSET + byte_index] = byte_index / 4 < SKULL_SET_WORDS ?
-			(unsigned char)(set.words[byte_index / 4] >> ((byte_index % 4) * 8)) : 0;
-	}
+	skull_set_to_bytes(set, reserved + HALO_PORT_ADVERTISED_SKULLS_OFFSET);
 }
 
 int skulls_hosted(void)
@@ -517,33 +561,50 @@ int skulls_hosted(void)
 	if (!network_game_get_game())
 		return 0;
 	set = config_set();
-	return !skull_set_is_empty(&set);
+	return !skull_set_is_empty(&set) || drops_hosted();
 }
 
-int skulls_advertised_need_pack(unsigned char const *bytes)
+/* a set to its eight bytes (little-endian, skull n bit n) and back, as the
+advertisement and the state message carry them */
+static void skull_set_to_bytes(struct skull_set set, unsigned char *bytes)
+{
+	short byte_index;
+
+	for (byte_index = 0; byte_index < HALO_PORT_ADVERTISED_SKULLS_SIZE; byte_index++)
+	{
+		bytes[byte_index] = byte_index / 4 < SKULL_SET_WORDS ?
+			(unsigned char)(set.words[byte_index / 4] >> ((byte_index % 4) * 8)) : 0;
+	}
+}
+
+static struct skull_set skull_set_from_bytes(unsigned char const *bytes)
 {
 	struct skull_set set = skull_set_none();
 	short byte_index;
 
-	if (!bytes)
-		return 0;
 	for (byte_index = 0; byte_index < SKULL_SET_WORDS * 4; byte_index++)
 		set.words[byte_index / 4] |= (unsigned long)bytes[byte_index] << ((byte_index % 4) * 8);
+	/* (none past those there are) */
+	return skull_set_intersection(set, skull_set_all());
+}
+
+int skulls_advertised_need_pack(unsigned char flags, unsigned char const *bytes)
+{
+	struct skull_set set;
+
+	if (flags & HALO_PORT_ADVERTISED_SKULL_DROPS_FLAG)
+		return 1;
+	if (!(flags & HALO_PORT_ADVERTISED_SKULLS_FLAG) || !bytes)
+		return 0;
+	set = skull_set_from_bytes(bytes);
 	return skull_set_has(&set, _skull_outbreak) || skull_set_has(&set, _skull_scarab);
 }
 
-void skulls_set_remote(int on, unsigned char const *bytes)
+void skulls_set_remote(unsigned char flags, unsigned char const *bytes)
 {
-	short byte_index;
-
-	remote_on = on && bytes;
-	remote_set = skull_set_none();
-	if (!remote_on)
-		return;
-	for (byte_index = 0; byte_index < SKULL_SET_WORDS * 4; byte_index++)
-		remote_set.words[byte_index / 4] |= (unsigned long)bytes[byte_index] << ((byte_index % 4) * 8);
-	/* (none past those there are) */
-	remote_set = skull_set_intersection(remote_set, skull_set_all());
+	remote_on = (flags & HALO_PORT_ADVERTISED_SKULLS_FLAG) && bytes;
+	remote_drops = (flags & HALO_PORT_ADVERTISED_SKULL_DROPS_FLAG) != 0;
+	remote_set = remote_on ? skull_set_from_bytes(bytes) : skull_set_none();
 }
 
 int skulls_team_is_enemy(short team_index)
@@ -1101,6 +1162,24 @@ and is kept once the level is finished without dying */
 
 #define SKULLS_POOL_MAX 8
 
+/* the skulls a level drops: game.skulls_drop_count, or with 0 the
+difficulty's, one on easy to four on legendary */
+static short skulls_drop_quota(void)
+{
+	long count = config_integer("game.skulls_drop_count");
+
+	if (count <= 0)
+		count = game_difficulty_level_get() + 1;
+	return (short)PIN(count, 1, SKULLS_POOL_MAX);
+}
+
+/* a kill's odds of a skull, multiplied by game.skulls_drop_chance (a
+percentage) */
+static long skulls_drop_chance(void)
+{
+	return PIN(config_integer("game.skulls_drop_chance"), 1, 1000);
+}
+
 /* the run of the level, from its start (or start again) on: what a death or
 a revert does not take back, so that no skull is had twice. The skulls it
 drops, chosen at its first drop (the first of the level's order not had
@@ -1151,6 +1230,9 @@ static struct skulls_run run;
 game state's: forgotten when a revert takes the game back), and when */
 static long skull_hums[SKULLS_DROPPED_MAX] = { NONE, NONE, NONE, NONE, NONE, NONE, NONE, NONE };
 static long skull_hums_time;
+/* the enemy that dropped each, for a co-op client's cheer and confetti
+(the host's, this machine's: not the game state's) */
+static long skull_droppers[SKULLS_DROPPED_MAX] = { NONE, NONE, NONE, NONE, NONE, NONE, NONE, NONE };
 
 /* the skulls found in the level, not yet kept */
 static struct skull_set found_set(void)
@@ -1210,6 +1292,7 @@ static void finding_reset(void)
 	{
 		finding->skulls[index].object_index = NONE;
 		skull_hums[index] = NONE;
+		skull_droppers[index] = NONE;
 		finding->skulls[index].next_hum_time = 0;
 		finding->skulls[index].skull = NONE;
 		finding->skulls[index].name[0] = 0;
@@ -1244,11 +1327,11 @@ static long carriers_left(long dying_index)
 }
 
 /* the run's skulls: the first of the level's order not had, as many as
-the difficulty drops (one on easy to four on legendary) */
+the level drops (skulls_drop_quota) */
 static void run_pool(void)
 {
 	struct skull_set had = skulls_unlocked_set();
-	short quota = (short)(game_difficulty_level_get() + 1);
+	short quota = skulls_drop_quota();
 	short index;
 
 	run.pool_count = 0;
@@ -1300,11 +1383,14 @@ static int run_next(void)
 /* the skulls still to be found in the run: those not picked up */
 static short skulls_left_to_find(void)
 {
-	short quota = (short)(game_difficulty_level_get() + 1);
+	short quota = skulls_drop_quota();
 	struct skull_set locked = skull_set_difference(skull_set_all(), skulls_unlocked_set());
 	short count = 0;
 	int skull;
 
+	/* (a co-op client's: the host's count) */
+	if (network_game_distributed_client())
+		return remote_left;
 	if (run.pool_count != NONE)
 	{
 		short left = 0;
@@ -1422,6 +1508,9 @@ static void skull_drop_maybe(long unit_index, long killer_player_index, int head
 {
 	long left;
 
+	/* (a co-op client's: the host decides the drops, and says them) */
+	if (network_game_distributed_client())
+		return;
 	/* (Outbreak's raised Flood: none the level placed, none to count) */
 	if (!skulls_unit_is_enemy(unit_index) || !skulls_unit_can_carry(unit_index) || skulls_outbreak_raised(unit_index))
 		return;
@@ -1496,10 +1585,10 @@ static void tick_kills_decide(void)
 			break;
 		/* (the run's first skull, until it is picked up, at any kill: the
 		first kill's, and again after a revert took it away before it was
-		taken; then the kill's odds, the level's own) */
+		taken; then the kill's odds, the level's own, by game.skulls_drop_chance) */
 		if (skull == run.pool[0] ||
-			(long)(finding_random((unsigned long)tick_kills[index].deaths) % (unsigned long)tick_kills[index].left) <
-				(long)odds)
+			(long)(finding_random((unsigned long)tick_kills[index].deaths) %
+				((unsigned long)tick_kills[index].left * 100UL)) < (long)odds * skulls_drop_chance())
 		{
 			skull_drop(tick_kills[index].unit_index, skull, tick_kills[index].left, odds);
 		}
@@ -1508,12 +1597,12 @@ static void tick_kills_decide(void)
 }
 
 /* the skull dropped by the dead enemy, with its cheer and confetti */
+static void skull_slot_name(short slot, int skull);
+
 static void skull_drop(long unit_index, int skull, long left, short odds)
 {
 	short slot;
 	long skull_index;
-	char name[SKULL_NAME_LENGTH];
-	short character;
 
 	if (!object_try_and_get_and_verify_type(unit_index, _object_mask_unit))
 		return;
@@ -1526,14 +1615,12 @@ static void skull_drop(long unit_index, int skull, long left, short odds)
 		return;
 	finding->skulls[slot].object_index = skull_index;
 	skull_hums[slot] = NONE;
+	skull_droppers[slot] = unit_index;
 	finding->skulls[slot].next_hum_time = game_time_get();
 	finding->skulls[slot].skull = skull;
-	snprintf(name, sizeof(name), "%s SKULL", skull_descriptions[skull].label);
-	for (character = 0; name[character] && character < SKULL_NAME_LENGTH - 1; character++)
-		finding->skulls[slot].name[character] = (wchar_t)(unsigned char)name[character];
-	finding->skulls[slot].name[character] = 0;
-	error(_error_silent, "skulls: dropped %s, %d left of %d (%d chances in %ld)", name, skulls_left_to_find(),
-		run.pool_count, odds, left);
+	skull_slot_name(slot, skull);
+	error(_error_silent, "skulls: dropped %s SKULL, %d left of %d (%d chances in %ld, at %ld%%)",
+		skull_descriptions[skull].label, skulls_left_to_find(), run.pool_count, odds, left, skulls_drop_chance());
 	own_sound_play(_own_sound_skull_carrier, unit_index);
 	confetti(unit_index, skull_colors, (short)NUMBEROF(skull_colors), SKULL_CONFETTI_RISE);
 }
@@ -1894,10 +1981,12 @@ void skulls_tick(void)
 
 		if (skull_index == NONE)
 			continue;
-		/* (gone, or another object in its place after a revert) */
+		/* (gone, or another object in its place after a revert; a co-op
+		client's are the host's word, which may come before the object) */
 		if (!skull || skull->definition_index != carried_definition)
 		{
-			finding->skulls[slot].object_index = NONE;
+			if (!network_game_distributed_client())
+				finding->skulls[slot].object_index = NONE;
 			continue;
 		}
 		/* (in a unit's hands, which a revert may bring back: not heard) */
@@ -1911,6 +2000,8 @@ void skulls_tick(void)
 				MAX(1, own_sounds[_own_sound_skull_floor].milliseconds * TICKS_PER_SECOND / 1000);
 		}
 	}
+	/* (a co-op host's state, to its clients when it changed) */
+	skulls_send_state(NONE);
 }
 
 /* whether a death (and a revert) loses the skulls found and not kept
@@ -1918,7 +2009,19 @@ void skulls_tick(void)
 is won */
 static boolean skulls_lost_on_death(void)
 {
+	/* (a co-op client's: the host's rule) */
+	if (network_game_distributed_client())
+		return (boolean)remote_lose_on_death;
 	return config_boolean("game.skulls_lose_on_death");
+}
+
+/* whether a skull picked up is unlocked at once (game.skulls_instant_unlock;
+a co-op client's, the host's) */
+static boolean skulls_instant(void)
+{
+	if (network_game_distributed_client())
+		return (boolean)remote_instant;
+	return config_boolean("game.skulls_instant_unlock");
 }
 
 static short skull_slot(long object_index)
@@ -1942,19 +2045,60 @@ unsigned short const *skulls_item_name(long object_index)
 	return slot == NONE ? NULL : (unsigned short const *)finding->skulls[slot].name;
 }
 
+/* a line of text on the local player's screen */
+static void skulls_print(short local_player_index, char const *text)
+{
+	wchar_t line[64];
+	short character;
+
+	for (character = 0; text[character] && character < (short)NUMBEROF(line) - 1; character++)
+		line[character] = (wchar_t)(unsigned char)text[character];
+	line[character] = 0;
+	hud_print_message(local_player_index, line);
+}
+
+/* what the local player is told of a skull taken (by a player of theirs,
+or another's in co-op): unlocked at once, or on for the level; and how
+many are left. A skull the player had already is only said (the newest
+message is shown on top: printed last line first) */
+static void skull_taken_messages(short local_player_index, int skull, boolean instant, boolean had)
+{
+	char text[64];
+	short left = skulls_left_to_find();
+
+	if (left == 0)
+		snprintf(text, sizeof(text), "No more skulls to be found in here.");
+	else
+		snprintf(text, sizeof(text), "%d skull%s left to be found in here.", left, left == 1 ? "" : "s");
+	skulls_print(local_player_index, text);
+	if (had)
+	{
+		snprintf(text, sizeof(text), "%s SKULL found. You have it already.", skull_descriptions[skull].label);
+		skulls_print(local_player_index, text);
+		return;
+	}
+	if (!instant && skulls_lost_on_death())
+	{
+		skulls_print(local_player_index, "Death will take your prize away.");
+		skulls_print(local_player_index, "Finish the level without dying to unlock it.");
+	}
+	else if (!instant)
+		skulls_print(local_player_index, "Finish the level to unlock it.");
+	snprintf(text, sizeof(text), instant ? "%s SKULL unlocked." : "%s SKULL picked up.",
+		skull_descriptions[skull].label);
+	skulls_print(local_player_index, text);
+}
+
 int skulls_item_take(short local_player_index, long unit_index, long object_index)
 {
 	short slot = skull_slot(object_index);
 	int skull;
-	wchar_t line[64];
-	char text[64];
-	short character;
 	boolean instant;
 
 	if (slot == NONE)
 		return FALSE;
 	skull = finding->skulls[slot].skull;
-	instant = config_boolean("game.skulls_instant_unlock");
+	instant = skulls_instant();
 	/* (on for the level from now on, kept once it is finished; or with
 	INSTANT UNLOCK, kept now, and not on) */
 	skull_set_add(&run.taken, skull);
@@ -1970,35 +2114,21 @@ int skulls_item_take(short local_player_index, long unit_index, long object_inde
 		sound_stop_impulse(skull_hums[slot]);
 	finding->skulls[slot].object_index = NONE;
 	finding->skulls[slot].skull = NONE;
+	skull_droppers[slot] = NONE;
 	object_delete(object_index);
 	own_sound_play(_own_sound_skull_pickup, unit_index);
 	error(_error_silent, "skulls: %s taken%s", skull_descriptions[skull].key, instant ? ", and unlocked" : "");
-	/* (the newest message is shown on top: printed last line first) */
-	if (local_player_index != NONE)
+	/* (the player who took it; in co-op, every player of the host's: the
+	clients are told by the host's state, skulls_send_state) */
+	if (game_connection() == _game_connection_local)
 	{
-		short left = skulls_left_to_find();
-
-		if (left == 0)
-			snprintf(text, sizeof(text), "No more skulls to be found in here.");
-		else
-			snprintf(text, sizeof(text), "%d skull%s left to be found in here.", left, left == 1 ? "" : "s");
-		for (character = 0; text[character] && character < (short)NUMBEROF(line) - 1; character++)
-			line[character] = (wchar_t)(unsigned char)text[character];
-		line[character] = 0;
-		hud_print_message(local_player_index, line);
-		if (!instant && skulls_lost_on_death())
-		{
-			hud_print_message(local_player_index, L"Death will take your prize away.");
-			hud_print_message(local_player_index, L"Finish the level without dying to unlock it.");
-		}
-		else if (!instant)
-			hud_print_message(local_player_index, L"Finish the level to unlock it.");
-		snprintf(text, sizeof(text), instant ? "%s SKULL unlocked." : "%s SKULL picked up.",
-			skull_descriptions[skull].label);
-		for (character = 0; text[character] && character < (short)NUMBEROF(line) - 1; character++)
-			line[character] = (wchar_t)(unsigned char)text[character];
-		line[character] = 0;
-		hud_print_message(local_player_index, line);
+		if (local_player_index != NONE)
+			skull_taken_messages(local_player_index, skull, instant, FALSE);
+	}
+	else
+	{
+		for (local_player_index = 0; local_player_index < local_player_count(); local_player_index++)
+			skull_taken_messages(local_player_index, skull, instant, FALSE);
 	}
 	return TRUE;
 }
@@ -2013,19 +2143,14 @@ static void run_lose(struct skull_set set, char const *why)
 	for (skull = 0; skull < NUMBER_OF_SKULLS; skull++)
 	{
 		char text[64];
-		wchar_t line[64];
-		short character;
 
 		if (!skull_set_has(&set, skull) || skull_set_has(&run.lost, skull))
 			continue;
 		skull_set_add(&run.lost, skull);
 		error(_error_silent, "skulls: %s lost (%s)", skull_descriptions[skull].key, why);
 		snprintf(text, sizeof(text), "%s SKULL lost.", skull_descriptions[skull].label);
-		for (character = 0; text[character] && character < (short)NUMBEROF(line) - 1; character++)
-			line[character] = (wchar_t)(unsigned char)text[character];
-		line[character] = 0;
 		for (local_player_index = 0; local_player_index < local_player_count(); local_player_index++)
-			hud_print_message(local_player_index, line);
+			skulls_print(local_player_index, text);
 	}
 	run_saved();
 }
@@ -2035,7 +2160,8 @@ static void skulls_lose(char const *why)
 {
 	struct skull_set set = found_set();
 
-	if (skull_set_is_empty(&set) || !skulls_lost_on_death())
+	/* (a co-op client's: the host loses them for every player, and says) */
+	if (skull_set_is_empty(&set) || !skulls_lost_on_death() || network_game_distributed_client())
 		return;
 	finding->found = skull_set_none();
 	run_lose(set, why);
@@ -2047,6 +2173,9 @@ game state found then; one dropped and not taken, gone with the revert,
 is to drop again */
 static void run_restored(char const *why)
 {
+	/* (a co-op client's: the host's state, which it sends again) */
+	if (network_game_distributed_client())
+		return;
 	/* (or, kept through a death, those picked up and neither unlocked nor
 	lost found again, whatever the game state found then) */
 	if (!skulls_lost_on_death())
@@ -2066,13 +2195,16 @@ void skulls_level_won(void)
 	struct skull_set set = found_set();
 	char text[SKULLS_TEXT_LENGTH];
 
-	if (skull_set_is_empty(&set))
+	/* (a co-op client's: those the host unlocks now, which it says) */
+	if (skull_set_is_empty(&set) || network_game_distributed_client())
 		return;
 	skulls_keep(set);
 	run.unlocked = skull_set_union(run.unlocked, set);
 	run_saved();
 	skulls_text_from_set(set, text, sizeof(text));
 	error(_error_silent, "skulls: the level won, %s kept", text);
+	/* (and its clients' players keep them too, before the round ends) */
+	skulls_send_state(NONE);
 }
 
 void skulls_game_state_reverted(void)
@@ -2183,6 +2315,236 @@ void skulls_hud_draw(short local_player_index)
 				draw_bitmap_in_rect(mark, &bounds, NULL, NULL, 0xFFFFFFFF, NULL, TRUE);
 		}
 	}
+}
+
+/* ---------- co-op: the host's skulls to be found, on its clients
+
+The host's state of the skulls to be found, whole: those taken, found (on
+for the level), unlocked and lost, how many are left, its rules, and the
+skulls lying about (each its object, at the same index on every machine,
+and the enemy that dropped it). Sent to every client, reliably, when it
+changes and every few seconds (a client's revert brings back its own game
+state's), and to a client when it is ready. A client takes it whole, and
+plays what changed: a skull dropped (its cheer and confetti), taken (the
+messages, and kept at once with INSTANT UNLOCK), lost, unlocked (kept). */
+
+struct skulls_state_message
+{
+	struct distributed_message_header header;
+	byte taken[HALO_PORT_ADVERTISED_SKULLS_SIZE];
+	byte found[HALO_PORT_ADVERTISED_SKULLS_SIZE];
+	byte unlocked[HALO_PORT_ADVERTISED_SKULLS_SIZE];
+	byte lost[HALO_PORT_ADVERTISED_SKULLS_SIZE];
+	byte left;
+	/* bit 0 INSTANT UNLOCK, bit 1 LOSE ON DEATH */
+	byte rules;
+	byte reserved[2];
+	struct
+	{
+		long object_index;
+		long dropper_index;
+		long skull;
+	} lying[SKULLS_DROPPED_MAX];
+};
+
+#define SKULLS_STATE_RESEND_TICKS (3 * TICKS_PER_SECOND)
+
+/* the host's state as last sent to every client, and when */
+static struct skulls_state_message skulls_sent_state;
+static long skulls_sent_state_time;
+
+static void skulls_state_build(struct skulls_state_message *message)
+{
+	short slot;
+
+	csmemset(message, 0, sizeof(*message));
+	skull_set_to_bytes(run.taken, message->taken);
+	skull_set_to_bytes(found_set(), message->found);
+	skull_set_to_bytes(run.unlocked, message->unlocked);
+	skull_set_to_bytes(run.lost, message->lost);
+	message->left = (byte)PIN(skulls_left_to_find(), 0, 255);
+	message->rules = (byte)((skulls_instant() ? 1 : 0) | (skulls_lost_on_death() ? 2 : 0));
+	for (slot = 0; slot < SKULLS_DROPPED_MAX; slot++)
+	{
+		long object_index = finding->skulls[slot].object_index;
+		int skull = finding->skulls[slot].skull;
+
+		message->lying[slot].object_index = object_index != NONE && skull != NONE ? object_index : NONE;
+		message->lying[slot].skull = object_index != NONE && skull != NONE ? skull : NONE;
+		message->lying[slot].dropper_index = object_index != NONE && skull != NONE ? skull_droppers[slot] : NONE;
+	}
+}
+
+void skulls_send_state(long machine_index)
+{
+	struct skulls_state_message message;
+
+	/* (the host of a co-op game whose enemies drop skulls) */
+	if (game_connection() != _game_connection_network_server || !finding || carried_definition == NONE)
+		return;
+	skulls_state_build(&message);
+	if (machine_index != NONE)
+	{
+		distributed_send_to_machine_reliably(machine_index, &message, _distributed_message_skulls_state, 1,
+			sizeof(message));
+		return;
+	}
+	/* (to every client: when it changed, and every few seconds) */
+	if (skulls_sent_state_valid &&
+		!memcmp((byte const *)&message + sizeof(message.header), (byte const *)&skulls_sent_state + sizeof(message.header),
+			sizeof(message) - sizeof(message.header)) &&
+		game_time_get() >= skulls_sent_state_time && game_time_get() - skulls_sent_state_time < SKULLS_STATE_RESEND_TICKS)
+	{
+		return;
+	}
+	distributed_send(&message, _distributed_message_skulls_state, 1, sizeof(message), _distributed_to_clients_reliably);
+	skulls_sent_state = message;
+	skulls_sent_state_valid = TRUE;
+	skulls_sent_state_time = game_time_get();
+}
+
+int skulls_handles_message(unsigned short const *message, unsigned short size)
+{
+	struct distributed_message_header header;
+
+	if (size < sizeof(header))
+		return FALSE;
+	memcpy(&header, message, sizeof(header));
+	return header.type == _distributed_message_skulls_state;
+}
+
+/* the skulls a player of this machine's has (Grunt Birthday Party from the
+start), to be kept: those kept, ALL SKULLS or not */
+static struct skull_set skulls_kept_set(void)
+{
+	return skull_set_union(skulls_set_from_text(config_string("game.skulls_unlocked")),
+		skull_set_of(_skull_grunt_birthday_party));
+}
+
+/* a slot's name, as the pick-up prompt shows it */
+static void skull_slot_name(short slot, int skull)
+{
+	char name[SKULL_NAME_LENGTH];
+	short character;
+
+	snprintf(name, sizeof(name), "%s SKULL", skull_descriptions[skull].label);
+	for (character = 0; name[character] && character < SKULL_NAME_LENGTH - 1; character++)
+		finding->skulls[slot].name[character] = (wchar_t)(unsigned char)name[character];
+	finding->skulls[slot].name[character] = 0;
+}
+
+void skulls_handle_message(long machine_index, unsigned short const *data, unsigned short size)
+{
+	struct skulls_state_message message;
+	struct skull_set taken, unlocked, lost, newly;
+	struct skull_set had = skulls_unlocked_set();
+	struct skull_set kept = skulls_kept_set();
+	short local_player_index;
+	short slot;
+	int skull;
+	boolean first = FALSE;
+
+	if (machine_index != NONE || !network_game_distributed_client() || size != sizeof(message))
+		return;
+	memcpy(&message, data, sizeof(message));
+	if (GET_MESSAGE_TYPE(message.header.header) != 2 || message.header.type != _distributed_message_skulls_state ||
+		message.header.count != 1 || message.rules > 3)
+	{
+		return;
+	}
+	taken = skull_set_from_bytes(message.taken);
+	unlocked = skull_set_from_bytes(message.unlocked);
+	lost = skull_set_from_bytes(message.lost);
+	remote_instant = (message.rules & 1) != 0;
+	remote_lose_on_death = (message.rules & 2) != 0;
+	remote_left = message.left;
+	/* (the first since the level loaded: taken as it is, nothing played or
+	kept, a player joining the level late gets none taken before) */
+	if (!skulls_state_heard && finding && game_in_progress())
+	{
+		skulls_state_heard = TRUE;
+		first = TRUE;
+		run.taken = taken;
+		run.unlocked = unlocked;
+		run.lost = lost;
+	}
+	/* (kept: those the host unlocked, at once or with the level won, that
+	this machine has not kept; a game ending may leave no level to show it) */
+	newly = skull_set_difference(skull_set_difference(unlocked, run.unlocked), kept);
+	if (!skull_set_is_empty(&newly))
+	{
+		char text[SKULLS_TEXT_LENGTH];
+
+		skulls_keep(newly);
+		skulls_text_from_set(newly, text, sizeof(text));
+		error(_error_silent, "skulls: the host unlocked %s, kept", text);
+	}
+	run.unlocked = unlocked;
+	if (!finding || !game_in_progress())
+	{
+		run.taken = taken;
+		run.lost = lost;
+		return;
+	}
+	/* (lost: said) */
+	run_lose(skull_set_difference(lost, run.lost), "the host lost it");
+	run.lost = lost;
+	/* (taken: said to every player of this machine's, a skull had already
+	only as found) */
+	newly = skull_set_difference(taken, run.taken);
+	for (skull = 0; skull < NUMBER_OF_SKULLS; skull++)
+	{
+		if (!skull_set_has(&newly, skull))
+			continue;
+		error(_error_silent, "skulls: %s taken (the host's)", skull_descriptions[skull].key);
+		for (local_player_index = 0; local_player_index < local_player_count(); local_player_index++)
+		{
+			long player_index = local_player_get_player_index(local_player_index);
+			struct player_datum *player = player_index == NONE ? NULL : player_get(player_index);
+
+			skull_taken_messages(local_player_index, skull, (boolean)remote_instant,
+				(boolean)(skull_set_has(&had, skull) || skull_set_has(&kept, skull)));
+			if (local_player_index == 0 && player && player->unit_index != NONE)
+				own_sound_play(_own_sound_skull_pickup, player->unit_index);
+		}
+	}
+	run.taken = taken;
+	finding->found = skull_set_from_bytes(message.found);
+	/* (lying about: a new one's cheer and confetti, from the enemy that
+	dropped it) */
+	for (slot = 0; slot < SKULLS_DROPPED_MAX; slot++)
+	{
+		long object_index = message.lying[slot].object_index;
+		long dropper_index = message.lying[slot].dropper_index;
+
+		skull = (int)message.lying[slot].skull;
+		if (object_index == NONE || skull < 0 || skull >= NUMBER_OF_SKULLS)
+		{
+			object_index = NONE;
+			skull = NONE;
+		}
+		if (object_index != finding->skulls[slot].object_index)
+		{
+			if (skull_hums[slot] != NONE)
+				sound_stop_impulse(skull_hums[slot]);
+			skull_hums[slot] = NONE;
+			finding->skulls[slot].next_hum_time = game_time_get();
+			if (!first && object_index != NONE && dropper_index != NONE &&
+				object_try_and_get_and_verify_type(dropper_index, _object_mask_unit))
+			{
+				own_sound_play(_own_sound_skull_carrier, dropper_index);
+				confetti(dropper_index, skull_colors, (short)NUMBEROF(skull_colors), SKULL_CONFETTI_RISE);
+			}
+		}
+		finding->skulls[slot].object_index = object_index;
+		finding->skulls[slot].skull = skull;
+		skull_droppers[slot] = dropper_index;
+		if (skull != NONE)
+			skull_slot_name(slot, skull);
+		else
+			finding->skulls[slot].name[0] = 0;
+	}
+	run_saved();
 }
 
 /* ---------- a unit's death */

@@ -111,6 +111,11 @@ sends 0: all of them with go crazy), and the high four bits the infection
 forms swapped, in tenths (0, one in three, without go crazy) */
 #define HALO_PORT_ADVERTISED_RANDOMIZER_CRAZY_OFFSET 23
 #define HALO_PORT_ADVERTISED_RANDOMIZER_CRAZY_SET 0x08
+/* ... the campaign game's enemies drop the host's locked skulls to be found
+(skulls.c): every machine copies in the skull they carry, the host tells
+its clients of each dropped and taken, and every player keeps those taken
+by the host's rules (a modded game) */
+#define HALO_PORT_ADVERTISED_SKULL_DROPS_FLAG 0x10
 /* ... a modded game (randomized, or a campaign with skulls), which builds
 without the mod cannot play: its host advertises in the version's place
 HALO_PORT_ADVERTISED_MODDED_VERSION, which no build without the mod is on
@@ -118,13 +123,16 @@ HALO_PORT_ADVERTISED_MODDED_VERSION, which no build without the mod is on
 in the last two reserved bytes (little-endian). A game without either keeps
 the plain version, and any build of it joins. A modded build joins either
 kind: a modded game of its version and mod version, with the packs it
-copies tags from written (randomizer.pack; skulls.pack for Outbreak, Scarab)
+copies tags from written (randomizer.pack; skulls.pack for Outbreak, Scarab
+and the skulls dropped)
 (port/linux/NETCODE.md, "Modded games") */
 #define HALO_PORT_ADVERTISED_BASE_VERSION_OFFSET 24
 /* the mod's own version: raised with any change to what modded games'
 machines send each other, which plain games never carry. Builds before the
-modded signature sent 1 as their capability (network_client_manager.c) */
-#define HALO_PORT_MOD_NETWORK_VERSION 2
+modded signature sent 1 as their capability (network_client_manager.c); 3
+drops skulls in co-op (_distributed_message_skulls_state) and plays Outbreak
+there (_distributed_message_skulls_outbreak_burst) */
+#define HALO_PORT_MOD_NETWORK_VERSION 3
 #define HALO_PORT_MODDED_VERSION_MARK 0xFF00
 #define HALO_PORT_ADVERTISED_MODDED_VERSION (HALO_PORT_MODDED_VERSION_MARK | HALO_PORT_MOD_NETWORK_VERSION)
 

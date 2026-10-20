@@ -2115,8 +2115,7 @@ boolean network_game_client_initiate_join_game(
 				network_game_client_advertised_versions[game_index].setup,
 				network_game_client_advertised_versions[game_index].crazy);
 			skulls_set_remote(
-				(network_game_client_advertised_versions[game_index].flags &
-					HALO_PORT_ADVERTISED_SKULLS_FLAG) != 0,
+				network_game_client_advertised_versions[game_index].flags,
 				network_game_client_advertised_versions[game_index].skulls);
 		}
 		network_event(
@@ -2608,8 +2607,7 @@ static boolean add_advertised_game(
 					network_game_client_advertised_versions[game_index].setup,
 					network_game_client_advertised_versions[game_index].crazy);
 				skulls_set_remote(
-					(network_game_client_advertised_versions[game_index].flags &
-						HALO_PORT_ADVERTISED_SKULLS_FLAG) != 0,
+					network_game_client_advertised_versions[game_index].flags,
 					network_game_client_advertised_versions[game_index].skulls);
 			}
 		}
@@ -3278,14 +3276,14 @@ boolean network_game_client_advertised_game_compatible(
 		extern int skulls_pack_ready(void);
 		extern void skulls_pack_request(void);
 		/* (a randomized level copies in tags from the other maps, and
-		Outbreak's Flood and Scarab's projectiles from Wizard's and c40: the
-		packs have them) */
+		Outbreak's Flood, Scarab's projectiles and the skull the enemies drop
+		from Wizard's and c40: the packs have them) */
 		boolean randomizer_pack_missing =
 			(network_game_client_advertised_versions[game_index].flags & HALO_PORT_ADVERTISED_RANDOMIZER_FLAG) &&
 			!randomizer_pack_ready();
 		boolean skulls_pack_missing =
-			(network_game_client_advertised_versions[game_index].flags & HALO_PORT_ADVERTISED_SKULLS_FLAG) &&
-			skulls_advertised_need_pack(network_game_client_advertised_versions[game_index].skulls) &&
+			skulls_advertised_need_pack(network_game_client_advertised_versions[game_index].flags,
+				network_game_client_advertised_versions[game_index].skulls) &&
 			!skulls_pack_ready();
 
 		if (!randomizer_pack_missing && !skulls_pack_missing)

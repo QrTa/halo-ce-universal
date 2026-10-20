@@ -534,6 +534,16 @@ SCREENS["gameplay/skulls"] = {
          [("OFF", "false"), ("ON", "true")],
          "On: dying loses the skulls you picked up and\nhave not unlocked yet. Off: you keep them.",
          None),
+        # (shown with ALL SKULLS off: menu_functions.c's gameplay_screen_update.
+        # The host's in co-op, whose enemies drop its locked skulls)
+        ("SKULLS PER LEVEL:", "game.skulls_drop_count",
+         [("BY DIFFICULTY", "0")] + [(str(count), str(count)) for count in range(1, 9)],
+         "How many locked skulls a level's enemies drop.\nBy difficulty: 1 on Easy to 4 on Legendary.",
+         None),
+        ("DROP CHANCE:", "game.skulls_drop_chance",
+         [("1/4X", "25"), ("1/2X", "50"), ("1X", "100"), ("2X", "200"), ("4X", "400")],
+         "How likely a kill drops a skull. The first\nskull of a level drops at the first kill.",
+         None),
     ],
     # (a row that runs a function: A once asks, A again resets. Its help's
     # next two strings are the question and the done, which

@@ -1082,6 +1082,52 @@ static real distributed_weapon_deals(
 	return rate;
 }
 
+/* port: skull: Scarab, a player's shot a rocket or a fuel rod, one a shot
+(port/linux/game/skulls_custom.c): the hits a second of the damage the
+weapon's shots deal so, at its rate of fire. Not cached: the skull may be
+picked up in the level, and be on from then */
+static real distributed_scarab_deals(
+	long weapon_definition_index,
+	long damage_index,
+	byte *kinds,
+	struct damage_reach *reach)
+{
+	long projectile_index = skulls_scarab_weapon_projectile(weapon_definition_index);
+	struct weapon_definition *weapon;
+	short trigger_index;
+	real rate = 0.0f;
+
+	*kinds = 0;
+	reach->distance = 0.0f;
+	reach->ticks = 0.0f;
+	reach->carried_ticks = 0.0f;
+	if (projectile_index == NONE || !tag_index_is_group(weapon_definition_index, WEAPON_DEFINITION_TAG))
+		return 0.0f;
+	*kinds = distributed_projectile_deals(projectile_index, damage_index, 0, reach);
+	if (!*kinds)
+		return 0.0f;
+	weapon = weapon_definition_get(weapon_definition_index);
+	for (trigger_index = 0; trigger_index < weapon->weapon.triggers.count; trigger_index++)
+	{
+		struct weapon_trigger_definition *trigger = TAG_BLOCK_GET_ELEMENT(
+			&weapon->weapon.triggers, trigger_index, struct weapon_trigger_definition);
+		real rate_of_fire = MAX(trigger->initial_rate_of_fire, trigger->final_rate_of_fire);
+
+		/* (only a trigger that fires projectiles is swapped: weapons.c) */
+		if (trigger->projectile.index == NONE)
+			continue;
+		if (rate_of_fire <= 0.0001f)
+		{
+			rate_of_fire = TEST_FLAG(trigger->flags, _weapon_trigger_latched_bit) ?
+				TICKS_PER_SECOND / 2.0f : (real)TICKS_PER_SECOND;
+		}
+		rate = MAX(rate, MAX(rate_of_fire, 1.0f));
+	}
+	if (rate <= 0.0f)
+		*kinds = 0;
+	return rate;
+}
+
 /* the source's (a weapon's, a grenade's projectile's) hits a second of the
 damage, how it deals it (the _damage_source flags), and how far from its
 firer, from its tags */
@@ -1228,6 +1274,13 @@ static real distributed_player_deals(
 			struct damage_reach weapon_reach;
 			real weapon_rate = distributed_source_deals(damage_players[player_index].definition_indices[index],
 				damage_index, FALSE, &weapon_kinds, &weapon_reach);
+
+			/* (port: skull: Scarab's rocket or fuel rod, fired in its place) */
+			if (weapon_rate <= 0.0f)
+			{
+				weapon_rate = distributed_scarab_deals(damage_players[player_index].definition_indices[index],
+					damage_index, &weapon_kinds, &weapon_reach);
+			}
 
 			if (weapon_rate > 0.0f)
 				distributed_reach_combine(reach, &weapon_reach);

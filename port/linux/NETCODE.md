@@ -242,9 +242,10 @@ arrays differ from it.
 
 ### Modded games
 
-A randomized campaign (`port/linux/game/randomizer.c`) or a campaign game
-with skulls (`port/linux/game/skulls.c`) is a modded game: only a build with
-the mod can play it. The network version stays the one builds without the
+A randomized campaign (`port/linux/game/randomizer.c`), a campaign game
+with skulls, or one whose enemies drop the host's locked skulls to be found
+(`port/linux/game/skulls.c`) is a modded game: only a build with the mod can
+play it. The network version stays the one builds without the
 mod have, so that plain games are played with them as before; a modded game
 is told apart by a signature of its own instead (`halo_port_limits.h`):
 
@@ -256,7 +257,8 @@ is told apart by a signature of its own instead (`halo_port_limits.h`):
   newer one; a build with it joins when the network version and the mod
   version are its own, and the packs the game copies tags from are written:
   `maps/randomizer.pack` for a randomized game, `maps/skulls.pack` for one
-  with Outbreak (its Flood) or Scarab (its projectiles). A pack missing is
+  with Outbreak (its Flood) or Scarab (its projectiles), or whose enemies
+  drop skulls (the skull they carry, Wizard's oddball). A pack missing is
   asked for, written at the main menu, and the player joins again then.
 - Its server browser listing is of format 2, which builds without the mod
   do not read, so they do not see it; the stamp's first byte is its mod
@@ -268,7 +270,30 @@ is told apart by a signature of its own instead (`halo_port_limits.h`):
   load, a machine that did not say its own (one that joined while the game
   was plain), with `_rejection_code_randomizer`.
 
-Turned off (no swaps, no skulls), the game is a plain one again: its
+- Skulls dropped: every machine copies in the skull the enemies carry (the
+  advertisement's drops flag), so it is at the same tag on each, and the
+  host's dropped skull is one of its objects. The host decides the drops
+  and the pickups, and sends its state of them whole
+  (`_distributed_message_skulls_state`, 160, reliably): the skulls taken,
+  on for the level, unlocked and lost, how many are left, its INSTANT
+  UNLOCK and LOSE ON DEATH, and each skull lying about (its object and the
+  enemy that dropped it). It sends it when it changes, every three seconds,
+  and to a client when it is ready. A client takes the first since its
+  level loaded as it is, and plays what changes after: a skull dropped
+  (cheer, confetti), taken (the HUD's messages; kept with INSTANT UNLOCK),
+  lost, and unlocked when the level is won (kept). A skull a player has
+  already is only said.
+- Outbreak and Scarab: every machine copies in their tags by the host's
+  advertisement alone (the skulls on, and with drops any skull), so they
+  are at the same indices on each. The host lets Outbreak's spores loose
+  and raises its Flood: they are its objects and actors, which its clients
+  have and move as for any other, and it sends each burst
+  (`_distributed_message_skulls_outbreak_burst`, 161, unreliably), which
+  every client plays. Scarab's rocket or fuel rod is fired in a weapon's
+  shot's place on every machine, and the host takes a client's hits with
+  it as that weapon's, at its rate of fire (`network_damage.c`).
+
+Turned off (no swaps, no skulls, no drops), the game is a plain one again: its
 advertisement and listing are those of every build, and any build joins.
 
 A client plays by its host's rules: in another's game (searching for it,

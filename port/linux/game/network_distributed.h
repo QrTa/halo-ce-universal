@@ -138,6 +138,17 @@ enum
 	client, reliably, when it is ready and when the policy changes */
 	_distributed_message_aim_assist_policy = 90,
 
+	/* a modded co-op game's skulls to be found (port/linux/game/skulls.c):
+	the host's skulls dropped, taken, unlocked and lost, to every client,
+	reliably, when they change and to a client when it is ready. Numbered
+	clear of the kinds upstream adds: only a build with the mod plays a game
+	that sends it (halo_port_limits.h's HALO_PORT_MOD_NETWORK_VERSION) */
+	_distributed_message_skulls_state = 160,
+	/* a modded co-op game's Outbreak (port/linux/game/skulls_outbreak.c):
+	the host's burst of Flood spores, which effects being each machine's,
+	every client plays (unreliable) */
+	_distributed_message_skulls_outbreak_burst = 161,
+
 	NUMBER_OF_DISTRIBUTED_MESSAGES
 };
 
