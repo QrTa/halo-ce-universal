@@ -130,6 +130,8 @@ a client), and Grunt Birthday Party's sound added to its tags; the level
 going (before the randomizer's tags go, which were added before it) */
 void skulls_level_loaded(long scenario_tag_index);
 void skulls_level_unloaded(void);
+/* the level won: the skulls found in it kept (main.c's main_won_map_private) */
+void skulls_level_won(void);
 
 /* the sound cache's samples of the birthday party's sound, from memory
 (xbox_sound_cache.c); FALSE for any other sound */

@@ -2019,6 +2019,23 @@ static void run_restored(char const *why)
 	run_lose(skull_set_difference(run.taken, run.unlocked), why);
 }
 
+/* the level won: the skulls found in it, and not lost to a death or a
+revert since, are kept (game.skulls_unlocked), as the HUD said they would
+be when they were picked up */
+void skulls_level_won(void)
+{
+	struct skull_set set = found_set();
+	char text[SKULLS_TEXT_LENGTH];
+
+	if (skull_set_is_empty(&set))
+		return;
+	skulls_keep(set);
+	run.unlocked = skull_set_union(run.unlocked, set);
+	run_saved();
+	skulls_text_from_set(set, text, sizeof(text));
+	error(_error_silent, "skulls: the level won, %s kept", text);
+}
+
 void skulls_game_state_reverted(void)
 {
 	hurt_reset();

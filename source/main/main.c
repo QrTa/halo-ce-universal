@@ -2390,6 +2390,13 @@ static void main_won_map_private(
 	short level;
 	short local_player_index;
 
+	/* port: the skulls found in the level and not lost are kept, before the
+	next level's start forgets them (port/linux/game/skulls.c) */
+	{
+		extern void skulls_level_won(void);
+
+		skulls_level_won();
+	}
 	/* port: when a network co-op level is won, the round ends for everyone as
 	in multiplayer, back to the lobby, and the next round is the campaign's
 	next level (The Maw's: The Pillar of Autumn). A level not in the campaign
