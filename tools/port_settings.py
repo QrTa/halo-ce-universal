@@ -457,6 +457,10 @@ SCREENS["gameplay"] = {
          [("NONE", "none"), ("MENUS ONLY", "menus"), ("ALWAYS", "always")],
          "The game's messages at the bottom left: never,\nin the menus only, or in games too.",
          None),
+        ("CAMPAIGN PROGRESSION:", "game.campaign_progression",
+         [("DEFAULT", "default"), ("ALL UNLOCKED", "all_unlocked")],
+         "Default: finish a level to unlock the next.\nAll unlocked: every campaign level can be played.",
+         None),
     ],
     "categories": [
         ("RAGDOLLS", "gameplay/ragdolls", "How the bodies of players and the AI fall."),
@@ -486,9 +490,25 @@ SCREENS["gameplay/randomizer"] = {
          "On: after a campaign level's difficulty, a screen\nsets how that level's enemies and weapons change.",
          None),
         ("GO CRAZY:", "game.randomizer_crazy", [("OFF", "false"), ("ON", "true")],
-         "Any NPC can hold any weapon, but may not use it\nwell. Adds unused NPCs and multiplayer weapons.",
+         "On: the choices below. Off: none of them, and\none flood infection pod in three is swapped.",
+         None),
+        # (Go Crazy's parts, shown with it on: menu_functions.c's
+        # gameplay_screen_update)
+        ("ANY NPC, ANY WEAPON:", "game.randomizer_crazy_weapons", [("OFF", "false"), ("ON", "true")],
+         "Any NPC can hold any weapon, but may not\nknow how to use it.",
+         None),
+        ("ENGINEERS & SENTINELS:", "game.randomizer_crazy_enemies", [("OFF", "false"), ("ON", "true")],
+         "The unused NPCs join the enemy pools.",
+         None),
+        ("FLAMETHROWER:", "game.randomizer_crazy_flamethrower", [("OFF", "false"), ("ON", "true")],
+         "The multiplayer flamethrower can be chosen as\na weapon type and joins the mixed pools.",
+         None, "randomizer_crazy_flame"),
+        ("FLOOD PODS SWAPPED:", "game.randomizer_crazy_pods",
+         [(f"{percent}%", str(percent)) for percent in range(10, 101, 10)],
+         "How many flood infection pods become other\nenemies. The rest are left out.",
          None),
     ],
+    "inputs": ["gameplay screen update"],
 }
 SCREENS["gameplay/skulls"] = {
     "screen": "skulls_settings_screen", "header": _GAMEPLAY_HEADER, "spacing": 30,
@@ -506,7 +526,13 @@ SCREENS["gameplay/skulls"] = {
         # (shown with ALL SKULLS off: menu_functions.c's gameplay_screen_update)
         ("INSTANT UNLOCK:", "game.skulls_instant_unlock",
          [("OFF", "false"), ("ON", "true")],
-         "On: a skull you pick up is unlocked at once.\nOff: finish the level without dying to unlock it.",
+         "On: a skull you pick up is unlocked at once.\nOff: finish the level to unlock it.",
+         None),
+        # (shown with INSTANT UNLOCK off too: menu_functions.c's
+        # gameplay_screen_update)
+        ("LOSE ON DEATH:", "game.skulls_lose_on_death",
+         [("OFF", "false"), ("ON", "true")],
+         "On: dying loses the skulls you picked up and\nhave not unlocked yet. Off: you keep them.",
          None),
     ],
     # (a row that runs a function: A once asks, A again resets. Its help's
@@ -910,7 +936,7 @@ RANDOMIZER_ROWS = [
     ("enemies", "ENEMIES:", "game.randomizer_enemies", OFF_ON,
      "On: a squad's actors are taken from the pool."),
     ("allies", "ALLIES TOO:", "game.randomizer_allies", OFF_ON,
-     "On: the marines beside you are swapped too.\\nA scene may then lose them. Off: they stay."),
+     "On: the marines beside you are swapped too,\\nonce out of any vehicle. Off: they stay."),
     ("pool", "ENEMY POOL:", "game.randomizer_pool",
      [("ANY", "any"), ("COVENANT", "covenant"), ("FLOOD", "flood"), ("HUMAN", "human"), ("ONE TYPE", "one")],
      "Which actors a squad may become."),
@@ -1111,46 +1137,71 @@ SKULLS_UNLOCK_TEXT = [
     "",
     "ALL UNLOCKED: every skull can be turned on right away.",
     "",
-    "UNLOCK BY USING: enemies carry the skulls. Pick one up",
-    "to enable its effect, then finish the level without",
-    "dying or returning to a checkpoint to unlock it.",
+    "UNLOCK VIA GAMEPLAY: enemies carry the skulls. Pick one",
+    "up to enable its effect, then finish the level to",
+    "unlock it.",
     "",
-    "UNLOCK BY PICKING UP: enemies carry the skulls. Pick one",
-    "up to unlock it.",
+    "UNLOCK ON PICKUP: enemies carry the skulls. Pick one up",
+    "to unlock it.",
 ]
+SKULLS_UNLOCK_CHOICES = [("unlock_all", "ALL UNLOCKED", "skulls unlock all"),
+                         ("unlock_play", "UNLOCK VIA GAMEPLAY", "skulls unlock play"),
+                         ("unlock_pickup", "UNLOCK ON PICKUP", "skulls unlock pickup")]
+# ... and UNLOCK VIA GAMEPLAY's, after it ("skulls death lose", "skulls
+# death keep"; B back to the first: "skulls death back")
+SKULLS_DEATH_TEXT = [
+    "Should dying lose the skulls you picked up?",
+    "",
+    "LOSE THEM ON DEATH: a skull you picked up is lost if",
+    "you die or return to a checkpoint before you finish",
+    "the level. It drops again in another level.",
+    "",
+    "KEEP THEM: a skull you picked up stays with you until",
+    "you finish the level, however often you die.",
+]
+SKULLS_DEATH_CHOICES = [("death_lose", "LOSE THEM ON DEATH", "skulls death lose"),
+                        ("death_keep", "KEEP THEM", "skulls death keep")]
 
 
-def _skulls_unlock_screen(base: str) -> list:
-    """the question of how the skulls are had: every one now, or those found
-    playing; menu_functions.c then opens the skulls screen"""
-    lines = _widget(f"{base}/unlock_screen",
+def _skulls_question_screen(base: str, name: str, text: list, choices: list, back: str = None) -> list:
+    """a question of how the skulls are had: its text and a row of each
+    answer, which menu_functions.c runs (the last opening the skulls
+    screen); B and Cancel back, or run the function back"""
+    leave = [f'<on event="b" run="{back}"/>', f'<on event="back" run="{back}"/>'] if back else \
+        ['<on event="b" back="true"/>', '<on event="back" back="true"/>']
+    lines = _widget(f"{base}/{name}_screen",
                     [("width", 640), ("height", 480), ("flags", "pass_unhandled_to_focused_child"),
                      ("bitmap", "bitmaps/gradient")],
-                    ['<on event="b" back="true"/>', '<on event="back" back="true"/>',
+                    [*leave,
                      f'<child widget="{base}/header_skulls"/>',
-                     f'<child widget="{base}/unlock_text"/>',
-                     f'<child widget="{base}/unlock_menu"/>'])
-    lines += _widget(f"{base}/unlock_text",
+                     f'<child widget="{base}/{name}_text"/>',
+                     f'<child widget="{base}/{name}_menu"/>'])
+    lines += _widget(f"{base}/{name}_text",
                      [("type", "text"), ("controller", 1), ("left", 40), ("top", 84), ("width", 560), ("height", 196),
-                      ("text", "\\n".join(SKULLS_UNLOCK_TEXT)), ("font", "ui\\small_ui"), ("color", "#FFFFFFFF")], [])
-    choices = [("unlock_all", "ALL UNLOCKED", "skulls unlock all"),
-               ("unlock_play", "UNLOCK BY USING", "skulls unlock play"),
-               ("unlock_pickup", "UNLOCK BY PICKING UP", "skulls unlock pickup")]
+                      ("text", "\\n".join(text)), ("font", "ui\\small_ui"), ("color", "#FFFFFFFF")], [])
     children = []
-    for index, (name, _, _) in enumerate(choices):
-        children.append(f'<child{attributes([("widget", f"{base}/{name}"), ("x", 64), ("y", 290 + index * 32)])}/>')
+    for index, (row, _, _) in enumerate(choices):
+        children.append(f'<child{attributes([("widget", f"{base}/{row}"), ("x", 64), ("y", 290 + index * 32)])}/>')
     children.append('<child widget="common_button_cancel" x="510" y="415"/>')
-    lines += _widget(f"{base}/unlock_menu",
+    lines += _widget(f"{base}/{name}_menu",
                      [("type", "column_list"), ("width", 640), ("height", 480),
                       ("flags", "pass_unhandled_to_focused_child up_down_tabs_children")], children)
-    for name, label, function in choices:
-        lines += _widget(f"{base}/{name}",
+    for row, label, function in choices:
+        lines += _widget(f"{base}/{row}",
                          [("type", "text"), ("width", 512), ("height", 28), ("bitmap", "bitmaps/option_bkds"),
                           ("text", label), ("font", "ui\\large_ui"), ("color", "#FF2896FF"), ("text_x", 13),
                           ("text_y", 4)],
                          [f'<on event="a" run="{function}"/>', f'<on event="start" run="{function}"/>',
                           '<on event="left_mouse" run="mouse emit accept event"/>'])
     return lines
+
+
+def _skulls_unlock_screen(base: str) -> list:
+    """the questions of how the skulls are had: every one now, or those found
+    playing, and then whether a death loses those picked up; menu_functions.c
+    then opens the skulls screen"""
+    return _skulls_question_screen(base, "unlock", SKULLS_UNLOCK_TEXT, SKULLS_UNLOCK_CHOICES) + \
+        _skulls_question_screen(base, "death", SKULLS_DEATH_TEXT, SKULLS_DEATH_CHOICES, back="skulls death back")
 
 
 def _randomizer_profiles_screen(base: str) -> list:

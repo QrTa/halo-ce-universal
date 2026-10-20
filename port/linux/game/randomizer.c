@@ -18,6 +18,17 @@ a command list, and a squad named by a conversation, keep the actor the
 level gave them, and so do the player's allies unless game.randomizer_allies
 is on. A weapon a script names is left where it was.
 
+A swapped actor a script seats in a vehicle (vehicle_load_magic: a
+dropship's Covenant, a Pelican's marines) whose unit has the animations for
+none of its seats is placed back as the actor the level gave it, to ride;
+once out of the seat, landed and standing, walking or fighting, it is the
+swapped one again, where it stands, in the co-op teleport's flash (a Flood
+form in a carrier's harmless burst) (randomizer_tick). Of a squad's infection
+forms to be swapped for other actors, only a share is (one in three, or so
+many tenths with Go Crazy: the squad's first, then evenly); the rest are not
+placed. Go Crazy's parts are each a setting of their own
+(game.randomizer_crazy_weapons, _enemies, _flamethrower, _pods).
+
 Off unless game.randomizer is on, and only for the ten campaign levels. A
 multiplayer game that is not co-op is not randomized. A client uses the
 setup the host advertised, not its own.
@@ -28,6 +39,7 @@ has, read from maps/skulls.pack (else that map), with the randomizer on or
 off. Each map read is a donor of one pack or the other.
 */
 
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -35,9 +47,13 @@ off. Each map read is a donor of one pack or the other.
 #include "cseries.h"
 #include "cseries/errors.h"
 #include "ai/actor_definitions.h"
+#include "ai/actor_placement.h"
+#include "ai/actors.h"
 #include "ai/ai_scenario_definitions.h"
 #include "bitmaps/bitmap_group.h"
 #include "cache/cache_files.h"
+#include "effects/effect_definitions.h"
+#include "effects/effects.h"
 #include "game/game.h"
 #include "interface/progress_bar.h"
 #include "items/weapon_definitions.h"
@@ -47,11 +63,13 @@ off. Each map read is a donor of one pack or the other.
 #include "networking/network_game_manager.h"
 #include "objects/objects.h"
 #include "rasterizer/rasterizer_geometry.h"
+#include "saved games/game_state.h"
 #include "scenario/scenario.h"
 #include "scenario/scenario_definitions.h"
 #include "sound/sound_definitions.h"
 #include "tag_files/tag_files.h"
 #include "tag_files/tag_groups.h"
+#include "units/bipeds.h"
 #include "units/unit_definitions.h"
 #include "units/units.h"
 
@@ -301,10 +319,16 @@ struct setup
 	int enemies;
 	/* the player's allies are swapped with the enemies */
 	int allies;
-	/* game.randomizer_crazy: the flamethrower in the mixed pools, the
-	engineers and sentinels, and actors holding weapons with another's
-	animations */
+	/* game.randomizer_crazy, and which of its parts (each off without it):
+	actors holding weapons with another's animations, the engineers and
+	sentinels in the pools, the flamethrower in the mixed pools */
 	int crazy;
+	int any_weapon;
+	int odd_enemies;
+	int flamethrower;
+	/* the infection forms swapped, in tenths (the rest are not placed); 0,
+	one in three, without game.randomizer_crazy */
+	int pods;
 	int pickups;
 	int weapons;
 	int pool;
@@ -321,6 +345,7 @@ extern boolean tag_index_is_group(long tag_index, long group_tag);
 extern void *cache_files_tag_instances(long *count);
 extern void cache_files_set_tag_instances(void *instances, long count);
 extern int config_boolean(char const *name);
+extern long config_integer(char const *name);
 extern char const *config_string(char const *name);
 
 /* the loaded map's tag, as cache_files.c has it. The semantics header only
@@ -401,6 +426,8 @@ static int remote_on;
 the pool, the type, the placement roll (little endian), the rank, the
 pickups' pool and type, the actors' weapons' pool and type */
 static unsigned char remote_setup[HALO_PORT_ADVERTISED_RANDOMIZER_SETUP_SIZE];
+/* ... and Go Crazy's parts (HALO_PORT_ADVERTISED_RANDOMIZER_CRAZY_OFFSET) */
+static unsigned char remote_crazy;
 static struct weapon_choice
 {
 	long definitions[WEAPON_MAX];
@@ -410,6 +437,52 @@ static unsigned long placement_roll;
 static int placement_roll_ready;
 static void *map_widget;
 static wchar_t prefixed_title[96];
+
+/* in the game state, so a checkpoint's revert brings them back as they
+were: the actors swapped lately, by their units, and the actor each was
+to be; the riders placed back as the actors the level gave them, and what
+each is to become once out and on its feet; and how many of each squad's
+infection forms were to be swapped so far */
+#define PLACED_MAX 256
+#define RIDERS_MAX 64
+#define POD_SQUADS_MAX 64
+/* a rider placed back as its own that is not seated by then stays so */
+#define RIDER_SEAT_TICKS (2 * TICKS_PER_SECOND)
+
+static struct randomizer_state
+{
+	struct
+	{
+		long unit_index;
+		long original;
+	} placed[PLACED_MAX];
+	long placed_next;
+	struct
+	{
+		long unit_index;
+		long variant;
+		long since;
+		long seated;
+	} riders[RIDERS_MAX];
+	struct
+	{
+		long encounter;
+		long squad;
+		long count;
+	} pod_squads[POD_SQUADS_MAX];
+	long pod_squads_next;
+} *state;
+
+/* the actor actor_place is to place as it is asked (a rider placed back,
+or swapped once out), or NONE */
+static long forced_variant = NONE;
+/* the last actor_place left out an infection form (randomizer_actor_variant) */
+static int placement_left_out;
+/* the level's infection forms so far, for the log: swapped for other
+actors, left out, and placed as infection forms (the pool's choice) */
+static long pods_swapped;
+static long pods_left_out;
+static long pods_kept;
 
 static unsigned long mix(unsigned long value)
 {
@@ -586,6 +659,11 @@ static void setup_from_config(struct setup *setup)
 	setup->enemies = config_boolean("game.randomizer_enemies");
 	setup->allies = config_boolean("game.randomizer_allies");
 	setup->crazy = config_boolean("game.randomizer_crazy");
+	setup->any_weapon = setup->crazy && config_boolean("game.randomizer_crazy_weapons");
+	setup->odd_enemies = setup->crazy && config_boolean("game.randomizer_crazy_enemies");
+	setup->flamethrower = setup->crazy && config_boolean("game.randomizer_crazy_flamethrower");
+	/* (a percentage, to the nearest tenth from one to all of them) */
+	setup->pods = setup->crazy ? (int)PIN((config_integer("game.randomizer_crazy_pods") + 5) / 10, 1, 10) : 0;
 	setup->pickups = config_boolean("game.randomizer_pickups");
 	setup->weapons = config_boolean("game.randomizer_enemy_weapons");
 	setup->pool = pool_id(config_string("game.randomizer_pool"));
@@ -598,6 +676,14 @@ static void setup_from_config(struct setup *setup)
 		setup->pickup_type = WEAPON_PISTOL;
 	setup->weapon_pool = weapon_pool_id(config_string("game.randomizer_weapon_pool"));
 	setup->weapon_type = weapon_kind_id(config_string("game.randomizer_weapon_type"), WEAPON_PLASMA_RIFLE);
+	/* (the flamethrower, chosen alone too, only with Go Crazy's: the
+	randomizer screen passes over it without, and a setting or a profile
+	saved before is taken as the default. What is advertised is this, so a
+	client takes the same) */
+	if (setup->pickup_type == WEAPON_FLAMETHROWER && !setup->flamethrower)
+		setup->pickup_type = WEAPON_PISTOL;
+	if (setup->weapon_type == WEAPON_FLAMETHROWER && !setup->flamethrower)
+		setup->weapon_type = WEAPON_PLASMA_RIFLE;
 }
 
 static void setup_from_remote(struct setup *setup)
@@ -615,6 +701,22 @@ static void setup_from_remote(struct setup *setup)
 		remote_setup[9] : WEAPON_PISTOL;
 	setup->weapon_pool = remote_setup[10] < WEAPON_POOL_COUNT ? remote_setup[10] : WEAPON_POOL_ANY;
 	setup->weapon_type = remote_setup[11] < WEAPON_KIND_COUNT ? remote_setup[11] : WEAPON_PLASMA_RIFLE;
+	/* (Go Crazy's parts; a host built before there were any has all of
+	them, and swaps every infection form) */
+	if (remote_crazy & HALO_PORT_ADVERTISED_RANDOMIZER_CRAZY_SET)
+	{
+		setup->any_weapon = setup->crazy && (remote_crazy & 1) != 0;
+		setup->odd_enemies = setup->crazy && (remote_crazy & 2) != 0;
+		setup->flamethrower = setup->crazy && (remote_crazy & 4) != 0;
+		setup->pods = setup->crazy ? (int)PIN(remote_crazy >> 4, 1, 10) : 0;
+	}
+	else
+	{
+		setup->any_weapon = setup->crazy;
+		setup->odd_enemies = setup->crazy;
+		setup->flamethrower = setup->crazy;
+		setup->pods = 10;
+	}
 }
 
 static int setup_swaps(struct setup const *setup)
@@ -735,8 +837,10 @@ static int weapon_pool_allows(int pool, int type, int kind, int for_pickups)
 	if (kind == WEAPON_NONE || (for_pickups && weapon_kinds[kind].actors_only))
 		return 0;
 	/* (the flamethrower, the campaign's for its last levels, in a pool of
-	several with game.randomizer_crazy only; chosen alone it is the one) */
-	if (kind == WEAPON_FLAMETHROWER && pool != WEAPON_POOL_ONE && !current.crazy)
+	several with game.randomizer_crazy_flamethrower only; chosen alone it is
+	the one, which setup_from_config allows with it only, a host built
+	before with or without) */
+	if (kind == WEAPON_FLAMETHROWER && pool != WEAPON_POOL_ONE && !current.flamethrower)
 		return 0;
 	switch (pool)
 	{
@@ -781,8 +885,8 @@ static int pool_allows(int kind)
 	if (current.pool == POOL_ONE)
 		return kind == current.type;
 	/* (the engineers, which the campaign hardly uses, and the sentinels,
-	which are not the covenant's: with game.randomizer_crazy only) */
-	if ((kind == TYPE_ENGINEER || kind == TYPE_SENTINEL) && !current.crazy)
+	which are not the covenant's: with game.randomizer_crazy_enemies only) */
+	if ((kind == TYPE_ENGINEER || kind == TYPE_SENTINEL) && !current.odd_enemies)
 		return 0;
 	if (current.pool == POOL_ANY)
 		return 1;
@@ -2929,6 +3033,10 @@ void randomizer_tags_loaded(char const *scenario_name)
 	if (randomize)
 	{
 		error(_error_silent, "randomizer: gathering actors already in %s", leaf);
+		if (current.pods)
+			error(_error_silent, "randomizer: infection forms swapped: %d0%% of each squad's", current.pods);
+		else
+			error(_error_silent, "randomizer: infection forms swapped: one in three of each squad's");
 		build_pools();
 		build_protected();
 		loaded = 1;
@@ -2951,6 +3059,14 @@ void randomizer_tags_loaded(char const *scenario_name)
 
 void randomizer_tags_unloaded(void)
 {
+	if (pods_swapped || pods_left_out || pods_kept)
+	{
+		error(_error_silent, "randomizer: infection forms: %ld swapped, %ld left out, %ld placed as they were",
+			pods_swapped, pods_left_out, pods_kept);
+	}
+	pods_swapped = 0;
+	pods_left_out = 0;
+	pods_kept = 0;
 	/* the level is going away. The next start, or the next advertisement
 	before it, rolls again. The cleanup at the start of a load finds this
 	already clear */
@@ -3201,6 +3317,57 @@ long randomizer_level_carriers(void)
 	return total;
 }
 
+/* a variant's type, by its unit's name */
+static int variant_type(long variant_index)
+{
+	struct actor_variant_definition *variant = variant_index == NONE ? NULL :
+		actor_variant_definition_get(variant_index);
+
+	if (!variant || variant->unit_reference.index == NONE)
+		return TYPE_NONE;
+
+	return classify(tag_get_name(variant->unit_reference.index));
+}
+
+/* whether a squad's next infection form to be swapped is, of the setup's
+share: its first, then one in three (or so many tenths, with go crazy),
+counted as the squad places them, its respawns too */
+static int pod_swapped(long encounter_block, long squad_index)
+{
+	long count;
+	long index;
+
+	if (!state)
+		return 1;
+	for (index = 0; index < POD_SQUADS_MAX; index++)
+	{
+		if (state->pod_squads[index].encounter == encounter_block && state->pod_squads[index].squad == squad_index)
+			break;
+	}
+	/* (a squad not counted yet takes the oldest's place) */
+	if (index == POD_SQUADS_MAX)
+	{
+		error(_error_silent, "randomizer: infection forms so far: %ld swapped, %ld left out, %ld placed as they were",
+			pods_swapped, pods_left_out, pods_kept);
+		index = state->pod_squads_next;
+		state->pod_squads_next = (state->pod_squads_next + 1) % POD_SQUADS_MAX;
+		state->pod_squads[index].encounter = encounter_block;
+		state->pod_squads[index].squad = squad_index;
+		state->pod_squads[index].count = 0;
+	}
+	count = state->pod_squads[index].count++;
+	if (!current.pods)
+		return count % 3 == 0;
+
+	/* (the nth swapped when n + 1 tenths, rounded up, are more than n's) */
+	return ((count + 1) * current.pods + 9) / 10 > (count * current.pods + 9) / 10;
+}
+
+int randomizer_actor_left_out(void)
+{
+	return placement_left_out;
+}
+
 long randomizer_actor_variant(long original, long encounter_index, long squad_index, void *starting_location)
 {
 	struct actor_starting_location *location = starting_location;
@@ -3211,6 +3378,9 @@ long randomizer_actor_variant(long original, long encounter_index, long squad_in
 	long location_index = 0;
 	unsigned long seed;
 
+	placement_left_out = 0;
+	if (forced_variant != NONE)
+		return forced_variant;
 	if (!loaded || !current.enemies || original == NONE || variant_count <= 0 || !location)
 		return original;
 	if (encounter_index == NONE || squad_index == NONE)
@@ -3249,7 +3419,266 @@ long randomizer_actor_variant(long original, long encounter_index, long squad_in
 	{
 		long picked = pool_pick(variant_pool, variant_count, seed);
 
-		return picked == NONE ? original : picked;
+		if (picked == NONE)
+			return original;
+		/* an infection form to be swapped for another actor: only the
+		setup's share of a squad's, the rest not placed (actor_place) */
+		if (variant_type(original) == TYPE_FLOOD_INFECTION)
+		{
+			if (variant_type(picked) == TYPE_FLOOD_INFECTION)
+				pods_kept++;
+			else if (!pod_swapped(encounter_block, squad_index))
+			{
+				pods_left_out++;
+				placement_left_out = 1;
+				return NONE;
+			}
+			else
+				pods_swapped++;
+		}
+
+		return picked;
+	}
+}
+
+static void state_reset(void)
+{
+	long index;
+
+	if (!state)
+		return;
+	for (index = 0; index < PLACED_MAX; index++)
+	{
+		state->placed[index].unit_index = NONE;
+		state->placed[index].original = NONE;
+	}
+	state->placed_next = 0;
+	for (index = 0; index < RIDERS_MAX; index++)
+	{
+		state->riders[index].unit_index = NONE;
+		state->riders[index].variant = NONE;
+		state->riders[index].since = 0;
+		state->riders[index].seated = 0;
+	}
+	for (index = 0; index < POD_SQUADS_MAX; index++)
+	{
+		state->pod_squads[index].encounter = NONE;
+		state->pod_squads[index].squad = NONE;
+		state->pod_squads[index].count = 0;
+	}
+	state->pod_squads_next = 0;
+}
+
+void randomizer_initialize(void)
+{
+	/* (a multiple of four bytes, as the game state allocates) */
+	state = (struct randomizer_state *)game_state_malloc("randomizer", NULL,
+		(long)((sizeof(*state) + 3) & ~(unsigned long)3));
+	state_reset();
+}
+
+void randomizer_initialize_for_new_map(void)
+{
+	state_reset();
+}
+
+void randomizer_actor_placed(long actor_index, long requested)
+{
+	struct actor_datum *actor;
+
+	if (!state || !loaded || actor_index == NONE)
+		return;
+	actor = actor_get(actor_index);
+	if (actor->meta.unit_index == NONE || actor->meta.variant_definition_index == requested)
+		return;
+	state->placed[state->placed_next].unit_index = actor->meta.unit_index;
+	state->placed[state->placed_next].original = requested;
+	state->placed_next = (state->placed_next + 1) % PLACED_MAX;
+}
+
+/* the unit's actor placed again where it stands, of its encounter and
+squad, by actor_place (the team of the unit asked for, as at the level's
+placement), as the variant forced; the one it was is let go, not killed.
+Its new unit, or NONE (and the unit is as it was) */
+static long actor_replace(long unit_index, long requested, long forced)
+{
+	struct unit_datum *unit = unit_get(unit_index);
+	long actor_index = unit->unit.actor_index;
+	struct actor_datum *actor = actor_get(actor_index);
+	struct actor_starting_location location;
+	real body_vitality = unit->object.body_vitality;
+	long placed_index;
+	long placed_unit_index;
+
+	/* (the squad's states, no command list: coop_enemies.c's riders' too) */
+	csmemset(&location, 0, sizeof(location));
+	object_get_origin(unit_index, &location.position);
+	location.facing = (real)atan2(unit->object.forward.j, unit->object.forward.i);
+	location.cluster_index = NONE;
+	location.noncombat_sequence_id = NONE;
+	location.actor_variant_index = NONE;
+	location.command_list_index = NONE;
+	forced_variant = forced;
+	placed_index = actor_place(requested, actor->meta.encounter_index, actor->meta.squad_index, &location, FALSE, 0);
+	forced_variant = NONE;
+	if (placed_index == NONE)
+		return NONE;
+	actor_delete(actor_index, FALSE);
+	object_delete(unit_index);
+	placed_unit_index = actor_get(placed_index)->meta.unit_index;
+	/* (as hurt as it was) */
+	if (placed_unit_index != NONE && unit_get(placed_unit_index)->object.body_vitality > body_vitality)
+		unit_get(placed_unit_index)->object.body_vitality = body_vitality;
+
+	return placed_unit_index;
+}
+
+long randomizer_rider_restore(long unit_index)
+{
+	struct unit_datum *unit;
+	long original = NONE;
+	long variant;
+	long restored;
+	long slot;
+	long rider;
+
+	if (!state || !loaded || network_game_distributed_client())
+		return NONE;
+	unit = unit_try_and_get(unit_index);
+	if (!unit || unit->unit.actor_index == NONE || unit->object.parent_object_index != NONE ||
+		TEST_FLAG(unit->object.damage_flags, _object_dead_bit))
+	{
+		return NONE;
+	}
+	for (slot = 0; slot < PLACED_MAX; slot++)
+	{
+		if (state->placed[slot].unit_index == unit_index)
+		{
+			original = state->placed[slot].original;
+			break;
+		}
+	}
+	if (original == NONE)
+		return NONE;
+	variant = actor_get(unit->unit.actor_index)->meta.variant_definition_index;
+	if (variant == original)
+		return NONE;
+	for (rider = 0; rider < RIDERS_MAX && state->riders[rider].unit_index != NONE; rider++)
+		;
+	if (rider == RIDERS_MAX)
+		return NONE;
+	restored = actor_replace(unit_index, original, original);
+	if (restored == NONE)
+		return NONE;
+	state->placed[slot].unit_index = NONE;
+	state->riders[rider].unit_index = restored;
+	state->riders[rider].variant = variant;
+	state->riders[rider].since = game_time_get();
+	state->riders[rider].seated = 0;
+	error(_error_silent, "randomizer: %s rides as %s", tag_name_strip_path(tag_get_name(variant)),
+		tag_name_strip_path(tag_get_name(original)));
+
+	return restored;
+}
+
+/* a rider out of its seat, landed and standing, walking or fighting */
+static int rider_on_its_feet(struct unit_datum *unit, long unit_index)
+{
+	struct biped_datum *biped = biped_try_and_get(unit_index);
+
+	if (!biped || TEST_FLAG(biped->biped.flags, _biped_airborne_bit))
+		return 0;
+	switch (unit->unit.animation.state)
+	{
+	case _unit_state_idle:
+	case _unit_state_gesture:
+	case _unit_state_turn_left:
+	case _unit_state_turn_right:
+	case _unit_state_move_front:
+	case _unit_state_move_back:
+	case _unit_state_move_left:
+	case _unit_state_move_right:
+	case _unit_state_melee_attack:
+	case _unit_state_throw_grenade:
+		return 1;
+	}
+
+	return 0;
+}
+
+/* a rider swapped once out: the co-op teleport's flash where it stands, a
+Flood form in a carrier's burst (Outbreak's: skulls_outbreak.c), harmless;
+the flash where the level has no burst */
+#define SWAP_TELEPORT_EFFECT "effects\\coop teleport"
+
+static void swap_effect(long unit_index, long variant)
+{
+	int type = variant_type(variant);
+	long definition_index = NONE;
+	char const *marker_names[1];
+	real_point3d marker_points[1];
+	real_vector3d marker_forwards[1];
+
+	if (type == TYPE_FLOOD_COMBAT || type == TYPE_FLOOD_CARRIER || type == TYPE_FLOOD_INFECTION)
+		definition_index = tag_loaded(EFFECT_DEFINITION_TAG, SKULLS_OUTBREAK_BURST_TAG);
+	if (definition_index == NONE)
+		definition_index = tag_loaded(EFFECT_DEFINITION_TAG, SWAP_TELEPORT_EFFECT);
+	if (definition_index == NONE)
+		return;
+	marker_names[0] = "";
+	object_get_origin(unit_index, &marker_points[0]);
+	marker_forwards[0] = *global_up3d;
+	skulls_effect_harmless = TRUE;
+	effect_new_unattached_from_markers(definition_index, unit_index, NULL, 1, marker_names, marker_points,
+		marker_forwards, 0.0f, 0.0f, NULL, NULL, TRUE);
+	skulls_effect_harmless = FALSE;
+}
+
+void randomizer_tick(void)
+{
+	long now;
+	long rider;
+
+	if (!state || network_game_distributed_client())
+		return;
+	now = game_time_get();
+	for (rider = 0; rider < RIDERS_MAX; rider++)
+	{
+		long unit_index = state->riders[rider].unit_index;
+		struct unit_datum *unit;
+		long own;
+
+		if (unit_index == NONE)
+			continue;
+		unit = unit_try_and_get(unit_index);
+		/* (gone, dead, or no longer an actor's) */
+		if (!loaded || !unit || unit->unit.actor_index == NONE || TEST_FLAG(unit->object.damage_flags, _object_dead_bit))
+		{
+			state->riders[rider].unit_index = NONE;
+			continue;
+		}
+		if (unit->object.parent_object_index != NONE)
+		{
+			state->riders[rider].seated = 1;
+			continue;
+		}
+		if (!state->riders[rider].seated)
+		{
+			if (now - state->riders[rider].since > RIDER_SEAT_TICKS || now < state->riders[rider].since)
+				state->riders[rider].unit_index = NONE;
+			continue;
+		}
+		if (!rider_on_its_feet(unit, unit_index))
+			continue;
+		own = actor_get(unit->unit.actor_index)->meta.variant_definition_index;
+		state->riders[rider].unit_index = NONE;
+		unit_index = actor_replace(unit_index, own, state->riders[rider].variant);
+		if (unit_index != NONE)
+		{
+			swap_effect(unit_index, state->riders[rider].variant);
+			error(_error_silent, "randomizer: %s, out, is %s", tag_name_strip_path(tag_get_name(own)),
+				tag_name_strip_path(tag_get_name(state->riders[rider].variant)));
+		}
 	}
 }
 
@@ -3273,7 +3702,7 @@ extern boolean unit_can_hold_weapon_definition(long unit_index, long weapon_defi
 
 /* the weapon types (their animation labels, weapon_definition.label) whose
 animations an actor's unit holds a weapon with when it has none of its own
-for it, nearest first: game.randomizer_crazy's borrowed animations */
+for it, nearest first: game.randomizer_crazy_weapons's borrowed animations */
 static struct
 {
 	char const *label;
@@ -3295,13 +3724,13 @@ static struct
 
 /* units.c's: the nth label to try a weapon's animations under in place of
 its own, or NULL. Only actors' units (not a player's), in a level the
-randomizer swaps the actors' weapons in with game.randomizer_crazy */
+randomizer swaps the actors' weapons in with game.randomizer_crazy_weapons */
 char const *randomizer_borrowed_weapon_label(long unit_index, char const *label, int nth)
 {
 	struct unit_datum *unit;
 	int index;
 
-	if (!loaded || !current.crazy || !current.weapons || !label || nth < 0 || nth >= 3)
+	if (!loaded || !current.any_weapon || !current.weapons || !label || nth < 0 || nth >= 3)
 		return NULL;
 	unit = unit_try_and_get(unit_index);
 	if (!unit || unit->unit.player_index != NONE)
@@ -3409,13 +3838,19 @@ void randomizer_advertisement(unsigned char *reserved)
 	reserved[HALO_PORT_ADVERTISED_RANDOMIZER_WEAPONS_OFFSET + 2] = (unsigned char)setup.pickup_type;
 	reserved[HALO_PORT_ADVERTISED_RANDOMIZER_WEAPONS_OFFSET + 3] = (unsigned char)setup.weapon_pool;
 	reserved[HALO_PORT_ADVERTISED_RANDOMIZER_WEAPONS_OFFSET + 4] = (unsigned char)setup.weapon_type;
+	reserved[HALO_PORT_ADVERTISED_RANDOMIZER_CRAZY_OFFSET] =
+		(unsigned char)(HALO_PORT_ADVERTISED_RANDOMIZER_CRAZY_SET | (setup.any_weapon ? 1 : 0) |
+			(setup.odd_enemies ? 2 : 0) | (setup.flamethrower ? 4 : 0) | (setup.pods << 4));
 }
 
-void randomizer_set_remote(int on, unsigned char const *setup)
+void randomizer_set_remote(int on, unsigned char const *setup, unsigned char crazy)
 {
 	remote_on = on && setup;
 	if (remote_on)
+	{
 		memcpy(remote_setup, setup, sizeof(remote_setup));
+		remote_crazy = crazy;
+	}
 }
 
 int randomizer_remote_on(void)

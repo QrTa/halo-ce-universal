@@ -104,6 +104,13 @@ its own */
 #define HALO_PORT_ADVERTISED_SKULLS_FLAG 0x08
 #define HALO_PORT_ADVERTISED_SKULLS_OFFSET 15
 #define HALO_PORT_ADVERTISED_SKULLS_SIZE 8
+/* ... and after the skulls' bytes, the randomizer's Go Crazy's parts: bit 0
+any NPC holds any weapon, bit 1 the engineers and sentinels in the pools,
+bit 2 the flamethrower in the mixed pools, bit 3 set (a host built before
+sends 0: all of them with go crazy), and the high four bits the infection
+forms swapped, in tenths (0, one in three, without go crazy) */
+#define HALO_PORT_ADVERTISED_RANDOMIZER_CRAZY_OFFSET 23
+#define HALO_PORT_ADVERTISED_RANDOMIZER_CRAZY_SET 0x08
 
 /* a message header's 12-bit length allows messages of up to 0xFFF bytes,
 header included; the per-tick update of 128 players is 3,857 */

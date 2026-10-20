@@ -5435,6 +5435,43 @@ short vehicle_scripting_load_magic(
 			NONE,
 			available_seat_indices,
 			NUMBEROF(available_seat_indices));
+		/* port: an actor the campaign randomizer swapped, whose unit has
+		the animations for none of these seats, rides as the actor the
+		level gave it, and is swapped again once out and on its feet
+		(port/linux/game/randomizer.c) */
+		{
+			extern long randomizer_rider_restore(long unit_index);
+
+			for (unit_index = object_list_get_first(object_list_index, &reference_index);
+				unit_index != NONE;
+				unit_index = object_list_get_next(object_list_index, &reference_index))
+			{
+				struct object_datum *object = object_get(unit_index);
+				short available_seat_index;
+				long restored_unit_index;
+
+				if (object->object.type != _object_type_biped ||
+					TEST_FLAG(vehicle->object.damage_flags, _object_dead_bit))
+				{
+					continue;
+				}
+				for (available_seat_index = 0; available_seat_index < available_seat_count; available_seat_index++)
+				{
+					struct unit_seat *seat = TAG_BLOCK_GET_ELEMENT(
+						&vehicle_definition->unit.seats,
+						available_seat_indices[available_seat_index],
+						struct unit_seat);
+
+					if (unit_set_or_test_seat_and_weapon_label(unit_index, seat->label, NULL, FALSE))
+						break;
+				}
+				if (available_seat_count == 0 || available_seat_index < available_seat_count)
+					continue;
+				restored_unit_index = randomizer_rider_restore(unit_index);
+				if (restored_unit_index != NONE)
+					object_list_port_replace(object_list_index, unit_index, restored_unit_index);
+			}
+		}
 		unit_index = object_list_get_first(object_list_index, &reference_index);
 
 		while (unit_index!=NONE)

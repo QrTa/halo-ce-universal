@@ -160,4 +160,8 @@ drawn for, until halo_menus_art_forget */
 void halo_menus_art_register(void const *texture, char const *png);
 void halo_menus_art_forget(void);
 
+/* game.campaign_progression "all_unlocked": every campaign level can be
+chosen, whatever the profiles have reached (menu_functions.c) */
+int campaign_levels_all_unlocked(void);
+
 #endif

@@ -2757,8 +2757,10 @@ long actor_place(
 	struct object_placement_data placement_data;
 	char encounter_name[256];
 	long unit_index;
-	/* port: the unit the squad gave, before the randomizer's swap */
+	/* port: the unit the squad gave, before the randomizer's swap, and
+	its actor */
 	long original_unit_definition_index;
+	long requested_variant_definition_index;
 
 	match_assert("c:\\halo\\SOURCE\\ai\\actors.c", 603, starting_location);
 	/* port: none on a client of the distributed netcode (actor_new) */
@@ -2782,13 +2784,18 @@ long actor_place(
 
 	/* port: the campaign randomizer's actor, in place of the squad's
 	(port/linux/game/randomizer.c). A starting location with a command
-	list, and a squad in a conversation, keep the squad's */
+	list, and a squad in a conversation, keep the squad's. An infection
+	form it leaves out (of a squad's to be swapped, those past its share)
+	is not placed */
 	{
 		extern long randomizer_actor_variant(long, long, long, void *);
 
 		original_unit_definition_index = actor_variant_definition->unit_reference.index;
+		requested_variant_definition_index = actor_variant_definition_index;
 		actor_variant_definition_index = randomizer_actor_variant(
 			actor_variant_definition_index, encounter_index, squad_index, starting_location);
+		if (actor_variant_definition_index == NONE)
+			return NONE;
 		actor_variant_definition = actor_variant_definition_get(actor_variant_definition_index);
 	}
 
@@ -2940,7 +2947,12 @@ long actor_place(
 		}
 		else
 		{
+			/* port: the randomizer's swap, kept, so a rider can be placed
+			back as the squad's actor (port/linux/game/randomizer.c) */
+			extern void randomizer_actor_placed(long actor_index, long requested);
+
 			actor_verify_activation(actor_index);
+			randomizer_actor_placed(actor_index, requested_variant_definition_index);
 		}
 
 		return actor_index;

@@ -177,6 +177,28 @@ long object_list_get_next(
 	return reference_list_get_next_datum_index(object_list_data, reference_index);
 }
 
+void object_list_port_replace(
+	long object_list_index,
+	long object_index,
+	long new_object_index)
+{
+	long reference_index;
+
+	if (object_list_index == NONE)
+		return;
+	for (reference_index = object_list_header_get(object_list_index)->first_reference_index;
+		reference_index != NONE;
+		reference_index = object_list_get(reference_index)->next_reference_index)
+	{
+		struct data_reference *reference = object_list_get(reference_index);
+
+		if (reference->datum_index == object_index)
+			reference->datum_index = new_object_index;
+	}
+
+	return;
+}
+
 void object_list_add_reference(
 	long object_list_index)
 {

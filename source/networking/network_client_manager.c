@@ -820,6 +820,8 @@ static struct
 	byte setup[HALO_PORT_ADVERTISED_RANDOMIZER_SETUP_SIZE];
 	/* port: the campaign's skulls (port/linux/game/skulls.c) */
 	byte skulls[HALO_PORT_ADVERTISED_SKULLS_SIZE];
+	/* port: the randomizer's Go Crazy's parts */
+	byte crazy;
 } network_game_client_advertised_versions[MAXIMUM_NETWORK_ADVERTISED_GAMES];
 /* the advertised game this machine is joining, so a later advertisement
 can replace the setup it was given */
@@ -2102,12 +2104,13 @@ boolean network_game_client_initiate_join_game(
 		network_game_client_randomizer_game = game_index;
 		if (game_index >= 0 && game_index < MAXIMUM_NETWORK_ADVERTISED_GAMES)
 		{
-			extern void randomizer_set_remote(int on, unsigned char const *setup);
+			extern void randomizer_set_remote(int on, unsigned char const *setup, unsigned char crazy);
 
 			randomizer_set_remote(
 				(network_game_client_advertised_versions[game_index].flags &
 					HALO_PORT_ADVERTISED_RANDOMIZER_FLAG) != 0,
-				network_game_client_advertised_versions[game_index].setup);
+				network_game_client_advertised_versions[game_index].setup,
+				network_game_client_advertised_versions[game_index].crazy);
 			skulls_set_remote(
 				(network_game_client_advertised_versions[game_index].flags &
 					HALO_PORT_ADVERTISED_SKULLS_FLAG) != 0,
@@ -2263,9 +2266,9 @@ void network_game_client_reset(
 	client->state = _network_game_client_state_searching;
 	network_game_client_randomizer_game = NONE;
 	{
-		extern void randomizer_set_remote(int on, unsigned char const *setup);
+		extern void randomizer_set_remote(int on, unsigned char const *setup, unsigned char crazy);
 
-		randomizer_set_remote(0, NULL);
+		randomizer_set_remote(0, NULL, 0);
 	}
 	skulls_set_remote(0, NULL);
 
@@ -2587,14 +2590,17 @@ static boolean add_advertised_game(
 			csmemcpy(network_game_client_advertised_versions[game_index].skulls,
 				advertisement->__unknown5A + HALO_PORT_ADVERTISED_SKULLS_OFFSET,
 				sizeof(network_game_client_advertised_versions[game_index].skulls));
+			network_game_client_advertised_versions[game_index].crazy =
+				advertisement->__unknown5A[HALO_PORT_ADVERTISED_RANDOMIZER_CRAZY_OFFSET];
 			if (game_index == network_game_client_randomizer_game)
 			{
-				extern void randomizer_set_remote(int on, unsigned char const *setup);
+				extern void randomizer_set_remote(int on, unsigned char const *setup, unsigned char crazy);
 
 				randomizer_set_remote(
 					(network_game_client_advertised_versions[game_index].flags &
 						HALO_PORT_ADVERTISED_RANDOMIZER_FLAG) != 0,
-					network_game_client_advertised_versions[game_index].setup);
+					network_game_client_advertised_versions[game_index].setup,
+					network_game_client_advertised_versions[game_index].crazy);
 				skulls_set_remote(
 					(network_game_client_advertised_versions[game_index].flags &
 						HALO_PORT_ADVERTISED_SKULLS_FLAG) != 0,

@@ -48,6 +48,12 @@ void object_list_gc(
 	void);
 short object_list_count(
 	long object_list_index);
+/* port: the list's object in another's place (the campaign randomizer's
+riders, port/linux/game/randomizer.c) */
+void object_list_port_replace(
+	long object_list_index,
+	long object_index,
+	long new_object_index);
 
 
 /* ---------- globals */

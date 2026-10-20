@@ -487,6 +487,13 @@ static const struct config_setting config_settings[] =
 	{ "game.ragdoll_ai", _config_string, "\"none\"", "HALO_RAGDOLL_AI", _environment_value, _platform_all,
 		"How an AI's body falls, the same choices as game.ragdoll_players.\n"
 		"Settings > Gameplay, or here. A cinematic keeps its own." },
+	{ "game.campaign_progression", _config_string, "\"default\"", "HALO_CAMPAIGN_PROGRESSION", _environment_value,
+		_platform_all,
+		"Settings > Gameplay's CAMPAIGN PROGRESSION. \"default\": the campaign's\n"
+		"levels open as they are reached (the first, those played, and the one\n"
+		"after the last finished). \"all_unlocked\": every one of the ten can be\n"
+		"chosen, whatever the profile has finished; what it has finished is\n"
+		"kept, and shown as before." },
 	{ "game.randomizer", _config_boolean, "false", "HALO_RANDOMIZER", _environment_value, _platform_all,
 		"Settings > Gameplay. true: after the difficulty of one of the ten\n"
 		"campaign levels, a screen sets how that level's enemies and weapons\n"
@@ -499,9 +506,10 @@ static const struct config_setting config_settings[] =
 		"pool, except one with a command list or in a conversation." },
 	{ "game.randomizer_allies", _config_boolean, "false", "HALO_RANDOMIZER_ALLIES", _environment_value, _platform_all,
 		"The randomizer screen, with game.randomizer_enemies. true: the marines\n"
-		"and crew who fight beside the player are swapped too (a scene that\n"
-		"seats them in a vehicle may then leave it empty). false: they stay\n"
-		"the actors the level gave them." },
+		"and crew who fight beside the player are swapped too (one a scene seats\n"
+		"in a vehicle it has no animations for rides as the actor the level gave\n"
+		"it, until it is out and on its feet). false: they stay the actors the\n"
+		"level gave them." },
 	{ "game.randomizer_pickups", _config_boolean, "true", "HALO_RANDOMIZER_PICKUPS", _environment_value, _platform_all,
 		"The randomizer screen. true: a weapon lying in the level is swapped\n"
 		"for another, except one a script names." },
@@ -535,14 +543,16 @@ static const struct config_setting config_settings[] =
 		"The randomizer screen, with game.randomizer_pickups. Which weapons a\n"
 		"weapon lying in the level may become: \"any\", \"covenant\", \"human\",\n"
 		"\"precision\" (pistol, sniper rifle), \"automatic\" (assault rifle, plasma\n"
-		"rifle, needler), \"power\" (shotgun, sniper rifle, rocket launcher,\n"
-		"flamethrower) or \"one\" (game.randomizer_pickup_type). A weapon the level\n"
-		"has not got is taken from another campaign level." },
+		"rifle, needler), \"power\" (shotgun, sniper rifle, rocket launcher, and\n"
+		"the flamethrower with game.randomizer_crazy_flamethrower) or \"one\"\n"
+		"(game.randomizer_pickup_type). A weapon the level has not got is taken\n"
+		"from another campaign level." },
 	{ "game.randomizer_pickup_type", _config_string, "\"pistol\"", "HALO_RANDOMIZER_PICKUP_TYPE", _environment_value,
 		_platform_all,
 		"The randomizer screen, when the pickup pool is \"one\": \"pistol\",\n"
 		"\"assault_rifle\", \"shotgun\", \"sniper_rifle\", \"rocket_launcher\",\n"
-		"\"flamethrower\", \"plasma_pistol\", \"plasma_rifle\" or \"needler\"." },
+		"\"flamethrower\" (with game.randomizer_crazy_flamethrower), \"plasma_pistol\",\n"
+		"\"plasma_rifle\" or \"needler\"." },
 	{ "game.randomizer_weapon_pool", _config_string, "\"any\"", "HALO_RANDOMIZER_WEAPON_POOL", _environment_value, _platform_all,
 		"The randomizer screen, with game.randomizer_enemy_weapons. Which weapons\n"
 		"an actor may be given, among those it has the animations to hold: the\n"
@@ -554,13 +564,34 @@ static const struct config_setting config_settings[] =
 		"The randomizer screen, when the enemy weapon pool is \"one\": a choice\n"
 		"of game.randomizer_pickup_type, \"fuel_rod\" or \"energy_sword\"." },
 	{ "game.randomizer_crazy", _config_boolean, "false", "HALO_RANDOMIZER_CRAZY", _environment_value, _platform_all,
-		"The randomizer screen's Go Crazy. true: any NPC can hold any weapon,\n"
-		"but might not know how to use it (one with no animations for it holds\n"
-		"it as a near weapon: a marine's plasma pistol as its pistol, an elite's\n"
-		"shotgun as its plasma rifle). The unused NPCs (engineers, sentinels)\n"
-		"join the enemy pools, and the multiplayer-only flamethrower the weapon\n"
-		"pools of more than one weapon. Things might not go as smooth. false: an\n"
-		"actor keeps its own weapon instead." },
+		"Settings > Gameplay > Randomizer's Go Crazy. true: the parts of it on\n"
+		"(game.randomizer_crazy_weapons, _enemies, _flamethrower), and as many\n"
+		"of the infection forms swapped as game.randomizer_crazy_pods says.\n"
+		"Things might not go as smooth. false: none of them, and one infection\n"
+		"form in three swapped (the rest are not placed)." },
+	{ "game.randomizer_crazy_weapons", _config_boolean, "true", "HALO_RANDOMIZER_CRAZY_WEAPONS", _environment_value,
+		_platform_all,
+		"Go Crazy's, with game.randomizer_crazy. true: any NPC can hold any\n"
+		"weapon, but might not know how to use it (one with no animations for it\n"
+		"holds it as a near weapon: a marine's plasma pistol as its pistol, an\n"
+		"elite's shotgun as its plasma rifle). false: an actor keeps its own\n"
+		"weapon instead." },
+	{ "game.randomizer_crazy_enemies", _config_boolean, "true", "HALO_RANDOMIZER_CRAZY_ENEMIES", _environment_value,
+		_platform_all,
+		"Go Crazy's, with game.randomizer_crazy. true: the unused NPCs\n"
+		"(engineers, sentinels) join the enemy pools." },
+	{ "game.randomizer_crazy_flamethrower", _config_boolean, "true", "HALO_RANDOMIZER_CRAZY_FLAMETHROWER",
+		_environment_value, _platform_all,
+		"Go Crazy's, with game.randomizer_crazy. true: the multiplayer-only\n"
+		"flamethrower can be the one weapon type of a pool, and joins the weapon\n"
+		"pools of more than one weapon. false: neither (a type of the\n"
+		"flamethrower is taken as the default: pistol, plasma rifle)." },
+	{ "game.randomizer_crazy_pods", _config_integer, "30", "HALO_RANDOMIZER_CRAZY_PODS", _environment_value,
+		_platform_all,
+		"Go Crazy's, with game.randomizer_crazy. How many of a squad's\n"
+		"infection forms the enemy pool swaps for other actors, a percentage\n"
+		"(10 to 100, in tens): the squad's first, then evenly; the rest are not\n"
+		"placed. Without Go Crazy, one in three." },
 	{ "game.randomizer_profile_1", _config_string, "\"\"", "HALO_RANDOMIZER_PROFILE_1", _environment_value, _platform_all,
 		"The randomizer screen's saved setups (Save, then Load), one a setting:\n"
 		"a name, then the screen's settings, separated by semicolons. Written by\n"
@@ -613,7 +644,15 @@ static const struct config_setting config_settings[] =
 		_platform_all,
 		"Settings > Gameplay's INSTANT UNLOCK, with ALL SKULLS off. true: a\n"
 		"skull picked up is unlocked at once, and not turned on. false: it is on\n"
-		"for the level, and unlocked once the level is finished without dying." },
+		"for the level, and unlocked once the level is finished (without dying,\n"
+		"with game.skulls_lose_on_death)." },
+	{ "game.skulls_lose_on_death", _config_boolean, "true", "HALO_SKULLS_LOSE_ON_DEATH", _environment_value,
+		_platform_all,
+		"Settings > Gameplay's LOSE ON DEATH, with ALL SKULLS and INSTANT UNLOCK\n"
+		"off; the skulls screen's second question asks it after UNLOCK VIA\n"
+		"GAMEPLAY. true: a death, or a return to a checkpoint, loses the skulls\n"
+		"picked up and not yet unlocked (to be found again). false: they stay\n"
+		"on, and are unlocked once the level is finished." },
 	{ "game.terminal_output", _config_string, "\"menus\"", "HALO_TERMINAL_OUTPUT", _environment_value, _platform_all,
 		"The game's messages at the bottom left of the screen (\"Shaders\n"
 		"preloaded.\", what the console's commands print): \"none\", \"menus\" (in\n"

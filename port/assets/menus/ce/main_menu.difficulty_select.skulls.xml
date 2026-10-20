@@ -610,7 +610,7 @@
 		<child widget="main_menu/difficulty_select/skulls/unlock_text"/>
 		<child widget="main_menu/difficulty_select/skulls/unlock_menu"/>
 	</widget>
-	<widget name="main_menu/difficulty_select/skulls/unlock_text" type="text" controller="1" left="40" top="84" width="560" height="196" text="How should the skulls be unlocked?\n\nALL UNLOCKED: every skull can be turned on right away.\n\nUNLOCK BY USING: enemies carry the skulls. Pick one up\nto enable its effect, then finish the level without\ndying or returning to a checkpoint to unlock it.\n\nUNLOCK BY PICKING UP: enemies carry the skulls. Pick one\nup to unlock it." font="ui\small_ui" color="#FFFFFFFF">
+	<widget name="main_menu/difficulty_select/skulls/unlock_text" type="text" controller="1" left="40" top="84" width="560" height="196" text="How should the skulls be unlocked?\n\nALL UNLOCKED: every skull can be turned on right away.\n\nUNLOCK VIA GAMEPLAY: enemies carry the skulls. Pick one\nup to enable its effect, then finish the level to\nunlock it.\n\nUNLOCK ON PICKUP: enemies carry the skulls. Pick one up\nto unlock it." font="ui\small_ui" color="#FFFFFFFF">
 	</widget>
 	<widget name="main_menu/difficulty_select/skulls/unlock_menu" type="column_list" width="640" height="480" flags="pass_unhandled_to_focused_child up_down_tabs_children">
 		<child widget="main_menu/difficulty_select/skulls/unlock_all" x="64" y="290"/>
@@ -623,14 +623,38 @@
 		<on event="start" run="skulls unlock all"/>
 		<on event="left_mouse" run="mouse emit accept event"/>
 	</widget>
-	<widget name="main_menu/difficulty_select/skulls/unlock_play" type="text" width="512" height="28" bitmap="bitmaps/option_bkds" text="UNLOCK BY USING" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
+	<widget name="main_menu/difficulty_select/skulls/unlock_play" type="text" width="512" height="28" bitmap="bitmaps/option_bkds" text="UNLOCK VIA GAMEPLAY" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
 		<on event="a" run="skulls unlock play"/>
 		<on event="start" run="skulls unlock play"/>
 		<on event="left_mouse" run="mouse emit accept event"/>
 	</widget>
-	<widget name="main_menu/difficulty_select/skulls/unlock_pickup" type="text" width="512" height="28" bitmap="bitmaps/option_bkds" text="UNLOCK BY PICKING UP" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
+	<widget name="main_menu/difficulty_select/skulls/unlock_pickup" type="text" width="512" height="28" bitmap="bitmaps/option_bkds" text="UNLOCK ON PICKUP" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
 		<on event="a" run="skulls unlock pickup"/>
 		<on event="start" run="skulls unlock pickup"/>
+		<on event="left_mouse" run="mouse emit accept event"/>
+	</widget>
+	<widget name="main_menu/difficulty_select/skulls/death_screen" width="640" height="480" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/gradient">
+		<on event="b" run="skulls death back"/>
+		<on event="back" run="skulls death back"/>
+		<child widget="main_menu/difficulty_select/skulls/header_skulls"/>
+		<child widget="main_menu/difficulty_select/skulls/death_text"/>
+		<child widget="main_menu/difficulty_select/skulls/death_menu"/>
+	</widget>
+	<widget name="main_menu/difficulty_select/skulls/death_text" type="text" controller="1" left="40" top="84" width="560" height="196" text="Should dying lose the skulls you picked up?\n\nLOSE THEM ON DEATH: a skull you picked up is lost if\nyou die or return to a checkpoint before you finish\nthe level. It drops again in another level.\n\nKEEP THEM: a skull you picked up stays with you until\nyou finish the level, however often you die." font="ui\small_ui" color="#FFFFFFFF">
+	</widget>
+	<widget name="main_menu/difficulty_select/skulls/death_menu" type="column_list" width="640" height="480" flags="pass_unhandled_to_focused_child up_down_tabs_children">
+		<child widget="main_menu/difficulty_select/skulls/death_lose" x="64" y="290"/>
+		<child widget="main_menu/difficulty_select/skulls/death_keep" x="64" y="322"/>
+		<child widget="common_button_cancel" x="510" y="415"/>
+	</widget>
+	<widget name="main_menu/difficulty_select/skulls/death_lose" type="text" width="512" height="28" bitmap="bitmaps/option_bkds" text="LOSE THEM ON DEATH" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
+		<on event="a" run="skulls death lose"/>
+		<on event="start" run="skulls death lose"/>
+		<on event="left_mouse" run="mouse emit accept event"/>
+	</widget>
+	<widget name="main_menu/difficulty_select/skulls/death_keep" type="text" width="512" height="28" bitmap="bitmaps/option_bkds" text="KEEP THEM" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
+		<on event="a" run="skulls death keep"/>
+		<on event="start" run="skulls death keep"/>
 		<on event="left_mouse" run="mouse emit accept event"/>
 	</widget>
 	<widget name="main_menu/difficulty_select/skulls/button_cancel" type="text" width="128" height="24" bitmap="bitmaps/text_button_background" string_list="strings/common_button_captions" string_index="2" font="ui\small_ui" color="#FFFFFFFF" align="center" text_y="2">

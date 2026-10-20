@@ -1891,6 +1891,14 @@ void skulls_tick(void)
 	}
 }
 
+/* whether a death (and a revert) loses the skulls found and not kept
+(game.skulls_lose_on_death): else they stay on, to be kept when the level
+is won */
+static boolean skulls_lost_on_death(void)
+{
+	return config_boolean("game.skulls_lose_on_death");
+}
+
 static short skull_slot(long object_index)
 {
 	short slot;
@@ -1956,11 +1964,13 @@ int skulls_item_take(short local_player_index, long unit_index, long object_inde
 			line[character] = (wchar_t)(unsigned char)text[character];
 		line[character] = 0;
 		hud_print_message(local_player_index, line);
-		if (!instant)
+		if (!instant && skulls_lost_on_death())
 		{
 			hud_print_message(local_player_index, L"Death will take your prize away.");
 			hud_print_message(local_player_index, L"Finish the level without dying to unlock it.");
 		}
+		else if (!instant)
+			hud_print_message(local_player_index, L"Finish the level to unlock it.");
 		snprintf(text, sizeof(text), instant ? "%s SKULL unlocked." : "%s SKULL picked up.",
 			skull_descriptions[skull].label);
 		for (character = 0; text[character] && character < (short)NUMBEROF(line) - 1; character++)
@@ -2003,7 +2013,7 @@ static void skulls_lose(char const *why)
 {
 	struct skull_set set = found_set();
 
-	if (skull_set_is_empty(&set))
+	if (skull_set_is_empty(&set) || !skulls_lost_on_death())
 		return;
 	finding->found = skull_set_none();
 	run_lose(set, why);
@@ -2015,6 +2025,13 @@ game state found then; one dropped and not taken, gone with the revert,
 is to drop again */
 static void run_restored(char const *why)
 {
+	/* (or, kept through a death, those picked up and neither unlocked nor
+	lost found again, whatever the game state found then) */
+	if (!skulls_lost_on_death())
+	{
+		finding->found = skull_set_difference(skull_set_difference(run.taken, run.unlocked), run.lost);
+		return;
+	}
 	finding->found = skull_set_none();
 	run_lose(skull_set_difference(run.taken, run.unlocked), why);
 }

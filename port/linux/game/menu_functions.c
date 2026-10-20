@@ -812,8 +812,19 @@ static boolean campaign_profile(short controller, struct player_profile *profile
 	return TRUE;
 }
 
+/* game.campaign_progression "all_unlocked": every campaign level can be
+chosen, whatever the profiles have reached (the Xbox's menus too:
+ui_widget_event_handler_functions.c) */
+int campaign_levels_all_unlocked(void)
+{
+	char const *progression = config_string("game.campaign_progression");
+
+	return progression && !_stricmp(progression, "all_unlocked");
+}
+
 /* the levels the profile has reached (as the Xbox's list has them: those
-it has played, the one after the last it finished, the first) and finished,
+it has played, the one after the last it finished, the first; every one,
+with game.campaign_progression "all_unlocked") and finished,
 and its saved game's; in co-op, those either player's has reached and
 finished, and no saved game (a game of one player's does not go on with
 two: game_state.c's game_state_header_valid) */
@@ -838,7 +849,8 @@ static void campaign_levels_read(struct player_profile const *profile)
 			byte flags = reader->single_player_map_flags[level];
 			short marker;
 
-			campaign.levels[level].available |= flags || level == highest_level + 1 || level == 0;
+			campaign.levels[level].available |= flags || level == highest_level + 1 || level == 0 ||
+				campaign_levels_all_unlocked();
 			for (marker = 0; marker < 3; marker++)
 				campaign.levels[level].finished[marker] |= (flags >> (marker + 1)) & 1;
 		}
@@ -2021,13 +2033,41 @@ static boolean randomizer_spinner_is(struct widget_instance *list, char const *s
 	return setting && index >= 0 && index < setting->value_count && !strcmp(setting->values[index], value);
 }
 
+/* a spinner's choice that is not to be had, passed over the way the
+spinner went from the one it showed last (kept in last), else forward */
+static void randomizer_spinner_pass_over(struct widget_instance *list, char const *spinner, char const *value,
+	short *last)
+{
+	struct widget_instance *widget = named(list, spinner, 0);
+	struct pc_menu_setting *setting = widget ? pc_menu_setting_get(widget->definition_tag_index) : NULL;
+	short count = setting ? setting->value_count : 0;
+	short index;
+
+	if (count < 2)
+		return;
+	index = widget->parameters.list.selected_index;
+	if (index >= 0 && index < count && !strcmp(setting->values[index], value))
+	{
+		/* (back: from the one after it, or round from the first to the last) */
+		boolean back = *last >= 0 && *last < count &&
+			((*last > index && !(*last == count - 1 && index == 0)) || (*last == 0 && index == count - 1));
+
+		index = (short)((index + (back ? count - 1 : 1)) % count);
+		widget->parameters.list.selected_index = index;
+	}
+	*last = index;
+}
+
 /* "randomizer screen update": the rows that mean something with what the
 spinners above them show (tools/port_settings.py's RANDOMIZER_ROWS), one
-under the other; a hidden row takes no focus. And a setup loaded on Load's
-screen, shown */
+under the other; a hidden row takes no focus. The flamethrower, with Go
+Crazy's FLAMETHROWER off, not a type to be chosen. And a setup loaded on
+Load's screen, shown */
 static void randomizer_screen_update(struct widget_instance *list)
 {
 	static long shown_applied;
+	static short pickup_type_last = NONE;
+	static short weapon_type_last = NONE;
 	boolean enemies = randomizer_spinner_is(list, "enemies_spinner", "true");
 	boolean one_type = enemies && randomizer_spinner_is(list, "pool_spinner", "one");
 	boolean pickups = randomizer_spinner_is(list, "pickups_spinner", "true");
@@ -2044,6 +2084,11 @@ static void randomizer_screen_update(struct widget_instance *list)
 	{
 		shown_applied = randomizer_menu.applied;
 		settings_each(screen_of(list), setting_show_saved);
+	}
+	if (!config_boolean("game.randomizer_crazy") || !config_boolean("game.randomizer_crazy_flamethrower"))
+	{
+		randomizer_spinner_pass_over(list, "pickup_type_spinner", "flamethrower", &pickup_type_last);
+		randomizer_spinner_pass_over(list, "weapon_type_spinner", "flamethrower", &weapon_type_last);
 	}
 	rows[0].row = "op_enemies", rows[0].shown = TRUE;
 	rows[1].row = "op_allies", rows[1].shown = enemies;
@@ -2099,17 +2144,19 @@ static boolean skulls_open(struct widget_instance *widget, boolean *widget_delet
 	return skulls_open_over(screen_of(widget)->definition_tag_index, widget_deleted);
 }
 
-/* "skulls unlock all", "skulls unlock play" and "skulls unlock pickup" (the
-question's answers): the answer kept, then the skulls screen, over the
-screen the question was over */
-static boolean skulls_unlock_choose(boolean play, boolean instant, boolean *widget_deleted)
+/* "skulls unlock all", "skulls unlock pickup", and "skulls death lose" and
+"skulls death keep" (the question's answers, the last two UNLOCK VIA
+GAMEPLAY's, after the question of a death): the answers kept, then the
+skulls screen, over the screen the questions were over */
+static boolean skulls_unlock_choose(boolean play, boolean instant, boolean lose_on_death, boolean *widget_deleted)
 {
 	/* (every answer unlocking by playing, with ALL SKULLS on for ALL
-	UNLOCKED, and INSTANT UNLOCK on for UNLOCK BY PICKING UP: Settings >
+	UNLOCKED, and INSTANT UNLOCK on for UNLOCK ON PICKUP: Settings >
 	Gameplay > Skulls changes them later) */
 	if (!config_write("game.skulls_unlock_mode", "play") ||
 		!config_write("game.skulls_all_unlocked", play ? "false" : "true") ||
-		!config_write("game.skulls_instant_unlock", instant ? "true" : "false"))
+		!config_write("game.skulls_instant_unlock", instant ? "true" : "false") ||
+		!config_write("game.skulls_lose_on_death", lose_on_death ? "true" : "false"))
 	{
 		error(_error_silent, "skulls: could not write game.skulls_unlock_mode");
 	}
@@ -2117,6 +2164,19 @@ static boolean skulls_unlock_choose(boolean play, boolean instant, boolean *widg
 		skulls_pack_request();
 	ui_play_audio_feedback_sound(SOUND_FORWARD);
 	return skulls_open_over(skulls_menu_back_tag, widget_deleted);
+}
+
+/* "skulls unlock play" (UNLOCK VIA GAMEPLAY), and "skulls death back" (B
+on the question it asks): the question of whether a death loses the skulls
+picked up, and back from it to the first, each over the screen the first
+was over */
+static boolean skulls_question_open(char const *screen, boolean forward, boolean *widget_deleted)
+{
+	if (!ui_widget_load_by_name_or_tag(screen, NONE, NULL, NONE, skulls_menu_back_tag, NONE, NONE))
+		return FALSE;
+	ui_play_audio_feedback_sound(forward ? SOUND_FORWARD : SOUND_BACK);
+	*widget_deleted = TRUE;
+	return TRUE;
 }
 
 /* the skull a row's item is (its name skull_<key>), or NONE */
@@ -2299,7 +2359,8 @@ static void skulls_reset_progress(struct widget_instance *widget)
 		return;
 	}
 	if (!config_write("game.skulls_unlocked", "") || !config_write("game.skulls_active", "") ||
-		!config_write("game.skulls_all_unlocked", "false") || !config_write("game.skulls_unlock_mode", ""))
+		!config_write("game.skulls_all_unlocked", "false") || !config_write("game.skulls_unlock_mode", "") ||
+		!config_write("game.skulls_lose_on_death", "true"))
 	{
 		error(_error_silent, "skulls: could not reset the skulls' progress");
 		skulls_reset_state = _skulls_reset_none;
@@ -2313,26 +2374,46 @@ static void skulls_reset_progress(struct widget_instance *widget)
 	ui_play_audio_feedback_sound(SOUND_BACK);
 }
 
-/* "gameplay screen update" (Settings > Gameplay > Skulls): ALL SKULLS only
-with the skulls on and the skulls screen's question answered, INSTANT
-UNLOCK only with ALL SKULLS off too; a hidden row takes no focus. And
-RESET SKULL PROGRESS's question or done in the help line, while it has the
-focus (its help's next strings: tools/port_settings.py) */
+/* "gameplay screen update" (Settings > Gameplay > Skulls, and >
+Randomizer): ALL SKULLS only with the skulls on and the skulls screen's
+question answered, INSTANT UNLOCK only with ALL SKULLS off too, Go Crazy's
+parts only with it on; a hidden row takes no focus. And RESET SKULL
+PROGRESS's question or done in the help line, while it has the focus (its
+help's next strings: tools/port_settings.py) */
 static void gameplay_screen_update(struct widget_instance *list)
 {
+	static char const *const crazy_rows[] = {
+		"op_randomizer_crazy_weapons", "op_randomizer_crazy_enemies", "op_randomizer_crazy_flame",
+		"op_randomizer_crazy_pods"
+	};
 	struct widget_instance *all_row = named(list, "op_skulls_all_unlocked", 0);
 	struct widget_instance *instant_row = named(list, "op_skulls_instant_unlock", 0);
+	struct widget_instance *death_row = named(list, "op_skulls_lose_on_death", 0);
 	struct widget_instance *reset_row = named(list, "op_reset_progress", 0);
 	struct widget_instance *help = list->parameters.list.extended_description;
 	/* (ALL SKULLS once the skulls screen's question is answered; INSTANT
 	UNLOCK with it off, the skulls to be found) */
 	boolean answered = randomizer_spinner_is(list, "skulls_spinner", "true") &&
 		skulls_unlock_mode() != _skulls_unlock_unset;
+	boolean crazy = randomizer_spinner_is(list, "randomizer_crazy_spinner", "true");
+	short row;
 
+	for (row = 0; row < (short)NUMBEROF(crazy_rows); row++)
+	{
+		struct widget_instance *crazy_row = named(list, crazy_rows[row], 0);
+
+		if (crazy_row)
+			crazy_row->visible = crazy;
+	}
 	if (all_row)
 		all_row->visible = answered;
 	if (instant_row)
 		instant_row->visible = answered && !randomizer_spinner_is(list, "skulls_all_unlocked_spinner", "true");
+	if (death_row)
+	{
+		death_row->visible = answered && !randomizer_spinner_is(list, "skulls_all_unlocked_spinner", "true") &&
+			!randomizer_spinner_is(list, "skulls_instant_unlock_spinner", "true");
+	}
 	if (!reset_row || list->focused_child != reset_row)
 	{
 		skulls_reset_state = _skulls_reset_none;
@@ -7783,15 +7864,29 @@ boolean pc_menu_event_function_invoke(
 		}
 		else if (!strcmp(name, "skulls unlock all"))
 		{
-			return skulls_unlock_choose(FALSE, FALSE, widget_deleted);
+			return skulls_unlock_choose(FALSE, FALSE, TRUE, widget_deleted);
 		}
 		else if (!strcmp(name, "skulls unlock play"))
 		{
-			return skulls_unlock_choose(TRUE, FALSE, widget_deleted);
+			return skulls_question_open("pc\\main_menu\\difficulty_select\\skulls\\death_screen", TRUE,
+				widget_deleted);
 		}
 		else if (!strcmp(name, "skulls unlock pickup"))
 		{
-			return skulls_unlock_choose(TRUE, TRUE, widget_deleted);
+			return skulls_unlock_choose(TRUE, TRUE, TRUE, widget_deleted);
+		}
+		else if (!strcmp(name, "skulls death lose"))
+		{
+			return skulls_unlock_choose(TRUE, FALSE, TRUE, widget_deleted);
+		}
+		else if (!strcmp(name, "skulls death keep"))
+		{
+			return skulls_unlock_choose(TRUE, FALSE, FALSE, widget_deleted);
+		}
+		else if (!strcmp(name, "skulls death back"))
+		{
+			return skulls_question_open("pc\\main_menu\\difficulty_select\\skulls\\unlock_screen", FALSE,
+				widget_deleted);
 		}
 		else if (!strcmp(name, "skulls up"))
 		{

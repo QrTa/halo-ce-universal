@@ -327,6 +327,13 @@ void game_initialize(
 	/* port: the skulls dropped and found in a level, kept by checkpoints
 	(port/linux/game/skulls.c) */
 	skulls_initialize();
+	/* port: the campaign randomizer's riders and infection forms, kept by
+	checkpoints (port/linux/game/randomizer.c) */
+	{
+		extern void randomizer_initialize(void);
+
+		randomizer_initialize();
+	}
 
 	return;
 }
@@ -397,6 +404,13 @@ void game_tick(
 	profile_scope(game_tick_player_effect_section, player_effect_update();)
 	/* port: the skulls to be found, lying about (port/linux/game/skulls.c) */
 	skulls_tick();
+	/* port: the randomizer's riders, swapped once out and on their feet
+	(port/linux/game/randomizer.c) */
+	{
+		extern void randomizer_tick(void);
+
+		randomizer_tick();
+	}
 	/* port: and at its end, before the frame draws the lights */
 	game_state_check_data_arrays();
 	lights_port_recover();
@@ -709,6 +723,13 @@ void game_initialize_for_new_map(
 	cheats_initialize_for_new_map();
 	/* port: no skulls dropped or found yet (port/linux/game/skulls.c) */
 	skulls_initialize_for_new_map();
+	/* port: nor randomizer riders or infection forms counted
+	(port/linux/game/randomizer.c) */
+	{
+		extern void randomizer_initialize_for_new_map(void);
+
+		randomizer_initialize_for_new_map();
+	}
 
 	game_globals->active = TRUE;
 	objects_place();

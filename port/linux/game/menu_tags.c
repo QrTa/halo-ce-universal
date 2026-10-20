@@ -395,6 +395,7 @@ static char const *const port_function_names[] =
 	/* (the skulls screen, after a campaign level's difficulty) */
 	"skull toggle", "skulls toggle all", "skulls start", "skulls up", "skulls down", "skulls left", "skulls right",
 	"skulls unlock all", "skulls unlock play", "skulls unlock pickup", "skulls reset progress",
+	"skulls death lose", "skulls death keep", "skulls death back",
 	/* (the main menu's Mods: menu_functions.c) */
 	"port mods init", "port mods close", "port mods toggle", "port mods move up", "port mods move down",
 	"port mods save",

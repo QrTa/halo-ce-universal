@@ -13,8 +13,13 @@
 	</widget>
 	<widget name="main_menu/settings_select/player_setup/player_profile_edit/gameplay/randomizer/options_menu" type="column_list" width="640" height="480" flags="pass_unhandled_to_focused_child up_down_tabs_children" description="main_menu/settings_select/player_setup/player_profile_edit/gameplay/randomizer/help">
 		<data input="port settings help"/>
+		<data input="gameplay screen update"/>
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/gameplay/randomizer/op_randomizer" x="54" y="73"/>
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/gameplay/randomizer/op_randomizer_crazy" x="54" y="103"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/gameplay/randomizer/op_randomizer_crazy_weapons" x="54" y="133"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/gameplay/randomizer/op_randomizer_crazy_enemies" x="54" y="163"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/gameplay/randomizer/op_randomizer_crazy_flame" x="54" y="193"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/gameplay/randomizer/op_randomizer_crazy_pods" x="54" y="223"/>
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/gameplay/randomizer/button_bar" y="414"/>
 	</widget>
 	<widget name="main_menu/settings_select/player_setup/player_profile_edit/gameplay/randomizer/button_bar" type="column_list" width="640" height="28" flags="pass_unhandled_to_focused_child left_right_tabs_items">
@@ -40,6 +45,42 @@
 	<widget name="main_menu/settings_select/player_setup/player_profile_edit/gameplay/randomizer/randomizer_crazy_spinner" type="spinner" left="3" top="2" width="147" height="20" flags="pass_unhandled_to_focused_child left_right_tabs_items" strings="OFF|ON" setting="game.randomizer_crazy" values="false|true" font="ui\large_ui" color="#FF2896FF" align="center" text_y="1" header_bitmap="bitmaps/arrow_sm_left" footer_bitmap="bitmaps/arrow_sm_right" header_bounds="7 -6 19 0" footer_bounds="7 150 19 156">
 		<on event="created" run="port setting load"/>
 	</widget>
+	<widget name="main_menu/settings_select/player_setup/player_profile_edit/gameplay/randomizer/op_randomizer_crazy_weapons" width="512" height="28" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/option_bkds" color="#FF2896FF">
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/gameplay/randomizer/randomizer_crazy_weapons_label"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/gameplay/randomizer/randomizer_crazy_weapons_spinner" x="320" y="1"/>
+	</widget>
+	<widget name="main_menu/settings_select/player_setup/player_profile_edit/gameplay/randomizer/randomizer_crazy_weapons_label" type="text" controller="1" width="300" height="22" string_list="main_menu/settings_select/player_setup/player_profile_edit/gameplay/randomizer/labels" string_index="2" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
+	</widget>
+	<widget name="main_menu/settings_select/player_setup/player_profile_edit/gameplay/randomizer/randomizer_crazy_weapons_spinner" type="spinner" left="3" top="2" width="147" height="20" flags="pass_unhandled_to_focused_child left_right_tabs_items" strings="OFF|ON" setting="game.randomizer_crazy_weapons" values="false|true" font="ui\large_ui" color="#FF2896FF" align="center" text_y="1" header_bitmap="bitmaps/arrow_sm_left" footer_bitmap="bitmaps/arrow_sm_right" header_bounds="7 -6 19 0" footer_bounds="7 150 19 156">
+		<on event="created" run="port setting load"/>
+	</widget>
+	<widget name="main_menu/settings_select/player_setup/player_profile_edit/gameplay/randomizer/op_randomizer_crazy_enemies" width="512" height="28" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/option_bkds" color="#FF2896FF">
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/gameplay/randomizer/randomizer_crazy_enemies_label"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/gameplay/randomizer/randomizer_crazy_enemies_spinner" x="320" y="1"/>
+	</widget>
+	<widget name="main_menu/settings_select/player_setup/player_profile_edit/gameplay/randomizer/randomizer_crazy_enemies_label" type="text" controller="1" width="300" height="22" string_list="main_menu/settings_select/player_setup/player_profile_edit/gameplay/randomizer/labels" string_index="3" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
+	</widget>
+	<widget name="main_menu/settings_select/player_setup/player_profile_edit/gameplay/randomizer/randomizer_crazy_enemies_spinner" type="spinner" left="3" top="2" width="147" height="20" flags="pass_unhandled_to_focused_child left_right_tabs_items" strings="OFF|ON" setting="game.randomizer_crazy_enemies" values="false|true" font="ui\large_ui" color="#FF2896FF" align="center" text_y="1" header_bitmap="bitmaps/arrow_sm_left" footer_bitmap="bitmaps/arrow_sm_right" header_bounds="7 -6 19 0" footer_bounds="7 150 19 156">
+		<on event="created" run="port setting load"/>
+	</widget>
+	<widget name="main_menu/settings_select/player_setup/player_profile_edit/gameplay/randomizer/op_randomizer_crazy_flame" width="512" height="28" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/option_bkds" color="#FF2896FF">
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/gameplay/randomizer/randomizer_crazy_flame_label"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/gameplay/randomizer/randomizer_crazy_flame_spinner" x="320" y="1"/>
+	</widget>
+	<widget name="main_menu/settings_select/player_setup/player_profile_edit/gameplay/randomizer/randomizer_crazy_flame_label" type="text" controller="1" width="300" height="22" string_list="main_menu/settings_select/player_setup/player_profile_edit/gameplay/randomizer/labels" string_index="4" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
+	</widget>
+	<widget name="main_menu/settings_select/player_setup/player_profile_edit/gameplay/randomizer/randomizer_crazy_flame_spinner" type="spinner" left="3" top="2" width="147" height="20" flags="pass_unhandled_to_focused_child left_right_tabs_items" strings="OFF|ON" setting="game.randomizer_crazy_flamethrower" values="false|true" font="ui\large_ui" color="#FF2896FF" align="center" text_y="1" header_bitmap="bitmaps/arrow_sm_left" footer_bitmap="bitmaps/arrow_sm_right" header_bounds="7 -6 19 0" footer_bounds="7 150 19 156">
+		<on event="created" run="port setting load"/>
+	</widget>
+	<widget name="main_menu/settings_select/player_setup/player_profile_edit/gameplay/randomizer/op_randomizer_crazy_pods" width="512" height="28" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/option_bkds" color="#FF2896FF">
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/gameplay/randomizer/randomizer_crazy_pods_label"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/gameplay/randomizer/randomizer_crazy_pods_spinner" x="320" y="1"/>
+	</widget>
+	<widget name="main_menu/settings_select/player_setup/player_profile_edit/gameplay/randomizer/randomizer_crazy_pods_label" type="text" controller="1" width="300" height="22" string_list="main_menu/settings_select/player_setup/player_profile_edit/gameplay/randomizer/labels" string_index="5" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
+	</widget>
+	<widget name="main_menu/settings_select/player_setup/player_profile_edit/gameplay/randomizer/randomizer_crazy_pods_spinner" type="spinner" left="3" top="2" width="147" height="20" flags="pass_unhandled_to_focused_child left_right_tabs_items" strings="10%|20%|30%|40%|50%|60%|70%|80%|90%|100%" setting="game.randomizer_crazy_pods" values="10|20|30|40|50|60|70|80|90|100" font="ui\large_ui" color="#FF2896FF" align="center" text_y="1" header_bitmap="bitmaps/arrow_sm_left" footer_bitmap="bitmaps/arrow_sm_right" header_bounds="7 -6 19 0" footer_bounds="7 150 19 156">
+		<on event="created" run="port setting load"/>
+	</widget>
 	<widget name="main_menu/settings_select/player_setup/player_profile_edit/gameplay/randomizer/button_defaults" type="text" width="128" height="24" bitmap="bitmaps/text_button_background" string_list="strings/common_button_captions" string_index="3" font="ui\small_ui" color="#FFFFFFFF" align="center" text_y="2">
 		<on event="a" run="port settings defaults"/>
 		<on event="start" run="port settings defaults"/>
@@ -53,10 +94,18 @@
 	<strings name="main_menu/settings_select/player_setup/player_profile_edit/gameplay/randomizer/labels">
 		<string text="RANDOMIZER:"/>
 		<string text="GO CRAZY:"/>
+		<string text="ANY NPC, ANY WEAPON:"/>
+		<string text="ENGINEERS &amp; SENTINELS:"/>
+		<string text="FLAMETHROWER:"/>
+		<string text="FLOOD PODS SWAPPED:"/>
 	</strings>
 	<strings name="main_menu/settings_select/player_setup/player_profile_edit/gameplay/randomizer/help_strings">
 		<string text=""/>
 		<string text="On: after a campaign level's difficulty, a screen\nsets how that level's enemies and weapons change."/>
-		<string text="Any NPC can hold any weapon, but may not use it\nwell. Adds unused NPCs and multiplayer weapons."/>
+		<string text="On: the choices below. Off: none of them, and\none flood infection pod in three is swapped."/>
+		<string text="Any NPC can hold any weapon, but may not\nknow how to use it."/>
+		<string text="The unused NPCs join the enemy pools."/>
+		<string text="The multiplayer flamethrower can be chosen as\na weapon type and joins the mixed pools."/>
+		<string text="How many flood infection pods become other\nenemies. The rest are left out."/>
 	</strings>
 </menus>

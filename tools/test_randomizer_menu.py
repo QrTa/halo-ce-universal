@@ -24,6 +24,17 @@ def test_randomizer_menus():
     assert "RANDOMIZER:" in settings
     assert 'setting="game.randomizer_crazy"' in settings
     assert 'setting="game.randomizer_crazy"' not in screen
+    # (Go Crazy's parts, which the screen shows only with it on)
+    assert 'input="gameplay screen update"' in settings
+    for setting in (
+        "game.randomizer_crazy_weapons",
+        "game.randomizer_crazy_enemies",
+        "game.randomizer_crazy_flamethrower",
+        "game.randomizer_crazy_pods",
+    ):
+        assert f'setting="{setting}"' in settings
+        assert f'setting="{setting}"' not in screen
+    assert 'values="10|20|30|40|50|60|70|80|90|100"' in settings
     for setting in (
         "game.randomizer_enemies",
         "game.randomizer_allies",
@@ -66,3 +77,25 @@ def test_randomizer_rows_match_the_screen_code():
     assert f"#define RANDOMIZER_KEY_COUNT {len(names)}" in source
     for key, _, setting, *_ in port_settings.RANDOMIZER_ROWS:
         assert f'"{setting}"' in (ROOT / "port/linux/src/port_config.c").read_text()
+
+
+def test_crazy_rows_match_the_screen_code():
+    """menu_functions.c hides Go Crazy's parts by their rows' names, each a
+    setting of port_config.c's."""
+    source = (ROOT / "port/linux/game/menu_functions.c").read_text()
+    config = (ROOT / "port/linux/src/port_config.c").read_text()
+    for _, setting, _, _, _, *named in port_settings.SCREENS["gameplay/randomizer"]["rows"]:
+        assert f'"{setting}"' in config
+        if setting.startswith("game.randomizer_crazy_"):
+            assert f'"op_{named[0] if named else setting.split(".", 1)[1]}"' in source
+
+
+def test_widget_names_fit():
+    """A widget's name is a tag's char[32] (menu_tags.c): a row's, which
+    menu_functions.c shows and hides by it, 31 characters at most (a longer
+    one is cut short, and never found)."""
+    for name, lines in port_settings.settings_files().items():
+        for path in re.findall(r'<widget name="([^"]+)"', "\n".join(lines)):
+            leaf = path.rsplit("/", 1)[-1]
+            if leaf.startswith("op_"):
+                assert len(leaf) <= 31, (name, path)

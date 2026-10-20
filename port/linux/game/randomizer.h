@@ -18,6 +18,22 @@ int randomizer_donor_read(long tag_index, long offset, long size, void *buffer);
 /* the actor, weapon or carried weapon a placement uses. each returns the
 index it was given when the randomizer is not swapping that */
 long randomizer_actor_variant(long original, long encounter_index, long squad_index, void *starting_location);
+/* the last randomizer_actor_variant left its infection form out: NONE, as
+one of a squad's to be swapped past the setup's share (game.randomizer_crazy_pods) */
+int randomizer_actor_left_out(void);
+/* actor_place's actor placed, of the variant asked for: kept when swapped */
+void randomizer_actor_placed(long actor_index, long requested);
+
+/* a swapped actor's unit, with no animations for the seats a script loads
+it into (vehicle_load_magic): its actor placed back as the one the level
+gave it, its new unit, else NONE. Once out of the seat, landed and standing,
+walking or fighting, it is swapped again (randomizer_tick) */
+long randomizer_rider_restore(long unit_index);
+
+/* the riders' and the infection forms' state, in the game state (game.c) */
+void randomizer_initialize(void);
+void randomizer_initialize_for_new_map(void);
+void randomizer_tick(void);
 long randomizer_weapon_definition(long definition_index, void *scenario_object);
 long randomizer_enemy_weapon(long weapon_definition, long unit_index, long attempt);
 
@@ -39,8 +55,9 @@ long randomizer_level_carriers(void);
 when this game is a randomized campaign */
 void randomizer_advertisement(unsigned char *reserved);
 
-/* the setup of the game this machine is joining, or none */
-void randomizer_set_remote(int on, unsigned char const *setup);
+/* the setup of the game this machine is joining, or none, and its Go
+Crazy's parts (HALO_PORT_ADVERTISED_RANDOMIZER_CRAZY_OFFSET's byte) */
+void randomizer_set_remote(int on, unsigned char const *setup, unsigned char crazy);
 int randomizer_remote_on(void);
 
 /* the lobby's map line, prefixed while the game is randomized */

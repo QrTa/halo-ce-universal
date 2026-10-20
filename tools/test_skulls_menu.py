@@ -26,13 +26,18 @@ def test_skulls_menus():
         assert f'open="{base}/{folder}/{screen_name}"' in gameplay
     assert 'setting="game.skulls"' in settings
     assert "SKULLS:" in settings
-    # (ALL SKULLS, which menu_functions.c shows only once UNLOCK BY PLAYING was chosen)
+    # (ALL SKULLS, which menu_functions.c shows only once the skulls screen's question was answered)
     assert 'setting="game.skulls_all_unlocked"' in settings
     assert f'name="{base}/skulls/op_skulls_all_unlocked"' in settings
     assert 'input="gameplay screen update"' in settings
     # (INSTANT UNLOCK, shown with ALL SKULLS off)
     assert 'setting="game.skulls_instant_unlock"' in settings
     assert f'name="{base}/skulls/op_skulls_instant_unlock"' in settings
+    # (LOSE ON DEATH, shown with INSTANT UNLOCK off too)
+    assert 'setting="game.skulls_lose_on_death"' in settings
+    assert f'name="{base}/skulls/op_skulls_lose_on_death"' in settings
+    assert '"op_skulls_lose_on_death"' in (ROOT / "port/linux/game/menu_functions.c").read_text()
+    assert '"game.skulls_lose_on_death"' in (ROOT / "port/linux/src/port_config.c").read_text()
     # (RESET SKULL PROGRESS, the last row: its help, then the question and
     # the done that menu_functions.c shows after it)
     assert f'name="{base}/skulls/op_reset_progress"' in settings
@@ -92,6 +97,13 @@ def test_skulls_unlock_question():
     assert 'run="skulls unlock pickup"' in screen
     for line in port_settings.SKULLS_UNLOCK_TEXT:
         assert len(line) <= 56, line
+    # (UNLOCK VIA GAMEPLAY's question of a death, B back to the first)
+    assert 'name="main_menu/difficulty_select/skulls/death_screen"' in screen
+    assert 'run="skulls death lose"' in screen
+    assert 'run="skulls death keep"' in screen
+    assert '<on event="b" run="skulls death back"/>' in screen
+    for line in port_settings.SKULLS_DEATH_TEXT:
+        assert len(line) <= 56, line
 
 
 def test_screens_after_the_difficulty_keep_the_menu_going():
@@ -134,6 +146,7 @@ def test_skull_handlers_are_registered():
     functions = (ROOT / "port/linux/game/menu_functions.c").read_text()
 
     for name in ("skull toggle", "skulls toggle all", "skulls start", "skulls up", "skulls down", "skulls left",
-                 "skulls right", "skulls unlock all", "skulls unlock play", "skulls unlock pickup", "skulls screen update", "gameplay screen update"):
+                 "skulls right", "skulls unlock all", "skulls unlock play", "skulls unlock pickup", "skulls death lose",
+                 "skulls death keep", "skulls death back", "skulls screen update", "gameplay screen update"):
         assert f'"{name}"' in tags
         assert f'!strcmp(name, "{name}")' in functions
