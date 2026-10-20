@@ -111,6 +111,22 @@ sends 0: all of them with go crazy), and the high four bits the infection
 forms swapped, in tenths (0, one in three, without go crazy) */
 #define HALO_PORT_ADVERTISED_RANDOMIZER_CRAZY_OFFSET 23
 #define HALO_PORT_ADVERTISED_RANDOMIZER_CRAZY_SET 0x08
+/* ... a modded game (randomized, or a campaign with skulls), which builds
+without the mod cannot play: its host advertises in the version's place
+HALO_PORT_ADVERTISED_MODDED_VERSION, which no build without the mod is on
+(it tells its player the host is on a newer version), and its own version
+in the last two reserved bytes (little-endian). A game without either keeps
+the plain version, and any build of it joins. A modded build joins either
+kind: a modded game of its version and mod version, with the packs it
+copies tags from written (randomizer.pack; skulls.pack for Outbreak, Scarab)
+(port/linux/NETCODE.md, "Modded games") */
+#define HALO_PORT_ADVERTISED_BASE_VERSION_OFFSET 24
+/* the mod's own version: raised with any change to what modded games'
+machines send each other, which plain games never carry. Builds before the
+modded signature sent 1 as their capability (network_client_manager.c) */
+#define HALO_PORT_MOD_NETWORK_VERSION 2
+#define HALO_PORT_MODDED_VERSION_MARK 0xFF00
+#define HALO_PORT_ADVERTISED_MODDED_VERSION (HALO_PORT_MODDED_VERSION_MARK | HALO_PORT_MOD_NETWORK_VERSION)
 
 /* a message header's 12-bit length allows messages of up to 0xFFF bytes,
 header included; the per-tick update of 128 players is 3,857 */

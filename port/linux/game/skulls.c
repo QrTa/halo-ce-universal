@@ -510,6 +510,28 @@ void skulls_advertisement(unsigned char *reserved)
 	}
 }
 
+int skulls_hosted(void)
+{
+	struct skull_set set;
+
+	if (!network_game_get_game())
+		return 0;
+	set = config_set();
+	return !skull_set_is_empty(&set);
+}
+
+int skulls_advertised_need_pack(unsigned char const *bytes)
+{
+	struct skull_set set = skull_set_none();
+	short byte_index;
+
+	if (!bytes)
+		return 0;
+	for (byte_index = 0; byte_index < SKULL_SET_WORDS * 4; byte_index++)
+		set.words[byte_index / 4] |= (unsigned long)bytes[byte_index] << ((byte_index % 4) * 8);
+	return skull_set_has(&set, _skull_outbreak) || skull_set_has(&set, _skull_scarab);
+}
+
 void skulls_set_remote(int on, unsigned char const *bytes)
 {
 	short byte_index;

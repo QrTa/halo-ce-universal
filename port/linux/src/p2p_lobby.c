@@ -11,15 +11,21 @@ whose X25519 form's hash is the invite's host part (p2p.c), so no one but
 the host can list its invite, alter its listing, or list another's under
 false details:
 
-	"HL", format 1, the lobby version (2: HALO_PORT_NETWORK_VERSION; browsers
-	hide others), flags (open, under way, teams, closed, password), sequence
+	"HL", format 1 (2: a modded game's, which builds without the mod drop as
+	a format they do not read), the lobby version (2: HALO_PORT_NETWORK_VERSION;
+	browsers hide others), flags (open, under way, teams, closed, password), sequence
 	(4: newest wins), Unix time (4), the Ed25519 key (32), the invite's token
 	(16; a password's game's sealed with the password's key, 56:
 	p2p_seal_token; a tombstone's zero), players, most players, the
 	gametype's engine (1 each), the game's name,
 	map and gametype (a length byte, then up to 32, 32 and 24 characters of
-	printable ASCII), a stamp (8, reserved: zero), and the signature (64) of
-	"hceu-lobby-1" and all before it.
+	printable ASCII), a stamp (8, reserved: zero; a modded game's first byte
+	its HALO_PORT_MOD_NETWORK_VERSION, browsers hiding others), and the
+	signature (64) of "hceu-lobby-1" and all before it.
+
+A modded game is one randomized, or a campaign with skulls
+(halo_port_limits.h): only a build with the mod can play it, so only those
+list it. Turned off, its game is listed in format 1 again, for every build.
 
 Each host has a slot, hceu/3/lobby/s/<its key's hash in hex>: its listing,
 retained on every broker (and expiring there after LISTING_EXPIRY seconds
@@ -73,6 +79,8 @@ game with a password is not: its token is sealed.
 enum
 {
 	LISTING_FORMAT = 1,
+	/* a modded game's (format 1's otherwise) */
+	LISTING_FORMAT_MODDED = 2,
 	_listing_open = 1,
 	_listing_in_progress = 2,
 	_listing_has_teams = 4,
@@ -118,6 +126,9 @@ typedef char check_listing_sizes[P2P_LISTING_SIGNING_KEY_SIZE == P2P_KEY_SIZE &&
 struct listing
 {
 	int version;
+	/* a modded game's (LISTING_FORMAT_MODDED), and its mod version */
+	int modded;
+	int mod_version;
 	int flags;
 	unsigned long sequence;
 	unsigned long time;
@@ -177,6 +188,8 @@ static struct
 	char gametype[P2P_LISTING_GAMETYPE_SIZE + 1];
 	int engine_type;
 	int flags;
+	/* a modded game: listed in LISTING_FORMAT_MODDED */
+	int modded;
 	int player_count, maximum_player_count;
 	/* the password's key (p2p_set_hosting_password), if it has one */
 	int has_password;
@@ -291,7 +304,7 @@ static int listing_make(unsigned char *bytes, int flags)
 		flags |= _listing_password;
 	bytes[size++] = 'H';
 	bytes[size++] = 'L';
-	bytes[size++] = LISTING_FORMAT;
+	bytes[size++] = lobby.modded ? LISTING_FORMAT_MODDED : LISTING_FORMAT;
 	bytes[size++] = (unsigned char)(HALO_PORT_NETWORK_VERSION >> 8);
 	bytes[size++] = (unsigned char)HALO_PORT_NETWORK_VERSION;
 	bytes[size++] = (unsigned char)flags;
@@ -322,6 +335,8 @@ static int listing_make(unsigned char *bytes, int flags)
 	size += put_text(bytes + size, lobby.map, P2P_LISTING_MAP_SIZE);
 	size += put_text(bytes + size, lobby.gametype, P2P_LISTING_GAMETYPE_SIZE);
 	memset(bytes + size, 0, STAMP_SIZE);
+	if (lobby.modded)
+		bytes[size] = (unsigned char)HALO_PORT_MOD_NETWORK_VERSION;
 	size += STAMP_SIZE;
 	memcpy(data, signature_label, sizeof(signature_label) - 1);
 	memcpy(data + sizeof(signature_label) - 1, signed_part, (size_t)size);
@@ -349,10 +364,11 @@ static int listing_read(const unsigned char *bytes, int size, struct listing *li
 	int offset = 0;
 
 	if (size < MINIMUM_LISTING_SIZE || size > MAXIMUM_LISTING_SIZE || bytes[0] != 'H' || bytes[1] != 'L' ||
-		bytes[2] != LISTING_FORMAT)
+		(bytes[2] != LISTING_FORMAT && bytes[2] != LISTING_FORMAT_MODDED))
 	{
 		return 0;
 	}
+	listing->modded = bytes[2] == LISTING_FORMAT_MODDED;
 	offset = 3;
 	listing->version = bytes[offset] << 8 | bytes[offset + 1];
 	offset += 2;
@@ -386,6 +402,9 @@ static int listing_read(const unsigned char *bytes, int size, struct listing *li
 	{
 		return 0;
 	}
+	if (offset + STAMP_SIZE > size)
+		return 0;
+	listing->mod_version = listing->modded ? bytes[offset] : 0;
 	offset += STAMP_SIZE;
 	if (offset + P2P_SIGNATURE_SIZE != size)
 		return 0;
@@ -672,6 +691,7 @@ static void listing_take(const struct queued *queued, const struct listing *list
 	shown->in_progress = (listing->flags & _listing_in_progress) != 0;
 	shown->has_teams = (listing->flags & _listing_has_teams) != 0;
 	shown->randomized = (listing->flags & _listing_randomizer) != 0;
+	shown->modded = listing->modded ? 1 : 0;
 }
 
 /* the hosts' pings: those not known lately probed, while there is room (a
@@ -745,14 +765,21 @@ static void update_browsing(void)
 
 		memmove(lobby.queue, lobby.queue + 1, sizeof(*lobby.queue) * (size_t)(--lobby.queue_count));
 		/* (a newer version's game is counted, not shown: its host's key
-		hash only, unverified, so it is no more than a count) */
+		hash only, unverified, so it is no more than a count; so is a modded
+		game of a newer mod version) */
 		if (lobby.browsing && listing_read(queued.payload, queued.size, &listing) &&
-			listing.version > HALO_PORT_NETWORK_VERSION && !(listing.flags & _listing_closed))
+			(listing.version > HALO_PORT_NETWORK_VERSION ||
+				(listing.version == HALO_PORT_NETWORK_VERSION && listing.modded &&
+					listing.mod_version > HALO_PORT_MOD_NETWORK_VERSION)) &&
+			!(listing.flags & _listing_closed))
 		{
 			newer_heard(queued.key_hash);
 			continue;
 		}
+		/* (a modded game's tombstone ends it whatever its mod version) */
 		if (!listing_read(queued.payload, queued.size, &listing) || listing.version != HALO_PORT_NETWORK_VERSION ||
+			(listing.modded && listing.mod_version != HALO_PORT_MOD_NETWORK_VERSION &&
+				!(listing.flags & _listing_closed)) ||
 			!signing_key_hash(listing.key, key_hash) || memcmp(key_hash, queued.key_hash, P2P_KEY_HASH_SIZE))
 		{
 			continue;
@@ -878,7 +905,7 @@ void p2p_set_hosting_password(const char *password)
 }
 
 void p2p_set_game_listing(const char *name, const char *map, const char *gametype, int engine_type, int open,
-	int in_progress, int has_teams, int randomized)
+	int in_progress, int has_teams, int randomized, int modded)
 {
 	char new_name[P2P_LISTING_NAME_SIZE + 1];
 	char new_map[P2P_LISTING_MAP_SIZE + 1];
@@ -893,7 +920,7 @@ void p2p_set_game_listing(const char *name, const char *map, const char *gametyp
 	/* (only the game's server writes these: unchanged, it need not wait for
 	the lock) */
 	if (!strcmp(new_name, lobby.name) && !strcmp(new_map, lobby.map) && !strcmp(new_gametype, lobby.gametype) &&
-		engine_type == lobby.engine_type && flags == lobby.flags)
+		engine_type == lobby.engine_type && flags == lobby.flags && !modded == !lobby.modded)
 	{
 		return;
 	}
@@ -903,6 +930,7 @@ void p2p_set_game_listing(const char *name, const char *map, const char *gametyp
 	memcpy(lobby.gametype, new_gametype, sizeof(lobby.gametype));
 	lobby.engine_type = engine_type;
 	lobby.flags = flags;
+	lobby.modded = modded ? 1 : 0;
 	if (lobby.listed)
 		republish_soon(0);
 	pthread_mutex_unlock(&p2p_lock);

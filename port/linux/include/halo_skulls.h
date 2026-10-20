@@ -142,6 +142,12 @@ unsigned char skulls_sound_read(struct sound_permutation const *permutation, voi
 host plays a campaign game with skulls; the client's copy of them */
 void skulls_advertisement(unsigned char *reserved);
 void skulls_set_remote(int on, unsigned char const *bytes);
+/* whether the game this machine hosts is a campaign game with skulls (one
+skulls_advertisement marks) */
+int skulls_hosted(void);
+/* whether an advertisement's skulls take tags from skulls.pack: Outbreak's
+Flood, Scarab's projectiles */
+int skulls_advertised_need_pack(unsigned char const *bytes);
 
 /* whether the unit (or an object's team) is the players' enemy */
 int skulls_unit_is_enemy(long unit_index);

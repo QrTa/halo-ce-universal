@@ -1152,6 +1152,11 @@ int randomizer_pack_ready(void)
 	return pack_ready(&randomizer_kind);
 }
 
+int skulls_pack_ready(void)
+{
+	return pack_ready(&skulls_kind);
+}
+
 void randomizer_pack_request(void)
 {
 	pack_request(&randomizer_kind);

@@ -112,7 +112,7 @@ void p2p_set_hosting_password(const char *password);
 one as it was): the game's server calls it as they change (calling it with
 the same again costs little) */
 void p2p_set_game_listing(const char *name, const char *map, const char *gametype, int engine_type, int open,
-	int in_progress, int has_teams, int randomized);
+	int in_progress, int has_teams, int randomized, int modded);
 /* the server browser: while on, the public games are gathered (asked for
 when turned on, and by p2p_lobby_refresh) */
 void p2p_lobby_browse(int on);
@@ -151,6 +151,9 @@ struct p2p_listing
 	unsigned char locked;
 	/* the hosted game randomizes its campaign */
 	unsigned char randomized;
+	/* it is a modded game (randomized, or a campaign with skulls), of this
+	build's mod version: listed only to builds with the mod */
+	unsigned char modded;
 	unsigned char key_hash[P2P_LISTING_KEY_HASH_SIZE];
 	unsigned char signing_key[P2P_LISTING_SIGNING_KEY_SIZE];
 	unsigned char sealed_token[P2P_LISTING_SEALED_TOKEN_SIZE];

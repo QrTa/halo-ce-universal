@@ -1369,15 +1369,31 @@ boolean network_game_server_handle_client_message(
 							}
 							break;
 
-						/* port: this build can run a randomized campaign. It
-						may arrive before the join (port/linux/game/randomizer.c) */
+						/* port: this build can play a modded game, of the mod
+						version it sends (builds before the modded signature
+						sent 1). It may arrive before the join
+						(halo_port_limits.h) */
 						case _message_client_randomizer_capability:
 						{
 							extern void network_game_server_note_randomizer_capability(
 								struct network_game_server *server,
-								struct network_game_server_client_machine *machine);
+								struct network_game_server_client_machine *machine,
+								byte mod_version);
+							byte capability[1] = { 0 };
+							short capability_type = _message_client_randomizer_capability;
+							short capability_version = NETWORK_GAME_MESSAGE_VERSION;
+							short capability_size = message_buffer_size - (short)sizeof(word);
 
-							network_game_server_note_randomizer_capability(server, machine);
+							if (decode_network_game_message(
+								capability,
+								message + 1,
+								&capability_size,
+								&capability_type,
+								&capability_version,
+								_network_game_packet_class_client_pregame))
+							{
+								network_game_server_note_randomizer_capability(server, machine, capability[0]);
+							}
 							result = TRUE;
 							break;
 						}
@@ -1816,6 +1832,21 @@ static boolean network_game_server_handle_message_client_broadcast_game_search(
 			/* port: a campaign game's skulls, which its clients play with
 			(port/linux/game/skulls.c) */
 			skulls_advertisement(advertisement.reserved);
+			/* port: either makes the game a modded one, which builds without
+			the mod cannot play: its own signature in the version's place,
+			and the version after the mod's bytes (halo_port_limits.h) */
+			if (advertisement.reserved[HALO_PORT_ADVERTISED_FLAGS_OFFSET] &
+				(HALO_PORT_ADVERTISED_RANDOMIZER_FLAG | HALO_PORT_ADVERTISED_SKULLS_FLAG))
+			{
+				advertisement.reserved[HALO_PORT_ADVERTISED_VERSION_OFFSET] =
+					(byte)(HALO_PORT_ADVERTISED_MODDED_VERSION & 0xFF);
+				advertisement.reserved[HALO_PORT_ADVERTISED_VERSION_OFFSET + 1] =
+					(byte)(HALO_PORT_ADVERTISED_MODDED_VERSION >> 8);
+				advertisement.reserved[HALO_PORT_ADVERTISED_BASE_VERSION_OFFSET] =
+					(byte)(HALO_PORT_NETWORK_VERSION & 0xFF);
+				advertisement.reserved[HALO_PORT_ADVERTISED_BASE_VERSION_OFFSET + 1] =
+					(byte)(HALO_PORT_NETWORK_VERSION >> 8);
+			}
 			/* (open to joins: not while the machines load the game, nor
 			once it is over, nor in progress when no player can join it) */
 			if (network_game_server_get_state(server, NULL) == _network_game_server_state_ingame

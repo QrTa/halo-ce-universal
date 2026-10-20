@@ -481,7 +481,7 @@ symbols in this file:
 server browser's listing of a public game (p2p_lobby.c) */
 void p2p_set_game_player_counts(int count, int maximum);
 void p2p_set_game_listing(const char *name, const char *map, const char *gametype, int engine_type, int open,
-	int in_progress, int has_teams, int randomized);
+	int in_progress, int has_teams, int randomized, int modded);
 
 /* ---------- constants */
 
@@ -869,9 +869,10 @@ static unsigned long network_game_server_client_machine_join_times[MAXIMUM_NETWO
 not sent the start with the others. Once the download is done it is started
 then, in progress if the game has begun. */
 static boolean network_game_server_map_pending[MAXIMUM_NETWORK_MACHINE_COUNT];
-/* port: a machine that has said its build can run a randomized campaign
-(the message may arrive before its join) */
-static boolean network_game_server_randomizer_capable[MAXIMUM_NETWORK_MACHINE_COUNT];
+/* port: the mod version a machine has said its build plays modded games
+of (halo_port_limits.h; 0: none said, a build without the mod; the message
+may arrive before its join) */
+static byte network_game_server_mod_versions[MAXIMUM_NETWORK_MACHINE_COUNT];
 /* port: those machines' players, taken out of the game the others start, and
 put back when the download is done (they spawn then, not before) */
 static struct network_player network_game_server_held_players[MAXIMUM_NETWORK_PLAYER_COUNT];
@@ -1308,7 +1309,7 @@ struct network_game_server *network_game_server_create(
 				server->client_machines[i].last_heard_time = 0;
 				server->client_machines[i].machine_index = NONE;
 				server->client_machines[i].flags = 0;
-				network_game_server_randomizer_capable[i] = FALSE;
+				network_game_server_mod_versions[i] = 0;
 				network_game_server_client_machine_addresses[i] = 0;
 				network_game_invalidate_machine(&server->game, i);
 			}
@@ -1530,8 +1531,10 @@ static void network_game_server_list(
 	{
 		extern int randomizer_show_prefix(void);
 
+		/* (a modded game, listed only to builds with the mod: p2p_lobby.c) */
 		p2p_set_game_listing(name, tag_name_strip_path(game->map.name), gametype, game->variant.game_engine_index, open,
-			in_progress, game->variant.universal_variant.teams, randomizer_show_prefix());
+			in_progress, game->variant.universal_variant.teams, randomizer_show_prefix(),
+			randomizer_show_prefix() || skulls_hosted());
 	}
 }
 
@@ -1928,13 +1931,15 @@ boolean network_game_server_start_network_game(
 		A machine still downloading the map is left out of this start, and so
 		are its players: they spawn when it joins, not while it is downloading. */
 		network_game_server_hold_map_fetcher_players(server);
-		/* port: a randomized campaign drops a joined machine that never said
-		its build can run it. The message can arrive after the join, so this
+		/* port: a modded game (randomized, or a campaign with skulls) drops a
+		joined machine that never said its build plays modded games of this
+		mod version: one that joined while the game was a plain one, before
+		the mod was turned on. The message can arrive after the join, so this
 		waits until the level is about to load */
 		{
 			extern int randomizer_show_prefix(void);
 
-			if (randomizer_show_prefix())
+			if (randomizer_show_prefix() || skulls_hosted())
 			{
 				long machine_index;
 
@@ -1945,7 +1950,7 @@ boolean network_game_server_start_network_game(
 
 					if (!network_game_server_client_machine_is_joined_to_game(server, machine) ||
 						network_game_server_client_machine_is_local(server, machine) ||
-						network_game_server_randomizer_capable[machine_index])
+						network_game_server_mod_versions[machine_index] == HALO_PORT_MOD_NETWORK_VERSION)
 						continue;
 					network_game_server_refuse_randomizer(server, machine);
 				}
@@ -2912,8 +2917,8 @@ static void network_game_server_refuse_late_joiner(
 	network_game_server_drop_client_machine(server, machine);
 }
 
-/* a randomized campaign, and a machine whose build never said it can run
-one: told why, and let go */
+/* a modded game, and a machine whose build never said it plays modded
+games of this mod version: told why, and let go */
 static void network_game_server_refuse_randomizer(
 	struct network_game_server *server,
 	struct network_game_server_client_machine *machine)
@@ -2921,19 +2926,23 @@ static void network_game_server_refuse_randomizer(
 	struct message_server_machine_rejected rejection = { _rejection_code_randomizer };
 	struct network_message *message;
 
-	network_event("refusing machine #%d: it cannot run a randomized campaign", machine->machine_index);
+	network_event("refusing machine #%d: it cannot play a modded game of mod version %d (it said %d)",
+		machine->machine_index, HALO_PORT_MOD_NETWORK_VERSION,
+		machine->machine_index >= 0 && machine->machine_index < MAXIMUM_NETWORK_MACHINE_COUNT ?
+			network_game_server_mod_versions[machine->machine_index] : 0);
 	message = create_network_game_message(_message_server_machine_rejected, &rejection, sizeof(rejection));
 	if (message)
 		network_game_server_send_message_to_client_machine(server, machine, message);
 	network_game_server_drop_client_machine(server, machine);
 }
 
-/* port: the machine's build can run a randomized campaign. The message
-handler has no view of the machine (network_server_message_handler.c), so
-the slot is the one this pointer is */
+/* port: the machine's build plays modded games of this mod version. The
+message handler has no view of the machine (network_server_message_handler.c),
+so the slot is the one this pointer is */
 void network_game_server_note_randomizer_capability(
 	struct network_game_server *server,
-	struct network_game_server_client_machine *machine)
+	struct network_game_server_client_machine *machine,
+	byte mod_version)
 {
 	long index;
 
@@ -2943,7 +2952,7 @@ void network_game_server_note_randomizer_capability(
 	{
 		if (&server->client_machines[index] == machine)
 		{
-			network_game_server_randomizer_capable[index] = TRUE;
+			network_game_server_mod_versions[index] = mod_version;
 			return;
 		}
 	}
@@ -3934,7 +3943,7 @@ boolean network_game_server_remove_client_machine_from_game(
 			server->client_machines[i].last_heard_time = 0;
 			server->client_machines[i].machine_index = NONE;
 			server->client_machines[i].flags = 0;
-			network_game_server_randomizer_capable[i] = FALSE;
+			network_game_server_mod_versions[i] = 0;
 			network_game_server_client_machine_addresses[i] = 0;
 			success = TRUE;
 			break;
@@ -4763,7 +4772,7 @@ static boolean network_game_server_add_new_client(
 						server->client_machines[i].machine_index = (short)i;
 						server->client_machines[i].flags =
 							FLAG(_network_client_machine_connected_bit);
-						network_game_server_randomizer_capable[i] = FALSE;
+						network_game_server_mod_versions[i] = 0;
 						/* (it has until the join timeout to join) */
 						server->client_machines[i].last_heard_time = system_milliseconds();
 						success = network_connection_server_accept_client_connection(

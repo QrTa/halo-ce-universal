@@ -240,6 +240,37 @@ version (`tools/network_format.py`): `test_linux_port.py` fails when the
 sources' messages, kinds, bits, structs sent whole or the sizes of their
 arrays differ from it.
 
+### Modded games
+
+A randomized campaign (`port/linux/game/randomizer.c`) or a campaign game
+with skulls (`port/linux/game/skulls.c`) is a modded game: only a build with
+the mod can play it. The network version stays the one builds without the
+mod have, so that plain games are played with them as before; a modded game
+is told apart by a signature of its own instead (`halo_port_limits.h`):
+
+- Its advertisement puts `0xFF00` plus the mod's own version
+  (`HALO_PORT_MOD_NETWORK_VERSION`, raised with any change to what modded
+  games' machines send each other) in the version's place, and the host's
+  network version in the reserved bytes' last two. A build without the mod
+  finds no version of its own there, and tells its player the host is on a
+  newer one; a build with it joins when the network version and the mod
+  version are its own, and the packs the game copies tags from are written:
+  `maps/randomizer.pack` for a randomized game, `maps/skulls.pack` for one
+  with Outbreak (its Flood) or Scarab (its projectiles). A pack missing is
+  asked for, written at the main menu, and the player joins again then.
+- Its server browser listing is of format 2, which builds without the mod
+  do not read, so they do not see it; the stamp's first byte is its mod
+  version, and a build with the mod shows only those of its own (counting a
+  newer one as a newer version's game).
+- A client with the mod says its mod version before its join and in the
+  lobby (`_message_client_randomizer_capability`, which a host without the
+  mod ignores); the host of a modded game drops, as its level is about to
+  load, a machine that did not say its own (one that joined while the game
+  was plain), with `_rejection_code_randomizer`.
+
+Turned off (no swaps, no skulls), the game is a plain one again: its
+advertisement and listing are those of every build, and any build joins.
+
 A client plays by its host's rules: in another's game (searching for it,
 in its lobby, or playing it) the developer console, the telnet console
 and the cheat buttons run only commands that change nothing of the game

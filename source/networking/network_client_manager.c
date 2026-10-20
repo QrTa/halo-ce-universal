@@ -822,6 +822,9 @@ static struct
 	byte skulls[HALO_PORT_ADVERTISED_SKULLS_SIZE];
 	/* port: the randomizer's Go Crazy's parts */
 	byte crazy;
+	/* port: a modded game's host's own version (the version is then
+	HALO_PORT_ADVERTISED_MODDED_VERSION's: halo_port_limits.h) */
+	word base_version;
 } network_game_client_advertised_versions[MAXIMUM_NETWORK_ADVERTISED_GAMES];
 /* the advertised game this machine is joining, so a later advertisement
 can replace the setup it was given */
@@ -2395,8 +2398,8 @@ void network_game_client_rejected_by_game(
 	case _rejection_code_randomizer:
 		reason = "_rejection_code_randomizer";
 		platform_show_message("Halo: cannot join this game",
-			"This game randomizes the campaign.\n\n"
-			"Update the game to join it.");
+			"The host turned on the randomizer or skulls, and its mod is of another version than yours.\n\n"
+			"Use the same build of the game as the host to join it.");
 		break;
 	}
 
@@ -2592,6 +2595,9 @@ static boolean add_advertised_game(
 				sizeof(network_game_client_advertised_versions[game_index].skulls));
 			network_game_client_advertised_versions[game_index].crazy =
 				advertisement->__unknown5A[HALO_PORT_ADVERTISED_RANDOMIZER_CRAZY_OFFSET];
+			network_game_client_advertised_versions[game_index].base_version = (word)(
+				advertisement->__unknown5A[HALO_PORT_ADVERTISED_BASE_VERSION_OFFSET] |
+				(advertisement->__unknown5A[HALO_PORT_ADVERTISED_BASE_VERSION_OFFSET + 1] << 8));
 			if (game_index == network_game_client_randomizer_game)
 			{
 				extern void randomizer_set_remote(int on, unsigned char const *setup, unsigned char crazy);
@@ -2903,12 +2909,14 @@ static boolean network_game_client_idle_searching(
 	return success;
 }
 
-/* port: this build can run a randomized campaign. Sent before the join,
-and again in the lobby, because the two can arrive out of order */
+/* port: this build plays modded games (randomized, or a campaign with
+skulls) of its mod version, which the message carries. Sent before the
+join, and again in the lobby, because the two can arrive out of order. A
+host without the mod ignores it */
 static void network_game_client_send_randomizer_capability(
 	struct network_game_client *client)
 {
-	byte capable = 1;
+	byte capable = HALO_PORT_MOD_NETWORK_VERSION;
 	message_header *message = create_network_game_message(
 		_message_client_randomizer_capability, &capable, sizeof(capable));
 
@@ -3227,8 +3235,13 @@ void platform_show_message(char const *title, char const *message);
 /* whether this client can join the advertised game: its host's network
 version is this machine's (HALO_PORT_NETWORK_VERSION), and it plays the
 distributed netcode (a host of this version built before the lockstep
-netcode was removed may play that). If not the player is told why (when
-tell), and nothing is joined. */
+netcode was removed may play that). A modded game (randomized, or a campaign
+with skulls) advertises HALO_PORT_ADVERTISED_MODDED_VERSION in the version's
+place, and its host's version after the mod's bytes: it is joined when that
+version and the mod's are this machine's, and a randomized one's pack is
+written, and a game with Outbreak or Scarab's skulls.pack (else asked for:
+written at the main menu). If not the player
+is told why (when tell), and nothing is joined. */
 boolean network_game_client_advertised_game_compatible(
 	struct network_game_client *client,
 	struct network_advertised_game const *game,
@@ -3237,20 +3250,82 @@ boolean network_game_client_advertised_game_compatible(
 	long game_index = client ? game - client->available_games : NONE;
 	unsigned int ours = HALO_PORT_NETWORK_VERSION;
 	unsigned int theirs;
+	unsigned int their_mod = 0;
+	boolean modded;
 	boolean distributed;
 	char message[400];
 
 	if (game_index < 0 || game_index >= MAXIMUM_NETWORK_ADVERTISED_GAMES)
 		return FALSE;
 	theirs = network_game_client_advertised_versions[game_index].version;
+	modded = (theirs & HALO_PORT_MODDED_VERSION_MARK) == HALO_PORT_MODDED_VERSION_MARK;
+	if (modded)
+	{
+		their_mod = theirs & ~HALO_PORT_MODDED_VERSION_MARK & 0xFFFF;
+		theirs = network_game_client_advertised_versions[game_index].base_version;
+	}
 	distributed = (network_game_client_advertised_versions[game_index].flags &
 		HALO_PORT_ADVERTISED_DISTRIBUTED_FLAG) != 0;
-	if (theirs == ours && distributed)
+	if (theirs == ours && distributed && !modded)
 	{
 		network_event("joining a host of network version %u", theirs);
 		return TRUE;
 	}
-	if (theirs == ours)
+	if (theirs == ours && distributed && their_mod == HALO_PORT_MOD_NETWORK_VERSION)
+	{
+		extern int randomizer_pack_ready(void);
+		extern void randomizer_pack_request(void);
+		extern int skulls_pack_ready(void);
+		extern void skulls_pack_request(void);
+		/* (a randomized level copies in tags from the other maps, and
+		Outbreak's Flood and Scarab's projectiles from Wizard's and c40: the
+		packs have them) */
+		boolean randomizer_pack_missing =
+			(network_game_client_advertised_versions[game_index].flags & HALO_PORT_ADVERTISED_RANDOMIZER_FLAG) &&
+			!randomizer_pack_ready();
+		boolean skulls_pack_missing =
+			(network_game_client_advertised_versions[game_index].flags & HALO_PORT_ADVERTISED_SKULLS_FLAG) &&
+			skulls_advertised_need_pack(network_game_client_advertised_versions[game_index].skulls) &&
+			!skulls_pack_ready();
+
+		if (!randomizer_pack_missing && !skulls_pack_missing)
+		{
+			network_event("joining a modded host of network version %u, mod version %u", theirs, their_mod);
+			return TRUE;
+		}
+		if (tell)
+		{
+			network_event("not joining a modded host: %s%s%s is not written",
+				randomizer_pack_missing ? "maps/randomizer.pack" : "",
+				randomizer_pack_missing && skulls_pack_missing ? " and " : "",
+				skulls_pack_missing ? "maps/skulls.pack" : "");
+			csprintf(message,
+				"This game uses the %s, whose data (%s) is not ready on this machine.\n\n"
+				"It is written now, at the main menu: join again once it is done.",
+				randomizer_pack_missing && skulls_pack_missing ? "randomizer and skulls" :
+					randomizer_pack_missing ? "randomizer" : "skulls",
+				randomizer_pack_missing && skulls_pack_missing ? "maps/randomizer.pack and maps/skulls.pack" :
+					randomizer_pack_missing ? "maps/randomizer.pack" : "maps/skulls.pack");
+			platform_show_message("Halo: cannot join this game", message);
+			if (randomizer_pack_missing)
+				randomizer_pack_request();
+			if (skulls_pack_missing)
+				skulls_pack_request();
+		}
+		return FALSE;
+	}
+	if (theirs == ours && modded && their_mod != HALO_PORT_MOD_NETWORK_VERSION)
+	{
+		csprintf(message,
+			"The host is playing with the randomizer or skulls, of a %s version of the mod than yours.\n\n"
+			"You are on mod version %u. The host is on mod version %u.\n\n"
+			"%s",
+			their_mod > HALO_PORT_MOD_NETWORK_VERSION ? "newer" : "older",
+			HALO_PORT_MOD_NETWORK_VERSION, their_mod,
+			their_mod > HALO_PORT_MOD_NETWORK_VERSION ? "Update the game to join this host." :
+				"Ask the host to update the game.");
+	}
+	else if (theirs == ours)
 	{
 		csprintf(message,
 			"The host is using the lockstep network code, which this version no longer has.\n\n"
@@ -3274,8 +3349,8 @@ boolean network_game_client_advertised_game_compatible(
 	}
 	if (tell)
 	{
-		network_event("not joining a host of network version %u%s (this machine's is %u)", theirs,
-			distributed ? "" : " with the lockstep netcode", ours);
+		network_event("not joining a host of network version %u%s%s (this machine's is %u)", theirs,
+			modded ? ", modded" : "", distributed ? "" : " with the lockstep netcode", ours);
 		platform_show_message("Halo: cannot join this game", message);
 	}
 	return FALSE;

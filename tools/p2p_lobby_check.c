@@ -17,6 +17,7 @@ password never. Prints PASS or the failures.
 */
 
 #include "p2p_internal.h"
+#include "halo_port_limits.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -258,7 +259,7 @@ static void lobby_checks(void)
 	hosting_token = token;
 	/* hosting a public game: listed */
 	p2p_set_hosting_public(1);
-	p2p_set_game_listing("Test game", "bloodgulch", "Slayer", 2, 1, 0, 1, 0);
+	p2p_set_game_listing("Test game", "bloodgulch", "Slayer", 2, 1, 0, 1, 0, 0);
 	lobby_update(token, 3, 16);
 	check(publish_count == 1 && !published_closing && p2p_lobby_listed(), "the host publishes its listing");
 	memcpy(first, published, (size_t)published_size);
@@ -294,7 +295,7 @@ static void lobby_checks(void)
 		!strcmp(listing.gametype, "Slayer") && listing.player_count == 3 && listing.maximum_player_count == 16 &&
 		listing.engine_type == 2 && listing.open && listing.has_teams && !listing.in_progress, "the listing's details");
 	/* a change: published again after TRIGGER_INTERVAL */
-	p2p_set_game_listing(NULL, NULL, NULL, 2, 1, 1, 1, 0);
+	p2p_set_game_listing(NULL, NULL, NULL, 2, 1, 1, 1, 0, 0);
 	clock_now += 1000;
 	lobby_update(token, 3, 16);
 	check(publish_count == 1, "no publish sooner than 5 s after the last");
@@ -388,6 +389,40 @@ static void lobby_checks(void)
 	hear(published, published_size, 0, NULL);
 	check(games(&listing) == 1 && !listing.locked && !strcmp(listing.invite, expected_invite),
 		"a game whose password is taken off is listed open");
+	/* a modded game: listed in format 2, which builds without the mod do
+	not read, with this build's mod version */
+	p2p_set_game_listing(NULL, NULL, NULL, 0, 1, 0, 0, 1, 1);
+	clock_now += 6000;
+	lobby_update(token, 3, 16);
+	check(published[2] == 2 && published[published_size - P2P_SIGNATURE_SIZE - 8] == HALO_PORT_MOD_NETWORK_VERSION,
+		"a modded game is listed in format 2, with its mod version");
+	hear(published, published_size, 0, NULL);
+	check(games(&listing) == 1 && listing.modded && listing.randomized, "a modded game of this mod version is shown");
+	/* one of a newer mod version: counted, not shown */
+	{
+		static const char label[] = "hceu-lobby-1";
+		unsigned char data[sizeof(label) - 1 + 512];
+		int signed_size = published_size - P2P_SIGNATURE_SIZE;
+
+		memcpy(old, published, (size_t)published_size);
+		old[9] = (unsigned char)(old[9] + 1);
+		old[signed_size - 8] = (unsigned char)(HALO_PORT_MOD_NETWORK_VERSION + 1);
+		memcpy(data, label, sizeof(label) - 1);
+		memcpy(data + sizeof(label) - 1, old, (size_t)signed_size);
+		p2p_sign(data, (int)(sizeof(label) - 1) + signed_size, old + signed_size);
+		clock_now += 91000;
+		lobby_update(token, 3, 16);
+		hear(old, published_size, 0, NULL);
+		check(games(NULL) == 0 && p2p_lobby_newer_games() == 1, "a modded game of a newer mod version is counted, not shown");
+	}
+	/* the mods turned off: format 1 again, for every build */
+	p2p_set_game_listing(NULL, NULL, NULL, 0, 1, 0, 0, 0, 0);
+	clock_now += 6000;
+	lobby_update(token, 3, 16);
+	check(published[2] == 1 && published[published_size - P2P_SIGNATURE_SIZE - 8] == 0,
+		"a game with the mods off is listed in format 1");
+	hear(published, published_size, 0, NULL);
+	check(games(&listing) == 1 && !listing.modded, "a plain game is shown, not modded");
 }
 
 int main(void)
