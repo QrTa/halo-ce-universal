@@ -487,6 +487,15 @@ static const struct config_setting config_settings[] =
 	{ "game.ragdoll_ai", _config_string, "\"none\"", "HALO_RAGDOLL_AI", _environment_value, _platform_all,
 		"How an AI's body falls, the same choices as game.ragdoll_players.\n"
 		"Settings > Gameplay, or here. A cinematic keeps its own." },
+	{ "game.campaign_score", _config_boolean, "false", "HALO_CAMPAIGN_SCORE", _environment_value, _platform_all,
+		"Settings > Gameplay's CAMPAIGN SCORING. Score the campaign: each enemy\n"
+		"a player kills is worth points by its actor variant (a base by the kind\n"
+		"of actor, times a rank by the variant's name, times the difficulty: easy\n"
+		"0.5, normal 1, heroic 2, legendary 5, rounded up to a multiple of 5). A\n"
+		"ghost, banshee or wraith destroyed is worth 50, 75 or 100. The score and\n"
+		"the level's time are drawn at the bottom right (the skulls' icons above\n"
+		"them), the scoreboard (hold BACK, or tab) lists every player's, and a\n"
+		"summary is shown when a level is won, until A or B is pressed." },
 	{ "game.campaign_progression", _config_string, "\"default\"", "HALO_CAMPAIGN_PROGRESSION", _environment_value,
 		_platform_all,
 		"Settings > Gameplay's CAMPAIGN PROGRESSION. \"default\": the campaign's\n"
@@ -849,6 +858,12 @@ static const struct config_setting config_settings[] =
 		"false, they walk through each other (the AI's characters they still\n"
 		"bump into). PLAYER COLLISIONS in co-op's Server Setup > Co-op Options\n"
 		"writes its choice here." },
+	{ "network.coop_score_type", _config_string, "\"cooperative\"", "HALO_NET_COOP_SCORE_TYPE", _environment_value,
+		_platform_all,
+		"How an online co-op game's campaign score (game.campaign_score) is\n"
+		"kept: \"cooperative\" adds the players' scores together, \"competitive\"\n"
+		"gives each player a score of their own. SCORING TYPE in co-op's\n"
+		"Server Setup > Co-op Options writes its choice here; the host's counts." },
 	{ "network.coop_enemies_mode", _config_string, "\"per_player\"", "HALO_NET_COOP_ENEMIES_MODE", _environment_value,
 		_platform_all,
 		"Online co-op's extra enemies: \"none\", \"per_player\" (each squad of\n"
@@ -2054,6 +2069,7 @@ static const struct
 		"team_global_enemy_proximity", NULL }, NULL },
 	{ "network.coop_friendly_fire", { "off", "on", "shields_only", "explosives_only", NULL }, NULL },
 	{ "network.coop_enemies_mode", { "none", "per_player", "multiplier", NULL }, NULL },
+	{ "network.coop_score_type", { "cooperative", "competitive", NULL }, NULL },
 	{ "streamer.slurs", { "off", "severe", "strong", "mild", NULL }, NULL },
 	{ "streamer.swearing", { "off", "severe", "strong", "mild", NULL }, NULL },
 	{ "streamer.insults", { "off", "severe", "strong", "mild", NULL }, NULL },

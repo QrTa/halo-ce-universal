@@ -380,6 +380,7 @@ symbols in this file:
 #include "networking/network_game_manager.h"
 #include "networking/network_server_manager.h" /* port: a co-op game's level won */
 #include "network_coop.h" /* port: port/linux/game/network_coop.c */
+#include "campaign_score.h" /* port: port/linux/game/campaign_score.c */
 #include "network_voice.h" /* port: port/linux/game/network_voice.c */
 #include "network_chat.h" /* port: port/linux/game/network_chat.c */
 #include "network_aim_assist.h" /* port: port/linux/game/network_aim_assist.c */
@@ -926,6 +927,8 @@ void main_save_cancel(
 void main_won_map(
 	void)
 {
+	/* port: the level's score (display.campaign_score) */
+	campaign_score_level_won();
 	main_globals.saving_map = FALSE;
 	main_globals.won_map = TRUE;
 	return;
@@ -2390,6 +2393,12 @@ static void main_won_map_private(
 	short level;
 	short local_player_index;
 
+	/* port: the level's score (display.campaign_score) is shown over the level
+	just won, until A or B is pressed, before anything else of the win is
+	done: this runs each frame until then (a network co-op game's clients
+	show theirs as they are told the level is won) */
+	if (campaign_score_postgame_wait())
+		return;
 	/* port: the skulls found in the level and not lost are kept, before the
 	next level's start forgets them (port/linux/game/skulls.c) */
 	{

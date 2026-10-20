@@ -6848,6 +6848,11 @@ static struct gametype_option const gametype_options[] =
 		{ "2", "4", "8", "16", "32" } },
 	{ "coop_player_collisions_spinner", _option_setting, 0, 0, 2, { 0 }, "network.coop_player_collisions",
 		{ "true", "false" } },
+	/* (and the campaign's score, as Settings > Gameplay has it, and how it is kept) */
+	{ "coop_campaign_score_spinner", _option_setting, 0, 0, 2, { 0 }, "game.campaign_score",
+		{ "true", "false" } },
+	{ "coop_score_type_spinner", _option_setting, 0, 0, 2, { 0 }, "network.coop_score_type",
+		{ "cooperative", "competitive" } },
 	/* map sharing's (Server Setup's MAP SHARING: tools/port_settings.py's
 	MAP_SHARE_SETUP; map_share.c) */
 	{ "map_share_spinner", _option_setting, 0, 0, 2, { 0 }, "network.map_share", { "true", "false" } },
@@ -7895,7 +7900,22 @@ boolean pc_menu_event_function_invoke(
 		}
 		else if (!strcmp(name, "set difficulty"))
 		{
-			main_set_difficulty(PIN(difficulty_shown(widget), 0, 3));
+			short difficulty = PIN(difficulty_shown(widget), 0, 3);
+
+			main_set_difficulty(difficulty);
+			/* (with the randomizer's or the skulls' screen to open first, as
+			a difficulty chosen opens them: the OK button's next handler,
+			"main menu switch to solo game", would start the game without
+			them. Its screen opened, or the game started, that handler is
+			not run: the chain stops as for a widget deleted) */
+			if ((config_boolean("game.randomizer") && campaign_level_of(main_get_map_name()) != NONE) ||
+				config_boolean("game.skulls"))
+			{
+				boolean result = difficulty_start(widget, difficulty, controller, widget_deleted);
+
+				*widget_deleted = TRUE;
+				return result;
+			}
 		}
 		else if (!strcmp(name, "load game menu init"))
 		{

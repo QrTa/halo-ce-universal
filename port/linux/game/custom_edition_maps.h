@@ -100,6 +100,10 @@ boolean custom_edition_maps_stock(
 	short display_index);
 
 /* name and description for a display index, or NULL (text_group.c) */
+/* a stock campaign level's title by its level's name (levels\a10\a10: The
+Pillar of Autumn), or NULL for any other level */
+wchar_t const *custom_edition_maps_level_title(
+	char const *level_name);
 wchar_t *custom_edition_maps_name(
 	short display_index);
 wchar_t *custom_edition_maps_description(

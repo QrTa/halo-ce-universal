@@ -595,6 +595,7 @@ struct network_game *network_game_server_get_game(struct network_game_server *se
 #include "units/units.h"
 #include "custom_edition_cache.h" /* port: port/linux/game/custom_edition_cache.c */
 #include "latency_meter.h" /* port: port/linux/game/latency_meter.c */
+#include "campaign_score.h" /* port: port/linux/game/campaign_score.c */
 
 /* network_game_globals.c's */
 boolean network_game_distributed_client(void);
@@ -1737,6 +1738,23 @@ enum
 
 #define SCOREBOARD_SCALE 0.75f
 
+/* port: the widths of the place, name and score columns the rows use (the
+ping's the rest of SCOREBOARD_COLUMN_WIDTH): the constants', else the
+campaign's score's (game.campaign_score), whose places are a digit (none for
+a single player) and whose score ends at the column's end, or at the ping's */
+static struct
+{
+	short place;
+	short name;
+	short score;
+} scoreboard_widths = { SCOREBOARD_PLACE_WIDTH, SCOREBOARD_NAME_WIDTH, SCOREBOARD_SCORE_WIDTH };
+
+enum
+{
+	SCOREBOARD_CAMPAIGN_PLACE_WIDTH = 30,
+	SCOREBOARD_CAMPAIGN_SCORE_WIDTH = 70,
+};
+
 /* network_distributed.c's */
 long distributed_player_ping(short player_index);
 /* port_config.c's */
@@ -1819,9 +1837,9 @@ static void scoreboard_draw_row(
 		color.blue = MIN(color.blue + 0.4f, 1.0f);
 	}
 	tab_stops[0] = left;
-	tab_stops[1] = (short)(left + SCOREBOARD_PLACE_WIDTH);
-	tab_stops[2] = (short)(tab_stops[1] + SCOREBOARD_NAME_WIDTH);
-	tab_stops[3] = (short)(tab_stops[2] + SCOREBOARD_SCORE_WIDTH);
+	tab_stops[1] = (short)(left + scoreboard_widths.place);
+	tab_stops[2] = (short)(tab_stops[1] + scoreboard_widths.name);
+	tab_stops[3] = (short)(tab_stops[2] + scoreboard_widths.score);
 	draw_string_set_tab_stops(tabs ? tab_stops : NULL, tabs ? 4 : 0);
 	/* (the row as wide as the screen once scaled) */
 	bounds.x1 = (short)(bounds.x0 + (bounds.x1 - bounds.x0) / SCOREBOARD_SCALE);
@@ -2090,6 +2108,11 @@ static void game_engine_rasterize_scoreboard(
 	boolean network = game_connection() == _game_connection_network_client ||
 		game_connection() == _game_connection_network_server;
 	boolean campaign = !game_engine;
+	/* port: the campaign's score (game.campaign_score), each player's in
+	the score's column, the players in order of it */
+	boolean scored = campaign && campaign_score_enabled();
+	wchar_t place_string[16];
+	wchar_t name_string[16];
 	boolean team_columns;
 	long font_index = hud_get_font_index();
 	long string_list_index;
@@ -2169,12 +2192,38 @@ static void game_engine_rasterize_scoreboard(
 	if (campaign)
 	{
 		ranked_count = populate_campaign_player_buffer(ranked);
+		if (scored)
+		{
+			for (index = 0; index < ranked_count; index++)
+				ranked[index].custom = campaign_score_player_points(ranked[index].player_index);
+			/* (the most points first; those even, as they joined) */
+			for (index = 1; index < ranked_count; index++)
+			{
+				struct statistic_buffer entry = ranked[index];
+				long other = index;
+
+				for (; other > 0 && ranked[other - 1].custom < entry.custom; other--)
+					ranked[other] = ranked[other - 1];
+				ranked[other] = entry;
+			}
+		}
 	}
 	else
 	{
 		statistic_buffer_in_game_only = TRUE;
 		ranked_count = populate_statistic_buffer(ranked, _postgame_statistic_ranking, FALSE);
 		statistic_buffer_in_game_only = FALSE;
+	}
+	/* (the campaign's score's columns across the whole of the board: the
+	name from the title's start, the score at its end, or the ping's) */
+	if (scored)
+	{
+		short ping_width = network ? SCOREBOARD_PING_WIDTH : 0;
+
+		scoreboard_widths.place = ranked_count > 1 ? SCOREBOARD_CAMPAIGN_PLACE_WIDTH : 0;
+		scoreboard_widths.score = SCOREBOARD_CAMPAIGN_SCORE_WIDTH;
+		scoreboard_widths.name = (short)(SCOREBOARD_COLUMN_WIDTH - ping_width - scoreboard_widths.place -
+			scoreboard_widths.score);
 	}
 	team_columns = has_teams && scoreboard_team_columns() && width >= 2 * SCOREBOARD_COLUMN_WIDTH + SCOREBOARD_COLUMN_GAP;
 	for (index = 0; index < ranked_count; index++)
@@ -2407,13 +2456,31 @@ static void game_engine_rasterize_scoreboard(
 	team_colors[1].green = 0.3f;
 	team_colors[1].blue = 0.6f;
 
-	if (campaign)
+	/* (the level's title, its time at the other end of the row) */
+	if (scored)
+		campaign_score_level_title(title_string, NUMBEROF(title_string));
+	else if (campaign)
 		usprintf(title_string, L"Co-op");
 	else
 		game_engine_generate_title_string(title_string, player_index);
 	color.alpha = alpha;
 	color.red = color.green = color.blue = 0.7f;
 	scoreboard_draw_row(title_string, FALSE, &color, 0, top, left, FALSE);
+	/* port: the level's time, right at the end of the scoreboard's columns */
+	if (scored)
+	{
+		rectangle2d score_bounds;
+		wchar_t total_string[24];
+
+		campaign_score_time_text(total_string, NUMBEROF(total_string));
+		score_bounds.x0 = left;
+		score_bounds.x1 = (short)(left + columns * SCOREBOARD_COLUMN_WIDTH + (columns - 1) * SCOREBOARD_COLUMN_GAP);
+		score_bounds.y0 = top;
+		score_bounds.y1 = (short)(top + line_height);
+		/* (right justified: 1) */
+		draw_string_set_draw_mode(font_index, NONE, 1, 0, &color);
+		rasterizer_draw_unicode_string(&score_bounds, NULL, NULL, 0, total_string);
+	}
 
 	string_list_index = tag_loaded('ustr', "ui\\multiplayer_game_text");
 	column_name = string_list_index != NONE && !campaign ? unicode_string_list_get_string(string_list_index, 0x43) : L"";
@@ -2421,6 +2488,8 @@ static void game_engine_rasterize_scoreboard(
 	score_string[0] = 0;
 	if (!campaign)
 		game_engine->format_score_name(score_string);
+	else if (scored)
+		usprintf(score_string, L"Score");
 	/* port: bounded (the map's column names) */
 	usnprintf(row_string, NUMBEROF(row_string), L"\t%s\t%s\t%s\t%s", column_name, score_name, score_string,
 		network ? L"Ping" : L"");
@@ -2472,6 +2541,22 @@ static void game_engine_rasterize_scoreboard(
 		color.alpha = alpha;
 		score_string[0] = 0;
 		status_string = score_string;
+		place_string[0] = 0;
+		if (scored)
+		{
+			long place = 1;
+			long other;
+
+			/* (ties share their place; a single player has none) */
+			for (other = 0; other < ranked_count; other++)
+			{
+				if (ranked[other].custom > entry->custom)
+					place++;
+			}
+			if (ranked_count > 1)
+				usprintf(place_string, L"%ld", place);
+			usprintf(score_string, L"%ld", entry->custom);
+		}
 		if (!campaign)
 		{
 			game_engine->format_player_score(entry->player_index, score_string);
@@ -2480,6 +2565,12 @@ static void game_engine_rasterize_scoreboard(
 			else if (player->quit_out_of_game)
 				status_string = string_list_index != NONE ? unicode_string_list_get_string(string_list_index, 0x8B) : L"";
 		}
+		/* port: a campaign's player of this machine has no name of their
+		own: their profile's (campaign_score.c) */
+		if (campaign)
+			campaign_score_player_display_name(entry->player_index, name_string, NUMBEROF(name_string));
+		else
+			usnprintf(name_string, NUMBEROF(name_string), L"%s", player->name);
 		ping_string[0] = 0;
 		if (network)
 		{
@@ -2502,8 +2593,8 @@ static void game_engine_rasterize_scoreboard(
 			row_string,
 			NUMBEROF(row_string),
 			L"\t%s\t%s\t%s\t%s",
-			campaign ? L"" : get_place_string(entry),
-			player->name,
+			campaign ? place_string : get_place_string(entry),
+			name_string,
 			status_string,
 			ping_colored ? L"" : ping_string);
 		row_string[NUMBEROF(row_string) - 1] = 0;
@@ -2527,14 +2618,14 @@ static void game_engine_rasterize_scoreboard(
 			measured as the row is laid out, the name at its column's tab
 			stop, then scaled as it is drawn, as scoreboard_rectangle has it;
 			within the name's column) */
-			text.x0 = (short)(row_left + SCOREBOARD_PLACE_WIDTH);
-			text.x1 = (short)(text.x0 + SCOREBOARD_NAME_WIDTH);
+			text.x0 = (short)(row_left + scoreboard_widths.place);
+			text.x1 = (short)(text.x0 + scoreboard_widths.name);
 			text.y0 = (short)(top + (2 + row) * line_height);
 			text.y1 = (short)(text.y0 + line_height);
 			draw_string_set_draw_mode(font_index, NONE, 0, 0, row_color);
-			draw_unicode_string_compute_bounds(&text, player->name, &ink, &cursor);
-			middle = (short)(top + (draw_unicode_string_capital_middle(&text, player->name) - top) * SCOREBOARD_SCALE);
-			scoreboard_rectangle(&icon, bounds.x0, top, line_height, text.x0, SCOREBOARD_NAME_WIDTH, 2 + row, 1);
+			draw_unicode_string_compute_bounds(&text, name_string, &ink, &cursor);
+			middle = (short)(top + (draw_unicode_string_capital_middle(&text, name_string) - top) * SCOREBOARD_SCALE);
+			scoreboard_rectangle(&icon, bounds.x0, top, line_height, text.x0, scoreboard_widths.name, 2 + row, 1);
 			size = (short)((icon.y1 - icon.y0) * 2 / 3);
 			name_end = (short)(bounds.x0 + (MAX(ink.x1, text.x0) - bounds.x0) * SCOREBOARD_SCALE);
 			icon.x0 = (short)MIN(name_end + 4, icon.x1 - size);
@@ -2575,7 +2666,7 @@ static void game_engine_rasterize_scoreboard(
 			{
 				scoreboard_menu.player_index = entry->player_index;
 				scoreboard_menu.row_index = 2 + row;
-				scoreboard_menu.left = (short)(row_left + SCOREBOARD_PLACE_WIDTH);
+				scoreboard_menu.left = (short)(row_left + scoreboard_widths.place);
 				scoreboard_menu.ban_picked = FALSE;
 				clicked = FALSE;
 			}
@@ -2688,6 +2779,10 @@ static void game_engine_rasterize_scoreboard(
 		}
 	}
 	rasterizer_text_set_scale(1.0f, 0.0f, 0.0f);
+	/* (port: the constants' columns again, for the other scoreboards) */
+	scoreboard_widths.place = SCOREBOARD_PLACE_WIDTH;
+	scoreboard_widths.name = SCOREBOARD_NAME_WIDTH;
+	scoreboard_widths.score = SCOREBOARD_SCORE_WIDTH;
 
 	return;
 }
@@ -4185,7 +4280,7 @@ static void game_engine_post_rasterize_in_game(
 	match_assert(
 		"c:\\halo\\SOURCE\\game\\game_engine.c",
 		0x771,
-		NULL != game_engine || network_coop_active());
+		NULL != game_engine || network_coop_active() || campaign_score_enabled());
 
 	if (game_engine && player)
 		internal_rasterize_target_name(player_index);
@@ -4526,8 +4621,9 @@ void game_engine_post_rasterize(
 		}
 	}
 	/* port: network co-op's campaign has the scoreboard too, of names and
-	pings (game_engine_rasterize_scoreboard) */
-	else if (network_coop_active())
+	pings, and with the campaign's score (game.campaign_score) a single
+	player's campaign too, of the score (game_engine_rasterize_scoreboard) */
+	else if (network_coop_active() || campaign_score_enabled())
 	{
 		game_engine_post_rasterize_in_game();
 	}

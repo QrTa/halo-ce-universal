@@ -120,6 +120,7 @@ index and tag, since the map placed them at the same index everywhere.
 #include "coop_pickups.h"
 #include "coop_vehicles.h"
 #include "coop_spectate.h"
+#include "campaign_score.h"
 #include "network_coop.h"
 #include "network_distributed.h"
 
@@ -214,6 +215,11 @@ enum
 	/* a breakable surface broke: value its index, frame its BSP, reals the
 	damage's epicenter */
 	_coop_event_surface_broken,
+	/* the host scored a kill (campaign_score.c): value the player, frame the
+	points, tag_index the variant, target whether the scoring is competitive;
+	or won the level (target the same) */
+	_coop_event_score_kill,
+	_coop_event_score_won,
 };
 
 /* distributed_coop_event.type of an effect: at a cutscene flag (value), or on
@@ -1878,6 +1884,12 @@ static void client_apply_event(
 				unit_close(event->object_index);
 		}
 		break;
+	case _coop_event_score_kill:
+		campaign_score_network_kill(event->value, event->tag_index, event->frame, event->target == 1);
+		break;
+	case _coop_event_score_won:
+		campaign_score_network_won(event->target == 1);
+		break;
 	default:
 		break;
 	}
@@ -2426,6 +2438,31 @@ void network_coop_note_unit_animation(
 	event->tag_index = animation_graph_index;
 	event->value = animation_index;
 	event->interpolate = (byte)interpolate;
+}
+
+void network_coop_note_score_kill(
+	short player_index,
+	long variant_index,
+	short points,
+	boolean competitive)
+{
+	struct distributed_coop_event *event = event_new(_coop_event_score_kill);
+
+	if (!event)
+		return;
+	event->target = competitive ? 1 : 0;
+	event->value = player_index;
+	event->frame = points;
+	event->tag_index = variant_index;
+}
+
+void network_coop_note_score_won(
+	boolean competitive)
+{
+	struct distributed_coop_event *event = event_new(_coop_event_score_won);
+
+	if (event)
+		event->target = competitive ? 1 : 0;
 }
 
 void network_coop_note_unit_open(

@@ -919,6 +919,14 @@ boolean custom_edition_maps_stock(
 	return map && stock_map_index(map->name) != NONE;
 }
 
+wchar_t const *custom_edition_maps_level_title(
+	char const *level_name)
+{
+	short level = level_name ? campaign_level_from_name(level_name) : NONE;
+
+	return level != NONE ? campaign_level_names[level] : NULL;
+}
+
 wchar_t *custom_edition_maps_name(
 	short display_index)
 {

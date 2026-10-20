@@ -110,6 +110,7 @@ symbols in this file:
 #include "coop_spectate.h" /* port: port/linux/game/coop_spectate.c */
 #include "network_coop.h" /* port: port/linux/game/network_coop.c */
 #include "network_chat.h" /* port: port/linux/game/network_chat.c */
+#include "campaign_score.h" /* port: port/linux/game/campaign_score.c */
 #include "text/font_group.h"
 #include "text/text_group.h"
 #include "units/unit_definitions.h"
@@ -1541,9 +1542,14 @@ void hud_draw_screen(
 				hud_show_action_response(player_index);
 			hud_play_unit_sounds(player, FALSE);
 		}
-		/* port: the skulls on, their icons (port/linux/game/skulls.c) */
+		/* port: the campaign's score and time at the bottom right
+		(game.campaign_score: port/linux/game/campaign_score.c), and the
+		skulls on, their icons, above it (port/linux/game/skulls.c) */
 		if (hud_scripted_globals->show_hud && !cinematic_in_progress())
+		{
+			campaign_score_draw_view(player_index);
 			skulls_hud_draw(render.local_player_index);
+		}
 
 		hud_messaging_update(render.local_player_index);
 		/* port: network games' text chat, the lines this view's player hears */

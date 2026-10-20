@@ -2279,6 +2279,7 @@ void skulls_hud_draw(short local_player_index)
 	real scale;
 	short width, height;
 	short shown = 0;
+	short lift;
 	int skull;
 
 	(void)local_player_index;
@@ -2290,6 +2291,13 @@ void skulls_hud_draw(short local_player_index)
 	width = (short)(render.camera.viewport_bounds.x1 - render.camera.viewport_bounds.x0);
 	height = (short)(render.camera.viewport_bounds.y1 - render.camera.viewport_bounds.y0);
 	scale = (real)height / 480.0f;
+	/* (above the campaign's score and time, where they are drawn, in the
+	same corner: campaign_score.c) */
+	{
+		extern short campaign_score_hud_height(void);
+
+		lift = campaign_score_hud_height();
+	}
 	for (skull = NUMBER_OF_SKULLS - 1; skull >= 0; skull--)
 	{
 		struct bitmap_data *bitmap;
@@ -2308,7 +2316,7 @@ void skulls_hud_draw(short local_player_index)
 		shown++;
 		bounds.x1 = (short)(width - (SKULL_ICON_MARGIN + column * SKULL_ICON_SPACING) * scale);
 		bounds.x0 = (short)(bounds.x1 - SKULL_ICON_SIZE * scale);
-		bounds.y1 = (short)(height - (SKULL_ICON_MARGIN + row * SKULL_ICON_SPACING) * scale);
+		bounds.y1 = (short)(height - (SKULL_ICON_MARGIN + lift + row * SKULL_ICON_SPACING) * scale);
 		bounds.y0 = (short)(bounds.y1 - SKULL_ICON_SIZE * scale);
 		/* (found, not yet kept: pulsing, once a second; unlocked in the
 		level: faint, a green check on it; dropped and lying about: faint, a

@@ -139,6 +139,7 @@ symbols in this file:
 #include "units/units.h"
 #include "units/vehicles.h"
 #include "biped_ragdoll.h" /* port: port/linux/game/biped_ragdoll.c */
+#include "campaign_score.h" /* port: port/linux/game/campaign_score.c */
 
 /* network_game_globals.c's */
 boolean network_game_distributed_client(void);
@@ -1204,6 +1205,16 @@ static void object_damage_aftermath(
 				player_index,
 				TRUE);
 		}
+	}
+
+	/* port: an enemy a player kills scores points (game.campaign_score). Not in
+	the chain above: game_engine_can_score() is true in the campaign, where
+	that chain records nothing for an actor's death. */
+	if (!TEST_FLAG(damage->flags, _damage_no_statistics_bit) &&
+		TEST_FLAG(being_damaged_flags, _object_being_damaged_body_depleted_bit) &&
+		TEST_FLAG(_object_mask_unit, object->object.type))
+	{
+		campaign_score_record_kill(object_index, damage->owner_player_index);
 	}
 
 	if (TEST_FLAG(_object_mask_unit, object->object.type))
