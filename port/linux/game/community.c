@@ -33,10 +33,13 @@ nothing here waits on the network. The answers are JSON ({"data": ...} or
 #include "cseries.h"
 #include "interface/player_ui.h"
 #include "main/main.h"
+#include "networking/network_game_globals.h"
 #include "saved games/player_profile.h"
 #include "text/unicode.h"
 
 #include "community.h"
+#include "halo_skulls.h"
+#include "randomizer.h"
 #include "../src/community_net.h"
 #include "../src/port_config.h"
 
@@ -486,9 +489,15 @@ static struct
 	unsigned long running_since;
 	struct community_challenge running_challenge;
 
-	/* the scores sent, and what the last came to */
-	int submit_tickets[4];
-	wchar_t result[COMMUNITY_RESULT_LENGTH];
+	/* (a network co-op client) its host's challenge, as the level is won:
+	its day (days since 1970, 0 for none) and flags */
+	long network_day;
+	long network_flags;
+
+	/* the scores sent (each for a summary card's slot), and what each came to */
+	int submit_tickets[COMMUNITY_RESULT_SLOTS];
+	short submit_slots[COMMUNITY_RESULT_SLOTS];
+	wchar_t result[COMMUNITY_RESULT_SLOTS][COMMUNITY_RESULT_LENGTH];
 
 	wchar_t status[COMMUNITY_STATUS_LENGTH];
 	char answer[COMMUNITY_NET_ANSWER_MAXIMUM];
@@ -504,6 +513,38 @@ boolean community_scoring(void)
 	return config_boolean("game.campaign_score") != 0;
 }
 
+/* a profile's player on the server: the install's key, and this, a hash of
+the profile's name (split screen's players each their own) */
+#define COMMUNITY_PLAYER_LENGTH 9
+
+static void player_id(wchar_t const *name, char *player, size_t size)
+{
+	unsigned long hash = 2166136261UL;
+
+	for (; name && *name; name++)
+	{
+		hash = (hash ^ (unsigned long)(unsigned short)*name) * 16777619UL;
+		hash &= 0xFFFFFFFFUL;
+	}
+	snprintf(player, size, "%08lx", hash);
+}
+
+static long local_profile(void);
+
+/* player 1's profile's player (whose best and place the screens show) */
+static void local_player_id(char *player, size_t size)
+{
+	struct player_profile profile;
+	long profile_index = local_profile();
+
+	if (profile_index == NONE || !player_profile_get(profile_index, &profile))
+	{
+		player[0] = 0;
+		return;
+	}
+	player_id(profile.player_name, player, size);
+}
+
 static void request_start(struct community_request *request, char const *asked, char const *path, char const *body)
 {
 	if (request->ticket)
@@ -516,7 +557,12 @@ static void request_start(struct community_request *request, char const *asked, 
 		request->state = _community_off;
 		return;
 	}
-	request->ticket = community_net_send(path, body);
+	{
+		char player[COMMUNITY_PLAYER_LENGTH];
+
+		local_player_id(player, sizeof(player));
+		request->ticket = community_net_send(path, body, player);
+	}
 	request->state = request->ticket ? _community_loading : _community_unavailable;
 	request->unreachable = !request->ticket;
 }
@@ -1320,7 +1366,7 @@ boolean community_daily_begin(char const **map_name, short *difficulty)
 	/* (sent only while its leaderboard takes scores) */
 	seconds_left = challenge->seconds_left - (long)((system_milliseconds() - challenge->answered_at) / 1000);
 	community.running_counts = challenge->open && seconds_left > 0;
-	community.result[0] = 0;
+	community_result_clear();
 	*map_name = main_get_solo_level_name(challenge->level_index);
 	*difficulty = challenge->difficulty;
 	platform_log("community: playing the challenge of %s (%s, difficulty %d, seed %lu)%s", challenge->day,
@@ -1569,7 +1615,15 @@ long community_board_players(void)
 
 /* ---------- scores sent */
 
-static void submit(char const *path, char const *body)
+static void result_set(short slot, wchar_t const *text)
+{
+	if (slot < 0 || slot >= COMMUNITY_RESULT_SLOTS)
+		return;
+	ustrncpy(community.result[slot], text, COMMUNITY_RESULT_LENGTH - 1);
+	community.result[slot][COMMUNITY_RESULT_LENGTH - 1] = 0;
+}
+
+static void submit(char const *path, char const *body, char const *player, short slot)
 {
 	short index;
 	int ticket;
@@ -1584,95 +1638,173 @@ static void submit(char const *path, char const *body)
 		platform_log("community: a score is already being sent; %s not sent", path);
 		return;
 	}
-	ticket = community_net_send(path, body);
+	ticket = community_net_send(path, body, player);
 	if (!ticket)
 	{
-		usnprintf(community.result, COMMUNITY_RESULT_LENGTH, L"ONLINE: NOT SENT (NO CONNECTION)");
+		result_set(slot, L"ONLINE: NOT SENT (NO CONNECTION)");
 		return;
 	}
 	community.submit_tickets[index] = ticket;
-	usnprintf(community.result, COMMUNITY_RESULT_LENGTH, L"ONLINE: SENDING...");
+	community.submit_slots[index] = slot;
+	result_set(slot, L"ONLINE: SENDING...");
+}
+
+/* the challenge of the level won (key), if it is one: this machine's (its
+lobby's, a network co-op host's), or its host's (a client: the day and
+flags it was told, the roll the host advertised, the skulls it plays
+with); and whether its leaderboard still takes scores, as far as this
+machine knows (the server says, online) */
+static boolean run_challenge(char const *key, short difficulty, struct community_challenge *challenge,
+	boolean *counts)
+{
+	char today[COMMUNITY_DAY_LENGTH];
+	short skull;
+
+	if (community.running)
+	{
+		if (strcmp(key, community.running_challenge.level))
+			return FALSE;
+		*challenge = community.running_challenge;
+		*counts = community.running_counts;
+		return TRUE;
+	}
+	if (!community.network_day)
+		return FALSE;
+	memset(challenge, 0, sizeof(*challenge));
+	day_from_days(community.network_day, challenge->day, sizeof(challenge->day));
+	snprintf(challenge->level, sizeof(challenge->level), "%s", key);
+	challenge->level_index = level_index_of(key);
+	challenge->difficulty = difficulty;
+	challenge->version = community.network_flags & 0xFF;
+	challenge->online = (community.network_flags & COMMUNITY_NETWORK_ONLINE) != 0;
+	challenge->seed = randomizer_roll();
+	for (skull = 0; skull < NUMBER_OF_SKULLS && challenge->skull_count < COMMUNITY_MAXIMUM_SKULLS; skull++)
+	{
+		if (skull_active(skull))
+		{
+			snprintf(challenge->skulls[challenge->skull_count++], sizeof(challenge->skulls[0]), "%s",
+				skull_descriptions[skull].key);
+		}
+	}
+	local_day(0, today, sizeof(today), NULL);
+	*counts = challenge->online || !strcmp(challenge->day, today);
+	return TRUE;
+}
+
+boolean community_daily_run(void)
+{
+	return community.running || community.network_day != 0;
+}
+
+void community_network_challenge(long *day, long *flags)
+{
+	long year, month, date;
+
+	*day = 0;
+	*flags = 0;
+	if (!community.running || sscanf(community.running_challenge.day, "%ld-%ld-%ld", &year, &month, &date) != 3)
+		return;
+	*day = days_from_civil(year, month, date);
+	*flags = (community.running_challenge.version & 0xFF) |
+		(community.running_challenge.online ? COMMUNITY_NETWORK_ONLINE : 0);
+}
+
+void community_network_challenge_set(long day, long flags)
+{
+	community.network_day = day;
+	community.network_flags = flags;
 }
 
 void community_level_won(char const *level_name, struct community_run const *run, wchar_t const *profile_name,
-	long profile_index)
+	long profile_index, boolean alone, short slot)
 {
 	char key[COMMUNITY_LEVEL_KEY_LENGTH];
 	char name[COMMUNITY_NAME_LENGTH * 3 + 4];
+	char player[COMMUNITY_PLAYER_LENGTH];
 	char body[COMMUNITY_BODY_LENGTH];
+	struct community_challenge challenge;
+	boolean daily, counts = FALSE;
 	long length;
 
 	/* (no score kept or sent with scoring off) */
 	if (!community_scoring())
 		return;
 	level_key(level_name, key, sizeof(key));
+	daily = run_challenge(key, (short)run->difficulty, &challenge, &counts);
 	/* (offline: a challenge's run kept in the profile's records, and its
 	place among this machine's profiles') */
-	if (community.running && !community.running_challenge.online)
+	if (daily && !challenge.online)
 	{
-		if (strcmp(key, community.running_challenge.level))
-			return;
-		if (!community.running_counts)
-		{
-			usnprintf(community.result, COMMUNITY_RESULT_LENGTH, L"THIS CHALLENGE HAS ENDED: NOT COUNTED");
-			return;
-		}
-		{
-			boolean improved = local_record_add(profile_index, community.running_challenge.day, run);
+		boolean improved;
+		wchar_t text[COMMUNITY_RESULT_LENGTH];
 
-			local_board(community.running_challenge.day);
-			usnprintf(community.result, COMMUNITY_RESULT_LENGTH, L"THIS MACHINE: #%ld%s",
-				community.board_mine.rank ? community.board_mine.rank : 1, improved ? L"  NEW BEST" : L"");
+		if (!counts)
+		{
+			result_set(slot, L"THIS CHALLENGE HAS ENDED: NOT COUNTED");
+			return;
 		}
+		improved = local_record_add(profile_index, challenge.day, run);
+		local_board(challenge.day);
+		usnprintf(text, COMMUNITY_RESULT_LENGTH, L"THIS MACHINE: #%ld%s",
+			community.board_mine.rank ? community.board_mine.rank : 1, improved ? L"  NEW BEST" : L"");
+		result_set(slot, text);
 		return;
 	}
 	if (!community_enabled())
+	{
+		if (daily)
+			result_set(slot, L"OFFLINE: NOT SENT");
+		return;
+	}
+	/* (another level's: one player's of a game of this machine's alone) */
+	if (!daily && (!alone || !config_boolean("community.upload_scores")))
 		return;
 	json_quote_wide(profile_name, name, sizeof(name));
 	if (!key[0] || !strcmp(name, "\"\""))
 		return;
+	player_id(profile_name, player, sizeof(player));
 	length = snprintf(body, sizeof(body), "{\"name\":%s,\"level\":\"%s\",\"score\":%ld,\"seconds\":%ld,"
 		"\"difficulty\":%ld,\"skulls\":%ld,\"skullsPercent\":%ld,\"medals\":%ld,\"kills\":%ld,\"deaths\":%ld,"
-		"\"platform\":\"%s\"", name, key, run->score, MAX(run->seconds, 1), run->difficulty, run->skulls,
-		run->skulls_percent, run->medals, run->kills, run->deaths, community_net_platform());
-	if (community.running && !strcmp(key, community.running_challenge.level))
+		"\"players\":%ld,\"platform\":\"%s\"", name, key, run->score, MAX(run->seconds, 1), run->difficulty,
+		run->skulls, run->skulls_percent, run->medals, run->kills, run->deaths, MAX(run->players, 1),
+		community_net_platform());
+	if (daily)
 	{
-		struct community_challenge const *challenge = &community.running_challenge;
 		char path[64];
 		short skull;
 
-		if (!community.running_counts)
+		if (!counts)
 		{
-			usnprintf(community.result, COMMUNITY_RESULT_LENGTH, L"ONLINE: THIS CHALLENGE HAS ENDED");
+			result_set(slot, L"ONLINE: THIS CHALLENGE HAS ENDED");
 			return;
 		}
 		length += snprintf(body + length, sizeof(body) - (size_t)length, ",\"seed\":%lu,\"version\":%ld,\"skullSet\":[",
-			challenge->seed, challenge->version);
-		for (skull = 0; skull < challenge->skull_count && length < (long)sizeof(body) - 32; skull++)
+			challenge.seed, challenge.version);
+		for (skull = 0; skull < challenge.skull_count && length < (long)sizeof(body) - 32; skull++)
 		{
 			length += snprintf(body + length, sizeof(body) - (size_t)length, "%s\"%s\"", skull ? "," : "",
-				challenge->skulls[skull]);
+				challenge.skulls[skull]);
 		}
 		snprintf(body + length, sizeof(body) - (size_t)length, "]}");
-		/* (the challenge's own difficulty: the run's is the same) */
-		snprintf(path, sizeof(path), "/daily/%s/scores", challenge->day);
-		submit(path, body);
+		snprintf(path, sizeof(path), "/daily/%s/scores", challenge.day);
+		submit(path, body, player, slot);
 		return;
 	}
-	if (!config_boolean("community.upload_scores"))
-		return;
 	snprintf(body + length, sizeof(body) - (size_t)length, "}");
-	submit("/levels/scores", body);
+	submit("/levels/scores", body, player, slot);
 }
 
-wchar_t const *community_result_text(void)
+wchar_t const *community_result_text(short slot)
 {
-	return community.result;
+	return slot >= 0 && slot < COMMUNITY_RESULT_SLOTS ? community.result[slot] : L"";
 }
 
 void community_result_clear(void)
 {
-	community.result[0] = 0;
+	short slot;
+
+	for (slot = 0; slot < COMMUNITY_RESULT_SLOTS; slot++)
+		community.result[slot][0] = 0;
 }
 
 static void submit_poll(void)
@@ -1685,6 +1817,8 @@ static void submit_poll(void)
 		int status = 0;
 		int result;
 		char const *data;
+		short slot = community.submit_slots[index];
+		wchar_t text[COMMUNITY_RESULT_LENGTH];
 
 		if (!ticket)
 			continue;
@@ -1694,7 +1828,7 @@ static void submit_poll(void)
 		community.submit_tickets[index] = 0;
 		if (result != _community_net_answered)
 		{
-			usnprintf(community.result, COMMUNITY_RESULT_LENGTH, L"ONLINE: SERVER UNAVAILABLE, NOT SENT");
+			result_set(slot, L"ONLINE: SERVER UNAVAILABLE, NOT SENT");
 			continue;
 		}
 		data = json_member(community.answer, "data");
@@ -1705,11 +1839,12 @@ static void submit_poll(void)
 
 			if (rank)
 			{
-				usnprintf(community.result, COMMUNITY_RESULT_LENGTH, L"ONLINE: #%ld OF %ld%s", rank, players,
+				usnprintf(text, COMMUNITY_RESULT_LENGTH, L"ONLINE: #%ld OF %ld%s", rank, players,
 					json_boolean(json_member(data, "improved")) ? L"  NEW BEST" : L"");
+				result_set(slot, text);
 			}
 			else
-				usnprintf(community.result, COMMUNITY_RESULT_LENGTH, L"ONLINE: SENT");
+				result_set(slot, L"ONLINE: SENT");
 		}
 		else
 		{
@@ -1717,11 +1852,14 @@ static void submit_poll(void)
 
 			error_type(community.answer, type, sizeof(type));
 			if (!strcmp(type, "closed"))
-				usnprintf(community.result, COMMUNITY_RESULT_LENGTH, L"ONLINE: THE CHALLENGE ENDED WHILE YOU PLAYED");
+				result_set(slot, L"ONLINE: THE CHALLENGE ENDED WHILE YOU PLAYED");
 			else if (!strcmp(type, "settings_mismatch"))
-				usnprintf(community.result, COMMUNITY_RESULT_LENGTH, L"ONLINE: SETTINGS CHANGED, NOT COUNTED");
+				result_set(slot, L"ONLINE: SETTINGS CHANGED, NOT COUNTED");
 			else
-				usnprintf(community.result, COMMUNITY_RESULT_LENGTH, L"ONLINE: NOT ACCEPTED (%hs)", type[0] ? type : "error");
+			{
+				usnprintf(text, COMMUNITY_RESULT_LENGTH, L"ONLINE: NOT ACCEPTED (%hs)", type[0] ? type : "error");
+				result_set(slot, text);
+			}
 			platform_log("community: a score was refused: %d %s", status, type);
 		}
 	}
@@ -1742,10 +1880,17 @@ void community_update(boolean main_menu)
 	submit_poll();
 	/* (the challenge's settings, until its level was played and the main
 	menu is back) */
+	/* (a client's host's challenge, until it is back at the menus) */
+	if (main_menu)
+		community.network_day = 0;
 	if (community.running)
 	{
 		if (!main_menu)
 			community.running_loaded = TRUE;
+		/* (a network co-op lobby's, while it is hosted: its next round is
+		the challenge again) */
+		else if (global_network_game_server_get())
+			community.running_since = system_milliseconds();
 		else if (community.running_loaded ||
 			system_milliseconds() - community.running_since > COMMUNITY_LOAD_TIMEOUT_MILLISECONDS)
 		{

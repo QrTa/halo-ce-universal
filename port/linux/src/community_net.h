@@ -41,10 +41,11 @@ int community_net_custom(void);
 void community_net_server_text(char *text, int size);
 
 /* asks the server for path below its address ("/daily", "/levels/a10/
-leaderboard?limit=10"): a GET, or with body (JSON text) a POST. A ticket
-(1 or more), or 0 when offline, with no server's address, or when too many
-are being asked already */
-int community_net_send(const char *path, const char *body);
+leaderboard?limit=10"): a GET, or with body (JSON text) a POST, as the
+player (letters and digits: a profile's own, which the install's key is
+told apart by; NULL for the install's). A ticket (1 or more), or 0 when
+offline, with no server's address, or when too many are being asked already */
+int community_net_send(const char *path, const char *body, const char *player);
 
 /* the ticket's answer: _community_net_waiting; _community_net_answered, with
 its HTTP status and up to size - 1 bytes of its body in answer; or

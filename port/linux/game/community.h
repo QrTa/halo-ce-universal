@@ -104,6 +104,8 @@ struct community_run
 	long medals;
 	long kills;
 	long deaths;
+	/* the game's players (co-op: split screen's, or the network's) */
+	long players;
 };
 
 /* (main.c's main loop) each frame: answers picked up, and a challenge's
@@ -136,8 +138,18 @@ level's map name and difficulty. FALSE when it cannot be played here */
 boolean community_daily_begin(char const **map_name, short *difficulty);
 /* (the menus) the challenge's run did not start after all */
 void community_daily_cancel(void);
-/* a daily challenge is being played (its settings are set) */
+/* a daily challenge is being played (its settings are set): this
+machine's, or as a network co-op host's lobby's */
 boolean community_challenge_running(void);
+/* the level just won is a daily challenge's: this machine's, or (a network
+co-op client) its host's */
+boolean community_daily_run(void);
+/* (network_coop.c) the host's challenge, for its clients as the level is
+won: its day (days since 1970, 0 for none) and flags (its version, and
+COMMUNITY_NETWORK_ONLINE for the server's); and a client told it */
+#define COMMUNITY_NETWORK_ONLINE 0x100
+void community_network_challenge(long *day, long *flags);
+void community_network_challenge_set(long day, long flags);
 /* (randomizer.c) the roll a level's randomizer makes in place of its own:
 the challenge's seed, while its level is played; 0 for none */
 unsigned long community_randomizer_seed(char const *scenario_name);
@@ -169,15 +181,17 @@ long community_board_players(void);
 
 /* ---------- scores sent */
 
-/* (campaign_score.c) a campaign level won by one player of this machine
-alone, on its profile: its run sent to the level's online leaderboard
-(community.upload_scores), or, while a daily challenge is played, to the
-day's (offline: kept in the profile's records) */
+/* (campaign_score.c) a campaign level won, a player of this machine's run,
+on its profile: a daily challenge's sent to the day's leaderboard (offline:
+kept in the profile's records), whoever plays it; another level's to its
+online leaderboard (community.upload_scores) only by one player of a game of
+this machine's alone. slot: the summary card whose result it is */
+#define COMMUNITY_RESULT_SLOTS 4
 void community_level_won(char const *level_name, struct community_run const *run, wchar_t const *profile_name,
-	long profile_index);
-/* what became of the last score sent, for the summary ("ONLINE: #3 OF 41"),
-"" for none yet; cleared as the next level is won */
-wchar_t const *community_result_text(void);
+	long profile_index, boolean alone, short slot);
+/* what became of a card's score sent ("ONLINE: #3 OF 41"), "" for none
+yet; cleared as the next level is won */
+wchar_t const *community_result_text(short slot);
 void community_result_clear(void);
 
 #endif

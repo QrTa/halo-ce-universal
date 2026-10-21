@@ -865,12 +865,13 @@ static const struct config_setting config_settings[] =
 		"false, they walk through each other (the AI's characters they still\n"
 		"bump into). PLAYER COLLISIONS in co-op's Server Setup > Co-op Options\n"
 		"writes its choice here." },
-	{ "network.coop_score_type", _config_string, "\"cooperative\"", "HALO_NET_COOP_SCORE_TYPE", _environment_value,
+	{ "network.coop_score_type", _config_string, "\"competitive\"", "HALO_NET_COOP_SCORE_TYPE", _environment_value,
 		_platform_all,
-		"How an online co-op game's campaign score (game.campaign_score) is\n"
-		"kept: \"cooperative\" adds the players' scores together, \"competitive\"\n"
-		"gives each player a score of their own. SCORING TYPE in co-op's\n"
-		"Server Setup > Co-op Options writes its choice here; the host's counts." },
+		"How a co-op game's campaign score (game.campaign_score) is kept, split\n"
+		"screen and online: \"competitive\" (INDIVIDUAL) gives each player a\n"
+		"score of their own, \"cooperative\" (TEAM) adds the players' scores\n"
+		"together. SCORING TYPE in co-op's Server Setup > Co-op Options and\n"
+		"Settings > Gameplay > Scoring's CO-OP SCORING write it; the host's counts." },
 	{ "network.coop_enemies_mode", _config_string, "\"per_player\"", "HALO_NET_COOP_ENEMIES_MODE", _environment_value,
 		_platform_all,
 		"Online co-op's extra enemies: \"none\", \"per_player\" (each squad of\n"

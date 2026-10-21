@@ -121,6 +121,7 @@ index and tag, since the map placed them at the same index everywhere.
 #include "coop_vehicles.h"
 #include "coop_spectate.h"
 #include "campaign_score.h"
+#include "community.h"
 #include "network_coop.h"
 #include "network_distributed.h"
 
@@ -218,7 +219,9 @@ enum
 	/* the host scored a kill or a penalty (campaign_score.c): value the
 	player, definition_index the points, tag_index the variant, name_index
 	its kind, interpolate its style, target whether the scoring is
-	competitive; or won the level (target the same) */
+	competitive; or won the level (target the same; a daily challenge's
+	day in tag_index, 0 for none, and its flags in definition_index:
+	community.c's, a host built before sends zeros) */
 	_coop_event_score_kill,
 	_coop_event_score_won,
 };
@@ -1890,6 +1893,7 @@ static void client_apply_event(
 			event->interpolate, event->target == 1);
 		break;
 	case _coop_event_score_won:
+		community_network_challenge_set(event->tag_index, event->definition_index);
 		campaign_score_network_won(event->target == 1);
 		break;
 	default:
@@ -2466,9 +2470,16 @@ void network_coop_note_score_won(
 	boolean competitive)
 {
 	struct distributed_coop_event *event = event_new(_coop_event_score_won);
+	long day, flags;
 
-	if (event)
-		event->target = competitive ? 1 : 0;
+	if (!event)
+		return;
+	event->target = competitive ? 1 : 0;
+	/* (the daily challenge the lobby set up, which its clients send their
+	runs of: community.c) */
+	community_network_challenge(&day, &flags);
+	event->tag_index = day;
+	event->definition_index = flags;
 }
 
 void network_coop_note_unit_open(

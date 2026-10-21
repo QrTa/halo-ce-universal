@@ -34,6 +34,10 @@ gave it, its new unit, else NONE. Once out of the seat, landed and standing,
 walking or fighting, it is swapped again (randomizer_tick) */
 long randomizer_rider_restore(long unit_index);
 
+/* the roll the level was laid out with (its own, its host's, or a daily
+challenge's seed: community.c sends it with a challenge's run) */
+unsigned long randomizer_roll(void);
+
 /* the riders' and the infection forms' state, in the game state (game.c) */
 void randomizer_initialize(void);
 void randomizer_initialize_for_new_map(void);

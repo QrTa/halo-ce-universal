@@ -1067,7 +1067,10 @@ maps of the custom_maps folder, by the scenario type their files give:
 custom_edition_maps.c) (port_settings.MAP_KIND_CHOOSER), then the kind's
 rows, scrolling as list_scroll scrolls. A singleplayer kind's map is played
 as the campaign is (alone, or hosted as network co-op), a multiplayer kind's
-as multiplayer maps are. */
+as multiplayer maps are. DAILY CHALLENGES are the daily challenges (with
+game.daily_challenge on: community.c's past challenges, today's first), each
+played as the campaign's levels are, at its own difficulty with its own
+randomizer and skulls, alone, in split screen or hosted. */
 
 enum
 {
@@ -1075,6 +1078,7 @@ enum
 	MAP_KIND_MULTIPLAYER,
 	MAP_KIND_CUSTOM_SINGLEPLAYER,
 	MAP_KIND_CUSTOM_MULTIPLAYER,
+	MAP_KIND_DAILY,
 	NUMBER_OF_MAP_KINDS
 };
 
@@ -1087,12 +1091,21 @@ short ui_widget_port_multiplayer_maps(char const *const **names, short *last_use
 
 static boolean map_kind_singleplayer(short kind)
 {
-	return kind == MAP_KIND_SINGLEPLAYER || kind == MAP_KIND_CUSTOM_SINGLEPLAYER;
+	return kind == MAP_KIND_SINGLEPLAYER || kind == MAP_KIND_CUSTOM_SINGLEPLAYER || kind == MAP_KIND_DAILY;
 }
 
-/* The kind the chooser shows, kept to the multiplayer kinds unless
-`singleplayer`: a singleplayer kind it was turned to becomes the next
-multiplayer one the way it turned from `previous`. */
+/* whether the chooser may show the kind: a singleplayer one only with
+`singleplayer`, the daily challenges only with game.daily_challenge on */
+static boolean map_kind_allowed(short kind, boolean singleplayer)
+{
+	if (!singleplayer && map_kind_singleplayer(kind))
+		return FALSE;
+	return kind != MAP_KIND_DAILY || config_boolean("game.daily_challenge");
+}
+
+/* The kind the chooser shows, kept to those allowed (map_kind_allowed): one
+it was turned to that is not becomes the next that is, the way it turned
+from `previous`. */
 static short map_kind_shown(struct widget_instance *list, boolean singleplayer, short previous)
 {
 	struct widget_instance *spinner = named(list, "list_item_0_map_kind_spinner", 0);
@@ -1101,13 +1114,13 @@ static short map_kind_shown(struct widget_instance *list, boolean singleplayer, 
 	if (!spinner)
 		return singleplayer ? MAP_KIND_SINGLEPLAYER : MAP_KIND_MULTIPLAYER;
 	kind = (short)PIN(spinner->parameters.list.selected_index, 0, NUMBER_OF_MAP_KINDS - 1);
-	if (!singleplayer && map_kind_singleplayer(kind))
+	if (!map_kind_allowed(kind, singleplayer))
 	{
 		short step = kind == (previous + NUMBER_OF_MAP_KINDS - 1) % NUMBER_OF_MAP_KINDS ? -1 : 1;
 
 		do
 			kind = (short)((kind + step + NUMBER_OF_MAP_KINDS) % NUMBER_OF_MAP_KINDS);
-		while (map_kind_singleplayer(kind));
+		while (!map_kind_allowed(kind, singleplayer));
 		spinner->parameters.list.selected_index = kind;
 	}
 	return kind;
@@ -1465,9 +1478,110 @@ static short map_kind_count(short kind, short multiplayer_map_count, char const 
 		return xbox_multiplayer_map_count(multiplayer_map_count);
 	case MAP_KIND_CUSTOM_SINGLEPLAYER:
 		return map_browse_count(TRUE, category);
+	case MAP_KIND_DAILY:
+		return community_history_count();
 	default:
 		return map_browse_count(FALSE, category);
 	}
+}
+
+/* ---- the map lists' DAILY CHALLENGES: the past challenges (community.c's,
+asked for as the kind is shown), and the whole challenge of the one chosen,
+asked for as it is chosen, which the list's OK plays */
+static struct
+{
+	boolean asked;
+	/* the day whose challenge was asked for last */
+	char day[COMMUNITY_DAY_LENGTH];
+} daily_entries;
+
+static void daily_entries_forget(void)
+{
+	daily_entries.asked = FALSE;
+	daily_entries.day[0] = 0;
+}
+
+static void daily_entry_text(short entry, wchar_t *text)
+{
+	struct community_history_day const *day = community_history_day(entry);
+	wchar_t date[32];
+	wchar_t const *title;
+
+	text[0] = 0;
+	if (!day)
+		return;
+	if (day->today)
+		usprintf(date, L"TODAY");
+	else
+		community_day_text(day->day, TRUE, date, NUMBEROF(date));
+	title = day->level_index != NONE ? custom_edition_maps_level_title(main_get_solo_level_name(day->level_index)) :
+		NULL;
+	usnprintf(text, ROW_TEXT_LENGTH, L"%s  -  %s", date, title ? title : L"?");
+	ustrupr(text);
+}
+
+/* the challenges asked for, and the chosen one's whole challenge */
+static void daily_entries_want(short chosen)
+{
+	struct community_history_day const *day;
+	struct community_challenge const *challenge = community_daily();
+
+	if (!daily_entries.asked)
+	{
+		daily_entries.asked = TRUE;
+		community_history_open();
+	}
+	day = community_history_day(chosen);
+	if (!day || !strcmp(daily_entries.day, day->day))
+		return;
+	if (challenge && challenge->online == community_enabled() && !strcmp(challenge->day, day->day))
+	{
+		snprintf(daily_entries.day, sizeof(daily_entries.day), "%s", day->day);
+		return;
+	}
+	if (community_daily_state() == _community_loading)
+		return;
+	snprintf(daily_entries.day, sizeof(daily_entries.day), "%s", day->day);
+	community_daily_open(day->today ? NULL : day->day);
+}
+
+/* the description of the challenge chosen: its level's picture, name and
+words, and in the records' lines its difficulty and skulls */
+static void level_description(struct widget_instance *description, char const *prefix, short level, boolean in_progress,
+	boolean const *finished, short saved_difficulty);
+
+static void daily_entry_description(struct widget_instance *description, short chosen)
+{
+	struct community_history_day const *day = community_history_day(chosen);
+	wchar_t difficulty[ROW_TEXT_LENGTH];
+	wchar_t text[ROW_TEXT_LENGTH];
+
+	if (!day || day->level_index == NONE)
+	{
+		map_description_show(description, NONE, NONE);
+		text_set(named(description, "replay_level_right_record", 0),
+			community_history_state() == _community_loading ? L"LOADING..." : L"");
+		return;
+	}
+	map_description_show(description, day->level_index, NONE);
+	level_description(description, "replay_level", day->level_index, FALSE, NULL, NONE);
+	string_get("pc\\main_menu\\player_profiles_select\\difficulty_names", day->difficulty, difficulty);
+	ustrupr(difficulty);
+	usnprintf(text, NUMBEROF(text), L"DAILY CHALLENGE\r%s, %d SKULL%hs\r%hs", difficulty, (int)day->skull_count,
+		day->skull_count == 1 ? "" : "S", day->open ? "TODAY" : "ENDED: NOT COUNTED");
+	text_set(named(description, "replay_level_right_record", 0), text);
+}
+
+/* the chosen challenge, set for its run (community_daily_begin): FALSE
+while it is still being asked for, or could not be */
+static boolean daily_entry_begin(short chosen, char const **map_name, short *difficulty)
+{
+	struct community_history_day const *day = community_history_day(chosen);
+	struct community_challenge const *challenge = community_daily();
+
+	if (!day || !challenge || strcmp(challenge->day, day->day) || challenge->online != community_enabled())
+		return FALSE;
+	return community_daily_begin(map_name, difficulty);
 }
 
 /* the display index of a multiplayer or Custom Edition kind's entry, for its
@@ -1508,6 +1622,7 @@ static boolean level_list_initialize(struct widget_instance *list, short control
 	campaign.shown_level = level;
 	level_list.map_count = ui_widget_port_multiplayer_maps(&level_list.map_names, &last_used);
 	map_browse_forget();
+	daily_entries_forget();
 	level_list.kind = MAP_KIND_SINGLEPLAYER;
 	level_list.category[0] = 0;
 	level_list.category_entry = 0;
@@ -1579,10 +1694,20 @@ static void level_list_update(struct widget_instance *list)
 	}
 	count = map_kind_count(kind, level_list.map_count, level_list.category);
 	entry = map_kind_rows_update(list, &level_list.first, count,
-		kind == MAP_KIND_SINGLEPLAYER ? level_row_text :
+		kind == MAP_KIND_SINGLEPLAYER ? level_row_text : kind == MAP_KIND_DAILY ? daily_entry_text :
 		kind == MAP_KIND_MULTIPLAYER ? multiplayer_map_text : level_list_custom_text);
 	if (entry != NONE)
 		level_list.chosen = entry;
+	/* (the daily challenges: the one chosen's level and what it is) */
+	if (kind == MAP_KIND_DAILY)
+	{
+		daily_entries_want(level_list.chosen);
+		visible_set(named(description, "replay_level_right_item", 0), TRUE);
+		daily_entry_description(description, level_list.chosen);
+		visible_set(named(screen_of(list), "button_leaderboard", 0), FALSE);
+		profile_name_show(description);
+		return;
+	}
 	if (kind != MAP_KIND_SINGLEPLAYER)
 	{
 		short display = NONE;
@@ -1647,6 +1772,19 @@ static boolean level_choose(struct widget_instance *list, short controller)
 		flat = map_browse_flat(custom_campaign, level_list.category, level_list.chosen);
 	if (level_list.kind != MAP_KIND_SINGLEPLAYER && (level_list.chosen < 0 || level_list.chosen >= count))
 		return campaign_fail();
+	/* (a daily challenge: played at once, at its difficulty, with its
+	settings, by the players there are: split screen's too) */
+	if (level_list.kind == MAP_KIND_DAILY)
+	{
+		struct player_profile profile;
+		char const *map_name;
+		short difficulty;
+
+		if (!campaign_profile(controller, &profile) || !daily_entry_begin(level_list.chosen, &map_name, &difficulty))
+			return campaign_fail();
+		campaign_start(map_name, difficulty, controller, FALSE);
+		return FALSE;
+	}
 	if (custom && map_browse_folder(custom_campaign, level_list.category, level_list.chosen))
 	{
 		level_folder_open(list, level_list.chosen);
@@ -5032,6 +5170,7 @@ static boolean map_list_initialize(struct widget_instance *list)
 	custom_edition_maps_look_again();
 	map_browse_forget();
 	map_list.map_count = ui_widget_port_multiplayer_maps(&names, &last_used);
+	daily_entries_forget();
 	/* (a Custom Edition map's kind, when it was one) */
 	map_list.kind = MAP_KIND_MULTIPLAYER;
 	map_list.category[0] = 0;
@@ -5082,10 +5221,19 @@ static void map_list_update(struct widget_instance *list)
 	}
 	count = map_step_count();
 	entry = map_kind_rows_update(list, &map_list.first, count, map_list.step == MAP_STEP_DIFFICULTIES ?
-		map_difficulty_text : kind == MAP_KIND_SINGLEPLAYER ? map_level_text :
+		map_difficulty_text : kind == MAP_KIND_SINGLEPLAYER ? map_level_text : kind == MAP_KIND_DAILY ? daily_entry_text :
 		kind == MAP_KIND_MULTIPLAYER ? multiplayer_map_text : map_list_custom_text);
 	if (entry != NONE)
 		map_list.chosen = entry;
+	/* (the daily challenges: the one chosen's level and what it is) */
+	if (kind == MAP_KIND_DAILY)
+	{
+		daily_entries_want(map_list.chosen);
+		visible_set(named(description, "mp_map_right_item", 0), TRUE);
+		daily_entry_description(description, map_list.chosen);
+		profile_name_show(description);
+		return;
+	}
 	/* (the map whose difficulties are listed, else the one chosen) */
 	shown = map_list.step == MAP_STEP_DIFFICULTIES ? map_list.level : map_list.chosen;
 	if (kind == MAP_KIND_SINGLEPLAYER)
@@ -5128,6 +5276,24 @@ static boolean map_list_choose(struct widget_instance *list, boolean *widget_del
 
 	if (chosen >= map_step_count())
 		return campaign_fail();
+	/* (a daily challenge: the co-op game set up at its level and difficulty,
+	its settings the lobby's, which Server Setup cannot change; anything
+	else chosen, the lobby's own again) */
+	if (map_list.kind == MAP_KIND_DAILY)
+	{
+		char const *map_name;
+		short difficulty;
+
+		if (!daily_entry_begin(chosen, &map_name, &difficulty))
+			return campaign_fail();
+		if (!ui_widget_port_cooperative_level_choose(map_name, difficulty))
+		{
+			community_daily_cancel();
+			return campaign_fail();
+		}
+		return ui_widget_port_open(list, SERVER_SETUP_NAME, widget_deleted);
+	}
+	community_daily_cancel();
 	if (map_list.step == MAP_STEP_MAPS && map_list_custom() &&
 		map_browse_folder(custom_campaign, map_list.category, chosen))
 	{
@@ -5537,13 +5703,19 @@ static void server_settings_update(struct widget_instance *list)
 
 			struct widget_instance *randomizer_row = named(list, "op_randomizer", 0);
 			struct widget_instance *skulls_row = named(list, "op_skulls", 0);
+			boolean daily = cooperative && community_challenge_running();
 
 			visible_set(named(list, "op_coop_options", 0), cooperative);
 			visible_set(named(list, "op_voice_options", 0), cooperative);
 			/* (the randomizer's and the skulls' screens, with them on in
-			Settings > Gameplay: a level of the campaign's, any campaign map) */
-			visible_set(randomizer_row, cooperative && config_boolean("game.randomizer") && hosting_campaign_level());
-			visible_set(skulls_row, cooperative && config_boolean("game.skulls"));
+			Settings > Gameplay: a level of the campaign's, any campaign map;
+			in a daily challenge's lobby both shown, dimmed, its own settings
+			not to be changed: community.c) */
+			visible_set(randomizer_row, daily ||
+				(cooperative && config_boolean("game.randomizer") && hosting_campaign_level()));
+			visible_set(skulls_row, daily || (cooperative && config_boolean("game.skulls")));
+			enabled_set(randomizer_row, !daily);
+			enabled_set(skulls_row, !daily);
 			if (randomizer_row && skulls_row)
 			{
 				skulls_row->vertical_offset = (short)(randomizer_row->vertical_offset +
@@ -5872,6 +6044,9 @@ screen, or the skulls' (their question first, the first time), over Server
 Setup, whose OK writes them and comes back (campaign_screens_for_server) */
 static boolean server_campaign_screen(struct widget_instance *widget, boolean skulls, boolean *widget_deleted)
 {
+	/* (a daily challenge's are its own) */
+	if (community_challenge_running())
+		return campaign_fail();
 	campaign_screens_for_server = TRUE;
 	if (skulls)
 		return skulls_open(widget, widget_deleted);
@@ -7720,7 +7895,7 @@ static struct gametype_option const gametype_options[] =
 	{ "coop_campaign_score_spinner", _option_setting, 0, 0, 2, { 0 }, "game.campaign_score",
 		{ "true", "false" } },
 	{ "coop_score_type_spinner", _option_setting, 0, 0, 2, { 0 }, "network.coop_score_type",
-		{ "cooperative", "competitive" } },
+		{ "competitive", "cooperative" } },
 	/* map sharing's (Server Setup's MAP SHARING: tools/port_settings.py's
 	MAP_SHARE_SETUP; map_share.c) */
 	{ "map_share_spinner", _option_setting, 0, 0, 2, { 0 }, "network.map_share", { "true", "false" } },

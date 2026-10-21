@@ -2410,6 +2410,26 @@ static void main_won_map_private(
 	in multiplayer, back to the lobby, and the next round is the campaign's
 	next level (The Maw's: The Pillar of Autumn). A level not in the campaign
 	repeats. */
+	/* port: a daily challenge's level won ends its game: back to the lobby,
+	which plays it again, or to the menus, never on to the next level, and
+	the campaign's progress not kept, its settings the challenge's
+	(port/linux/game/community.c) */
+	{
+		extern boolean community_challenge_running(void);
+
+		if (community_challenge_running())
+		{
+			main_globals.won_map = FALSE;
+			if (game_connection() == _game_connection_network_server && network_coop_active())
+			{
+				network_game_server_port_cooperative_won(NULL);
+				return;
+			}
+			main_globals.want_to_be_at_main_menu = TRUE;
+			ui_set_next_level(NONE);
+			return;
+		}
+	}
 	if (game_connection() == _game_connection_network_server && network_coop_active())
 	{
 		struct network_game *game = network_game_get_game();

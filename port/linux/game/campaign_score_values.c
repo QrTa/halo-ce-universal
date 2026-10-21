@@ -11,8 +11,9 @@ edit that, not this (configure.py, and so ninja, writes this again).
 
 static struct campaign_score_time_bracket const campaign_score_time_brackets[] =
 {
-	{ 0.3f, 3.0f },
-	{ 0.7f, 2.0f },
+	{ 0.5f, 4.0f },
+	{ 0.6f, 3.0f },
+	{ 0.8f, 2.0f },
 	{ 1.0f, 1.0f },
 	{ 1.5f, 0.5f },
 	{ -1.0f, 0.0f },
@@ -117,14 +118,14 @@ static struct campaign_score_skull_value const campaign_score_skull_values[] =
 	{ "anger", 1.1f },
 	{ "armistice", 1.1f },
 	{ "assassins", 1.2f },
-	{ "bandanna", 0.0f },
+	{ "bandanna", 0.5f },
 	{ "black_eye", 1.1f },
 	{ "blind", 1.1f },
 	{ "boom", 1.0f },
 	{ "catch", 1.1f },
 	{ "confetti_party", 1.0f },
 	{ "efficient", 0.9f },
-	{ "envy", 0.0f },
+	{ "envy", 0.5f },
 	{ "eye_patch", 1.1f },
 	{ "famine", 1.2f },
 	{ "floor_is_lava", 1.3f },
@@ -146,7 +147,7 @@ static struct campaign_score_skull_value const campaign_score_skull_values[] =
 	{ "protected", 1.2f },
 	{ "recession", 1.2f },
 	{ "rip_and_tear", 1.1f },
-	{ "scarab", 0.0f },
+	{ "scarab", 0.5f },
 	{ "sputnik", 1.0f },
 	{ "streaking", 1.2f },
 	{ "swarm", 1.0f },
@@ -205,7 +206,7 @@ static char const *const campaign_score_words_35[] = { "vehicle_killed_unit", "v
 struct campaign_score_values const campaign_score_values =
 {
 	{ 0.5f, 1.0f, 2.0f, 4.0f },
-	5, campaign_score_time_brackets,
+	6, campaign_score_time_brackets,
 	10, campaign_score_par_times,
 	0,
 	1.0f,

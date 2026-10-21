@@ -2239,11 +2239,16 @@ void menu_tags_loaded(
 	boolean game_map = strcmp(map_name, "ui") != 0;
 	boolean campaign = game_map && full_screen_campaign_map();
 	boolean coop = game_map && network_coop_campaign_map();
+	/* (a split screen co-op campaign's: its pause menu is its own, left as it
+	is, but the HUD's pictures are the menus' bitmaps, the medals' and the
+	skulls' icons: campaign_score.c, campaign_medals.c, skulls.c) */
+	boolean split_screen_campaign = game_map && !campaign && tag_loaded('Soul', MULTIPLAYER_COLLECTION) == NONE &&
+		tag_loaded(UI_WIDGET_DEFINITION_TAG, CAMPAIGN_PAUSE_SCREEN) != NONE;
 
 	/* (ui.map, and a multiplayer map: its pause menu's SETTINGS; a
 	campaign's too, single player's or network co-op's, which also gets
-	FRIENDLY FIRE) */
-	if ((game_map && tag_loaded('Soul', MULTIPLAYER_COLLECTION) == NONE && !campaign) ||
+	FRIENDLY FIRE; and split screen's, for its HUD's pictures alone) */
+	if ((game_map && tag_loaded('Soul', MULTIPLAYER_COLLECTION) == NONE && !campaign && !split_screen_campaign) ||
 		!menus_pc_chosen())
 	{
 		return;
@@ -2351,10 +2356,13 @@ void menu_tags_loaded(
 		goto failed;
 	if (game_map)
 	{
-		pause_patch(instances);
-		if (campaign)
-			pause_campaign_patch(instances);
-		pause_network_patch();
+		if (!split_screen_campaign)
+		{
+			pause_patch(instances);
+			if (campaign)
+				pause_campaign_patch(instances);
+			pause_network_patch();
+		}
 		if (build.failed)
 			goto failed;
 		/* (those it made) */

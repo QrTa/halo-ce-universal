@@ -2782,6 +2782,11 @@ static void placement_roll_new(char const *scenario_name)
 	error(_error_silent, "randomizer: roll %08lx", placement_roll);
 }
 
+unsigned long randomizer_roll(void)
+{
+	return placement_roll;
+}
+
 static void placement_roll_from_remote(void)
 {
 	placement_roll = (unsigned long)remote_setup[3] |
@@ -3856,8 +3861,10 @@ void randomizer_advertisement(unsigned char *reserved)
 	setup_from_config(&setup);
 	if (!setup_swaps(&setup))
 		return;
+	/* (a daily challenge's lobby rolls its seed: its clients lay the level
+	out as every challenger does, community.c) */
 	if (!placement_roll_ready)
-		placement_roll_new(NULL);
+		placement_roll_new(game->map.name);
 	reserved[HALO_PORT_ADVERTISED_FLAGS_OFFSET] =
 		(unsigned char)(reserved[HALO_PORT_ADVERTISED_FLAGS_OFFSET] | HALO_PORT_ADVERTISED_RANDOMIZER_FLAG);
 	reserved[HALO_PORT_ADVERTISED_RANDOMIZER_SETUP_OFFSET] =

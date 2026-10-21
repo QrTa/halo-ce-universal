@@ -166,7 +166,7 @@ static void *community_net_thread(void *context)
 	return NULL;
 }
 
-int community_net_send(const char *path, const char *body)
+int community_net_send(const char *path, const char *body, const char *player)
 {
 	char server[COMMUNITY_NET_URL_MAXIMUM];
 	char key[160];
@@ -202,8 +202,10 @@ int community_net_send(const char *path, const char *body)
 	}
 	slot->answer[0] = 0;
 	snprintf(slot->url, sizeof(slot->url), "%s%s", server, path);
-	snprintf(slot->headers, sizeof(slot->headers), "%sX-Halo-Key: %s\r\n",
-		body ? "Content-Type: application/json\r\n" : "", key);
+	/* (a profile's own: the install's key and the profile's, as the server
+	tells players apart) */
+	snprintf(slot->headers, sizeof(slot->headers), "%sX-Halo-Key: %s%s%.16s\r\n",
+		body ? "Content-Type: application/json\r\n" : "", key, player && player[0] ? "-" : "", player ? player : "");
 	ticket = slot->ticket = community_net_next_ticket++;
 	if (community_net_next_ticket <= 0)
 		community_net_next_ticket = 1;

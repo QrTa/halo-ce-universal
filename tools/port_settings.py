@@ -502,6 +502,9 @@ SCREENS["gameplay/scoring"] = {
         ("SCORING:", "game.campaign_score", ON_OFF,
          "Score each kill in the campaign: your score and\ntime at the bottom right, everyone's on tab.",
          None),
+        ("CO-OP SCORING:", "network.coop_score_type", [("INDIVIDUAL", "competitive"), ("TEAM", "cooperative")],
+         "Co-op, split screen or online: each player's own\nscore, or the team's together. The host's counts.",
+         None),
         ("MEDAL POPUPS:", "game.campaign_medals", ON_OFF,
          "Show the medals you win at the center left as\nyou win them. Medals always count with scoring.",
          None),
@@ -2065,9 +2068,9 @@ COOP_SETUP_SCREENS = [
             "Scores each kill: the score and time at the bottom\\nright, and a summary at the end of each level.",
             "No score, time or summary.",
         ]),
-        ("coop_score_type", "SCORING TYPE:", ["COOPERATIVE", "COMPETITIVE"], [
-            "The players' scores are added together: every player\\nsees the team's score.",
+        ("coop_score_type", "SCORING TYPE:", ["INDIVIDUAL", "TEAM"], [
             "Each player has a score of their own, from the\\nenemies they kill.",
+            "The players' scores are added together: every player\\nsees the team's score.",
         ]),
     ]),
     ("voice_options", "VOICE AND VOTING", "Voice chat, text chat and votes to kick a player,\\nfor this game.",
@@ -2471,8 +2474,8 @@ def _teamplay_options_extras() -> list:
 def _map_kind() -> list:
     """the map lists' first row (New Game's and the Map screen's), as the
     gametype list's chooser: a spinner of SINGLEPLAYER or MULTIPLAYER maps,
-    or the Custom Edition maps of the custom_maps folder of either kind
-    (menu_functions.c's map lists), for either controller (split screen
+    the Custom Edition maps of the custom_maps folder of either kind, or the
+    DAILY CHALLENGES (menu_functions.c's map lists), for either controller (split screen
     co-op's New Game takes both)"""
     lines = _widget(MAP_KIND_CHOOSER, [("width", 256), ("height", 28), ("flags", "pass_unhandled_to_focused_child"),
                                        ("bitmap", "bitmaps/option_bkds_sm"), ("font", "ui\\large_ui"),
@@ -2487,8 +2490,10 @@ def _map_kind() -> list:
                       ("header_bitmap", "bitmaps/arrow_sm_left"), ("footer_bitmap", "bitmaps/arrow_sm_right"),
                       ("header_bounds", "7 -6 19 0"), ("footer_bounds", "7 238 19 244")],
                      ['<on event="left_mouse" run="mouse spinner 1wide click"/>'])
+    # (and the daily challenges, today's and the days before: community.c's,
+    # each played at its own difficulty with its own randomizer and skulls)
     lines += _strings("main_menu/new_select/var_map_kinds",
-                      ["SINGLEPLAYER", "MULTIPLAYER", "CUSTOM SINGLEPLAYER", "CUSTOM MULTIPLAYER"])
+                      ["SINGLEPLAYER", "MULTIPLAYER", "CUSTOM SINGLEPLAYER", "CUSTOM MULTIPLAYER", "DAILY CHALLENGES"])
     return lines
 
 

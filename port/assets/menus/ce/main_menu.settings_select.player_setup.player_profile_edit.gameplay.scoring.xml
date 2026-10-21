@@ -14,7 +14,8 @@
 	<widget name="main_menu/settings_select/player_setup/player_profile_edit/gameplay/scoring/options_menu" type="column_list" width="640" height="480" flags="pass_unhandled_to_focused_child up_down_tabs_children" description="main_menu/settings_select/player_setup/player_profile_edit/gameplay/scoring/help">
 		<data input="port settings help"/>
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/gameplay/scoring/op_campaign_score" x="54" y="73"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/gameplay/scoring/op_campaign_medals" x="54" y="103"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/gameplay/scoring/op_coop_score_type" x="54" y="103"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/gameplay/scoring/op_campaign_medals" x="54" y="133"/>
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/gameplay/scoring/button_bar" y="414"/>
 	</widget>
 	<widget name="main_menu/settings_select/player_setup/player_profile_edit/gameplay/scoring/button_bar" type="column_list" width="640" height="28" flags="pass_unhandled_to_focused_child left_right_tabs_items">
@@ -31,11 +32,20 @@
 	<widget name="main_menu/settings_select/player_setup/player_profile_edit/gameplay/scoring/campaign_score_spinner" type="spinner" left="3" top="2" width="147" height="20" flags="pass_unhandled_to_focused_child left_right_tabs_items" strings="ON|OFF" setting="game.campaign_score" values="true|false" font="ui\large_ui" color="#FF2896FF" align="center" text_y="1" header_bitmap="bitmaps/arrow_sm_left" footer_bitmap="bitmaps/arrow_sm_right" header_bounds="7 -6 19 0" footer_bounds="7 150 19 156">
 		<on event="created" run="port setting load"/>
 	</widget>
+	<widget name="main_menu/settings_select/player_setup/player_profile_edit/gameplay/scoring/op_coop_score_type" width="512" height="28" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/option_bkds" color="#FF2896FF">
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/gameplay/scoring/coop_score_type_label"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/gameplay/scoring/coop_score_type_spinner" x="320" y="1"/>
+	</widget>
+	<widget name="main_menu/settings_select/player_setup/player_profile_edit/gameplay/scoring/coop_score_type_label" type="text" controller="1" width="300" height="22" string_list="main_menu/settings_select/player_setup/player_profile_edit/gameplay/scoring/labels" string_index="1" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
+	</widget>
+	<widget name="main_menu/settings_select/player_setup/player_profile_edit/gameplay/scoring/coop_score_type_spinner" type="spinner" left="3" top="2" width="147" height="20" flags="pass_unhandled_to_focused_child left_right_tabs_items" strings="INDIVIDUAL|TEAM" setting="network.coop_score_type" values="competitive|cooperative" font="ui\large_ui" color="#FF2896FF" align="center" text_y="1" header_bitmap="bitmaps/arrow_sm_left" footer_bitmap="bitmaps/arrow_sm_right" header_bounds="7 -6 19 0" footer_bounds="7 150 19 156">
+		<on event="created" run="port setting load"/>
+	</widget>
 	<widget name="main_menu/settings_select/player_setup/player_profile_edit/gameplay/scoring/op_campaign_medals" width="512" height="28" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/option_bkds" color="#FF2896FF">
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/gameplay/scoring/campaign_medals_label"/>
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/gameplay/scoring/campaign_medals_spinner" x="320" y="1"/>
 	</widget>
-	<widget name="main_menu/settings_select/player_setup/player_profile_edit/gameplay/scoring/campaign_medals_label" type="text" controller="1" width="300" height="22" string_list="main_menu/settings_select/player_setup/player_profile_edit/gameplay/scoring/labels" string_index="1" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
+	<widget name="main_menu/settings_select/player_setup/player_profile_edit/gameplay/scoring/campaign_medals_label" type="text" controller="1" width="300" height="22" string_list="main_menu/settings_select/player_setup/player_profile_edit/gameplay/scoring/labels" string_index="2" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
 	</widget>
 	<widget name="main_menu/settings_select/player_setup/player_profile_edit/gameplay/scoring/campaign_medals_spinner" type="spinner" left="3" top="2" width="147" height="20" flags="pass_unhandled_to_focused_child left_right_tabs_items" strings="ON|OFF" setting="game.campaign_medals" values="true|false" font="ui\large_ui" color="#FF2896FF" align="center" text_y="1" header_bitmap="bitmaps/arrow_sm_left" footer_bitmap="bitmaps/arrow_sm_right" header_bounds="7 -6 19 0" footer_bounds="7 150 19 156">
 		<on event="created" run="port setting load"/>
@@ -52,11 +62,13 @@
 	</widget>
 	<strings name="main_menu/settings_select/player_setup/player_profile_edit/gameplay/scoring/labels">
 		<string text="SCORING:"/>
+		<string text="CO-OP SCORING:"/>
 		<string text="MEDAL POPUPS:"/>
 	</strings>
 	<strings name="main_menu/settings_select/player_setup/player_profile_edit/gameplay/scoring/help_strings">
 		<string text=""/>
 		<string text="Score each kill in the campaign: your score and\ntime at the bottom right, everyone's on tab."/>
+		<string text="Co-op, split screen or online: each player's own\nscore, or the team's together. The host's counts."/>
 		<string text="Show the medals you win at the center left as\nyou win them. Medals always count with scoring."/>
 	</strings>
 </menus>
