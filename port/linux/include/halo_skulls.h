@@ -258,6 +258,10 @@ the level is finished without dying. FALSE for another item. (The name is
 a wchar_t string, of the 16-bit wchar_t every build has: this header comes
 before <stddef.h>) */
 unsigned short const *skulls_item_name(long object_index);
+/* (damage.c's object_damage_aftermath) how far a blast throws the item: a
+skull still falling from its enemy a fifth as far (one landed, not at all:
+its item's does-not-accelerate flag), any other item as far as ever */
+float skulls_item_push_scale(long object_index);
 int skulls_item_take(short local_player_index, long unit_index, long object_index);
 
 /* Envy: a player's unit's flashlight button pressed: TRUE when it is the

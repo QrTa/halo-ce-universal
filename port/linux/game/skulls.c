@@ -1513,6 +1513,8 @@ static short tick_kill_count;
 static long tick_kills_time;
 
 static void skull_drop(long unit_index, int skull, long left, short odds);
+/* a dropped skull's push by a blast, while it falls (skulls_item_push_scale) */
+#define SKULL_FALLING_PUSH_SCALE 0.2f
 
 /* an enemy killed, by a player's blow or another's: counted among the dead
 (the odds' base); a player's kill, to be decided at the tick's end */
@@ -2023,6 +2025,11 @@ void skulls_tick(void)
 		/* (in a unit's hands, which a revert may bring back: not heard) */
 		if (skull->object.parent_object_index != NONE)
 			continue;
+		/* (come to rest once, on the level or on an object: no blast moves it
+		again, as a weapon the map places that does not accelerate (items.c);
+		taken up and dropped again, the flag is cleared, and it falls anew) */
+		if (TEST_FLAG(skull->item.flags, _item_on_structure_bit) || TEST_FLAG(skull->item.flags, _item_on_object_bit))
+			SET_FLAG(skull->item.flags, _item_does_not_accelerate_bit, TRUE);
 		if (now >= finding->skulls[slot].next_hum_time)
 		{
 			skull_hums[slot] = own_sound_play(_own_sound_skull_floor, skull_index);
@@ -2067,6 +2074,13 @@ static short skull_slot(long object_index)
 			return slot;
 	}
 	return NONE;
+}
+
+float skulls_item_push_scale(long object_index)
+{
+	/* (a skull still falling from its enemy: heavy, a blast throws it a fifth
+	as far as another item; landed, none at all: skulls_tick) */
+	return skull_slot(object_index) != NONE ? SKULL_FALLING_PUSH_SCALE : 1.0f;
 }
 
 unsigned short const *skulls_item_name(long object_index)

@@ -579,6 +579,14 @@ void skulls_outbreak_tick(void)
 			spore_forget(slot);
 			continue;
 		}
+		/* (hurt: popped, as an infection form's swarm pops it at any hit. Its
+		body alone, with no actor, would take the whole of its collision
+		model's 80 points, twice a grunt's, the swarm's to be popped by) */
+		if (spore->object.body_vitality < 1.0f)
+		{
+			spore_pop(slot);
+			continue;
+		}
 		/* (Outbreak off now, or the time up) */
 		if (!outbreak_on() || now - outbreak->spores[slot].born_time > OUTBREAK_SPORE_TICKS ||
 			now < outbreak->spores[slot].born_time)

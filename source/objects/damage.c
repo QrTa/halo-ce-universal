@@ -1119,6 +1119,8 @@ static void object_damage_aftermath(
 		case _object_type_weapon:
 		case _object_type_equipment:
 		case _object_type_garbage:
+			/* port: skull: a dropped skull, heavy (port/linux/game/skulls.c) */
+			scale_vector3d(&acceleration, skulls_item_push_scale(object_index), &acceleration);
 			item_accelerate(
 				object_index,
 				&acceleration,
