@@ -1065,6 +1065,17 @@ void network_game_client_countdown_timer_update(
 	return;
 }
 
+/* port: whether the advertised game at the place in the client's available
+games is a modded one, its campaign randomized or with skulls (the menus'
+server list shows those first) */
+boolean network_game_client_port_advertised_modded(
+	short game_index)
+{
+	return game_index >= 0 && game_index < MAXIMUM_NETWORK_ADVERTISED_GAMES &&
+		(network_game_client_advertised_versions[game_index].flags &
+			(HALO_PORT_ADVERTISED_RANDOMIZER_FLAG | HALO_PORT_ADVERTISED_SKULLS_FLAG)) != 0;
+}
+
 boolean network_game_client_advertised_game_is_valid(
 	struct network_advertised_game *advertised_game)
 {

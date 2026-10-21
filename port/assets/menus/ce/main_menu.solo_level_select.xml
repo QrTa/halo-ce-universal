@@ -19,6 +19,16 @@
 		<child widget="main_menu/solo_level_select/difficulty_badge" x="478" y="180"/>
 		<child widget="main_menu/solo_level_select/difficulty_badge" x="502" y="180"/>
 		<child widget="main_menu/solo_level_select/replay_level_right_record"/>
+		<child widget="main_menu/daily/level_skull_icon" x="421" y="89"/>
+		<child widget="main_menu/daily/level_skull_icon" x="448" y="89"/>
+		<child widget="main_menu/daily/level_skull_icon" x="475" y="89"/>
+		<child widget="main_menu/daily/level_skull_icon" x="502" y="89"/>
+		<child widget="main_menu/daily/level_skull_icon" x="529" y="89"/>
+		<child widget="main_menu/daily/level_skull_icon" x="421" y="115"/>
+		<child widget="main_menu/daily/level_skull_icon" x="448" y="115"/>
+		<child widget="main_menu/daily/level_skull_icon" x="475" y="115"/>
+		<child widget="main_menu/daily/level_skull_icon" x="502" y="115"/>
+		<child widget="main_menu/daily/level_skull_icon" x="529" y="115"/>
 	</widget>
 	<widget name="main_menu/solo_level_select/replay_level_right_name" type="text" controller="1" left="417" top="204" width="146" height="43" string_list="main_menu/map_list" string_index="2" font="ui\large_ui" color="#FF2896FF">
 	</widget>

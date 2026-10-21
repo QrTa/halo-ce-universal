@@ -479,12 +479,14 @@ static struct
 	struct community_row board_rows[COMMUNITY_BOARD_ROWS];
 	struct community_row board_mine;
 	long board_players;
+	/* (a day's: its top three while it lasted, kept on top) */
+	short board_day_top_count;
+	struct community_row board_day_top[COMMUNITY_DAY_TOP];
 
 	/* the challenge being played: its settings set, until the main menu
 	is back after its level was loaded */
 	boolean running;
 	boolean running_loaded;
-	boolean running_counts;
 	/* (when it began: a level that never loaded gives the settings back) */
 	unsigned long running_since;
 	struct community_challenge running_challenge;
@@ -802,7 +804,27 @@ static short local_level(long day_number)
 
 /* the offline challenge of a day: into community.challenge and its settings
 (only what the history wants, with settings FALSE) */
+static void local_challenge_rolls(boolean settings);
+
 static void local_challenge(char const *day, boolean settings)
+{
+	struct community_challenge *challenge = &community.challenge;
+	long year, month, date;
+
+	memset(challenge, 0, sizeof(*challenge));
+	snprintf(challenge->day, sizeof(challenge->day), "%s", day);
+	/* (the level, never the day before's; then the rest of the day's rolls) */
+	if (sscanf(day, "%ld-%ld-%ld", &year, &month, &date) != 3)
+		return;
+	challenge->level_index = local_level(days_from_civil(year, month, date));
+	local_level_roll(days_from_civil(year, month, date));
+	local_challenge_rolls(settings);
+}
+
+/* the rest of community.challenge (its day and level set), rolled as the
+rolls go on (local_roll): its difficulty, randomizer and skulls; and with
+settings, those to set for its run */
+static void local_challenge_rolls(boolean settings)
 {
 	struct community_challenge *challenge = &community.challenge;
 	char today[COMMUNITY_DAY_LENGTH];
@@ -813,15 +835,7 @@ static void local_challenge(char const *day, boolean settings)
 	boolean allies, pickups, weapons, crazy, crazy_weapons, crazy_enemies, crazy_flame;
 	long pods = 30;
 	long seconds_left;
-	long year, month, date;
 
-	memset(challenge, 0, sizeof(*challenge));
-	snprintf(challenge->day, sizeof(challenge->day), "%s", day);
-	/* (the level, never the day before's; then the rest of the day's rolls) */
-	if (sscanf(day, "%ld-%ld-%ld", &year, &month, &date) != 3)
-		return;
-	challenge->level_index = local_level(days_from_civil(year, month, date));
-	local_level_roll(days_from_civil(year, month, date));
 	level_key(main_get_solo_level_name(challenge->level_index), challenge->level, sizeof(challenge->level));
 	challenge->difficulty = (short)atoi(local_difficulties[local_pick(local_difficulties,
 		NUMBEROF(local_difficulties))].name);
@@ -904,14 +918,14 @@ static void local_challenge(char const *day, boolean settings)
 	challenge->seed = (unsigned long)local_roll(0x7FFFFFFFL) + 1;
 	snprintf(challenge->details[0], COMMUNITY_DETAIL_LENGTH, "ENEMIES: %s%s", enemies, allies ? ", ALLIES TOO" : "");
 	snprintf(challenge->details[1], COMMUNITY_DETAIL_LENGTH, "ENEMY WEAPONS: %s",
-		weapons ? weapons_label : "AS THE LEVEL HAS THEM");
+		weapons ? weapons_label : "NOT RANDOMIZED");
 	snprintf(challenge->details[2], COMMUNITY_DETAIL_LENGTH, "PICKUPS: %s",
-		pickups ? pickups_label : "AS THE LEVEL HAS THEM");
+		pickups ? pickups_label : "NOT RANDOMIZED");
 	challenge->detail_count = 3;
 	if (crazy)
 		snprintf(challenge->details[challenge->detail_count++], COMMUNITY_DETAIL_LENGTH, "GO CRAZY: ON");
 	local_day(0, today, sizeof(today), &seconds_left);
-	challenge->open = !strcmp(day, today);
+	challenge->open = !strcmp(challenge->day, today);
 	challenge->seconds_left = challenge->open ? seconds_left : 0;
 	challenge->answered_at = system_milliseconds();
 	if (!settings)
@@ -1096,6 +1110,7 @@ static void local_board(char const *day)
 	short index;
 
 	community.board_count = 0;
+	community.board_day_top_count = 0;
 	community.board_players = 0;
 	memset(&community.board_mine, 0, sizeof(community.board_mine));
 	player_profiles_enumerate_available_to_local_player_index(NONE, &count, profiles, FALSE);
@@ -1339,7 +1354,6 @@ boolean community_daily_begin(char const **map_name, short *difficulty)
 {
 	struct community_challenge const *challenge = community_daily();
 	short index;
-	long seconds_left;
 
 	if (!challenge)
 		return FALSE;
@@ -1363,15 +1377,47 @@ boolean community_daily_begin(char const **map_name, short *difficulty)
 	community.running_loaded = FALSE;
 	community.running_since = system_milliseconds();
 	community.running_challenge = *challenge;
-	/* (sent only while its leaderboard takes scores) */
-	seconds_left = challenge->seconds_left - (long)((system_milliseconds() - challenge->answered_at) / 1000);
-	community.running_counts = challenge->open && seconds_left > 0;
 	community_result_clear();
 	*map_name = main_get_solo_level_name(challenge->level_index);
 	*difficulty = challenge->difficulty;
-	platform_log("community: playing the challenge of %s (%s, difficulty %d, seed %lu)%s", challenge->day,
-		challenge->level, challenge->difficulty, challenge->seed, community.running_counts ? "" : ", not counted");
+	platform_log("community: playing the %s of %s (%s, difficulty %d, seed %lu)",
+		challenge->random ? "random run" : "challenge", challenge->day, challenge->level, challenge->difficulty,
+		challenge->seed);
 	return TRUE;
+}
+
+boolean community_random_begin(char const **map_name, short *difficulty)
+{
+	static struct community_challenge shown;
+	static char shown_names[COMMUNITY_MAXIMUM_SETTINGS][48];
+	static char shown_values[COMMUNITY_MAXIMUM_SETTINGS][160];
+	static unsigned long salt;
+	struct community_request shown_request = community.daily;
+	short shown_count = community.setting_count;
+	boolean begun;
+
+	/* (the challenge shown kept as it was: the run made in its place, set
+	for the run, then the shown one back) */
+	shown = community.challenge;
+	memcpy(shown_names, community.setting_names, sizeof(shown_names));
+	memcpy(shown_values, community.setting_values, sizeof(shown_values));
+	local_roll_state = (system_milliseconds() ^ ((unsigned long)time(NULL) << 7) ^ (++salt * 2654435761UL)) &
+		0xFFFFFFFFUL;
+	if (!local_roll_state)
+		local_roll_state = 1;
+	memset(&community.challenge, 0, sizeof(community.challenge));
+	local_day(0, community.challenge.day, sizeof(community.challenge.day), NULL);
+	community.challenge.level_index = (short)local_roll(NUMBER_OF_SINGLE_PLAYER_LEVELS);
+	local_challenge_rolls(TRUE);
+	community.challenge.random = TRUE;
+	community.daily.state = _community_ready;
+	begun = community_daily_begin(map_name, difficulty);
+	community.challenge = shown;
+	memcpy(community.setting_names, shown_names, sizeof(shown_names));
+	memcpy(community.setting_values, shown_values, sizeof(shown_values));
+	community.setting_count = shown_count;
+	community.daily = shown_request;
+	return begun;
 }
 
 void community_daily_cancel(void)
@@ -1399,6 +1445,19 @@ unsigned long community_randomizer_seed(char const *scenario_name)
 
 /* ---------- the past challenges */
 
+/* a skull by its key ("famine"), NONE for one this build has not */
+static short skull_of_key(char const *key)
+{
+	short skull;
+
+	for (skull = 0; skull < NUMBER_OF_SKULLS; skull++)
+	{
+		if (!strcmp(skull_descriptions[skull].key, key))
+			return skull;
+	}
+	return NONE;
+}
+
 static void history_read(char const *data)
 {
 	char const *element;
@@ -1419,8 +1478,14 @@ static void history_read(char const *data)
 		json_text(json_member(element, "level"), level, sizeof(level));
 		day->level_index = level_index_of(level);
 		day->difficulty = (short)PIN(json_long(json_member(element, "difficulty"), 1), 0, 3);
-		for (skull = json_next(json_member(element, "skulls"), NULL); skull; skull = json_next(NULL, skull))
-			day->skull_count++;
+		for (skull = json_next(json_member(element, "skulls"), NULL);
+			skull && day->skull_count < COMMUNITY_MAXIMUM_SKULLS; skull = json_next(NULL, skull))
+		{
+			char key[24];
+
+			json_text(skull, key, sizeof(key));
+			day->skulls[day->skull_count++] = skull_of_key(key);
+		}
 		day->open = json_boolean(json_member(element, "open"));
 		day->players = json_long(json_member(element, "players"), 0);
 		day->has_best = json_long(json_member(element, "bestScore"), LONG_MIN) != LONG_MIN;
@@ -1464,6 +1529,12 @@ void community_history_open(void)
 			day->level_index = community.challenge.level_index;
 			day->difficulty = community.challenge.difficulty;
 			day->skull_count = community.challenge.skull_count;
+			{
+				short skull;
+
+				for (skull = 0; skull < day->skull_count; skull++)
+					day->skulls[skull] = skull_of_key(community.challenge.skulls[skull]);
+			}
 			day->open = community.challenge.open;
 			local_board(day->day);
 			day->players = community.board_players;
@@ -1534,12 +1605,19 @@ static void board_read(char const *data)
 	}
 	row_read(json_member(data, "me"), &community.board_mine);
 	community.board_players = json_long(json_member(data, "players"), 0);
+	community.board_day_top_count = 0;
+	for (element = json_next(json_member(data, "dayTop"), NULL);
+		element && community.board_day_top_count < COMMUNITY_DAY_TOP; element = json_next(NULL, element))
+	{
+		row_read(element, &community.board_day_top[community.board_day_top_count++]);
+	}
 }
 
 static void board_open(char const *asked, char const *path)
 {
 	community.status[0] = 0;
 	community.board_count = 0;
+	community.board_day_top_count = 0;
 	memset(&community.board_mine, 0, sizeof(community.board_mine));
 	community.board_players = 0;
 	/* (no scores asked for with scoring off) */
@@ -1608,6 +1686,16 @@ struct community_row const *community_board_mine(void)
 	return community.board.state == _community_ready && community.board_mine.rank ? &community.board_mine : NULL;
 }
 
+short community_board_day_top_count(void)
+{
+	return community.board.state == _community_ready ? community.board_day_top_count : 0;
+}
+
+struct community_row const *community_board_day_top(short index)
+{
+	return index >= 0 && index < community_board_day_top_count() ? &community.board_day_top[index] : NULL;
+}
+
 long community_board_players(void)
 {
 	return community.board.state == _community_ready ? community.board_players : 0;
@@ -1652,12 +1740,9 @@ static void submit(char const *path, char const *body, char const *player, short
 /* the challenge of the level won (key), if it is one: this machine's (its
 lobby's, a network co-op host's), or its host's (a client: the day and
 flags it was told, the roll the host advertised, the skulls it plays
-with); and whether its leaderboard still takes scores, as far as this
-machine knows (the server says, online) */
-static boolean run_challenge(char const *key, short difficulty, struct community_challenge *challenge,
-	boolean *counts)
+with). Its leaderboard takes it whenever it is played */
+static boolean run_challenge(char const *key, short difficulty, struct community_challenge *challenge)
 {
-	char today[COMMUNITY_DAY_LENGTH];
 	short skull;
 
 	if (community.running)
@@ -1665,7 +1750,6 @@ static boolean run_challenge(char const *key, short difficulty, struct community
 		if (strcmp(key, community.running_challenge.level))
 			return FALSE;
 		*challenge = community.running_challenge;
-		*counts = community.running_counts;
 		return TRUE;
 	}
 	if (!community.network_day)
@@ -1686,8 +1770,6 @@ static boolean run_challenge(char const *key, short difficulty, struct community
 				skull_descriptions[skull].key);
 		}
 	}
-	local_day(0, today, sizeof(today), NULL);
-	*counts = challenge->online || !strcmp(challenge->day, today);
 	return TRUE;
 }
 
@@ -1702,8 +1784,12 @@ void community_network_challenge(long *day, long *flags)
 
 	*day = 0;
 	*flags = 0;
-	if (!community.running || sscanf(community.running_challenge.day, "%ld-%ld-%ld", &year, &month, &date) != 3)
+	/* (a random run is no challenge its clients send) */
+	if (!community.running || community.running_challenge.random ||
+		sscanf(community.running_challenge.day, "%ld-%ld-%ld", &year, &month, &date) != 3)
+	{
 		return;
+	}
 	*day = days_from_civil(year, month, date);
 	*flags = (community.running_challenge.version & 0xFF) |
 		(community.running_challenge.online ? COMMUNITY_NETWORK_ONLINE : 0);
@@ -1723,14 +1809,20 @@ void community_level_won(char const *level_name, struct community_run const *run
 	char player[COMMUNITY_PLAYER_LENGTH];
 	char body[COMMUNITY_BODY_LENGTH];
 	struct community_challenge challenge;
-	boolean daily, counts = FALSE;
+	boolean daily;
 	long length;
 
 	/* (no score kept or sent with scoring off) */
 	if (!community_scoring())
 		return;
 	level_key(level_name, key, sizeof(key));
-	daily = run_challenge(key, (short)run->difficulty, &challenge, &counts);
+	daily = run_challenge(key, (short)run->difficulty, &challenge);
+	/* (a random run's: no leaderboard) */
+	if (daily && challenge.random)
+	{
+		result_set(slot, L"RANDOM RUN: NOT RANKED");
+		return;
+	}
 	/* (offline: a challenge's run kept in the profile's records, and its
 	place among this machine's profiles') */
 	if (daily && !challenge.online)
@@ -1738,11 +1830,6 @@ void community_level_won(char const *level_name, struct community_run const *run
 		boolean improved;
 		wchar_t text[COMMUNITY_RESULT_LENGTH];
 
-		if (!counts)
-		{
-			result_set(slot, L"THIS CHALLENGE HAS ENDED: NOT COUNTED");
-			return;
-		}
 		improved = local_record_add(profile_index, challenge.day, run);
 		local_board(challenge.day);
 		usnprintf(text, COMMUNITY_RESULT_LENGTH, L"THIS MACHINE: #%ld%s",
@@ -1773,11 +1860,6 @@ void community_level_won(char const *level_name, struct community_run const *run
 		char path[64];
 		short skull;
 
-		if (!counts)
-		{
-			result_set(slot, L"ONLINE: THIS CHALLENGE HAS ENDED");
-			return;
-		}
 		length += snprintf(body + length, sizeof(body) - (size_t)length, ",\"seed\":%lu,\"version\":%ld,\"skullSet\":[",
 			challenge.seed, challenge.version);
 		for (skull = 0; skull < challenge.skull_count && length < (long)sizeof(body) - 32; skull++)

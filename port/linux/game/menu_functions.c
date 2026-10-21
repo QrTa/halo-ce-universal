@@ -1479,15 +1479,20 @@ static short map_kind_count(short kind, short multiplayer_map_count, char const 
 	case MAP_KIND_CUSTOM_SINGLEPLAYER:
 		return map_browse_count(TRUE, category);
 	case MAP_KIND_DAILY:
-		return community_history_count();
+		return (short)(1 + community_history_count());
 	default:
 		return map_browse_count(FALSE, category);
 	}
 }
 
-/* ---- the map lists' DAILY CHALLENGES: the past challenges (community.c's,
-asked for as the kind is shown), and the whole challenge of the one chosen,
-asked for as it is chosen, which the list's OK plays */
+/* ---- the map lists' DAILY CHALLENGES: RANDOM RUN first (a run made at
+random as it is chosen: community.c), then the past challenges, today's
+first (community.c's, asked for as the kind is shown), each by its day, and
+the whole challenge of the one chosen, asked for as it is chosen, which the
+list's OK plays. Beside them the challenge's level: its picture, with its
+difficulty's badge and its skulls' icons over it */
+#define DAILY_LEVEL_SKULLS 10
+
 static struct
 {
 	boolean asked;
@@ -1501,23 +1506,23 @@ static void daily_entries_forget(void)
 	daily_entries.day[0] = 0;
 }
 
+/* the past day of an entry (RANDOM RUN's, the first: NULL) */
+static struct community_history_day const *daily_entry_day(short entry)
+{
+	return entry >= 1 ? community_history_day((short)(entry - 1)) : NULL;
+}
+
 static void daily_entry_text(short entry, wchar_t *text)
 {
-	struct community_history_day const *day = community_history_day(entry);
-	wchar_t date[32];
-	wchar_t const *title;
+	struct community_history_day const *day = daily_entry_day(entry);
 
 	text[0] = 0;
-	if (!day)
-		return;
-	if (day->today)
-		usprintf(date, L"TODAY");
-	else
-		community_day_text(day->day, TRUE, date, NUMBEROF(date));
-	title = day->level_index != NONE ? custom_edition_maps_level_title(main_get_solo_level_name(day->level_index)) :
-		NULL;
-	usnprintf(text, ROW_TEXT_LENGTH, L"%s  -  %s", date, title ? title : L"?");
-	ustrupr(text);
+	if (entry == 0)
+		usprintf(text, L"RANDOM RUN");
+	else if (day && day->today)
+		usprintf(text, L"TODAY");
+	else if (day)
+		community_day_text(day->day, TRUE, text, ROW_TEXT_LENGTH);
 }
 
 /* the challenges asked for, and the chosen one's whole challenge */
@@ -1531,7 +1536,7 @@ static void daily_entries_want(short chosen)
 		daily_entries.asked = TRUE;
 		community_history_open();
 	}
-	day = community_history_day(chosen);
+	day = daily_entry_day(chosen);
 	if (!day || !strcmp(daily_entries.day, day->day))
 		return;
 	if (challenge && challenge->online == community_enabled() && !strcmp(challenge->day, day->day))
@@ -1545,17 +1550,42 @@ static void daily_entries_want(short chosen)
 	community_daily_open(day->today ? NULL : day->day);
 }
 
+/* (a map list's description) a challenge's badge and skulls taken away:
+the other kinds' levels and maps have none (level_description shows a
+level's own badges) */
+static void daily_overlays_hide(struct widget_instance *description)
+{
+	short index;
+
+	visible_set(named(description, "difficulty_badges_plate", 0), FALSE);
+	for (index = 0; index < 3; index++)
+		visible_set(named(description, "difficulty_badge", index), FALSE);
+	for (index = 0; index < DAILY_LEVEL_SKULLS; index++)
+		visible_set(named(description, "level_skull_icon", index), FALSE);
+}
+
 /* the description of the challenge chosen: its level's picture, name and
-words, and in the records' lines its difficulty and skulls */
+words, its difficulty's badge and its skulls' icons over the picture, and
+in the records' lines what it is */
 static void level_description(struct widget_instance *description, char const *prefix, short level, boolean in_progress,
 	boolean const *finished, short saved_difficulty);
 
 static void daily_entry_description(struct widget_instance *description, short chosen)
 {
-	struct community_history_day const *day = community_history_day(chosen);
+	struct community_history_day const *day = daily_entry_day(chosen);
 	wchar_t difficulty[ROW_TEXT_LENGTH];
 	wchar_t text[ROW_TEXT_LENGTH];
+	struct widget_instance *badge;
+	short index;
 
+	daily_overlays_hide(description);
+	if (chosen == 0)
+	{
+		map_description_show(description, NONE, NONE);
+		text_set(named(description, "replay_level_right_record", 0),
+			L"RANDOM RUN\rA RANDOM LEVEL, DIFFICULTY,\rENEMIES AND SKULLS");
+		return;
+	}
 	if (!day || day->level_index == NONE)
 	{
 		map_description_show(description, NONE, NONE);
@@ -1565,20 +1595,41 @@ static void daily_entry_description(struct widget_instance *description, short c
 	}
 	map_description_show(description, day->level_index, NONE);
 	level_description(description, "replay_level", day->level_index, FALSE, NULL, NONE);
+	daily_overlays_hide(description);
+	/* (its difficulty's badge, on its plate, at the picture's bottom) */
+	visible_set(named(description, "difficulty_badges_plate", 0), TRUE);
+	if ((badge = named(description, "difficulty_badge", 1)) != NULL)
+	{
+		badge->visible = TRUE;
+		badge->animation.current_frame_index = day->difficulty;
+	}
+	/* (its skulls' icons, a frame a skull, over the picture's top) */
+	for (index = 0; index < day->skull_count && index < DAILY_LEVEL_SKULLS; index++)
+	{
+		struct widget_instance *icon = named(description, "level_skull_icon", index);
+
+		if (icon && day->skulls[index] != NONE)
+		{
+			icon->visible = TRUE;
+			icon->animation.current_frame_index = day->skulls[index];
+		}
+	}
 	string_get("pc\\main_menu\\player_profiles_select\\difficulty_names", day->difficulty, difficulty);
 	ustrupr(difficulty);
-	usnprintf(text, NUMBEROF(text), L"DAILY CHALLENGE\r%s, %d SKULL%hs\r%hs", difficulty, (int)day->skull_count,
-		day->skull_count == 1 ? "" : "S", day->open ? "TODAY" : "ENDED: NOT COUNTED");
+	usnprintf(text, NUMBEROF(text), L"DAILY CHALLENGE\r%s, %d SKULL%hs", difficulty, (int)day->skull_count,
+		day->skull_count == 1 ? "" : "S");
 	text_set(named(description, "replay_level_right_record", 0), text);
 }
 
-/* the chosen challenge, set for its run (community_daily_begin): FALSE
-while it is still being asked for, or could not be */
+/* the chosen challenge, set for its run (community_daily_begin; RANDOM
+RUN's made now): FALSE while it is still being asked for, or could not be */
 static boolean daily_entry_begin(short chosen, char const **map_name, short *difficulty)
 {
-	struct community_history_day const *day = community_history_day(chosen);
+	struct community_history_day const *day = daily_entry_day(chosen);
 	struct community_challenge const *challenge = community_daily();
 
+	if (chosen == 0)
+		return community_random_begin(map_name, difficulty);
 	if (!day || !challenge || strcmp(challenge->day, day->day) || challenge->online != community_enabled())
 		return FALSE;
 	return community_daily_begin(map_name, difficulty);
@@ -1686,6 +1737,7 @@ static void level_list_update(struct widget_instance *list)
 	struct widget_instance *description = list->parameters.list.extended_description;
 	short kind = map_kind_shown(list, TRUE, level_list.kind), count, entry, level;
 
+	daily_overlays_hide(description);
 	if (kind != level_list.kind)
 	{
 		level_list.kind = kind;
@@ -2907,6 +2959,9 @@ static void leaderboard_update(struct widget_instance *screen)
 	short state = online ? community_board_state() : _community_ready;
 	struct community_row const *mine = online ? community_board_mine() : NULL;
 	short count = online ? community_board_count() : leaderboard.count;
+	/* (a day's: its top three while it lasted on top, DAY 1. to DAY 3., then
+	every run's, whenever played) */
+	short top = online ? community_board_day_top_count() : 0;
 	short row;
 
 	if (online && community_enabled() && state == _community_ready && community_board_players() > 0)
@@ -2933,13 +2988,23 @@ static void leaderboard_update(struct widget_instance *screen)
 		wchar_t score[24] = { 0 };
 		wchar_t time[24] = { 0 };
 
-		if (online)
+		if (online && row < top)
 		{
-			struct community_row const *entry = community_board_row(row);
+			struct community_row const *entry = community_board_day_top(row);
+			wchar_t day_name[COMMUNITY_NAME_LENGTH + 8];
+
+			usnprintf(day_name, NUMBEROF(day_name), L"DAY %ld.", entry->rank);
+			leaderboard_row_text(entry->rank, entry->name, entry->skulls, entry->medals, entry->score,
+				entry->seconds, name, skulls, medals, score, time);
+			usnprintf(name, ROW_TEXT_LENGTH, L"%s  %s", day_name, entry->name);
+		}
+		else if (online)
+		{
+			struct community_row const *entry = community_board_row((short)(row - top));
 
 			/* (this install's own place on the last row, when it is below
 			those shown) */
-			if (row == LEADERBOARD_ROWS - 1 && mine && mine->rank > LEADERBOARD_ROWS)
+			if (row == LEADERBOARD_ROWS - 1 && mine && mine->rank > LEADERBOARD_ROWS - top)
 				entry = mine;
 			if (entry)
 			{
@@ -3185,11 +3250,13 @@ static void daily_update(struct widget_instance *screen)
 	else if (!scoring)
 		long_text_set(named(screen, "note", 0), L"Scoring is off (Settings > Gameplay > Scoring): no scores are kept.");
 	else if (!challenge->open)
-		long_text_set(named(screen, "note", 0), L"This challenge has ended: you can play it, but scores no longer count.");
+		long_text_set(named(screen, "note", 0), L"This day is over: runs still count, its day's top three stay on top.");
 	else if (!challenge->online)
 		long_text_set(named(screen, "note", 0), L"Offline: the leaderboard is this machine's profiles'.");
 	else
 		long_text_set(named(screen, "note", 0), L"The same enemies, skulls and difficulty for everyone.");
+		
+	long_text_set(named(screen, "note", 0), L"");
 }
 
 /* "port daily play" (PLAY): the challenge played, with its settings, by
@@ -3218,6 +3285,47 @@ static boolean daily_play(short controller)
 	if (!community_daily_begin(&map_name, &difficulty))
 		return campaign_fail();
 	campaign_start(map_name, difficulty, controller, FALSE);
+	return TRUE;
+}
+
+/* "port daily random" (RANDOM RUN): a run made at random, played as
+PLAY plays the challenge */
+static boolean daily_random(short controller)
+{
+	struct player_profile profile;
+	char const *map_name;
+	short difficulty;
+
+	player_spawn_count = 1;
+	player_ui_reset_single_player_local_player_controllers();
+	if (!campaign_profile(controller, &profile))
+	{
+		display_error_text_deferred(L"Make a profile first (Profiles),\r\nthen play a random run.", controller);
+		return campaign_fail();
+	}
+	if (!community_random_begin(&map_name, &difficulty))
+		return campaign_fail();
+	campaign_start(map_name, difficulty, controller, FALSE);
+	return TRUE;
+}
+
+/* "port daily back" (the challenge's screen's B and BACK): to Campaign's
+menu, whose own back is the main menu's, however many days were looked at
+(each day's screen opened over the one before) */
+#define CAMPAIGN_MENU_NAME "pc\\main_menu\\campaign_select\\campaign_menu"
+#define MAIN_MENU_NAME "pc\\main_menu\\main_menu"
+/* (menu_tags.c's: a widget's tag group) */
+#define DAILY_WIDGET_DEFINITION_TAG 'DeLa'
+
+static boolean daily_back(boolean *widget_deleted)
+{
+	if (!ui_widget_load_by_name_or_tag(CAMPAIGN_MENU_NAME, NONE, NULL, NONE,
+		tag_loaded(DAILY_WIDGET_DEFINITION_TAG, MAIN_MENU_NAME), NONE, NONE))
+	{
+		return campaign_fail();
+	}
+	ui_play_audio_feedback_sound(SOUND_BACK);
+	*widget_deleted = TRUE;
 	return TRUE;
 }
 
@@ -5212,6 +5320,7 @@ static void map_list_update(struct widget_instance *list)
 	short display = NONE;
 	boolean custom = kind == MAP_KIND_CUSTOM_SINGLEPLAYER || kind == MAP_KIND_CUSTOM_MULTIPLAYER;
 
+	daily_overlays_hide(description);
 	if (kind != map_list.kind)
 	{
 		map_list.kind = kind;
@@ -6116,6 +6225,9 @@ static boolean advertised_in_progress(struct advertised_game *game)
 	return network_game_client_advertised_game_in_progress(global_network_game_client_get(), game);
 }
 
+/* (network_client_manager.c's) an advertised game's, by its place */
+boolean network_game_client_port_advertised_modded(short game_index);
+
 static void browser_games_read(void)
 {
 	void *client = global_network_game_client_get();
@@ -6125,14 +6237,16 @@ static void browser_games_read(void)
 	multiplayer.game_count = 0;
 	if (!games || multiplayer.mode == _multiplayer_mode_server_browser)
 		return;
-	/* (the open games, then those under way) */
-	for (pass = 0; pass < 2; pass++)
+	/* (the open games, then those under way; of each, the modded games
+	first, the randomizer's or skulls') */
+	for (pass = 0; pass < 4; pass++)
 	{
 		for (index = 0; index < MAXIMUM_ADVERTISED_GAMES; index++)
 		{
 			struct advertised_game *game = &games[index];
 
-			if (network_game_client_advertised_game_is_valid(game) && !advertised_in_progress(game) == (pass == 0) &&
+			if (network_game_client_advertised_game_is_valid(game) && !advertised_in_progress(game) == (pass < 2) &&
+				!network_game_client_port_advertised_modded(index) == (pass % 2 == 1) &&
 				game_from_peer(game) == (multiplayer.mode == _multiplayer_mode_direct_link))
 			{
 				multiplayer.games[multiplayer.game_count++] = game;
@@ -8815,6 +8929,14 @@ boolean pc_menu_event_function_invoke(
 		else if (!strcmp(name, "port history init"))
 		{
 			return daily_history_initialize();
+		}
+		else if (!strcmp(name, "port daily back"))
+		{
+			return daily_back(widget_deleted);
+		}
+		else if (!strcmp(name, "port daily random"))
+		{
+			return daily_random(controller);
 		}
 		else if (!strcmp(name, "port daily try default"))
 		{

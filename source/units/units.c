@@ -6350,7 +6350,11 @@ boolean unit_update(
 		}
 	}
 
-	if (TEST_FLAG(unit->unit.flags, _unit_integrated_light_on_bit))
+	/* port: skull: Envy, the battery its camo's charge, used and filled by
+	the skull (port/linux/game/skulls.c) */
+	if (unit->unit.player_index != NONE && skulls_envy_update(unit_index))
+		;
+	else if (TEST_FLAG(unit->unit.flags, _unit_integrated_light_on_bit))
 	{
 		if (!TEST_FLAG(unit_definition->unit.flags, _unit_integrated_light_fucking_lasts_forever_bit))
 		{

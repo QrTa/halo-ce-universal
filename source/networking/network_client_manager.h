@@ -63,6 +63,9 @@ short network_game_client_get_machine_index(
 	struct network_game_client *client);
 boolean network_game_client_advertised_game_is_valid(
 	struct network_advertised_game *advertised_game);
+/* port: the advertised game at that place in the available games is modded */
+boolean network_game_client_port_advertised_modded(
+	short game_index);
 struct network_advertised_game *network_game_client_get_available_games(
 	struct network_game_client *client);
 short network_game_client_get_error(

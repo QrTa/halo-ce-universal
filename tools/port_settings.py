@@ -32,6 +32,12 @@ QUIT_ITEM_PLACE = (192, 427)
 # and Back up again, with game.daily_challenge off)
 DAILY = "main_menu/daily"
 DAILY_ITEM = "main_menu/campaign_select/menu_item_daily"
+# (the map lists' DAILY CHALLENGES: a challenge's skulls' icons over its
+# level's picture, two rows of five at most, at its top: _daily)
+DAILY_LEVEL_SKULL = "main_menu/daily/level_skull_icon"
+DAILY_LEVEL_SKULLS = 10
+DAILY_LEVEL_SKULL_CHILDREN = [f'<child widget="{DAILY_LEVEL_SKULL}" x="{421 + (index % 5) * 27}" y="{89 + (index // 5) * 26}"/>'
+                              for index in range(DAILY_LEVEL_SKULLS)]
 DAILY_ITEM_PLACE = (160, 391)
 CAMPAIGN_BACK_ITEM_PLACE = (192, 427)
 # the profile settings' rows, in order: the PC version's nine and Gameplay,
@@ -1595,6 +1601,11 @@ WIDGET_PATCHES = {
         '<child widget="main_menu/solo_level_select/replay_level_right_name"/>',
         '<child widget="main_menu/solo_level_select/replay_level_right_pic"/>',
         '<child widget="main_menu/solo_level_select/replay_level_right_data"/>',
+        # (a daily challenge's difficulty badge and skulls over its picture,
+        # as New Game's: _daily)
+        f'<child widget="{LEVEL_BADGE_PLATE}" x="{LEVEL_BADGE_PLATE_PLACE[0]}" y="{LEVEL_BADGE_PLATE_PLACE[1]}"/>',
+        *[f'<child widget="{LEVEL_BADGE}" x="{x}" y="{LEVEL_BADGE_TOP}"/>' for x in LEVEL_BADGE_LEFTS],
+        *DAILY_LEVEL_SKULL_CHILDREN,
     ]},
     # (and the level's records, its best score and time, where the large
     # difficulty icons were, which are small badges over the picture's
@@ -1607,6 +1618,7 @@ WIDGET_PATCHES = {
         f'<child widget="{LEVEL_BADGE_PLATE}" x="{LEVEL_BADGE_PLATE_PLACE[0]}" y="{LEVEL_BADGE_PLATE_PLACE[1]}"/>',
         *[f'<child widget="{LEVEL_BADGE}" x="{x}" y="{LEVEL_BADGE_TOP}"/>' for x in LEVEL_BADGE_LEFTS],
         f'<child widget="{LEVEL_RECORD}"/>',
+        *DAILY_LEVEL_SKULL_CHILDREN,
     ]},
     # (the level's words a little smaller, for the records' three lines
     # beneath them: _level_records)
@@ -2651,7 +2663,8 @@ def _daily() -> list:
                      [("width", 640), ("height", 480), ("flags", "pass_unhandled_to_focused_child"),
                       ("bitmap", "bitmaps/gradient")],
                      ['<data input="port daily update"/>', '<on event="created" run="port daily init"/>',
-                      '<on event="b" back="true"/>', '<on event="back" back="true"/>',
+                      # (back to Campaign's menu, however many days were looked at)
+                      '<on event="b" run="port daily back"/>', '<on event="back" run="port daily back"/>',
                       *[f'<child widget="{DAILY}/{name}"/>' for name, *_ in DAILY_TEXTS],
                       f'<child widget="{DAILY}/picture"/>', f'<child widget="{DAILY}/difficulty_icon"/>', *icons,
                       f'<child widget="{DAILY}/button_bar" y="414"/>'])
@@ -2674,7 +2687,15 @@ def _daily() -> list:
                      [f'<child widget="{DAILY}/button_play" x="24" y="1"/>',
                       f'<child widget="{DAILY}/button_leaderboard" x="154" y="1"/>',
                       f'<child widget="{DAILY}/button_history" x="284" y="1"/>',
-                      '<child widget="common_button_back" x="510" y="1"/>'])
+                      '<child widget="common_button_back" x="510" y="1"/>',
+                      # (RANDOM RUN at the top right, beside the title, though
+                      # the bar's: the focus goes to it with the others)
+                      f'<child widget="{DAILY}/button_random" x="452" y="-374"/>'])
+    lines += _text_button(f"{DAILY}/button_random", "RANDOM RUN", ['<on event="a" run="port daily random"/>',
+                                                                  '<on event="start" run="port daily random"/>'])
+    # (the map lists' DAILY CHALLENGES' skulls over the level's picture)
+    lines += _widget(DAILY_LEVEL_SKULL, [("controller", 1), ("width", 24), ("height", 24),
+                                         ("bitmap", "skulls/icons")], [])
     lines += _text_button(f"{DAILY}/button_play", "PLAY", ['<on event="a" run="port daily play"/>',
                                                           '<on event="start" run="port daily play"/>'])
     lines += _text_button(f"{DAILY}/button_leaderboard", "LEADERBOARD",

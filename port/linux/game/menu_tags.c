@@ -413,6 +413,8 @@ static char const *const port_function_names[] =
 	Community's SERVER ADDRESS; B on a field's row) */
 	"port daily try default", "port daily connection edit", "port daily go offline", "port daily retry",
 	"port daily settings init", "port daily server edit", "port field back",
+	/* (the challenge's screen's BACK, to Campaign's menu, and RANDOM RUN) */
+	"port daily back", "port daily random",
 };
 
 /* the PC version's game data functions that the Xbox's have not, from

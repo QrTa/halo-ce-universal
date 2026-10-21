@@ -48,8 +48,10 @@ struct community_row
 /* a day's challenge, as the server set it (or this machine, offline) */
 struct community_challenge
 {
-	/* the server's (FALSE: this machine's, offline) */
+	/* the server's (FALSE: this machine's, offline); a random run's (made
+	here at random, no leaderboard's) */
 	boolean online;
+	boolean random;
 	char day[COMMUNITY_DAY_LENGTH];
 	char level[COMMUNITY_LEVEL_KEY_LENGTH];
 	/* (its index in the campaign, NONE for a level this build has not) */
@@ -81,6 +83,8 @@ struct community_history_day
 	short level_index;
 	short difficulty;
 	short skull_count;
+	/* (its skulls, halo_skulls.h's: NONE for one this build has not) */
+	short skulls[COMMUNITY_MAXIMUM_SKULLS];
 	boolean open;
 	long players;
 	boolean has_best;
@@ -136,6 +140,11 @@ wchar_t const *community_status_text(void);
 randomizer's, the skulls', scoring on), its seed the randomizer's; its
 level's map name and difficulty. FALSE when it cannot be played here */
 boolean community_daily_begin(char const **map_name, short *difficulty);
+/* a random run, to play: made now at random (a level, a difficulty, the
+randomizer's setup and skulls, the randomizer's and the skulls' on whatever
+this machine's settings and skulls unlocked), set for its run as a daily
+challenge's is, its scores no leaderboard's */
+boolean community_random_begin(char const **map_name, short *difficulty);
 /* (the menus) the challenge's run did not start after all */
 void community_daily_cancel(void);
 /* a daily challenge is being played (its settings are set): this
@@ -178,6 +187,11 @@ short community_board_count(void);
 struct community_row const *community_board_row(short index);
 struct community_row const *community_board_mine(void);
 long community_board_players(void);
+/* a day's leaderboard's top three while the day lasted (kept on top of it:
+it takes runs whenever they are played), online only */
+#define COMMUNITY_DAY_TOP 3
+short community_board_day_top_count(void);
+struct community_row const *community_board_day_top(short index);
 
 /* ---------- scores sent */
 

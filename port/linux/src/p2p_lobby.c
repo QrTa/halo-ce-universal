@@ -978,10 +978,14 @@ int p2p_lobby_browsing(void)
 
 /* the order shown: the most players first; then those joining has not
 failed, the open ones, and by name */
+/* the browser's order: modded games first (the randomizer's or skulls'),
+then the fullest, those reachable, those open, and by name */
 static int listing_order(const void *first, const void *second)
 {
 	const struct p2p_listing *a = first, *b = second;
 
+	if (!a->modded != !b->modded)
+		return b->modded ? 1 : -1;
 	if (a->player_count != b->player_count)
 		return b->player_count - a->player_count;
 	if (a->failed != b->failed)

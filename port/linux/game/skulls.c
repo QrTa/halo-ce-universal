@@ -1660,31 +1660,102 @@ static void skull_drop(long unit_index, int skull, long left, short odds)
 /* the players' camo powerup (players.c's) */
 extern boolean player_handle_powerup(long player_index, short powerup_type, short duration);
 
-/* Envy: the camo a press gives, and the wait after it before another */
-#define ENVY_CAMO_TICKS (10 * TICKS_PER_SECOND)
-#define ENVY_RECHARGE_TICKS (15 * TICKS_PER_SECOND)
+/* Envy: the flashlight's button is active camo, as the flashlight is: a
+press turns it on, another off. Its charge is the flashlight's battery, on
+the flashlight's meter: a full one lasts ENVY_CAMO_TICKS on, and fills from
+empty in ENVY_RECHARGE_TICKS off, a part used or filled as much */
+#define ENVY_CAMO_TICKS (7 * TICKS_PER_SECOND)
+#define ENVY_RECHARGE_TICKS (20 * TICKS_PER_SECOND)
+/* (the least charge that turns it on) */
+#define ENVY_MINIMUM_CHARGE 0.05f
 #define ENVY_PLAYERS 16
 
-static long envy_ready_time[ENVY_PLAYERS];
+static struct
+{
+	boolean on;
+	/* the last tick the button was held, so a press counts once */
+	long pressed_time;
+} envy[ENVY_PLAYERS];
+
+static short envy_slot(struct unit_datum const *unit)
+{
+	return (short)(DATUM_INDEX_TO_ABSOLUTE_INDEX(unit->unit.player_index) % ENVY_PLAYERS);
+}
+
+/* the camo the charge left gives, or none now */
+static void envy_set(struct unit_datum *unit, short slot, boolean on)
+{
+	struct player_datum *player = player_get(unit->unit.player_index);
+
+	if (on)
+	{
+		short ticks = (short)MAX(unit->unit.integrated_light_battery * ENVY_CAMO_TICKS, 1.0f);
+
+		envy[slot].on = player_handle_powerup(unit->unit.player_index, _player_powerup_active_camouflage, ticks);
+		return;
+	}
+	envy[slot].on = FALSE;
+	/* (its camo out at the next tick, as the powerup's end takes it) */
+	if (player->powerup_durations[_player_powerup_active_camouflage] > 1)
+		player->powerup_durations[_player_powerup_active_camouflage] = 1;
+}
 
 int skulls_envy(long unit_index)
 {
 	struct unit_datum *unit = (struct unit_datum *)object_try_and_get_and_verify_type(unit_index, _object_mask_unit);
 	long now = game_time_get();
 	short slot;
+	boolean pressed;
 
 	if (!unit || unit->unit.player_index == NONE || !skull_active(_skull_envy))
 		return FALSE;
-	slot = (short)(DATUM_INDEX_TO_ABSOLUTE_INDEX(unit->unit.player_index) % ENVY_PLAYERS);
-	/* (the light stays off; a revert to before the last press, ready) */
-	SET_FLAG(unit->unit.flags, _unit_integrated_light_on_bit, FALSE);
-	if (now + ENVY_CAMO_TICKS + ENVY_RECHARGE_TICKS < envy_ready_time[slot])
-		envy_ready_time[slot] = 0;
-	if (now >= envy_ready_time[slot] && !TEST_FLAG(unit->unit.flags, _unit_active_camouflaged_bit) &&
-		player_handle_powerup(unit->unit.player_index, _player_powerup_active_camouflage, ENVY_CAMO_TICKS))
+	slot = envy_slot(unit);
+	/* (a press: not held from the tick before; a revert to before it, a new
+	one; asked again in the same tick, the same) */
+	if (envy[slot].pressed_time == now)
+		return TRUE;
+	pressed = envy[slot].pressed_time != now - 1;
+	envy[slot].pressed_time = now;
+	if (!pressed)
+		return TRUE;
+	if (envy[slot].on)
+		envy_set(unit, slot, FALSE);
+	else if (unit->unit.integrated_light_battery >= ENVY_MINIMUM_CHARGE &&
+		!TEST_FLAG(unit->unit.flags, _unit_active_camouflaged_bit))
 	{
-		envy_ready_time[slot] = now + ENVY_CAMO_TICKS + ENVY_RECHARGE_TICKS;
+		envy_set(unit, slot, TRUE);
 	}
+	return TRUE;
+}
+
+int skulls_envy_update(long unit_index)
+{
+	struct unit_datum *unit = (struct unit_datum *)object_try_and_get_and_verify_type(unit_index, _object_mask_unit);
+	short slot;
+
+	if (!unit || unit->unit.player_index == NONE || !skull_active(_skull_envy))
+		return FALSE;
+	slot = envy_slot(unit);
+	/* (the light itself never on) */
+	SET_FLAG(unit->unit.flags, _unit_integrated_light_on_bit, FALSE);
+	unit->unit.integrated_light_power = 0.0f;
+	/* (its camo gone another way, a death, the powerup's end: off) */
+	if (envy[slot].on && (!TEST_FLAG(unit->unit.flags, _unit_active_camouflaged_bit) ||
+		TEST_FLAG(unit->object.damage_flags, _object_dead_bit)))
+	{
+		envy[slot].on = FALSE;
+	}
+	if (envy[slot].on)
+	{
+		unit->unit.integrated_light_battery -= 1.0f / ENVY_CAMO_TICKS;
+		if (unit->unit.integrated_light_battery <= 0.0f)
+		{
+			unit->unit.integrated_light_battery = 0.0f;
+			envy_set(unit, slot, FALSE);
+		}
+	}
+	else
+		unit->unit.integrated_light_battery = MIN(unit->unit.integrated_light_battery + 1.0f / ENVY_RECHARGE_TICKS, 1.0f);
 	return TRUE;
 }
 
@@ -1728,7 +1799,10 @@ static void running_skulls_reset(void)
 	tick_kill_count = 0;
 	hunter_kind_count = 0;
 	for (slot = 0; slot < ENVY_PLAYERS; slot++)
-		envy_ready_time[slot] = 0;
+	{
+		envy[slot].on = FALSE;
+		envy[slot].pressed_time = NONE;
+	}
 	give_and_take_reset();
 }
 

@@ -9,8 +9,8 @@
 	<widget name="main_menu/daily/daily_screen" width="640" height="480" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/gradient">
 		<data input="port daily update"/>
 		<on event="created" run="port daily init"/>
-		<on event="b" back="true"/>
-		<on event="back" back="true"/>
+		<on event="b" run="port daily back"/>
+		<on event="back" run="port daily back"/>
 		<child widget="main_menu/daily/title"/>
 		<child widget="main_menu/daily/date"/>
 		<child widget="main_menu/daily/mission"/>
@@ -72,6 +72,14 @@
 		<child widget="main_menu/daily/button_leaderboard" x="154" y="1"/>
 		<child widget="main_menu/daily/button_history" x="284" y="1"/>
 		<child widget="common_button_back" x="510" y="1"/>
+		<child widget="main_menu/daily/button_random" x="452" y="-374"/>
+	</widget>
+	<widget name="main_menu/daily/button_random" type="text" width="128" height="24" bitmap="bitmaps/text_button_background" text="RANDOM RUN" font="ui\small_ui" color="#FFFFFFFF" align="center" text_y="2">
+		<on event="a" run="port daily random"/>
+		<on event="start" run="port daily random"/>
+		<on event="left_mouse" run="mouse emit accept event"/>
+	</widget>
+	<widget name="main_menu/daily/level_skull_icon" controller="1" width="24" height="24" bitmap="skulls/icons">
 	</widget>
 	<widget name="main_menu/daily/button_play" type="text" width="128" height="24" bitmap="bitmaps/text_button_background" text="PLAY" font="ui\small_ui" color="#FFFFFFFF" align="center" text_y="2">
 		<on event="a" run="port daily play"/>

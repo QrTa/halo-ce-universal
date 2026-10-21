@@ -265,9 +265,12 @@ float skulls_item_push_scale(long object_index);
 int skulls_item_take(short local_player_index, long unit_index, long object_index);
 
 /* Envy: a player's unit's flashlight button pressed: TRUE when it is the
-skull's active camo instead (taken, or still recharging); Swarm: whether an
+skull's active camo instead (turned on or off, as the flashlight is); and
+each tick, its charge (the flashlight's battery) used or filled, TRUE when
+the skull has the battery, not the light (units.c); Swarm: whether an
 object's definition is a hunter's */
 int skulls_envy(long unit_index);
+int skulls_envy_update(long unit_index);
 int skulls_object_is_hunter(long definition_index);
 
 /* Give & Take: a player's unit fired a shot (a miss, unless an enemy is hit

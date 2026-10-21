@@ -1987,17 +1987,13 @@ static void campaign_score_panel_row(
 /* the score and the level's time, as the Master Chief Collection's panel at
 the bottom right of one player's view (hud.c's hud_draw_screen, before the
 skulls' icons, which it lifts above itself): a strip of segments, then the
-player's row (the team's in a cooperative co-op game), and in a competitive
-one the best of the other players, their rival */
+player's own row (the team's in a cooperative co-op game); the other
+players' scores are the scoreboard's (hold BACK, or tab) */
 void campaign_score_draw_view(
 	long player_index)
 {
 	struct campaign_score_panel panel;
 	struct font_header *font;
-	struct data_iterator iterator;
-	struct player_datum *other;
-	long rival_index = NONE;
-	long rival_points = 0;
 	boolean competitive;
 	boolean coop;
 	real row_height;
@@ -2033,26 +2029,7 @@ void campaign_score_draw_view(
 	campaign_score_update();
 	competitive = campaign_score_is_competitive();
 	coop = network_coop_active() || local_player_count() > 1;
-
-	/* (the rival: the other player with the most points) */
-	if (competitive && coop)
-	{
-		data_iterator_new(&iterator, player_data);
-		while ((other = (struct player_datum *)data_iterator_next(&iterator)) != NULL)
-		{
-			long points;
-
-			if (iterator.datum_index == player_index || other->quit_out_of_game)
-				continue;
-			points = campaign_score_player_points(iterator.datum_index);
-			if (rival_index == NONE || points > rival_points)
-			{
-				rival_index = iterator.datum_index;
-				rival_points = points;
-			}
-		}
-	}
-	rows = rival_index != NONE ? 2 : 1;
+	rows = 1;
 	/* (each row a line of the HUD's text and a smaller one beneath) */
 	row_height = panel.line_height * (1.0f + CAMPAIGN_SCORE_SUBLINE_SIZE) + CAMPAIGN_SCORE_ROW_PADDING * 2;
 	row_height = MAX(row_height, CAMPAIGN_SCORE_ROW_MINIMUM);
@@ -2137,15 +2114,17 @@ void campaign_score_draw_view(
 		}
 	}
 
-	/* the score's multiplier now, over the rows: the difficulty's, the
-	skulls' and the time's together (a kill's style's is its own; the
-	scoreboard has each: campaign_score_multipliers) */
+	/* the score's multiplier now, over the rows: the difficulty's and the
+	skulls' together, which each kill is worth more by (a kill's style's is
+	its own; the time's, which only the level's end applies, is the
+	scoreboard's, which has each) */
 	{
 		char total_text[16];
 		real y = CAMPAIGN_SCORE_STRIP_HEIGHT + CAMPAIGN_SCORE_STRIP_GAP;
 		real_argb_color color;
 
-		campaign_score_multiplier_string(campaign_score_total_multiplier(), total_text, sizeof(total_text));
+		campaign_score_multiplier_string(campaign_score_difficulty_multiplier() * campaign_score_skulls_multiplier(),
+			total_text, sizeof(total_text));
 		campaign_score_panel_quad(&panel, 0.0f, y, CAMPAIGN_SCORE_PANEL_WIDTH, y + multipliers_height,
 			CAMPAIGN_SCORE_PANEL_FILL);
 		campaign_score_panel_frame(&panel, 0.0f, y, CAMPAIGN_SCORE_PANEL_WIDTH, y + multipliers_height,
@@ -2171,17 +2150,6 @@ void campaign_score_draw_view(
 	campaign_score_panel_row(&panel, rows_top, row_height,
 		coop && !competitive ? "TEAM" : NULL, coop && !competitive ? NULL : own_name, score,
 		campaign_score_difficulty_names[campaign_score_difficulty()], time);
-	if (rival_index != NONE)
-	{
-		wchar_t rival_name[MAXIMUM_PLAYER_PROFILE_NAME_LENGTH + 1];
-		char rival_kills[24];
-
-		campaign_score_player_display_name(rival_index, rival_name, NUMBEROF(rival_name));
-		snprintf(score, sizeof(score), "%ld", rival_points);
-		snprintf(rival_kills, sizeof(rival_kills), "KILLS %ld", campaign_score_player_kills(rival_index));
-		campaign_score_panel_row(&panel, rows_top + row_height + CAMPAIGN_SCORE_ROW_GAP, row_height,
-			NULL, rival_name, score, "RIVAL", rival_kills);
-	}
 
 	campaign_score_drawn_height = (short)(history_height + height + CAMPAIGN_SCORE_SKULLS_GAP + 0.5f);
 	/* the medals just won, at the center left (campaign_medals.c) */
