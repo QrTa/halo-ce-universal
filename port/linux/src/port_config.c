@@ -488,7 +488,7 @@ static const struct config_setting config_settings[] =
 		"How an AI's body falls, the same choices as game.ragdoll_players.\n"
 		"Settings > Gameplay, or here. A cinematic keeps its own." },
 	{ "game.campaign_score", _config_boolean, "false", "HALO_CAMPAIGN_SCORE", _environment_value, _platform_all,
-		"Settings > Gameplay's CAMPAIGN SCORING. Score the campaign as Halo 3: a\n"
+		"Settings > Gameplay > Scoring's SCORING. Score the campaign as Halo 3: a\n"
 		"kill is its enemy's points times its style (one shot one kill, headshot,\n"
 		"melee, backsmack), the difficulty and the skulls on; killing allies or\n"
 		"players, dying and reverting take points; the level's points are\n"
@@ -496,6 +496,13 @@ static const struct config_setting config_settings[] =
 		"are port/linux/game/campaign_score_values.json's. The score and time are\n"
 		"at the bottom right, the scoreboard (hold BACK, or tab) lists everyone's,\n"
 		"and a summary is shown when a level is won, until A or B is pressed." },
+	{ "game.campaign_medals", _config_boolean, "true", "HALO_CAMPAIGN_MEDALS", _environment_value, _platform_all,
+		"Settings > Gameplay > Scoring's MEDALS. With SCORING on, the\n"
+		"campaign gives Halo 3's and Halo: Reach's medals (multi-kills, sprees,\n"
+		"headshots, Wheelman, ...), each worth points\n"
+		"(port/linux/game/campaign_score_values.json): shown at the center left\n"
+		"as they are won, and the last few above the score. In co-op the host's\n"
+		"choice gives them; each machine's, whether they are shown." },
 	{ "game.campaign_progression", _config_string, "\"default\"", "HALO_CAMPAIGN_PROGRESSION", _environment_value,
 		_platform_all,
 		"Settings > Gameplay's CAMPAIGN PROGRESSION. \"default\": the campaign's\n"

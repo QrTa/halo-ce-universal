@@ -57,6 +57,20 @@ struct campaign_score_skull_value
 	float multiplier;
 };
 
+/* a medal's points, by its key (campaign_medals.c's) */
+struct campaign_score_medal_value
+{
+	char const *medal;
+	int points;
+};
+
+enum
+{
+	/* the weapons the medals tell apart by the killing blow's damage
+	effect's name: sniper, shotgun, flame, grenade stick, splatter */
+	CAMPAIGN_SCORE_MEDAL_WEAPONS = 5,
+};
+
 struct campaign_score_values
 {
 	/* easy, normal, heroic, legendary */
@@ -91,6 +105,20 @@ struct campaign_score_values
 	float skull_default;
 	short skull_count;
 	struct campaign_score_skull_value const *skulls;
+
+	/* the medals: the multi-kill's window, Perfection's kills, Close Call's
+	health (a fraction), how many the history shows, how long one is shown,
+	whether their points are times the difficulty and the skulls, the
+	weapons' words (each list ends with NULL), and each medal's points */
+	float medal_multi_kill_seconds;
+	int medal_perfection_kills;
+	float medal_close_call_health;
+	short medal_history;
+	float medal_popup_seconds;
+	short medal_scaled;
+	char const *const *medal_weapon_words[CAMPAIGN_SCORE_MEDAL_WEAPONS];
+	short medal_count;
+	struct campaign_score_medal_value const *medals;
 };
 
 extern struct campaign_score_values const campaign_score_values;

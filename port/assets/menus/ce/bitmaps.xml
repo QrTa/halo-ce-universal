@@ -453,4 +453,44 @@
 		<frame png="ce/port/skulls/icons__41.png" width="24" height="24"/>
 		<frame png="ce/port/skulls/icons__42.png" width="24" height="24"/>
 	</bitmap>
+	<bitmap name="medals/icons">
+		<frame png="ce/port/medals/icons__0.png" width="32" height="32"/>
+		<frame png="ce/port/medals/icons__1.png" width="32" height="32"/>
+		<frame png="ce/port/medals/icons__2.png" width="32" height="32"/>
+		<frame png="ce/port/medals/icons__3.png" width="32" height="32"/>
+		<frame png="ce/port/medals/icons__4.png" width="32" height="32"/>
+		<frame png="ce/port/medals/icons__5.png" width="32" height="32"/>
+		<frame png="ce/port/medals/icons__6.png" width="32" height="32"/>
+		<frame png="ce/port/medals/icons__7.png" width="32" height="32"/>
+		<frame png="ce/port/medals/icons__8.png" width="32" height="32"/>
+		<frame png="ce/port/medals/icons__9.png" width="32" height="32"/>
+		<frame png="ce/port/medals/icons__10.png" width="32" height="32"/>
+		<frame png="ce/port/medals/icons__11.png" width="32" height="32"/>
+		<frame png="ce/port/medals/icons__12.png" width="32" height="32"/>
+		<frame png="ce/port/medals/icons__13.png" width="32" height="32"/>
+		<frame png="ce/port/medals/icons__14.png" width="32" height="32"/>
+		<frame png="ce/port/medals/icons__15.png" width="32" height="32"/>
+		<frame png="ce/port/medals/icons__16.png" width="32" height="32"/>
+		<frame png="ce/port/medals/icons__17.png" width="32" height="32"/>
+		<frame png="ce/port/medals/icons__18.png" width="32" height="32"/>
+		<frame png="ce/port/medals/icons__19.png" width="32" height="32"/>
+		<frame png="ce/port/medals/icons__20.png" width="32" height="32"/>
+		<frame png="ce/port/medals/icons__21.png" width="32" height="32"/>
+		<frame png="ce/port/medals/icons__22.png" width="32" height="32"/>
+		<frame png="ce/port/medals/icons__23.png" width="32" height="32"/>
+		<frame png="ce/port/medals/icons__24.png" width="32" height="32"/>
+		<frame png="ce/port/medals/icons__25.png" width="32" height="32"/>
+		<frame png="ce/port/medals/icons__26.png" width="32" height="32"/>
+		<frame png="ce/port/medals/icons__27.png" width="32" height="32"/>
+		<frame png="ce/port/medals/icons__28.png" width="32" height="32"/>
+		<frame png="ce/port/medals/icons__29.png" width="32" height="32"/>
+		<frame png="ce/port/medals/icons__30.png" width="32" height="32"/>
+		<frame png="ce/port/medals/icons__31.png" width="32" height="32"/>
+		<frame png="ce/port/medals/icons__32.png" width="32" height="32"/>
+		<frame png="ce/port/medals/icons__33.png" width="32" height="32"/>
+		<frame png="ce/port/medals/icons__34.png" width="32" height="32"/>
+		<frame png="ce/port/medals/icons__35.png" width="32" height="32"/>
+		<frame png="ce/port/medals/icons__36.png" width="32" height="32"/>
+		<frame png="ce/port/medals/icons__37.png" width="32" height="32"/>
+	</bitmap>
 </menus>

@@ -461,17 +461,13 @@ SCREENS["gameplay"] = {
          [("DEFAULT", "default"), ("ALL UNLOCKED", "all_unlocked")],
          "Default: finish a level to unlock the next.\nAll unlocked: every campaign level can be played.",
          None),
-        # (port/linux/game/campaign_score.c: the score and time at the bottom
-        # right, the skulls' icons above them, and the scoreboard's scores)
-        ("CAMPAIGN SCORING:", "game.campaign_score", ON_OFF,
-         "Score each kill in the campaign: your score and\ntime at the bottom right, everyone's on tab.",
-         None),
     ],
     "categories": [
         ("RAGDOLLS", "gameplay/ragdolls", "How the bodies of players and the AI fall."),
         ("RANDOMIZER", "gameplay/randomizer",
          "The randomizer: a campaign level's enemies\nand weapons swapped."),
         ("SKULLS", "gameplay/skulls", "The Master Chief Collection's skulls, and\nhow they are found."),
+        ("SCORING", "gameplay/scoring", "The campaign's score, its time and par times,\nand its medals."),
     ],
 }
 SCREENS["gameplay/ragdolls"] = {
@@ -484,6 +480,20 @@ SCREENS["gameplay/ragdolls"] = {
         ("AI RAGDOLLS:", "game.ragdoll_ai",
          [("NONE", "none"), ("WOODY", "woody"), ("HALO 2", "halo2")],
          "How an AI's body falls:\nthe animation, a loose ragdoll, or Halo 2's.",
+         None),
+    ],
+}
+# (the campaign's scoring: port/linux/game/campaign_score.c, the score and
+# time at the bottom right, the skulls' icons above them, and the
+# scoreboard's scores; campaign_medals.c, with it, medals worth points)
+SCREENS["gameplay/scoring"] = {
+    "screen": "scoring_settings_screen", "header": _GAMEPLAY_HEADER, "spacing": 30,
+    "rows": [
+        ("SCORING:", "game.campaign_score", ON_OFF,
+         "Score each kill in the campaign: your score and\ntime at the bottom right, everyone's on tab.",
+         None),
+        ("MEDALS:", "game.campaign_medals", ON_OFF,
+         "With scoring on: Halo 3's and Reach's medals,\neach worth points, shown as they are won.",
          None),
     ],
 }

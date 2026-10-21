@@ -291,6 +291,7 @@ n.build(
         campaign_score_values.JSON_PATH.relative_to(campaign_score_values.ROOT),
         campaign_score_values.ACTOR_TYPES.relative_to(campaign_score_values.ROOT),
         campaign_score_values.SKULLS_C.relative_to(campaign_score_values.ROOT),
+        campaign_score_values.MEDALS_C.relative_to(campaign_score_values.ROOT),
         *linux_configure_inputs(),
         *android_configure_inputs(),
         *linux_guest_configure_inputs(),

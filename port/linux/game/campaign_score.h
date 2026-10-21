@@ -20,7 +20,9 @@ was depleted) by a blow of `killing_player_index`'s (NONE for no player's),
 to the body part (units.c's), by melee or not, going `direction` (a
 real_vector3d): an enemy's kill scores, by its style; an ally's, a player's
 death and another player's are penalties; the hurt is remembered for one
-shot, one kill. `no_statistics`: a kill not counted */
+shot, one kill. `no_statistics`: a kill not counted. The blow's damage
+effect and the object it is of (its unit: an AI's too) tell the kill's
+medals (campaign_medals.c) */
 void campaign_score_unit_damaged(
 	long unit_index,
 	long killing_player_index,
@@ -28,7 +30,15 @@ void campaign_score_unit_damaged(
 	boolean melee,
 	void const *direction,
 	boolean lethal,
-	boolean no_statistics);
+	boolean no_statistics,
+	long damage_definition_index,
+	long killer_object_index);
+
+/* (campaign_medals.c) a medal won by the player (its datum index), worth
+its points: logged, and sent to a co-op game's clients */
+void campaign_score_award_medal(
+	long player_index,
+	short medal);
 
 /* (ui_widget_event_handler_functions.c's pause_game_restart_at_checkpoint)
 Revert to Checkpoint was chosen: its penalty, for this machine's players */
@@ -59,6 +69,7 @@ index), the team's points, whether co-op scores each player on their own,
 and the level's time (in ticks, and H:MM:SS) */
 long campaign_score_player_points(long player_index);
 long campaign_score_player_kills(long player_index);
+long campaign_score_player_deaths(long player_index);
 long campaign_score_team_points(void);
 boolean campaign_score_is_competitive(void);
 long campaign_score_level_ticks(void);

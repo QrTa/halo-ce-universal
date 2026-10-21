@@ -49,6 +49,7 @@ from PIL import Image
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from hud_assets import bleed, render_svg  # noqa: E402
+import campaign_score_values  # noqa: E402
 import port_settings  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -702,6 +703,11 @@ def main() -> None:
                                                 for key, _ in port_settings.SKULLS] +
                                [(ROOT / "port/assets/skulls" / f"{mark}.png", 24, 24)
                                 for mark in ("lost", "dropped", "unlocked")]))
+    # (the campaign's medals' icons, Halo 3's from halo.bungie.org's high-res
+    # medals and Halo: Reach's from Halopedia, port/assets/medals: a frame each
+    # in campaign_medals.c's order, which it and campaign_score.c draw)
+    lines.append(art.port_pngs("medals/icons", [(ROOT / "port/assets/medals" / f"{key}.png", 32, 32)
+                                                for key in campaign_score_values.medal_keys()]))
     lines.append("</menus>")
     (CE / "bitmaps.xml").write_text("\n".join(lines) + "\n")
     # what is not hand-drawn

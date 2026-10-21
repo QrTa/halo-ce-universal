@@ -1223,7 +1223,9 @@ static void object_damage_aftermath(
 			damage_effect->damage.category == _damage_category_melee,
 			&damage->direction,
 			TEST_FLAG(being_damaged_flags, _object_being_damaged_body_depleted_bit),
-			TEST_FLAG(damage->flags, _damage_no_statistics_bit));
+			TEST_FLAG(damage->flags, _damage_no_statistics_bit),
+			damage->definition_index,
+			damage->owner_object_index);
 	}
 
 	if (TEST_FLAG(_object_mask_unit, object->object.type))

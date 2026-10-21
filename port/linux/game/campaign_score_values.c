@@ -155,6 +155,52 @@ static struct campaign_score_skull_value const campaign_score_skull_values[] =
 	{ "tough_luck", 1.1f },
 	{ "woe_is_me", 1.2f },
 };
+static struct campaign_score_medal_value const campaign_score_medal_values[] =
+{
+	{ "double_kill", 25 },
+	{ "triple_kill", 50 },
+	{ "overkill", 75 },
+	{ "killtacular", 100 },
+	{ "killtrocity", 125 },
+	{ "killimanjaro", 150 },
+	{ "killtastrophe", 175 },
+	{ "killpocalypse", 200 },
+	{ "killionaire", 250 },
+	{ "killing_spree", 50 },
+	{ "killing_frenzy", 100 },
+	{ "running_riot", 150 },
+	{ "rampage", 200 },
+	{ "untouchable", 250 },
+	{ "invincible", 300 },
+	{ "inconceivable", 350 },
+	{ "unfriggenbelievable", 400 },
+	{ "shotgun_spree", 50 },
+	{ "open_season", 100 },
+	{ "sniper_spree", 50 },
+	{ "sharpshooter", 100 },
+	{ "splatter_spree", 50 },
+	{ "vehicular_manslaughter", 100 },
+	{ "stick_spree", 50 },
+	{ "beat_down", 10 },
+	{ "assassin", 20 },
+	{ "headshot", 10 },
+	{ "sniper_kill", 10 },
+	{ "grenade_stick", 20 },
+	{ "splatter", 15 },
+	{ "incineration", 10 },
+	{ "death_from_the_grave", 50 },
+	{ "close_call", 25 },
+	{ "first_strike", 25 },
+	{ "revenge", 25 },
+	{ "avenger", 25 },
+	{ "wheelman", 15 },
+	{ "perfection", 500 },
+};
+static char const *const campaign_score_words_31[] = { "sniper rifle\\sniper bullet", NULL };
+static char const *const campaign_score_words_32[] = { "shotgun\\pellet", NULL };
+static char const *const campaign_score_words_33[] = { "flamethrower\\explosion", "flaming_death", NULL };
+static char const *const campaign_score_words_34[] = { "plasma grenade\\attached", NULL };
+static char const *const campaign_score_words_35[] = { "vehicle_killed_unit", "vehicle_collision", NULL };
 
 struct campaign_score_values const campaign_score_values =
 {
@@ -177,4 +223,12 @@ struct campaign_score_values const campaign_score_values =
 	0,
 	1.0f,
 	40, campaign_score_skull_values,
+	4.0f,
+	15,
+	0.25f,
+	8,
+	3.0f,
+	1,
+	{ campaign_score_words_31, campaign_score_words_32, campaign_score_words_33, campaign_score_words_34, campaign_score_words_35 },
+	38, campaign_score_medal_values,
 };

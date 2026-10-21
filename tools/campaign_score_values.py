@@ -29,6 +29,8 @@ JSON_PATH = ROOT / "port/linux/game/campaign_score_values.json"
 C_PATH = ROOT / "port/linux/game/campaign_score_values.c"
 ACTOR_TYPES = ROOT / "source/ai/actor_types.h"
 SKULLS_C = ROOT / "port/linux/game/skulls.c"
+MEDALS_C = ROOT / "port/linux/game/campaign_medals.c"
+MEDAL_WEAPONS = ("sniper", "shotgun", "flame", "grenade_stick", "splatter")
 DIFFICULTIES = ("easy", "normal", "heroic", "legendary")
 STYLES = ("regular", "one_shot_one_kill", "headshot", "melee", "backsmack")
 COMBINES = ("multiply", "highest")
@@ -53,6 +55,16 @@ def skull_keys() -> list:
     table = re.search(r"skull_descriptions\[NUMBER_OF_SKULLS\]\s*=\s*\{(.*?)\n\};", text, re.S)
     if not table:
         raise ValuesError(f"{SKULLS_C}: no skull_descriptions table")
+    return re.findall(r'\{\s*"([a-z_]+)",', table.group(1))
+
+
+def medal_keys() -> list:
+    """campaign_medals.c's medals' keys, in their table's order (the frames
+    of the menus' medals/icons: tools/ce_menus.py)"""
+    text = MEDALS_C.read_text()
+    table = re.search(r"campaign_medal_descriptions\[NUMBER_OF_CAMPAIGN_MEDALS\]\s*=\s*\{(.*?)\n\};", text, re.S)
+    if not table:
+        raise ValuesError(f"{MEDALS_C}: no campaign_medal_descriptions table")
     return re.findall(r'\{\s*"([a-z_]+)",', table.group(1))
 
 
@@ -223,6 +235,34 @@ def generate() -> str:
         out.lines += skull_rows
         out.lines.append("};")
 
+    medals = values.get("medals", {})
+    keys = medal_keys()
+    medal_rows = []
+    for key, points in medals.get("points", {}).items():
+        if key.startswith("_"):
+            continue
+        if key not in keys:
+            raise ValuesError(f"medals.points.{key}: not a medal (campaign_medals.c: {', '.join(keys)})")
+        medal_rows.append(f"\t{{ {_c_string(key)}, {_number(f'medals.points.{key}', points, integer=True)} }},")
+    if medal_rows:
+        out.lines.append("static struct campaign_score_medal_value const campaign_score_medal_values[] =\n{")
+        out.lines += medal_rows
+        out.lines.append("};")
+    weapons = medals.get("weapons", {})
+    for name in weapons:
+        if not name.startswith("_") and name not in MEDAL_WEAPONS:
+            raise ValuesError(f"medals.weapons.{name}: not one of {', '.join(MEDAL_WEAPONS)}")
+    weapon_lists = [out.words(f"medals.weapons.{name}", weapons[name]) if weapons.get(name) else "NULL"
+                    for name in MEDAL_WEAPONS]
+    medal_numbers = [
+        _c_float(_number("medals.multi_kill_seconds", medals.get("multi_kill_seconds", 4))),
+        str(_number("medals.perfection_kills", medals.get("perfection_kills", 15), integer=True)),
+        _c_float(_number("medals.close_call_health", medals.get("close_call_health", 0.25))),
+        str(_number("medals.history", medals.get("history", 8), integer=True)),
+        _c_float(_number("medals.popup_seconds", medals.get("popup_seconds", 3))),
+        "1" if medals.get("scaled", True) else "0",
+    ]
+
     body = [
         "struct campaign_score_values const campaign_score_values =",
         "{",
@@ -239,6 +279,9 @@ def generate() -> str:
         f"\t{skull_combine},",
         f"\t{_c_float(skull_default)},",
         f"\t{len(skull_rows)}, {'campaign_score_skull_values' if skull_rows else 'NULL'},",
+        *(f"\t{value}," for value in medal_numbers),
+        "\t{ " + ", ".join(weapon_lists) + " },",
+        f"\t{len(medal_rows)}, {'campaign_score_medal_values' if medal_rows else 'NULL'},",
         "};",
     ]
     head = [

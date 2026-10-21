@@ -1,7 +1,7 @@
 /*
 CAMPAIGN_SCORE.C
 
-The campaign's score (game.campaign_score, Settings > Gameplay's CAMPAIGN
+The campaign's score (game.campaign_score, Settings > Gameplay > Scoring's
 SCORING, off by default: the stock game has none), as Halo 3's and the Master
 Chief Collection's. Its values are campaign_score_values.json's
 (campaign_score_values.c, which tools/campaign_score_values.py writes from it
@@ -69,7 +69,11 @@ lobby) loads.
 #include "campaign_score.h"
 #include "custom_edition_maps.h"
 #include "campaign_score_values.h"
+#include "campaign_medals.h"
 #include "halo_skulls.h"
+#include "interface/ui_widget.h"
+#include "bitmaps/bitmap_group.h"
+#include "bitmaps/bitmap_group_lookup.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -114,6 +118,11 @@ enum
 	CAMPAIGN_SCORE_ROW_MINIMUM = 22,
 	/* (the skulls' icons this far above the panel) */
 	CAMPAIGN_SCORE_SKULLS_GAP = 4,
+	/* the medal history's icons, their gap, and the most it shows (the
+	JSON's medal history, up to this) */
+	CAMPAIGN_SCORE_HISTORY_SIZE = 18,
+	CAMPAIGN_SCORE_HISTORY_GAP = 3,
+	CAMPAIGN_SCORE_HISTORY_MAXIMUM = 16,
 };
 
 /* the panel's colours, the Master Chief Collection's blue (ARGB) */
@@ -148,6 +157,8 @@ enum
 	_campaign_score_entry_death,
 	/* Revert to Checkpoint, from the pause menu */
 	_campaign_score_entry_revert,
+	/* a medal (campaign_medals.c): variant_index its medal */
+	_campaign_score_entry_medal,
 	NUMBER_OF_CAMPAIGN_SCORE_ENTRIES
 };
 
@@ -782,6 +793,7 @@ static short campaign_score_compose(
 		kills, campaign_score_style_count(NONE, _campaign_score_style_headshot_bit),
 		campaign_score_style_count(NONE, _campaign_score_style_melee_bit) +
 			campaign_score_style_count(NONE, _campaign_score_style_backsmack_bit));
+	snprintf(lines[count++], CAMPAIGN_SCORE_SUMMARY_LENGTH, "MEDALS %ld", campaign_score_count_of(NONE, _campaign_score_entry_medal));
 	snprintf(lines[count++], CAMPAIGN_SCORE_SUMMARY_LENGTH, "DEATHS %ld  BETRAYALS %ld  ALLIES %ld",
 		campaign_score_count_of(NONE, _campaign_score_entry_death),
 		campaign_score_count_of(NONE, _campaign_score_entry_betrayal),
@@ -840,6 +852,7 @@ void campaign_score_new_map(
 	campaign_score_ticks = 0;
 	campaign_score_drawn_height = 0;
 	campaign_score_hurt_reset();
+	campaign_medals_new_map();
 	/* (a level just won, shown now; else nothing) */
 	campaign_score_summary_lines = campaign_score_pending_lines;
 	for (line = 0; line < campaign_score_pending_lines; line++)
@@ -859,6 +872,7 @@ static boolean campaign_score_append(
 	byte style)
 {
 	struct campaign_score_entry *entry;
+	char const *what;
 
 	campaign_score_update();
 	if (campaign_score_entry_count >= CAMPAIGN_SCORE_MAXIMUM_KILLS)
@@ -878,12 +892,25 @@ static boolean campaign_score_append(
 	entry->points = points;
 	entry->kind = (byte)kind;
 	entry->style = style;
+	/* (a medal shown to its player, if this machine's) */
+	if (kind == _campaign_score_entry_medal)
+		campaign_medals_awarded(player_index, (short)variant_index);
 	if (campaign_score_enabled())
 	{
-		platform_log("campaign score: player %d, %s %s, %ld (style %d)", (int)player_index,
-			kind == _campaign_score_entry_kill ? "killed" : kind == _campaign_score_entry_ally ? "killed an ally" :
-			kind == _campaign_score_entry_betrayal ? "betrayed" : kind == _campaign_score_entry_death ? "died" : "reverted",
-			variant_index != NONE ? tag_get_name(variant_index) : "", points, (int)style);
+		switch (kind)
+		{
+		case _campaign_score_entry_kill: what = "killed"; break;
+		case _campaign_score_entry_ally: what = "killed an ally"; break;
+		case _campaign_score_entry_betrayal: what = "betrayed"; break;
+		case _campaign_score_entry_death: what = "died"; break;
+		case _campaign_score_entry_revert: what = "reverted"; break;
+		default: what = "won"; break;
+		}
+		platform_log("campaign score: player %d, %s %s, %ld (style %d)", (int)player_index, what,
+			kind == _campaign_score_entry_medal ?
+				(variant_index >= 0 && variant_index < NUMBER_OF_CAMPAIGN_MEDALS ? campaign_medal_descriptions[variant_index].label : "?") :
+				variant_index != NONE ? tag_get_name(variant_index) : "",
+			points, (int)style);
 	}
 
 	return TRUE;
@@ -921,7 +948,9 @@ void campaign_score_unit_damaged(
 	boolean melee,
 	void const *direction,
 	boolean lethal,
-	boolean no_statistics)
+	boolean no_statistics,
+	long damage_definition_index,
+	long killer_object_index)
 {
 	struct campaign_score_values const *values = &campaign_score_values;
 	struct unit_datum *unit;
@@ -952,10 +981,10 @@ void campaign_score_unit_damaged(
 			campaign_score_note(_campaign_score_entry_death, NONE, unit->unit.player_index, values->penalty_death, 0);
 		if (values->penalty_betrayal && killing_player_index != NONE && killing_player_index != unit->unit.player_index)
 			campaign_score_note(_campaign_score_entry_betrayal, NONE, killing_player_index, values->penalty_betrayal, 0);
+		/* (its sprees end; its killer is remembered: campaign_medals.c) */
+		campaign_medals_player_died(unit->unit.player_index, killer_object_index);
 		return;
 	}
-	if (killing_player_index == NONE)
-		return;
 
 	/* the enemy's (or the ally's) points: a vehicle's by its name, else its
 	actor variant's */
@@ -982,11 +1011,20 @@ void campaign_score_unit_damaged(
 	}
 	if (base < 0)
 	{
-		campaign_score_note(_campaign_score_entry_ally, variant_index, killing_player_index, base, 0);
+		if (killing_player_index != NONE)
+			campaign_score_note(_campaign_score_entry_ally, variant_index, killing_player_index, base, 0);
 		return;
 	}
 	if (base == 0)
 		return;
+	/* (an enemy no player killed scores nothing; its killer, an AI's
+	gunner, may win the vehicle's driver Wheelman) */
+	if (killing_player_index == NONE)
+	{
+		campaign_medals_enemy_killed(NONE, killer_object_index, unit_index, damage_definition_index, FALSE, FALSE,
+			FALSE);
+		return;
+	}
 
 	/* the kill's style: hurt by nothing before, a hit to the head (none
 	with Leadhead), a melee hit, from behind (the blow going the way the
@@ -1013,6 +1051,36 @@ void campaign_score_unit_damaged(
 		(long)(base * campaign_score_style_multiplier(style) * values->difficulty[campaign_score_difficulty()] *
 			campaign_score_skulls_multiplier() + 0.5f),
 		style);
+	/* (and the medals it wins: campaign_medals.c) */
+	campaign_medals_enemy_killed(killing_player_index, killer_object_index, unit_index, damage_definition_index,
+		TEST_FLAG(style, _campaign_score_style_headshot_bit), TEST_FLAG(style, _campaign_score_style_melee_bit),
+		TEST_FLAG(style, _campaign_score_style_backsmack_bit));
+
+	return;
+}
+
+void campaign_score_award_medal(
+	long player_index,
+	short medal)
+{
+	struct campaign_score_values const *values = &campaign_score_values;
+	real points = 0.0f;
+	short index;
+
+	if (medal < 0 || medal >= NUMBER_OF_CAMPAIGN_MEDALS)
+		return;
+	for (index = 0; index < values->medal_count; index++)
+	{
+		if (!strcmp(values->medals[index].medal, campaign_medal_descriptions[medal].key))
+		{
+			points = (real)values->medals[index].points;
+			break;
+		}
+	}
+	/* (as a kill's, times the difficulty and the skulls, if the values say) */
+	if (values->medal_scaled)
+		points *= values->difficulty[campaign_score_difficulty()] * campaign_score_skulls_multiplier();
+	campaign_score_note(_campaign_score_entry_medal, medal, player_index, (long)(points + 0.5f), 0);
 
 	return;
 }
@@ -1122,6 +1190,9 @@ void campaign_score_level_won(
 		return;
 	if (game_connection() != _game_connection_network_client)
 		campaign_score_competitive = campaign_score_type_competitive();
+	/* (the level's medals, before the clients are told it is won) */
+	if (game_connection() != _game_connection_network_client)
+		campaign_medals_level_won();
 	/* (the clients write their own summaries from the entries they were sent) */
 	if (game_connection() == _game_connection_network_server && network_coop_active())
 		network_coop_note_score_won(campaign_score_competitive);
@@ -1165,6 +1236,13 @@ long campaign_score_player_kills(
 {
 	campaign_score_update();
 	return campaign_score_count_of((short)DATUM_INDEX_TO_ABSOLUTE_INDEX(player_index), _campaign_score_entry_kill);
+}
+
+long campaign_score_player_deaths(
+	long player_index)
+{
+	campaign_score_update();
+	return campaign_score_count_of((short)DATUM_INDEX_TO_ABSOLUTE_INDEX(player_index), _campaign_score_entry_death);
 }
 
 long campaign_score_team_points(
@@ -1404,6 +1482,39 @@ void campaign_score_draw(
 	return;
 }
 
+/* the player's last medals (as many as the JSON's medal history, and the
+count), oldest first; none with the medals off */
+static short campaign_score_medal_history(
+	long player_index,
+	short *medals,
+	short count)
+{
+	short absolute_index = (short)DATUM_INDEX_TO_ABSOLUTE_INDEX(player_index);
+	short wanted = (short)MIN(count, campaign_score_values.medal_history);
+	short found = 0;
+	long index;
+
+	if (!campaign_medals_enabled() || wanted <= 0)
+		return 0;
+	for (index = campaign_score_entry_count - 1; index >= 0 && found < wanted; index--)
+	{
+		if (campaign_score_entries[index].kind == _campaign_score_entry_medal &&
+			campaign_score_entries[index].player_index == absolute_index)
+		{
+			medals[found++] = (short)campaign_score_entries[index].variant_index;
+		}
+	}
+	/* (the newest last) */
+	for (index = 0; index < found / 2; index++)
+	{
+		short medal = medals[index];
+
+		medals[index] = medals[found - 1 - index];
+		medals[found - 1 - index] = medal;
+	}
+	return found;
+}
+
 /* ---------- the HUD's panel
 
 the panel is laid out in the HUD's 480 lines from the view's bottom right
@@ -1587,6 +1698,9 @@ void campaign_score_draw_view(
 	char score[24];
 	char time[32];
 	wchar_t own_name[MAXIMUM_PLAYER_PROFILE_NAME_LENGTH + 1];
+	short history[CAMPAIGN_SCORE_HISTORY_MAXIMUM];
+	short history_count;
+	real history_height;
 
 	campaign_score_drawn_height = 0;
 	if (!campaign_score_enabled() || player_index == NONE)
@@ -1633,8 +1747,42 @@ void campaign_score_draw_view(
 	multipliers_height = panel.line_height * CAMPAIGN_SCORE_SUBLINE_SIZE + CAMPAIGN_SCORE_ROW_PADDING * 2;
 	rows_top = CAMPAIGN_SCORE_STRIP_HEIGHT + CAMPAIGN_SCORE_STRIP_GAP + multipliers_height + CAMPAIGN_SCORE_ROW_GAP;
 	height = rows_top + rows * row_height + (rows - 1) * CAMPAIGN_SCORE_ROW_GAP;
+	/* (and over it all, the player's last medals: none before the first) */
+	history_count = campaign_score_medal_history(player_index, history, NUMBEROF(history));
+	history_height = history_count > 0 ? CAMPAIGN_SCORE_HISTORY_SIZE + CAMPAIGN_SCORE_ROW_PADDING * 2 +
+		CAMPAIGN_SCORE_ROW_GAP : 0.0f;
 	panel.left = width - (CAMPAIGN_SCORE_PANEL_MARGIN + CAMPAIGN_SCORE_PANEL_WIDTH) * panel.scale;
-	panel.top = view_height - (CAMPAIGN_SCORE_PANEL_MARGIN + height) * panel.scale;
+	panel.top = view_height - (CAMPAIGN_SCORE_PANEL_MARGIN + history_height + height) * panel.scale;
+
+	/* the medal history: the last medals the player won, the newest at the
+	right, as campaign_score_values.json's medal history counts */
+	if (history_count > 0)
+	{
+		long bitmap_index = campaign_medals_bitmap();
+		real size = CAMPAIGN_SCORE_HISTORY_SIZE;
+		real row = size + CAMPAIGN_SCORE_ROW_PADDING * 2;
+		short index;
+
+		campaign_score_panel_quad(&panel, 0.0f, 0.0f, CAMPAIGN_SCORE_PANEL_WIDTH, row, CAMPAIGN_SCORE_PANEL_FILL);
+		campaign_score_panel_frame(&panel, 0.0f, 0.0f, CAMPAIGN_SCORE_PANEL_WIDTH, row, CAMPAIGN_SCORE_PANEL_EDGE);
+		for (index = 0; index < history_count && bitmap_index != NONE; index++)
+		{
+			struct bitmap_data *bitmap = bitmap_group_try_and_get_bitmap(bitmap_index, history[index]);
+			real x1 = CAMPAIGN_SCORE_PANEL_WIDTH - CAMPAIGN_SCORE_ROW_PADDING * 2 -
+				(history_count - 1 - index) * (size + CAMPAIGN_SCORE_HISTORY_GAP);
+			rectangle2d bounds;
+
+			if (!bitmap || x1 - size < CAMPAIGN_SCORE_ROW_PADDING)
+				continue;
+			bounds.x0 = (short)(panel.left + (x1 - size) * panel.scale);
+			bounds.x1 = (short)(panel.left + x1 * panel.scale);
+			bounds.y0 = (short)(panel.top + CAMPAIGN_SCORE_ROW_PADDING * panel.scale);
+			bounds.y1 = (short)(panel.top + (CAMPAIGN_SCORE_ROW_PADDING + size) * panel.scale);
+			draw_bitmap_in_rect(bitmap, &bounds, NULL, NULL, 0xFFFFFFFF, NULL, TRUE);
+		}
+		/* (the rest beneath it) */
+		panel.top += history_height * panel.scale;
+	}
 
 	/* the strip of segments over the rows: the time left until the time's
 	multiplier is the last (x0: half again the par time), lit from the left,
@@ -1710,7 +1858,9 @@ void campaign_score_draw_view(
 			NULL, rival_name, score, "RIVAL", rival_kills);
 	}
 
-	campaign_score_drawn_height = (short)(height + CAMPAIGN_SCORE_SKULLS_GAP + 0.5f);
+	campaign_score_drawn_height = (short)(history_height + height + CAMPAIGN_SCORE_SKULLS_GAP + 0.5f);
+	/* the medals just won, at the center left (campaign_medals.c) */
+	campaign_medals_draw_popups(player_index);
 
 	return;
 }
