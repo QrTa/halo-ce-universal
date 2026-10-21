@@ -92,7 +92,10 @@ LINUX_HOST_DIR = LINUX_DIR / "host"
 TOMLC17_DIR = Path("port/third_party/tomlc17")
 # the Android host library's files the PS5's host uses as they are
 # (port/ps5/PS5.md, phase 2); the rest are replaced by port/ps5/host's
-SHARED_HOST_FILES = ("host_arch.c", "host_common.c", "host_loader.c", "host_thread.c", "host_watch_hash.c")
+# (host_https.c: the community server's requests, with posix_update.c's
+# update_request)
+SHARED_HOST_FILES = ("host_arch.c", "host_common.c", "host_https.c", "host_loader.c", "host_thread.c",
+                     "host_watch_hash.c")
 # and the Vulkan renderer's host half (port/ps5/PS5.md, phase 4), less
 # host_vk_driver.c (port/ps5/host/host_vk_driver_ps5.c is the console's) and
 # the probe, host_vk_probe.c

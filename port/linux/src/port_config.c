@@ -915,6 +915,36 @@ static const struct config_setting config_settings[] =
 		"The Discord application internet play invites go through while the\n"
 		"Discord desktop client runs; empty for none." },
 
+	{ "game.daily_challenge", _config_boolean, "true", "HALO_DAILY_CHALLENGE", _environment_value, _platform_all,
+		"Settings > Gameplay > Daily Challenge's DAILY CHALLENGE: Campaign's DAILY\n"
+		"CHALLENGE, a level a day with the randomizer and skulls set, the same\n"
+		"for everyone (port/linux/game/community.c). false: no such item." },
+	{ "community.enabled", _config_boolean, "true", "HALO_COMMUNITY", _environment_value, _platform_all,
+		"Settings > Gameplay > Daily Challenge's ONLINE. true: the daily\n"
+		"challenge and the leaderboards come from the community server\n"
+		"(community.server_mode). false: nothing is sent or asked; the day's\n"
+		"challenge is made on this machine, and the leaderboards are its own." },
+	{ "community.server_mode", _config_string, "\"default\"", "HALO_COMMUNITY_SERVER_MODE", _environment_value,
+		_platform_all,
+		"Settings > Gameplay > Daily Challenge's SERVER: \"default\" (the\n"
+		"OpenCE server, https://oceapi.watanoge.com) or \"custom\"\n"
+		"(community.custom_server)." },
+	{ "community.custom_server", _config_string, "\"\"", "HALO_COMMUNITY_CUSTOM_SERVER", _environment_value,
+		_platform_all,
+		"Settings > Gameplay > Daily Challenge's SERVER ADDRESS, with\n"
+		"community.server_mode \"custom\": another community server's address\n"
+		"(https only), as https://example.com." },
+	{ "community.upload_scores", _config_boolean, "true", "HALO_COMMUNITY_UPLOAD_SCORES", _environment_value,
+		_platform_all,
+		"Settings > Gameplay > Daily Challenge's SHARE LEVEL SCORES, with\n"
+		"community.enabled: a campaign level won with scoring on, by one player\n"
+		"on this machine, is sent to the online leaderboard with the profile's\n"
+		"name. A daily challenge's run is always sent." },
+	{ "community.key", _config_string, "\"\"", "HALO_COMMUNITY_KEY", _environment_value, _platform_all,
+		"This install's own key on the community server, made the first time it\n"
+		"is asked: it keeps your scores yours. Keep it secret; copy it to move\n"
+		"your scores to another install." },
+
 	{ "update.auto", _config_boolean, "true", "HALO_UPDATE_AUTO", _environment_value, _platform_all,
 		"Look for a new version when the game starts, and offer to update to it;\n"
 		"false never looks (the game's \"Do not ask again\" writes false here)." },
@@ -1297,6 +1327,10 @@ struct config_value
 };
 
 static struct config_value config_values[NUMBER_OF_CONFIG_SETTINGS];
+/* the settings a daily challenge sets for its run (config_override), in
+place of the file's, which they leave as they are */
+static struct config_value config_overrides[NUMBER_OF_CONFIG_SETTINGS];
+static unsigned char config_overridden[NUMBER_OF_CONFIG_SETTINGS];
 static int config_loaded = 0;
 static pthread_mutex_t config_lock = PTHREAD_MUTEX_INITIALIZER;
 
@@ -2291,7 +2325,7 @@ static const struct config_value *config_value(const char *name, enum config_typ
 		platform_log("settings: no %s setting %s", type == _config_string ? "string" : "such", name);
 		return &none;
 	}
-	return &config_values[index];
+	return config_overridden[index] ? &config_overrides[index] : &config_values[index];
 }
 
 /* ---------- writing a setting */
@@ -2756,6 +2790,41 @@ char *config_file_read(const char *path, size_t *size)
 unsigned long config_changes(void)
 {
 	return config_change_count;
+}
+
+int config_override(const char *name, const char *value)
+{
+	long index = config_setting_index(name);
+
+	if (index < 0 || !value || strlen(value) > CONFIG_VALUE_MAXIMUM)
+		return 0;
+	/* (the file read first, so that loading it later does not undo this) */
+	config_value(name, config_settings[index].type);
+	pthread_mutex_lock(&config_lock);
+	config_set_from_text(&config_overrides[index], config_settings[index].type, value);
+	config_overridden[index] = 1;
+	config_change_count++;
+	pthread_mutex_unlock(&config_lock);
+	return 1;
+}
+
+void config_overrides_clear(void)
+{
+	size_t index;
+	int any = 0;
+
+	pthread_mutex_lock(&config_lock);
+	for (index = 0; index < NUMBER_OF_CONFIG_SETTINGS; index++)
+	{
+		if (config_overridden[index])
+		{
+			config_overridden[index] = 0;
+			any = 1;
+		}
+	}
+	if (any)
+		config_change_count++;
+	pthread_mutex_unlock(&config_lock);
 }
 
 int config_default(const char *name, char *text, size_t size)

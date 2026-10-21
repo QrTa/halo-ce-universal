@@ -1,0 +1,359 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- The port's Daily Challenge screens, in the PC version's style (tools/port_settings.py) -->
+<menus>
+	<widget name="main_menu/campaign_select/menu_item_daily" type="text" width="320" height="33" bitmap="main_menu/menu_daily">
+		<on event="a" run="port daily today" open="main_menu/daily/daily_screen"/>
+		<on event="start" run="port daily today" open="main_menu/daily/daily_screen"/>
+		<on event="left_mouse" run="mouse emit accept event"/>
+	</widget>
+	<widget name="main_menu/daily/daily_screen" width="640" height="480" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/gradient">
+		<data input="port daily update"/>
+		<on event="created" run="port daily init"/>
+		<on event="b" back="true"/>
+		<on event="back" back="true"/>
+		<child widget="main_menu/daily/title"/>
+		<child widget="main_menu/daily/date"/>
+		<child widget="main_menu/daily/level"/>
+		<child widget="main_menu/daily/difficulty"/>
+		<child widget="main_menu/daily/details"/>
+		<child widget="main_menu/daily/skulls_heading"/>
+		<child widget="main_menu/daily/skulls"/>
+		<child widget="main_menu/daily/mine"/>
+		<child widget="main_menu/daily/note"/>
+		<child widget="main_menu/daily/button_bar" y="414"/>
+	</widget>
+	<widget name="main_menu/daily/title" type="text" controller="1" left="60" top="36" width="520" height="36" text="DAILY CHALLENGE" font="ui\large_ui" color="#FF2896FF">
+	</widget>
+	<widget name="main_menu/daily/date" type="text" controller="1" left="60" top="72" width="520" height="20" font="ui\small_ui" color="#FF909090">
+	</widget>
+	<widget name="main_menu/daily/level" type="text" controller="1" left="60" top="98" width="520" height="28" font="ui\large_ui" color="#FFFFFFFF">
+	</widget>
+	<widget name="main_menu/daily/difficulty" type="text" controller="1" left="60" top="126" width="520" height="28" font="ui\large_ui" color="#FFFFD659">
+	</widget>
+	<widget name="main_menu/daily/details" type="text" controller="1" left="60" top="160" width="520" height="70" font="ui\small_ui" color="#FFB8C8E0">
+	</widget>
+	<widget name="main_menu/daily/skulls_heading" type="text" controller="1" left="60" top="232" width="520" height="20" font="ui\small_ui" color="#FF909090">
+	</widget>
+	<widget name="main_menu/daily/skulls" type="text" controller="1" left="60" top="250" width="520" height="80" font="ui\small_ui" color="#FFB8C8E0">
+	</widget>
+	<widget name="main_menu/daily/mine" type="text" controller="1" left="60" top="334" width="520" height="28" font="ui\large_ui" color="#FF2896FF">
+	</widget>
+	<widget name="main_menu/daily/note" type="text" controller="1" left="60" top="366" width="520" height="44" font="ui\small_ui" color="#FFB0B0B0">
+	</widget>
+	<widget name="main_menu/daily/button_bar" type="column_list" width="640" height="28" flags="pass_unhandled_to_focused_child left_right_tabs_items">
+		<child widget="main_menu/daily/button_play" x="24" y="1"/>
+		<child widget="main_menu/daily/button_leaderboard" x="154" y="1"/>
+		<child widget="main_menu/daily/button_history" x="284" y="1"/>
+		<child widget="common_button_back" x="510" y="1"/>
+	</widget>
+	<widget name="main_menu/daily/button_play" type="text" width="128" height="24" bitmap="bitmaps/text_button_background" text="PLAY" font="ui\small_ui" color="#FFFFFFFF" align="center" text_y="2">
+		<on event="a" run="port daily play"/>
+		<on event="start" run="port daily play"/>
+		<on event="left_mouse" run="mouse emit accept event"/>
+	</widget>
+	<widget name="main_menu/daily/button_leaderboard" type="text" width="128" height="24" bitmap="bitmaps/text_button_background" text="LEADERBOARD" font="ui\small_ui" color="#FFFFFFFF" align="center" text_y="2">
+		<on event="a" open="main_menu/daily/leaderboard/leaderboard_screen"/>
+		<on event="start" open="main_menu/daily/leaderboard/leaderboard_screen"/>
+		<on event="left_mouse" run="mouse emit accept event"/>
+	</widget>
+	<widget name="main_menu/daily/button_history" type="text" width="128" height="24" bitmap="bitmaps/text_button_background" text="PAST DAYS" font="ui\small_ui" color="#FFFFFFFF" align="center" text_y="2">
+		<on event="a" open="main_menu/daily/history_screen"/>
+		<on event="start" open="main_menu/daily/history_screen"/>
+		<on event="left_mouse" run="mouse emit accept event"/>
+	</widget>
+	<widget name="main_menu/daily/leaderboard/leaderboard_screen" width="640" height="480" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/gradient">
+		<data input="port leaderboard update"/>
+		<on event="created" run="port daily leaderboard init"/>
+		<on event="b" back="true"/>
+		<on event="back" back="true"/>
+		<child widget="main_menu/daily/leaderboard/title"/>
+		<child widget="main_menu/daily/leaderboard/level"/>
+		<child widget="main_menu/daily/leaderboard/heading_name"/>
+		<child widget="main_menu/daily/leaderboard/heading_skulls"/>
+		<child widget="main_menu/daily/leaderboard/heading_medals"/>
+		<child widget="main_menu/daily/leaderboard/heading_score"/>
+		<child widget="main_menu/daily/leaderboard/heading_time"/>
+		<child widget="main_menu/daily/leaderboard/note"/>
+		<child widget="main_menu/daily/leaderboard/row_name" y="150"/>
+		<child widget="main_menu/daily/leaderboard/row_skulls" y="150"/>
+		<child widget="main_menu/daily/leaderboard/row_medals" y="150"/>
+		<child widget="main_menu/daily/leaderboard/row_score" y="150"/>
+		<child widget="main_menu/daily/leaderboard/row_time" y="150"/>
+		<child widget="main_menu/daily/leaderboard/row_name" y="174"/>
+		<child widget="main_menu/daily/leaderboard/row_skulls" y="174"/>
+		<child widget="main_menu/daily/leaderboard/row_medals" y="174"/>
+		<child widget="main_menu/daily/leaderboard/row_score" y="174"/>
+		<child widget="main_menu/daily/leaderboard/row_time" y="174"/>
+		<child widget="main_menu/daily/leaderboard/row_name" y="198"/>
+		<child widget="main_menu/daily/leaderboard/row_skulls" y="198"/>
+		<child widget="main_menu/daily/leaderboard/row_medals" y="198"/>
+		<child widget="main_menu/daily/leaderboard/row_score" y="198"/>
+		<child widget="main_menu/daily/leaderboard/row_time" y="198"/>
+		<child widget="main_menu/daily/leaderboard/row_name" y="222"/>
+		<child widget="main_menu/daily/leaderboard/row_skulls" y="222"/>
+		<child widget="main_menu/daily/leaderboard/row_medals" y="222"/>
+		<child widget="main_menu/daily/leaderboard/row_score" y="222"/>
+		<child widget="main_menu/daily/leaderboard/row_time" y="222"/>
+		<child widget="main_menu/daily/leaderboard/row_name" y="246"/>
+		<child widget="main_menu/daily/leaderboard/row_skulls" y="246"/>
+		<child widget="main_menu/daily/leaderboard/row_medals" y="246"/>
+		<child widget="main_menu/daily/leaderboard/row_score" y="246"/>
+		<child widget="main_menu/daily/leaderboard/row_time" y="246"/>
+		<child widget="main_menu/daily/leaderboard/row_name" y="270"/>
+		<child widget="main_menu/daily/leaderboard/row_skulls" y="270"/>
+		<child widget="main_menu/daily/leaderboard/row_medals" y="270"/>
+		<child widget="main_menu/daily/leaderboard/row_score" y="270"/>
+		<child widget="main_menu/daily/leaderboard/row_time" y="270"/>
+		<child widget="main_menu/daily/leaderboard/row_name" y="294"/>
+		<child widget="main_menu/daily/leaderboard/row_skulls" y="294"/>
+		<child widget="main_menu/daily/leaderboard/row_medals" y="294"/>
+		<child widget="main_menu/daily/leaderboard/row_score" y="294"/>
+		<child widget="main_menu/daily/leaderboard/row_time" y="294"/>
+		<child widget="main_menu/daily/leaderboard/row_name" y="318"/>
+		<child widget="main_menu/daily/leaderboard/row_skulls" y="318"/>
+		<child widget="main_menu/daily/leaderboard/row_medals" y="318"/>
+		<child widget="main_menu/daily/leaderboard/row_score" y="318"/>
+		<child widget="main_menu/daily/leaderboard/row_time" y="318"/>
+		<child widget="main_menu/daily/leaderboard/row_name" y="342"/>
+		<child widget="main_menu/daily/leaderboard/row_skulls" y="342"/>
+		<child widget="main_menu/daily/leaderboard/row_medals" y="342"/>
+		<child widget="main_menu/daily/leaderboard/row_score" y="342"/>
+		<child widget="main_menu/daily/leaderboard/row_time" y="342"/>
+		<child widget="main_menu/daily/leaderboard/row_name" y="366"/>
+		<child widget="main_menu/daily/leaderboard/row_skulls" y="366"/>
+		<child widget="main_menu/daily/leaderboard/row_medals" y="366"/>
+		<child widget="main_menu/daily/leaderboard/row_score" y="366"/>
+		<child widget="main_menu/daily/leaderboard/row_time" y="366"/>
+		<child widget="main_menu/daily/leaderboard/button_bar" y="414"/>
+	</widget>
+	<widget name="main_menu/daily/leaderboard/title" type="text" controller="1" left="60" top="40" width="520" height="40" text="LEADERBOARD" font="ui\large_ui" color="#FF2896FF">
+	</widget>
+	<widget name="main_menu/daily/leaderboard/level" type="text" controller="1" left="60" top="80" width="520" height="30" font="ui\large_ui" color="#FFFFFFFF">
+	</widget>
+	<widget name="main_menu/daily/leaderboard/heading_name" type="text" controller="1" left="40" top="122" width="190" height="22" text="PROFILE" font="ui\small_ui" color="#FF808080">
+	</widget>
+	<widget name="main_menu/daily/leaderboard/row_name" type="text" controller="1" left="40" top="0" width="190" height="22" font="ui\large_ui" color="#FF2896FF">
+	</widget>
+	<widget name="main_menu/daily/leaderboard/heading_skulls" type="text" controller="1" left="236" top="122" width="80" height="22" text="SKULLS" font="ui\small_ui" color="#FF808080" align="right">
+	</widget>
+	<widget name="main_menu/daily/leaderboard/row_skulls" type="text" controller="1" left="236" top="0" width="80" height="22" font="ui\large_ui" color="#FF2896FF" align="right">
+	</widget>
+	<widget name="main_menu/daily/leaderboard/heading_medals" type="text" controller="1" left="322" top="122" width="84" height="22" text="MEDALS" font="ui\small_ui" color="#FF808080" align="right">
+	</widget>
+	<widget name="main_menu/daily/leaderboard/row_medals" type="text" controller="1" left="322" top="0" width="84" height="22" font="ui\large_ui" color="#FF2896FF" align="right">
+	</widget>
+	<widget name="main_menu/daily/leaderboard/heading_score" type="text" controller="1" left="412" top="122" width="96" height="22" text="SCORE" font="ui\small_ui" color="#FF808080" align="right">
+	</widget>
+	<widget name="main_menu/daily/leaderboard/row_score" type="text" controller="1" left="412" top="0" width="96" height="22" font="ui\large_ui" color="#FF2896FF" align="right">
+	</widget>
+	<widget name="main_menu/daily/leaderboard/heading_time" type="text" controller="1" left="514" top="122" width="86" height="22" text="TIME" font="ui\small_ui" color="#FF808080" align="right">
+	</widget>
+	<widget name="main_menu/daily/leaderboard/row_time" type="text" controller="1" left="514" top="0" width="86" height="22" font="ui\large_ui" color="#FF2896FF" align="right">
+	</widget>
+	<widget name="main_menu/daily/leaderboard/note" type="text" controller="1" left="90" top="150" width="470" height="60" font="ui\small_ui" color="#FFB0B0B0">
+	</widget>
+	<widget name="main_menu/daily/leaderboard/button_bar" type="column_list" width="640" height="28" flags="pass_unhandled_to_focused_child left_right_tabs_items">
+		<child widget="common_button_back" x="510" y="1"/>
+	</widget>
+	<widget name="main_menu/daily/history_screen" width="640" height="480" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/gradient">
+		<on event="b" back="true"/>
+		<on event="back" back="true"/>
+		<child widget="main_menu/daily/history_title"/>
+		<child widget="main_menu/daily/history_heading_date"/>
+		<child widget="main_menu/daily/history_heading_level"/>
+		<child widget="main_menu/daily/history_heading_difficulty"/>
+		<child widget="main_menu/daily/history_heading_players"/>
+		<child widget="main_menu/daily/history_heading_mine"/>
+		<child widget="main_menu/daily/history_note"/>
+		<child widget="main_menu/daily/history_list"/>
+	</widget>
+	<widget name="main_menu/daily/history_title" type="text" controller="1" left="60" top="36" width="520" height="36" text="PAST CHALLENGES" font="ui\large_ui" color="#FF2896FF">
+	</widget>
+	<widget name="main_menu/daily/history_heading_date" type="text" controller="1" left="74" top="82" width="64" height="20" text="DAY" font="ui\small_ui" color="#FF808080">
+	</widget>
+	<widget name="main_menu/daily/history_heading_level" type="text" controller="1" left="142" top="82" width="236" height="20" text="MISSION" font="ui\small_ui" color="#FF808080">
+	</widget>
+	<widget name="main_menu/daily/history_heading_difficulty" type="text" controller="1" left="380" top="82" width="80" height="20" text="DIFFICULTY" font="ui\small_ui" color="#FF808080">
+	</widget>
+	<widget name="main_menu/daily/history_heading_players" type="text" controller="1" left="462" top="82" width="52" height="20" text="PLAYERS" font="ui\small_ui" color="#FF808080" align="right">
+	</widget>
+	<widget name="main_menu/daily/history_heading_mine" type="text" controller="1" left="516" top="82" width="56" height="20" text="RANK" font="ui\small_ui" color="#FF808080" align="right">
+	</widget>
+	<widget name="main_menu/daily/history_note" type="text" controller="1" left="90" top="110" width="470" height="60" font="ui\small_ui" color="#FFB0B0B0">
+	</widget>
+	<widget name="main_menu/daily/history_list" type="column_list" width="640" height="480" flags="pass_unhandled_to_focused_child up_down_tabs_children">
+		<data input="port history update"/>
+		<on event="created" run="port history init"/>
+		<child widget="main_menu/daily/history_row_1" x="64" y="104"/>
+		<child widget="main_menu/daily/history_row_2" x="64" y="134"/>
+		<child widget="main_menu/daily/history_row_3" x="64" y="164"/>
+		<child widget="main_menu/daily/history_row_4" x="64" y="194"/>
+		<child widget="main_menu/daily/history_row_5" x="64" y="224"/>
+		<child widget="main_menu/daily/history_row_6" x="64" y="254"/>
+		<child widget="main_menu/daily/history_row_7" x="64" y="284"/>
+		<child widget="main_menu/daily/history_row_8" x="64" y="314"/>
+		<child widget="main_menu/daily/history_row_9" x="64" y="344"/>
+		<child widget="main_menu/daily/history_row_10" x="64" y="374"/>
+		<child widget="main_menu/daily/history_button_bar" y="414"/>
+	</widget>
+	<widget name="main_menu/daily/history_row_1" width="512" height="28" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/sel_list_item_bkd_top" color="#FF2896FF">
+		<on event="a" run="port daily choose" open="main_menu/daily/daily_screen"/>
+		<on event="start" run="port daily choose" open="main_menu/daily/daily_screen"/>
+		<on event="left_mouse" run="mouse emit accept event"/>
+		<child widget="main_menu/daily/history_date" x="10"/>
+		<child widget="main_menu/daily/history_level" x="78"/>
+		<child widget="main_menu/daily/history_difficulty" x="316"/>
+		<child widget="main_menu/daily/history_players" x="398"/>
+		<child widget="main_menu/daily/history_mine" x="452"/>
+	</widget>
+	<widget name="main_menu/daily/history_row_2" width="512" height="28" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/sel_list_item_bkd" color="#FF2896FF">
+		<on event="a" run="port daily choose" open="main_menu/daily/daily_screen"/>
+		<on event="start" run="port daily choose" open="main_menu/daily/daily_screen"/>
+		<on event="left_mouse" run="mouse emit accept event"/>
+		<child widget="main_menu/daily/history_date" x="10"/>
+		<child widget="main_menu/daily/history_level" x="78"/>
+		<child widget="main_menu/daily/history_difficulty" x="316"/>
+		<child widget="main_menu/daily/history_players" x="398"/>
+		<child widget="main_menu/daily/history_mine" x="452"/>
+	</widget>
+	<widget name="main_menu/daily/history_row_3" width="512" height="28" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/sel_list_item_bkd" color="#FF2896FF">
+		<on event="a" run="port daily choose" open="main_menu/daily/daily_screen"/>
+		<on event="start" run="port daily choose" open="main_menu/daily/daily_screen"/>
+		<on event="left_mouse" run="mouse emit accept event"/>
+		<child widget="main_menu/daily/history_date" x="10"/>
+		<child widget="main_menu/daily/history_level" x="78"/>
+		<child widget="main_menu/daily/history_difficulty" x="316"/>
+		<child widget="main_menu/daily/history_players" x="398"/>
+		<child widget="main_menu/daily/history_mine" x="452"/>
+	</widget>
+	<widget name="main_menu/daily/history_row_4" width="512" height="28" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/sel_list_item_bkd" color="#FF2896FF">
+		<on event="a" run="port daily choose" open="main_menu/daily/daily_screen"/>
+		<on event="start" run="port daily choose" open="main_menu/daily/daily_screen"/>
+		<on event="left_mouse" run="mouse emit accept event"/>
+		<child widget="main_menu/daily/history_date" x="10"/>
+		<child widget="main_menu/daily/history_level" x="78"/>
+		<child widget="main_menu/daily/history_difficulty" x="316"/>
+		<child widget="main_menu/daily/history_players" x="398"/>
+		<child widget="main_menu/daily/history_mine" x="452"/>
+	</widget>
+	<widget name="main_menu/daily/history_row_5" width="512" height="28" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/sel_list_item_bkd" color="#FF2896FF">
+		<on event="a" run="port daily choose" open="main_menu/daily/daily_screen"/>
+		<on event="start" run="port daily choose" open="main_menu/daily/daily_screen"/>
+		<on event="left_mouse" run="mouse emit accept event"/>
+		<child widget="main_menu/daily/history_date" x="10"/>
+		<child widget="main_menu/daily/history_level" x="78"/>
+		<child widget="main_menu/daily/history_difficulty" x="316"/>
+		<child widget="main_menu/daily/history_players" x="398"/>
+		<child widget="main_menu/daily/history_mine" x="452"/>
+	</widget>
+	<widget name="main_menu/daily/history_row_6" width="512" height="28" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/sel_list_item_bkd" color="#FF2896FF">
+		<on event="a" run="port daily choose" open="main_menu/daily/daily_screen"/>
+		<on event="start" run="port daily choose" open="main_menu/daily/daily_screen"/>
+		<on event="left_mouse" run="mouse emit accept event"/>
+		<child widget="main_menu/daily/history_date" x="10"/>
+		<child widget="main_menu/daily/history_level" x="78"/>
+		<child widget="main_menu/daily/history_difficulty" x="316"/>
+		<child widget="main_menu/daily/history_players" x="398"/>
+		<child widget="main_menu/daily/history_mine" x="452"/>
+	</widget>
+	<widget name="main_menu/daily/history_row_7" width="512" height="28" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/sel_list_item_bkd" color="#FF2896FF">
+		<on event="a" run="port daily choose" open="main_menu/daily/daily_screen"/>
+		<on event="start" run="port daily choose" open="main_menu/daily/daily_screen"/>
+		<on event="left_mouse" run="mouse emit accept event"/>
+		<child widget="main_menu/daily/history_date" x="10"/>
+		<child widget="main_menu/daily/history_level" x="78"/>
+		<child widget="main_menu/daily/history_difficulty" x="316"/>
+		<child widget="main_menu/daily/history_players" x="398"/>
+		<child widget="main_menu/daily/history_mine" x="452"/>
+	</widget>
+	<widget name="main_menu/daily/history_row_8" width="512" height="28" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/sel_list_item_bkd" color="#FF2896FF">
+		<on event="a" run="port daily choose" open="main_menu/daily/daily_screen"/>
+		<on event="start" run="port daily choose" open="main_menu/daily/daily_screen"/>
+		<on event="left_mouse" run="mouse emit accept event"/>
+		<child widget="main_menu/daily/history_date" x="10"/>
+		<child widget="main_menu/daily/history_level" x="78"/>
+		<child widget="main_menu/daily/history_difficulty" x="316"/>
+		<child widget="main_menu/daily/history_players" x="398"/>
+		<child widget="main_menu/daily/history_mine" x="452"/>
+	</widget>
+	<widget name="main_menu/daily/history_row_9" width="512" height="28" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/sel_list_item_bkd" color="#FF2896FF">
+		<on event="a" run="port daily choose" open="main_menu/daily/daily_screen"/>
+		<on event="start" run="port daily choose" open="main_menu/daily/daily_screen"/>
+		<on event="left_mouse" run="mouse emit accept event"/>
+		<child widget="main_menu/daily/history_date" x="10"/>
+		<child widget="main_menu/daily/history_level" x="78"/>
+		<child widget="main_menu/daily/history_difficulty" x="316"/>
+		<child widget="main_menu/daily/history_players" x="398"/>
+		<child widget="main_menu/daily/history_mine" x="452"/>
+	</widget>
+	<widget name="main_menu/daily/history_row_10" width="512" height="28" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/sel_list_item_bkd" color="#FF2896FF">
+		<on event="a" run="port daily choose" open="main_menu/daily/daily_screen"/>
+		<on event="start" run="port daily choose" open="main_menu/daily/daily_screen"/>
+		<on event="left_mouse" run="mouse emit accept event"/>
+		<child widget="main_menu/daily/history_date" x="10"/>
+		<child widget="main_menu/daily/history_level" x="78"/>
+		<child widget="main_menu/daily/history_difficulty" x="316"/>
+		<child widget="main_menu/daily/history_players" x="398"/>
+		<child widget="main_menu/daily/history_mine" x="452"/>
+	</widget>
+	<widget name="main_menu/daily/history_date" type="text" controller="1" width="64" height="22" font="ui\large_ui" color="#FF2896FF" text_y="4" text_flags="no_focus_test">
+	</widget>
+	<widget name="main_menu/daily/history_level" type="text" controller="1" width="236" height="22" font="ui\small_ui" color="#FFB8C8E0" text_y="7" text_flags="no_focus_test">
+	</widget>
+	<widget name="main_menu/daily/history_difficulty" type="text" controller="1" width="80" height="22" font="ui\small_ui" color="#FFB8C8E0" text_y="7" text_flags="no_focus_test">
+	</widget>
+	<widget name="main_menu/daily/history_players" type="text" controller="1" width="52" height="22" font="ui\small_ui" color="#FFB8C8E0" align="right" text_y="7" text_flags="no_focus_test">
+	</widget>
+	<widget name="main_menu/daily/history_mine" type="text" controller="1" width="56" height="22" font="ui\small_ui" color="#FFB8C8E0" align="right" text_y="7" text_flags="no_focus_test">
+	</widget>
+	<widget name="main_menu/daily/history_button_bar" type="column_list" width="640" height="28" flags="pass_unhandled_to_focused_child left_right_tabs_items">
+		<child widget="common_button_back" x="510" y="1"/>
+	</widget>
+	<widget name="main_menu/daily/connection_screen" width="640" height="480" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/gradient">
+		<on event="b" back="true"/>
+		<on event="back" back="true"/>
+		<child widget="main_menu/daily/connection_title"/>
+		<child widget="main_menu/daily/connection_text"/>
+		<child widget="main_menu/daily/connection_menu"/>
+	</widget>
+	<widget name="main_menu/daily/connection_title" type="text" controller="1" left="40" top="40" width="560" height="36" text="NO CONNECTION" font="ui\large_ui" color="#FF2896FF">
+	</widget>
+	<widget name="main_menu/daily/connection_text" type="text" controller="1" left="40" top="84" width="560" height="196" font="ui\small_ui" color="#FFFFFFFF">
+	</widget>
+	<widget name="main_menu/daily/connection_menu" type="column_list" width="640" height="480" flags="pass_unhandled_to_focused_child up_down_tabs_children">
+		<data input="port daily connection update"/>
+		<child widget="main_menu/daily/connection_default" x="64" y="290"/>
+		<child widget="main_menu/daily/connection_address" x="64" y="290"/>
+		<child widget="main_menu/daily/connection_offline" x="64" y="322"/>
+		<child widget="main_menu/daily/connection_retry" x="64" y="354"/>
+		<child widget="common_button_cancel" x="510" y="415"/>
+	</widget>
+	<widget name="main_menu/daily/connection_default" type="text" width="512" height="28" bitmap="bitmaps/option_bkds" text="TRY THE DEFAULT SERVER" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
+		<on event="a" run="port daily try default"/>
+		<on event="start" run="port daily try default"/>
+		<on event="left_mouse" run="mouse emit accept event"/>
+	</widget>
+	<widget name="main_menu/daily/connection_address" width="512" height="28" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/option_bkds" color="#FF2896FF">
+		<on event="a" run="port daily connection edit"/>
+		<on event="start" run="port daily connection edit"/>
+		<on event="left_mouse" run="mouse emit accept event"/>
+		<on event="b" run="port field back"/>
+		<on event="back" run="port field back"/>
+		<child widget="main_menu/daily/connection_address_label"/>
+		<child widget="main_menu/daily/connection_address_value" x="200" y="1"/>
+	</widget>
+	<widget name="main_menu/daily/connection_address_label" type="text" controller="1" width="200" height="22" text="SERVER ADDRESS:" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
+	</widget>
+	<widget name="main_menu/daily/connection_address_value" type="text" controller="1" width="306" height="22" font="ui\small_ui" color="#FF2896FF" align="center" text_y="5" text_flags="no_focus_test">
+	</widget>
+	<widget name="main_menu/daily/connection_offline" type="text" width="512" height="28" bitmap="bitmaps/option_bkds" text="GO OFFLINE" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
+		<on event="a" run="port daily go offline"/>
+		<on event="start" run="port daily go offline"/>
+		<on event="left_mouse" run="mouse emit accept event"/>
+	</widget>
+	<widget name="main_menu/daily/connection_retry" type="text" width="512" height="28" bitmap="bitmaps/option_bkds" text="TRY AGAIN" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
+		<on event="a" run="port daily retry"/>
+		<on event="start" run="port daily retry"/>
+		<on event="left_mouse" run="mouse emit accept event"/>
+	</widget>
+</menus>

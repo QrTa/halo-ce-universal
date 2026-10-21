@@ -11,7 +11,8 @@
 		<child widget="main_menu/campaign_select/menu_item_continue" x="194" y="283"/>
 		<child widget="main_menu/campaign_select/menu_item_new_campaign" x="192" y="319"/>
 		<child widget="main_menu/campaign_select/menu_item_load_game" x="192" y="355"/>
-		<child widget="main_menu/campaign_select/menu_item_back" x="192" y="391"/>
+		<child widget="main_menu/campaign_select/menu_item_daily" x="160" y="391"/>
+		<child widget="main_menu/campaign_select/menu_item_back" x="192" y="427"/>
 	</widget>
 	<widget name="main_menu/campaign_select/header_load_game" controller="1" left="35" top="11" width="605" height="59" bitmap="main_menu/campaign_select/header_load_game">
 	</widget>

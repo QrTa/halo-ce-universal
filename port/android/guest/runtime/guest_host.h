@@ -121,6 +121,16 @@ the GPU to finish the work last fenced for a slot */
 void host_gl_fence_frame(unsigned int slot);
 void host_gl_wait_frame(unsigned int slot);
 
+/* ---------- HTTPS (guest/runtime/guest_https.c: update.h's update_request,
+the community server's requests; port/android/host/host_https.c, and the
+Switch's own port/switch/host/host_https.c) */
+
+/* one request, as update_request has it (post: POST, else GET), in six
+arguments (x86-64's registers): the answer's status, else 0 and why in
+response */
+int host_https_request(int post, const char *url, const char *headers, const char *body, char *response,
+	int response_size);
+
 /* ---------- Android (android_imports.list) */
 
 /* the storage directories the port uses, copied into buffer */

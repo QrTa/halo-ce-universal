@@ -7,6 +7,14 @@ it again. posix_update.c does it on Linux (Mbed TLS, the system's
 certificate authorities), win32_update.c on Windows (WinHTTP). The Android
 app updates itself in Java (port/android).
 
+And a request over HTTPS with its answer kept in memory (update_request),
+which the community server's leaderboards and daily challenges ask with
+(community_net.c), on every platform: posix_update.c's on Linux and in the
+Android, Linux desktop and PS5 hosts (port/android/host/host_https.c, which
+the guests reach through port/android/guest/runtime/guest_misc.c),
+win32_update.c's on Windows, the Switch's ssl service
+(port/switch/host/host_https.c) and the browser's (port/web/src/web_https.c).
+
 Only integers and strings cross here: the two sides are compiled with
 different structure layouts.
 */
@@ -22,6 +30,15 @@ with the certificate and host name checked, and no more than maximum bytes
 of it; 1 on success, else 0 and why in error */
 int update_download(const char *url, const char *path, unsigned long long maximum, update_progress_proc progress,
 	void *context, char *error, int error_size);
+
+/* sends one request to the https:// url (no redirects followed): method
+"GET" or "POST", with the header lines in headers (each ending in "\r\n", or
+NULL) and the text in body (NULL for none), and keeps up to response_size - 1
+bytes of the answer's body in response, NUL terminated. The certificate and
+host name are checked as update_download's. The answer's HTTP status,
+whatever it is; 0 when none came, and why in error */
+int update_request(const char *method, const char *url, const char *headers, const char *body, char *response,
+	int response_size, char *error, int error_size);
 
 /* the full path of this executable; 1 on success */
 int update_executable_path(char *path, int size);

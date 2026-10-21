@@ -9,6 +9,35 @@ WebSockets of internet play's brokers.
 */
 
 addToLibrary({
+  // update.h's update_request (port/web/src/web_https.c): the community
+  // server's requests (port/linux/src/community_net.c), a synchronous
+  // XMLHttpRequest on the calling thread, the community's own worker, where
+  // a browser allows one. The server's CORS lets this site's pages ask it.
+  // The status, else 0 and why in response. (Runs on the calling thread.)
+  web_js_https__deps: ['$UTF8ToString', '$stringToUTF8', '$lengthBytesUTF8'],
+  web_js_https: (post, url, headers, body, response, responseSize) => {
+    var request = new XMLHttpRequest();
+    var fail = (why) => {
+      stringToUTF8(why, response, responseSize);
+      return 0;
+    };
+    try {
+      request.open(post ? 'POST' : 'GET', UTF8ToString(url), false);
+      for (var line of (headers ? UTF8ToString(headers) : '').split('\r\n')) {
+        var colon = line.indexOf(':');
+        if (colon > 0) request.setRequestHeader(line.slice(0, colon).trim(), line.slice(colon + 1).trim());
+      }
+      request.send(body ? UTF8ToString(body) : null);
+    } catch (error) {
+      return fail('could not reach the server (' + error + ')');
+    }
+    if (!request.status) return fail('could not reach the server');
+    var text = request.responseText || '';
+    if (lengthBytesUTF8(text) >= responseSize) return fail('the answer is larger than expected');
+    stringToUTF8(text, response, responseSize);
+    return request.status;
+  },
+
   // Emscripten's clock (clock_gettime, the game's GetTickCount and
   // QueryPerformanceCounter: port/linux/src/xbox_kernel.c) with this
   // thread's time origin read once: reading performance.timeOrigin each time

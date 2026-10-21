@@ -71,12 +71,15 @@ LEFT_OUT = {
     "ui\\shell\\main_menu\\multiplayer_type_select\\checking_updates_screen_join",
 }
 # children moved: (parent, child) to (x, y); the main menu's Quit a row below
-# Mods, which takes Credits' place; Multiplayer's Edit Gametypes and divider
+# Mods, which takes Credits' place; Campaign's Back a row below its DAILY
+# CHALLENGE (port_settings.DAILY_ITEM_PLACE); Multiplayer's Edit Gametypes and divider
 # below Co-op, keeping its 32-unit highlight inside the description panel's
 # bottom curve (port_settings.WIDGET_PATCHES)
 CHILD_OFFSETS = {
     ("ui\\shell\\main_menu\\main_menu_select_list", "ui\\shell\\main_menu\\main_menu_item_quit_game"):
         port_settings.QUIT_ITEM_PLACE,
+    ("ui\\shell\\main_menu\\campaign_select\\campaign_menu_select_list",
+     "ui\\shell\\main_menu\\campaign_select\\menu_item_back"): port_settings.CAMPAIGN_BACK_ITEM_PLACE,
     ("ui\\shell\\main_menu\\multiplayer_type_select\\multiplayer_type_select_list",
      "ui\\shell\\main_menu\\multiplayer_type_select\\multiplayer_type_gametypes_item"): (0, 358),
     ("ui\\shell\\main_menu\\multiplayer_type_select\\multiplayer_type_select_screen",
@@ -682,6 +685,8 @@ def main() -> None:
         for icon in ("volume-2", "volume-x")]))
     # (the main menu's MODS, in the redraws' own letters, and the mods'
     # status icons: Lucide's, port/assets/icons/lucide)
+    lines.append(art.port_picture("main_menu/menu_daily", port_settings.menu_item_frames(
+        "DAILY CHALLENGE", art.redraws, port_settings.DAILY_ITEM_WIDTH)))
     lines.append(art.port_picture("main_menu/menu_mods", port_settings.menu_item_frames("MODS", art.redraws)))
     lines.append(art.port_picture("mods/status", port_settings.mod_status_frames(ROOT / "port/assets/icons/lucide")))
     lines.append(art.port_picture("mods/status_small",

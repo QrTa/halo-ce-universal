@@ -37,5 +37,10 @@ int config_default(const char *name, char *text, size_t size);
 /* how many times config_write has changed a setting: what keeps one reads
 it again when this moves */
 unsigned long config_changes(void);
+/* sets a setting from its value as text for this run only, over the file's
+and the environment's (a daily challenge's: community.c), without writing
+it; config_write still writes the file's. 1 on success. Cleared all at once */
+int config_override(const char *name, const char *value);
+void config_overrides_clear(void);
 
 #endif

@@ -12,6 +12,13 @@ bundle the distribution keeps for OpenSSL, curl and the rest) and name the
 host; nothing is sent before that is checked. The file SSL_CERT_FILE names
 is used only on a system with no bundle, with a warning on stderr: whatever
 sets the environment would otherwise choose whom updates are trusted from.
+Android keeps its authorities as a folder of files, one each, which is read
+instead (in the Android host).
+
+update_request is the same exchange with any method, the caller's headers and
+body, and the answer's body kept in memory whatever its status: the community
+server's requests (community_net.c). Each request has a connection of its
+own, so the updater's thread and the community's can ask at once.
 
 Built with the host's ABI, as the other posix_*.c.
 */
@@ -51,6 +58,13 @@ static const char *const certificate_bundles[] =
 	"/etc/ssl/cert.pem", /* Alpine, Arch, Void */
 };
 
+/* Android's, a file each (the updatable ones of Android 14 first) */
+static const char *const certificate_folders[] =
+{
+	"/apex/com.android.conscrypt/cacerts",
+	"/system/etc/security/cacerts",
+};
+
 static pthread_once_t certificates_once = PTHREAD_ONCE_INIT;
 static mbedtls_x509_crt certificates;
 static int certificates_loaded;
@@ -76,6 +90,15 @@ static void load_certificates(void)
 				fprintf(stderr, "halo-linux: update: SSL_CERT_FILE is ignored; the update server is checked "
 					"against %s\n", certificate_bundles[index]);
 			}
+			return;
+		}
+	}
+	for (index = 0; index < sizeof(certificate_folders) / sizeof(*certificate_folders); index++)
+	{
+		if (access(certificate_folders[index], R_OK) == 0 &&
+			mbedtls_x509_crt_parse_path(&certificates, certificate_folders[index]) >= 0 && certificates.version)
+		{
+			certificates_loaded = 1;
 			return;
 		}
 	}
@@ -306,9 +329,12 @@ static int connection_read(struct connection *connection, unsigned char *buffer,
 	return (int)available;
 }
 
+/* where a body goes: a file (update_download's), or memory (update_request's,
+NUL terminated, maximum less one byte of it) */
 struct download
 {
 	FILE *file;
+	char *memory;
 	update_progress_proc progress;
 	void *context;
 	unsigned long long received, total, maximum;
@@ -319,7 +345,12 @@ static int body_write(struct download *download, const unsigned char *data, size
 	/* (no more than the caller expects: a body that goes on is refused) */
 	if (size > download->maximum - download->received)
 		return 0;
-	if (fwrite(data, 1, size, download->file) != size)
+	if (download->memory)
+	{
+		memcpy(download->memory + download->received, data, size);
+		download->memory[download->received + size] = 0;
+	}
+	else if (fwrite(data, 1, size, download->file) != size)
 		return 0;
 	download->received += size;
 	if (download->progress)
@@ -389,38 +420,65 @@ static int read_body(struct connection *connection, struct download *download, i
 	}
 }
 
-/* one GET: the body into download on 200, the Location on a redirect;
-the status, or 0 on failure */
-static int https_get(const char *url, struct download *download, char *location, size_t location_size, char *error,
-	int error_size)
+/* one request (method, with the header lines in headers and the text in
+body, either NULL for none): the body into download on 200 (or whatever the
+status, into memory), the Location on a redirect; the status, or 0 on
+failure */
+static int https_exchange(const char *method, const char *url, const char *headers, const char *body,
+	struct download *download, char *location, size_t location_size, char *error, int error_size)
 {
-	static struct connection connection;
+	struct connection *connection = malloc(sizeof(*connection));
 	char host[256], port[16], path[2048];
 	char request[3072];
-	char line[MAXIMUM_HEADER_SIZE];
+	char *line = malloc(MAXIMUM_HEADER_SIZE);
 	unsigned long long length = 0;
 	int have_length = 0, chunked = 0, status = 0;
+	size_t body_size = body ? strlen(body) : 0;
 
+	if (!connection || !line)
+	{
+		snprintf(error, (size_t)error_size, "out of memory");
+		free(connection);
+		free(line);
+		return 0;
+	}
 	if (!parse_url(url, host, sizeof(host), port, sizeof(port), path, sizeof(path)))
 	{
 		snprintf(error, (size_t)error_size, "not an https:// address: %s", url);
+		free(connection);
+		free(line);
 		return 0;
 	}
-	if (!connection_open(&connection, host, port, error, error_size))
+	if (!connection_open(connection, host, port, error, error_size))
 	{
-		connection_free(&connection);
+		connection_free(connection);
+		free(connection);
+		free(line);
 		return 0;
 	}
-	snprintf(request, sizeof(request),
-		"GET %s HTTP/1.1\r\nHost: %s\r\nUser-Agent: " UPDATE_USER_AGENT "\r\n"
-		"Accept: */*\r\nConnection: close\r\n\r\n",
-		path, host);
-	if (!connection_write(&connection, request, strlen(request)) ||
-		!connection_read_line(&connection, line, sizeof(line)) ||
+	if (body)
+	{
+		snprintf(request, sizeof(request),
+			"%s %s HTTP/1.1\r\nHost: %s\r\nUser-Agent: " UPDATE_USER_AGENT "\r\n"
+			"Accept: */*\r\nConnection: close\r\n%sContent-Length: %lu\r\n\r\n",
+			method, path, host, headers ? headers : "", (unsigned long)body_size);
+	}
+	else
+	{
+		snprintf(request, sizeof(request),
+			"%s %s HTTP/1.1\r\nHost: %s\r\nUser-Agent: " UPDATE_USER_AGENT "\r\n"
+			"Accept: */*\r\nConnection: close\r\n%s\r\n",
+			method, path, host, headers ? headers : "");
+	}
+	if (!connection_write(connection, request, strlen(request)) ||
+		(body_size && !connection_write(connection, body, body_size)) ||
+		!connection_read_line(connection, line, MAXIMUM_HEADER_SIZE) ||
 		sscanf(line, "HTTP/%*d.%*d %d", &status) != 1)
 	{
 		snprintf(error, (size_t)error_size, "no answer from %s", host);
-		connection_free(&connection);
+		connection_free(connection);
+		free(connection);
+		free(line);
 		return 0;
 	}
 	location[0] = 0;
@@ -429,10 +487,12 @@ static int https_get(const char *url, struct download *download, char *location,
 	{
 		char *value;
 
-		if (!connection_read_line(&connection, line, sizeof(line)))
+		if (!connection_read_line(connection, line, MAXIMUM_HEADER_SIZE))
 		{
 			snprintf(error, (size_t)error_size, "a broken answer from %s", host);
-			connection_free(&connection);
+			connection_free(connection);
+			free(connection);
+			free(line);
 			return 0;
 		}
 		if (!line[0])
@@ -456,22 +516,26 @@ static int https_get(const char *url, struct download *download, char *location,
 			snprintf(location, location_size, "%s", value);
 		}
 	}
-	if (status == 200)
+	if (status == 200 || download->memory)
 	{
 		if (have_length && !chunked && length > download->maximum)
 		{
 			snprintf(error, (size_t)error_size, "the download from %s is larger than expected", host);
-			connection_free(&connection);
+			connection_free(connection);
+			free(connection);
+			free(line);
 			return 0;
 		}
 		download->total = have_length && !chunked ? length : 0;
-		if (!read_body(&connection, download, chunked, length, have_length && !chunked))
+		if (!read_body(connection, download, chunked, length, have_length && !chunked))
 		{
 			snprintf(error, (size_t)error_size, "the download from %s broke off", host);
 			status = 0;
 		}
 	}
-	connection_free(&connection);
+	connection_free(connection);
+	free(connection);
+	free(line);
 	return status;
 }
 
@@ -508,7 +572,8 @@ int update_download(const char *url, const char *path, unsigned long long maximu
 	snprintf(current, sizeof(current), "%s", url);
 	for (redirect = 0; redirect <= MAXIMUM_REDIRECTS; redirect++)
 	{
-		int status = https_get(current, &download, location, sizeof(location), error, error_size);
+		int status = https_exchange("GET", current, NULL, NULL, &download, location, sizeof(location), error,
+			error_size);
 
 		if (status == 200)
 		{
@@ -545,6 +610,35 @@ int update_download(const char *url, const char *path, unsigned long long maximu
 	fclose(download.file);
 	unlink(path);
 	return 0;
+}
+
+int update_request(const char *method, const char *url, const char *headers, const char *body, char *response,
+	int response_size, char *error, int error_size)
+{
+	struct download download;
+	char location[16];
+
+	if (!response || response_size <= 0)
+	{
+		snprintf(error, (size_t)error_size, "no room for the answer");
+		return 0;
+	}
+	response[0] = 0;
+	pthread_once(&certificates_once, load_certificates);
+	if (!crypto_ready)
+	{
+		snprintf(error, (size_t)error_size, "could not start the cryptography");
+		return 0;
+	}
+	if (!certificates_loaded)
+	{
+		snprintf(error, (size_t)error_size, "the system's certificate authorities were not found");
+		return 0;
+	}
+	memset(&download, 0, sizeof(download));
+	download.memory = response;
+	download.maximum = (unsigned long long)response_size - 1;
+	return https_exchange(method, url, headers, body, &download, location, sizeof(location), error, error_size);
 }
 
 /* ---------- files and processes */

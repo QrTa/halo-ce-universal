@@ -3640,6 +3640,16 @@ static boolean main_loop_iteration(
 				randomizer_profiles_poll();
 				randomizer_pack_update(main_globals.main_menu_scenario_loaded);
 			}
+			/* port: the community server's answers, and a daily challenge's
+			settings taken away once its level is over
+			(port/linux/game/community.c) */
+			{
+				extern void community_update(boolean main_menu);
+				extern void daily_menu_poll(void);
+
+				community_update(main_globals.main_menu_scenario_loaded);
+				daily_menu_poll();
+			}
 			/* port: network games' text chat (port/linux/game/network_chat.c) */
 			network_chat_update();
 			profile_scope_enter(main_network_start_frame_section)

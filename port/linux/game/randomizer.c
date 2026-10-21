@@ -76,6 +76,7 @@ off. Each map read is a donor of one pack or the other.
 #include "halo_port_limits.h"
 void platform_log(char const *format, ...);
 #include "randomizer.h"
+#include "community.h"
 #include "tag_schema.h"
 
 #include <xtl.h>
@@ -2764,14 +2765,17 @@ static int squad_is_protected(char const *name)
 	return 0;
 }
 
-/* a fresh load of a mission. A checkpoint revert does not load the tags
-again, so the actors already placed keep this roll */
-static void placement_roll_new(void)
+/* a fresh load of a mission (scenario_name's, NULL for none known yet). A
+checkpoint revert does not load the tags again, so the actors already placed
+keep this roll. A daily challenge's level rolls the challenge's seed, the
+same for every player (community.c) */
+static void placement_roll_new(char const *scenario_name)
 {
 	static unsigned long salt;
+	unsigned long challenge_seed = scenario_name ? community_randomizer_seed(scenario_name) : 0;
 
 	salt++;
-	placement_roll = mix(system_milliseconds() ^ salt);
+	placement_roll = challenge_seed ? challenge_seed : mix(system_milliseconds() ^ salt);
 	if (!placement_roll)
 		placement_roll = 1;
 	placement_roll_ready = 1;
@@ -3044,7 +3048,7 @@ void randomizer_tags_loaded(char const *scenario_name)
 	if (!randomize && !skull && !outbreak && !scarab)
 		return;
 	if (randomize && !network_game_distributed_client() && !placement_roll_ready)
-		placement_roll_new();
+		placement_roll_new(scenario_name);
 	snprintf(map_name_leaf, sizeof(map_name_leaf), "%s", leaf);
 	if (gather_begin())
 	{
@@ -3853,7 +3857,7 @@ void randomizer_advertisement(unsigned char *reserved)
 	if (!setup_swaps(&setup))
 		return;
 	if (!placement_roll_ready)
-		placement_roll_new();
+		placement_roll_new(NULL);
 	reserved[HALO_PORT_ADVERTISED_FLAGS_OFFSET] =
 		(unsigned char)(reserved[HALO_PORT_ADVERTISED_FLAGS_OFFSET] | HALO_PORT_ADVERTISED_RANDOMIZER_FLAG);
 	reserved[HALO_PORT_ADVERTISED_RANDOMIZER_SETUP_OFFSET] =

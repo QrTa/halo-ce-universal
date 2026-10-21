@@ -70,6 +70,7 @@ lobby) loads.
 #include "custom_edition_maps.h"
 #include "campaign_score_values.h"
 #include "campaign_medals.h"
+#include "community.h"
 #include "halo_skulls.h"
 #include "interface/ui_widget.h"
 #include "bitmaps/bitmap_group.h"
@@ -1406,12 +1407,18 @@ static void campaign_score_win_compose(
 	if (!campaign_score_enabled())
 		return;
 	campaign_score_update();
+	community_result_clear();
 	/* (each of this machine's players' records of the level, in their
-	profiles: a co-op team's score, or in a competitive game their own) */
+	profiles: a co-op team's score, or in a competitive game their own; a
+	daily challenge's run keeps none, its settings not the player's own) */
 	{
 		short local_player_index;
 		boolean first = TRUE;
 		long records;
+		short local_players = 0;
+		struct campaign_score_record first_run;
+		long first_player_index = NONE;
+		long first_profile_index = NONE;
 
 		for (local_player_index = local_player_get_next(NONE); local_player_index != NONE;
 			local_player_index = local_player_get_next(local_player_index))
@@ -1435,12 +1442,40 @@ static void campaign_score_win_compose(
 			cooperative game) */
 			run.medals = campaign_score_count_of(campaign_score_competitive ? absolute_index : NONE,
 				_campaign_score_entry_medal);
-			records = campaign_score_record_level(player_ui_get_active_player_profile_index(local_player_index), &run);
+			records = community_challenge_running() ? 0 :
+				campaign_score_record_level(player_ui_get_active_player_profile_index(local_player_index), &run);
 			/* (the summary's records: the first player's) */
 			if (first)
 			{
 				first_records = records;
 				first = FALSE;
+				first_run = run;
+				first_player_index = player_index;
+				first_profile_index = player_ui_get_active_player_profile_index(local_player_index);
+			}
+			local_players++;
+		}
+		/* (the online leaderboard's, the level's or the daily challenge's: a
+		level won by one player of this machine alone, not over a network,
+		community.c) */
+		if (local_players == 1 && game_connection() == _game_connection_local && first_profile_index != NONE &&
+			global_scenario_index != NONE)
+		{
+			struct player_profile profile;
+			struct community_run online;
+
+			if (player_profile_get(first_profile_index, &profile))
+			{
+				online.score = first_run.score;
+				online.seconds = first_run.seconds;
+				online.difficulty = first_run.difficulty;
+				online.skulls = first_run.skulls;
+				online.skulls_percent = first_run.skulls_percent;
+				online.medals = first_run.medals;
+				online.kills = first_player_index != NONE ? campaign_score_player_kills(first_player_index) : 0;
+				online.deaths = first_player_index != NONE ? campaign_score_player_deaths(first_player_index) : 0;
+				community_level_won(tag_get_name(global_scenario_index), &online, profile.player_name,
+					first_profile_index);
 			}
 		}
 	}
@@ -2300,6 +2335,17 @@ static real campaign_score_card_layout(
 			}
 		}
 		y += line + 4.0f;
+	}
+	/* (what the online leaderboard made of it: community.c, as it answers) */
+	if (community_result_text()[0])
+	{
+		if (draw)
+		{
+			campaign_score_card_color(&color, CAMPAIGN_SCORE_BLUE_RED + 0.2f, CAMPAIGN_SCORE_BLUE_GREEN + 0.2f, 1.0f);
+			campaign_score_panel_text(panel, NULL, community_result_text(), left, right, y, CAMPAIGN_SCORE_SUBLINE_SIZE,
+				_campaign_score_text_center, &color);
+		}
+		y += small + 6.0f;
 	}
 	/* (a co-op game's players: each one's score and kills) */
 	if (report->player_count > 1)

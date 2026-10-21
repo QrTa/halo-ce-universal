@@ -402,8 +402,17 @@ static char const *const port_function_names[] =
 	/* (Server Setup's RANDOMIZER and SKULLS rows, a co-op game's: the
 	screens above, whose OK comes back to it) */
 	"ss randomizer", "ss skulls",
-	/* (New Game's LEADERBOARD: the level's records, every profile's) */
-	"port leaderboard init",
+	/* (New Game's LEADERBOARD: the level's records, every profile's, or
+	the online leaderboard's) */
+	"port leaderboard init", "port leaderboard view",
+	/* (the main menu's DAILY CHALLENGE: the day's challenge, its
+	leaderboard and the past days, community.c's) */
+	"port daily today", "port daily init", "port daily play", "port daily choose", "port daily leaderboard init",
+	"port history init",
+	/* (its window of a server not reached, and Settings > Gameplay > Daily
+	Challenge's SERVER ADDRESS; B on a field's row) */
+	"port daily try default", "port daily connection edit", "port daily go offline", "port daily retry",
+	"port daily settings init", "port daily server edit", "port field back",
 };
 
 /* the PC version's game data functions that the Xbox's have not, from
@@ -435,8 +444,10 @@ static char const *const port_game_data_input_names[] =
 	"port mods update",
 	/* (network co-op's pause menu's FRIENDLY FIRE: its text, ON or OFF) */
 	"port coop friendly fire text",
-	/* (New Game's LEADERBOARD's rows) */
+	/* (New Game's LEADERBOARD's rows, and the daily challenge's) */
 	"port leaderboard update",
+	/* (the main menu's DAILY CHALLENGE: the day's challenge, and the past days' rows) */
+	"port daily update", "port history update", "port daily connection update", "port daily settings update",
 };
 
 static struct

@@ -100,6 +100,8 @@ their handlers open opens.
 #include "custom_edition_cache.h"
 #include "custom_edition_maps.h"
 #include "campaign_score.h"
+#include "community.h"
+#include "../src/community_net.h"
 #include "network_voice.h"
 #include "text/draw_string.h"
 /* (internet play's server browser: the platform layer's) */
@@ -705,6 +707,16 @@ static void text_set(struct widget_instance *text_box, wchar_t const *text)
 	text_set_length(text_box, text, ROW_TEXT_LENGTH);
 }
 
+/* a text of several lines (the leaderboards' notes, the daily challenge's
+words): its widget's room is made once, as long as this, so it is always set
+so */
+#define LONG_TEXT_LENGTH 640
+
+static void long_text_set(struct widget_instance *text_box, wchar_t const *text)
+{
+	text_set_length(text_box, text, LONG_TEXT_LENGTH);
+}
+
 /* one of our string lists' strings, on one line (its line breaks spaces) */
 static void string_get(char const *list, short index, wchar_t *text)
 {
@@ -1002,11 +1014,21 @@ static void profile_name_show(struct widget_instance *description)
 }
 
 /* (Campaign's menu) "campaign menu init": player 1's profile and saved
-game, for its items */
-static boolean campaign_menu_initialize(short controller)
+game, for its items; DAILY CHALLENGE only with game.daily_challenge on (off,
+Back takes its place) */
+static boolean campaign_menu_initialize(struct widget_instance *list, short controller)
 {
 	struct player_profile profile;
+	struct widget_instance *daily_item = named(list, "menu_item_daily", 0);
+	struct widget_instance *back_item = named(list, "menu_item_back", 0);
 
+	if (daily_item && back_item && !config_boolean("game.daily_challenge"))
+	{
+		daily_item->visible = FALSE;
+		back_item->vertical_offset = daily_item->vertical_offset;
+		if (list->focused_child == daily_item)
+			list->focused_child = back_item;
+	}
 	if (campaign_profile(controller, &profile))
 		campaign_levels_read(&profile);
 	return TRUE;
@@ -2617,15 +2639,28 @@ static void saved_games_read(short controller)
 }
 
 /* New Game's LEADERBOARD (tools/port_settings.py's _leaderboard): the level
-shown's records, every profile's of this machine that has one (its
-campaign_records.txt: campaign_score.c), best score first, read as its
-screen opens */
+shown's records, the online leaderboard's (community.c: every player's best,
+and this install's own place), or every profile's of this machine that has
+one (its campaign_records.txt: campaign_score.c), best score first, read as
+its screen opens; VIEW switches between them. The daily challenge's
+LEADERBOARD is the same screen of the day's (_daily) */
 #define LEADERBOARD_ROWS 10
+
+enum
+{
+	_leaderboard_local = 0,
+	_leaderboard_online,
+	_leaderboard_daily,
+};
 
 static struct
 {
+	short mode;
+	/* (VIEW's choice, kept while the game runs) */
+	boolean local_view;
 	short count;
 	wchar_t level[64];
+	char map_name[64];
 	struct
 	{
 		wchar_t name[MAXIMUM_PLAYER_PROFILE_NAME_LENGTH + 1];
@@ -2646,8 +2681,12 @@ static boolean leaderboard_initialize(void)
 	leaderboard.count = 0;
 	ustrncpy(leaderboard.level, title ? title : L"", NUMBEROF(leaderboard.level) - 1);
 	leaderboard.level[NUMBEROF(leaderboard.level) - 1] = 0;
+	snprintf(leaderboard.map_name, sizeof(leaderboard.map_name), "%s", map_name ? map_name : "");
+	leaderboard.mode = community_enabled() && !leaderboard.local_view ? _leaderboard_online : _leaderboard_local;
 	if (!map_name)
 		return TRUE;
+	if (leaderboard.mode == _leaderboard_online)
+		community_board_open_level(map_name);
 	player_profiles_enumerate_available_to_local_player_index(NONE, &count, profiles, FALSE);
 	for (index = 0; index < (short)count && leaderboard.count < MAXIMUM_PROFILES; index++)
 	{
@@ -2671,12 +2710,66 @@ static boolean leaderboard_initialize(void)
 	return TRUE;
 }
 
+/* "port leaderboard view" (VIEW): the online leaderboard, or this
+machine's */
+static boolean leaderboard_view(void)
+{
+	if (leaderboard.mode == _leaderboard_daily)
+		return FALSE;
+	if (!community_enabled())
+	{
+		leaderboard.local_view = TRUE;
+		leaderboard.mode = _leaderboard_local;
+		return FALSE;
+	}
+	leaderboard.local_view = leaderboard.mode == _leaderboard_online;
+	leaderboard.mode = leaderboard.local_view ? _leaderboard_local : _leaderboard_online;
+	if (leaderboard.mode == _leaderboard_online && leaderboard.map_name[0])
+		community_board_open_level(leaderboard.map_name);
+	ui_play_audio_feedback_sound(SOUND_FORWARD);
+	return TRUE;
+}
+
+/* a row's columns, of a record ("-" for those it has not) */
+static void leaderboard_row_text(long rank, wchar_t const *player, long skulls_count, long medals_count, long points,
+	long seconds, wchar_t *name, wchar_t *skulls, wchar_t *medals, wchar_t *score, wchar_t *time)
+{
+	usnprintf(name, ROW_TEXT_LENGTH, L"%ld.  %s", rank, player);
+	if (skulls_count == NONE)
+		usprintf(skulls, L"-");
+	else
+		usnprintf(skulls, 24, L"%ld", skulls_count);
+	if (medals_count == NONE)
+		usprintf(medals, L"-");
+	else
+		usnprintf(medals, 24, L"%ld", medals_count);
+	usnprintf(score, 24, L"%ld", points);
+	usnprintf(time, 24, L"%ld:%02ld:%02ld", seconds / 3600, seconds / 60 % 60, seconds % 60);
+}
+
 /* "port leaderboard update" */
 static void leaderboard_update(struct widget_instance *screen)
 {
+	boolean online = leaderboard.mode != _leaderboard_local;
+	short state = online ? community_board_state() : _community_ready;
+	struct community_row const *mine = online ? community_board_mine() : NULL;
+	short count = online ? community_board_count() : leaderboard.count;
 	short row;
 
-	text_set(named(screen, "level", 0), leaderboard.level);
+	if (online && state == _community_ready && community_board_players() > 0)
+	{
+		wchar_t level[96];
+
+		usnprintf(level, NUMBEROF(level), L"%s  (%ld %hs%hs)", leaderboard.level, community_board_players(),
+			community_enabled() ? "PLAYER" : "PROFILE", community_board_players() == 1 ? "" : "S");
+		text_set(named(screen, "level", 0), level);
+	}
+	else
+		text_set(named(screen, "level", 0), leaderboard.level);
+	/* (players online; this machine's profiles, a daily challenge's offline too) */
+	text_set(named(screen, "heading_name", 0), leaderboard.mode == _leaderboard_online ||
+		(leaderboard.mode == _leaderboard_daily && community_enabled()) ? L"PLAYER" : L"PROFILE");
+	text_set(named(screen, "button_view", 0), online ? L"VIEW: ONLINE" : L"VIEW: THIS MACHINE");
 	for (row = 0; row < LEADERBOARD_ROWS; row++)
 	{
 		wchar_t name[ROW_TEXT_LENGTH] = { 0 };
@@ -2685,24 +2778,26 @@ static void leaderboard_update(struct widget_instance *screen)
 		wchar_t score[24] = { 0 };
 		wchar_t time[24] = { 0 };
 
-		if (row < leaderboard.count)
+		if (online)
+		{
+			struct community_row const *entry = community_board_row(row);
+
+			/* (this install's own place on the last row, when it is below
+			those shown) */
+			if (row == LEADERBOARD_ROWS - 1 && mine && mine->rank > LEADERBOARD_ROWS)
+				entry = mine;
+			if (entry)
+			{
+				leaderboard_row_text(entry->rank, entry->name, entry->skulls, entry->medals, entry->score,
+					entry->seconds, name, skulls, medals, score, time);
+			}
+		}
+		else if (row < leaderboard.count)
 		{
 			struct campaign_score_record const *record = &leaderboard.rows[row].record;
-			long seconds = record->seconds;
 
-			usnprintf(name, NUMBEROF(name), L"%d.  %s", (int)row + 1, leaderboard.rows[row].name);
-			/* (each the profile's best of its own: "-" for a record from
-			before they were kept) */
-			if (record->skulls == NONE)
-				usprintf(skulls, L"-");
-			else
-				usnprintf(skulls, NUMBEROF(skulls), L"%ld", record->skulls);
-			if (record->medals == NONE)
-				usprintf(medals, L"-");
-			else
-				usnprintf(medals, NUMBEROF(medals), L"%ld", record->medals);
-			usnprintf(score, NUMBEROF(score), L"%ld", record->score);
-			usnprintf(time, NUMBEROF(time), L"%ld:%02ld:%02ld", seconds / 3600, seconds / 60 % 60, seconds % 60);
+			leaderboard_row_text(row + 1, leaderboard.rows[row].name, record->skulls, record->medals, record->score,
+				record->seconds, name, skulls, medals, score, time);
 		}
 		text_set(named(screen, "row_name", row), name);
 		text_set(named(screen, "row_skulls", row), skulls);
@@ -2710,8 +2805,345 @@ static void leaderboard_update(struct widget_instance *screen)
 		text_set(named(screen, "row_score", row), score);
 		text_set(named(screen, "row_time", row), time);
 	}
-	text_set(named(screen, "note", 0), leaderboard.count ? L"" :
-		L"No scores yet. Win this level with scoring on\r(Settings > Gameplay > Scoring) to set one.");
+	if (state == _community_loading)
+		long_text_set(named(screen, "note", 0), L"Loading the online leaderboard...");
+	else if (state != _community_ready)
+		long_text_set(named(screen, "note", 0), community_status_text());
+	else if (count)
+		long_text_set(named(screen, "note", 0), L"");
+	else if (leaderboard.mode == _leaderboard_daily)
+		long_text_set(named(screen, "note", 0), L"No one has finished this challenge yet.");
+	else if (online)
+		long_text_set(named(screen, "note", 0), L"No online scores yet. Win this level with scoring on\r(Settings > Gameplay > Scoring) to set one.");
+	else
+		long_text_set(named(screen, "note", 0), L"No scores yet. Win this level with scoring on\r(Settings > Gameplay > Scoring) to set one.");
+}
+
+/* ---------- the main menu's DAILY CHALLENGE (tools/port_settings.py's
+_daily; community.c): the day's challenge, today's or a past day's (PAST
+DAYS), what it is and this install's best of it; PLAY plays it, its
+settings set for the run alone. The screens are made again as they are gone
+back to: the day shown is kept here, and its challenge asked for again only
+when it is another's */
+
+static short list_scroll(struct widget_instance *list, short *first, short count, short rows);
+static void daily_connection_want(struct widget_instance *screen);
+static void daily_connection_reset(void);
+extern int randomizer_pack_ready(void);
+extern int skulls_pack_ready(void);
+
+#define DAILY_HISTORY_ROWS 10
+/* (the skulls' lines, of as many characters as the screen's small font fits) */
+#define DAILY_SKULLS_LINE 60
+
+static struct
+{
+	/* the day shown: "" for today's */
+	char day[COMMUNITY_DAY_LENGTH];
+	/* the challenge whose packs were asked for (randomizer_pack_request) */
+	char packs_day[COMMUNITY_DAY_LENGTH];
+	short history_first;
+	short history_chosen;
+} daily;
+
+/* "port daily today" (Campaign's DAILY CHALLENGE) */
+static boolean daily_today(void)
+{
+	daily.day[0] = 0;
+	daily_connection_reset();
+	return TRUE;
+}
+
+/* "port daily init": the day's challenge, asked for unless it is the one
+already here */
+static boolean daily_initialize(void)
+{
+	struct community_challenge const *challenge = community_daily();
+	/* (and from where it is now: the server's online, this machine's offline) */
+	boolean same = challenge && challenge->online == community_enabled() &&
+		(daily.day[0] ? !strcmp(challenge->day, daily.day) : community_daily_is_today());
+
+	if (!same)
+		community_daily_open(daily.day[0] ? daily.day : NULL);
+	return TRUE;
+}
+
+/* the level's name, as the screen writes it: MISSION 3: TRUTH AND RECONCILIATION */
+static void daily_level_text(short level_index, wchar_t *text, long count)
+{
+	wchar_t const *title = level_index != NONE ?
+		custom_edition_maps_level_title(main_get_solo_level_name(level_index)) : NULL;
+
+	if (!title)
+	{
+		usprintf(text, L"A LEVEL THIS GAME HAS NOT");
+		return;
+	}
+	usnprintf(text, count, L"MISSION %d: %s", (int)level_index + 1, title);
+	ustrupr(text);
+}
+
+/* "port daily update" */
+static void daily_update(struct widget_instance *screen)
+{
+	struct community_challenge const *challenge = community_daily();
+	short state = community_daily_state();
+	wchar_t text[512];
+	wchar_t day[64];
+	short index;
+
+	text_set(named(screen, "button_play", 0),
+		state == _community_unavailable || state == _community_refused ? L"RETRY" : L"PLAY");
+	/* (no community server answered: the window that asks what to do) */
+	if (community_daily_unreachable())
+		daily_connection_want(screen);
+	if (!challenge)
+	{
+		long_text_set(named(screen, "date", 0), L"");
+		text_set(named(screen, "level", 0), state == _community_loading ? L"CONNECTING..." : L"");
+		text_set(named(screen, "difficulty", 0), L"");
+		long_text_set(named(screen, "details", 0), L"");
+		text_set(named(screen, "skulls_heading", 0), L"");
+		long_text_set(named(screen, "skulls", 0), L"");
+		long_text_set(named(screen, "mine", 0), L"");
+		long_text_set(named(screen, "note", 0), state == _community_loading ? L"Connecting to the community server..." :
+			community_status_text());
+		return;
+	}
+	/* (its packs written at the main menu, before it is played:
+	randomizer_pack.c; the level plays without them, more slowly) */
+	if (strcmp(daily.packs_day, challenge->day))
+	{
+		boolean wants_skulls_pack = FALSE;
+
+		snprintf(daily.packs_day, sizeof(daily.packs_day), "%s", challenge->day);
+		for (index = 0; index < challenge->skull_count; index++)
+		{
+			wants_skulls_pack |= !strcmp(challenge->skulls[index], "outbreak") ||
+				!strcmp(challenge->skulls[index], "scarab");
+		}
+		if (!randomizer_pack_ready())
+			randomizer_pack_request();
+		if (wants_skulls_pack && !skulls_pack_ready())
+			skulls_pack_request();
+	}
+	community_day_text(challenge->day, FALSE, day, NUMBEROF(day));
+	if (challenge->open)
+	{
+		long left = community_daily_seconds_left();
+
+		usnprintf(text, NUMBEROF(text), L"%s   -   ENDS IN %ldH %02ldM", day, left / 3600, left / 60 % 60);
+	}
+	else
+		usnprintf(text, NUMBEROF(text), L"%s   -   ENDED", day);
+	long_text_set(named(screen, "date", 0), text);
+	daily_level_text(challenge->level_index, text, NUMBEROF(text));
+	text_set(named(screen, "level", 0), text);
+	string_get("pc\\main_menu\\player_profiles_select\\difficulty_names", challenge->difficulty, text);
+	ustrupr(text);
+	text_set(named(screen, "difficulty", 0), text);
+	text[0] = 0;
+	for (index = 0; index < challenge->detail_count; index++)
+	{
+		wchar_t line[COMMUNITY_DETAIL_LENGTH + 2];
+
+		usnprintf(line, NUMBEROF(line), L"%hs%hs", index ? "\r" : "", challenge->details[index]);
+		ustrncat(text, line, NUMBEROF(text) - ustrlen(text) - 1);
+	}
+	long_text_set(named(screen, "details", 0), text);
+	usnprintf(text, NUMBEROF(text), L"SKULLS (%d)", (int)challenge->skull_count);
+	text_set(named(screen, "skulls_heading", 0), text);
+	/* (their names, a line at a time) */
+	{
+		char lines[DAILY_SKULLS_LINE * 5];
+		size_t length = 0, line_start = 0;
+
+		lines[0] = 0;
+		for (index = 0; index < challenge->skull_count; index++)
+		{
+			char const *label = challenge->skulls[index];
+			short skull;
+
+			for (skull = 0; skull < NUMBER_OF_SKULLS; skull++)
+			{
+				if (!strcmp(skull_descriptions[skull].key, challenge->skulls[index]))
+					label = skull_descriptions[skull].label;
+			}
+			if (index && length - line_start + strlen(label) + 2 > DAILY_SKULLS_LINE)
+			{
+				length += (size_t)snprintf(lines + length, sizeof(lines) - length, ",\r");
+				line_start = length;
+			}
+			else if (index)
+				length += (size_t)snprintf(lines + length, sizeof(lines) - length, ", ");
+			length += (size_t)snprintf(lines + length, sizeof(lines) - length, "%s", label);
+			if (length >= sizeof(lines))
+				break;
+		}
+		usnprintf(text, NUMBEROF(text), L"%hs", challenge->skull_count ? lines : "NONE");
+	}
+	long_text_set(named(screen, "skulls", 0), text);
+	if (challenge->has_mine)
+	{
+		usnprintf(text, NUMBEROF(text), L"YOUR BEST: %ld   IN %ld:%02ld:%02ld   (%ld TR%hs)", challenge->mine_score,
+			challenge->mine_seconds / 3600, challenge->mine_seconds / 60 % 60, challenge->mine_seconds % 60,
+			challenge->mine_attempts, challenge->mine_attempts == 1 ? "Y" : "IES");
+	}
+	else
+		usprintf(text, challenge->open ? L"NOT PLAYED YET" : L"");
+	long_text_set(named(screen, "mine", 0), text);
+	if (community_status_text()[0])
+		long_text_set(named(screen, "note", 0), community_status_text());
+	else if (!challenge->open)
+		long_text_set(named(screen, "note", 0), L"This challenge has ended. You can still play it,\rbut its leaderboard no longer takes scores.");
+	else if (!challenge->online)
+		long_text_set(named(screen, "note", 0), L"Offline: this challenge is made on this machine, and\rits leaderboard is this machine's profiles'.");
+	else
+		long_text_set(named(screen, "note", 0), L"The same enemies, skulls and difficulty for everyone.\rThe best score when the day ends wins.");
+}
+
+/* "port daily play" (PLAY): the challenge played, with its settings, by
+player 1's profile alone; asked for again (RETRY) when it could not be */
+static boolean daily_play(short controller)
+{
+	struct player_profile profile;
+	char const *map_name;
+	short difficulty;
+
+	if (community_daily_state() == _community_loading)
+		return FALSE;
+	if (!community_daily())
+	{
+		daily_connection_reset();
+		community_daily_open(daily.day[0] ? daily.day : NULL);
+		return TRUE;
+	}
+	player_spawn_count = 1;
+	player_ui_reset_single_player_local_player_controllers();
+	if (!campaign_profile(controller, &profile))
+	{
+		display_error_text_deferred(L"Make a profile first (Profiles),\r\nthen play the challenge.", controller);
+		return campaign_fail();
+	}
+	if (!community_daily_begin(&map_name, &difficulty))
+		return campaign_fail();
+	campaign_start(map_name, difficulty, controller, FALSE);
+	return TRUE;
+}
+
+/* "port daily leaderboard init" (the challenge's LEADERBOARD) */
+static boolean daily_leaderboard_initialize(void)
+{
+	struct community_challenge const *challenge = community_daily();
+	wchar_t day[64];
+
+	leaderboard.mode = _leaderboard_daily;
+	leaderboard.count = 0;
+	leaderboard.map_name[0] = 0;
+	if (!challenge)
+	{
+		usprintf(leaderboard.level, L"DAILY CHALLENGE");
+		return TRUE;
+	}
+	community_day_text(challenge->day, TRUE, day, NUMBEROF(day));
+	usnprintf(leaderboard.level, NUMBEROF(leaderboard.level), L"DAILY CHALLENGE, %s", day);
+	community_board_open_day(challenge->day);
+	return TRUE;
+}
+
+/* "port history init" (PAST DAYS): the days asked for; going back from it
+is to today's */
+static boolean daily_history_initialize(void)
+{
+	daily.day[0] = 0;
+	daily.history_first = 0;
+	daily.history_chosen = 0;
+	community_history_open();
+	return TRUE;
+}
+
+/* the past day of a row of PAST DAYS, NULL for none */
+static struct community_history_day const *daily_history_row(struct widget_instance *row)
+{
+	if (!row || strncmp(row->name, "history_row_", 12))
+		return NULL;
+	return community_history_day((short)(daily.history_first + atoi(row->name + 12) - 1));
+}
+
+/* "port daily choose" (A on a row of PAST DAYS) */
+static boolean daily_choose(struct widget_instance *widget)
+{
+	struct community_history_day const *day;
+
+	for (; widget && strncmp(widget->name, "history_row_", 12); widget = widget->parent)
+		;
+	day = daily_history_row(widget);
+	if (!day)
+		return FALSE;
+	snprintf(daily.day, sizeof(daily.day), "%s", day->day);
+	ui_play_audio_feedback_sound(SOUND_FORWARD);
+	return TRUE;
+}
+
+/* "port history update": the rows, scrolled on at their ends */
+static void daily_history_update(struct widget_instance *list)
+{
+	struct widget_instance *row;
+	struct widget_instance *screen = screen_of(list);
+	short state = community_history_state();
+	short count = community_history_count();
+	short chosen = list_scroll(list, &daily.history_first, count, DAILY_HISTORY_ROWS);
+
+	if (chosen != NONE)
+		daily.history_chosen = chosen;
+	for (row = list->child; row; row = row->next)
+	{
+		struct community_history_day const *day = daily_history_row(row);
+		wchar_t text[96];
+
+		if (strncmp(row->name, "history_row_", 12))
+			continue;
+		row->animation.current_frame_index = row == list->focused_child ? 1 : 0;
+		row->visible = day != NULL;
+		if (!day)
+		{
+			if (row == list->focused_child)
+				focus_row(list, count ? (short)(count - 1 - daily.history_first) : NONE);
+			continue;
+		}
+		if (day->today)
+			usprintf(text, L"TODAY");
+		else
+			community_day_text(day->day, TRUE, text, NUMBEROF(text));
+		text_set(named(row, "history_date", 0), text);
+		/* (its name: ASSAULT ON THE CONTROL ROOM) */
+		{
+			wchar_t const *title = day->level_index != NONE ?
+				custom_edition_maps_level_title(main_get_solo_level_name(day->level_index)) : NULL;
+
+			ustrncpy(text, title ? title : L"?", NUMBEROF(text) - 1);
+			text[NUMBEROF(text) - 1] = 0;
+			ustrupr(text);
+		}
+		text_set(named(row, "history_level", 0), text);
+		string_get("pc\\main_menu\\player_profiles_select\\difficulty_names", day->difficulty, text);
+		ustrupr(text);
+		text_set(named(row, "history_difficulty", 0), text);
+		usnprintf(text, NUMBEROF(text), L"%ld", day->players);
+		text_set(named(row, "history_players", 0), text);
+		/* (this install's place on the day's leaderboard, "-" for none) */
+		if (day->has_mine && day->mine_rank > 0)
+			usnprintf(text, NUMBEROF(text), L"#%ld", day->mine_rank);
+		else
+			usprintf(text, L"-");
+		text_set(named(row, "history_mine", 0), text);
+	}
+	if (state == _community_loading)
+		long_text_set(named(screen, "history_note", 0), L"Loading the past challenges...");
+	else if (state != _community_ready)
+		long_text_set(named(screen, "history_note", 0), community_status_text());
+	else
+		long_text_set(named(screen, "history_note", 0), count ? L"" : L"No challenges yet.");
 }
 
 /* "load game menu init" */
@@ -5135,6 +5567,232 @@ static boolean server_name_edit(struct widget_instance *row)
 	wide_to_text(multiplayer.game_name, text, sizeof(text));
 	text_field_begin(row, text, NUMBEROF(multiplayer.game_name) - 1, game_name_done);
 	return TRUE;
+}
+
+/* ---- the daily challenge's server (tools/port_settings.py's
+SCREENS["gameplay/daily"] and _daily_connection; community.c): Settings >
+Gameplay > Daily Challenge's SERVER ADDRESS, typed in its row and written with
+OK; and the window the challenge's screen opens when no community server
+answers, over it (daily_menu_poll: not while its screen is being updated),
+whose choices each go back to it, which asks again */
+
+#define DAILY_CONNECTION_NAME "pc\\main_menu\\daily\\connection_screen"
+
+/* (ui_widget.c's: an error dialog is up) */
+extern boolean ui_widget_port_error_showing(void);
+/* (the window opens only over the challenge's screen still shown: one
+updated this recently) */
+#define DAILY_CONNECTION_SHOWN_MILLISECONDS 500
+
+static struct
+{
+	/* SERVER ADDRESS's, until OK writes it */
+	char address[TEXT_FIELD_LENGTH];
+	boolean changed;
+} daily_server;
+
+static struct
+{
+	/* the window wanted (and over which screen), and asked once already */
+	boolean pending;
+	boolean asked;
+	unsigned long wanted_at;
+	long back_tag;
+	/* the address typed in it */
+	char address[TEXT_FIELD_LENGTH];
+} daily_connection;
+
+static void daily_server_done(char const *text)
+{
+	snprintf(daily_server.address, sizeof(daily_server.address), "%s", text);
+	daily_server.changed = TRUE;
+}
+
+/* "port daily settings init" */
+static boolean daily_settings_initialize(void)
+{
+	snprintf(daily_server.address, sizeof(daily_server.address), "%s", config_string("community.custom_server"));
+	daily_server.changed = FALSE;
+	return TRUE;
+}
+
+/* "port daily settings update": SHARE LEVEL SCORES and SERVER online only,
+and SERVER ADDRESS with SERVER CUSTOM too */
+static void daily_settings_update(struct widget_instance *list)
+{
+	boolean online = randomizer_spinner_is(list, "enabled_spinner", "true");
+	boolean custom = online && randomizer_spinner_is(list, "server_mode_spinner", "custom");
+	struct widget_instance *row = named(list, "op_server_address", 0);
+
+	visible_set(named(list, "op_upload_scores", 0), online);
+	visible_set(named(list, "op_server_mode", 0), online);
+	if (!row)
+		return;
+	if (!custom && text_field_editing(row))
+		text_field_end(FALSE);
+	row->visible = custom;
+	text_field_show(named(row, "server_address_value", 0), daily_server.address[0] ? daily_server.address : "NONE",
+		text_field_editing(row));
+}
+
+/* "port daily server edit" (SERVER ADDRESS's A: begins, or ends) */
+static boolean daily_server_edit(struct widget_instance *row)
+{
+	if (text_field_editing(row))
+	{
+		text_field_end(TRUE);
+		return TRUE;
+	}
+	text_field_begin(row, daily_server.address, TEXT_FIELD_LENGTH - 1, daily_server_done);
+	return TRUE;
+}
+
+/* (OK, "port settings save") SERVER ADDRESS written, if it was typed; and
+(Defaults) none */
+static void daily_settings_save(void)
+{
+	if (!daily_server.changed)
+		return;
+	if (!config_write("community.custom_server", daily_server.address))
+		platform_log("menus: could not write community.custom_server");
+	daily_server.changed = FALSE;
+}
+
+static void daily_settings_defaults(void)
+{
+	daily_server.address[0] = 0;
+	daily_server.changed = TRUE;
+}
+
+/* "port field back" (B on a field's row): the typing ends, as it was; else
+back, as Cancel */
+static boolean field_back(struct widget_instance *widget, boolean *widget_deleted)
+{
+	if (text_field_editing(NULL))
+	{
+		text_field_end(FALSE);
+		return TRUE;
+	}
+	ui_widget_port_go_back(widget);
+	*widget_deleted = TRUE;
+	return TRUE;
+}
+
+/* (the challenge's screen, its server not reached) the window wanted, once
+until the challenge is asked for again */
+static void daily_connection_want(struct widget_instance *screen)
+{
+	if (daily_connection.asked)
+		return;
+	daily_connection.pending = TRUE;
+	daily_connection.wanted_at = system_milliseconds();
+	daily_connection.back_tag = screen->definition_tag_index;
+}
+
+static void daily_connection_reset(void)
+{
+	daily_connection.pending = FALSE;
+	daily_connection.asked = FALSE;
+}
+
+/* (main.c's main loop, each frame) the window opened, over the challenge's
+screen still shown */
+void daily_menu_poll(void)
+{
+	if (!daily_connection.pending)
+		return;
+	daily_connection.pending = FALSE;
+	if (system_milliseconds() - daily_connection.wanted_at > DAILY_CONNECTION_SHOWN_MILLISECONDS ||
+		ui_widget_port_error_showing() || text_field_editing(NULL))
+	{
+		return;
+	}
+	snprintf(daily_connection.address, sizeof(daily_connection.address), "%s",
+		config_string("community.custom_server"));
+	if (ui_widget_load_by_name_or_tag(DAILY_CONNECTION_NAME, NONE, NULL, NONE, daily_connection.back_tag, NONE, NONE))
+	{
+		daily_connection.asked = TRUE;
+		ui_play_audio_feedback_sound(SOUND_ERROR);
+	}
+}
+
+/* "port daily connection update": what happened, and the choices: TRY THE
+DEFAULT SERVER with a custom one, SERVER ADDRESS with the default */
+static void daily_connection_update(struct widget_instance *list)
+{
+	boolean custom = community_net_custom() != 0;
+	struct widget_instance *default_row = named(list, "connection_default", 0);
+	struct widget_instance *address_row = named(list, "connection_address", 0);
+	char server[TEXT_FIELD_LENGTH];
+	wchar_t text[640];
+
+	community_net_server_text(server, sizeof(server));
+	usnprintf(text, NUMBEROF(text),
+		L"The daily challenge could not be fetched from\r%hs\r\r%s\r\r%hs\r"
+		L"GO OFFLINE: play a challenge made on this machine, its\rleaderboard this machine's profiles'.\r"
+		L"TRY AGAIN: ask the server again.",
+		server, community_status_text(), custom ? "TRY THE DEFAULT SERVER: ask the OpenCE server instead." :
+		"SERVER ADDRESS: ask another community server, at the\raddress you type (A, then Enter).");
+	long_text_set(named(screen_of(list), "connection_text", 0), text);
+	if (default_row)
+		default_row->visible = custom;
+	if (address_row)
+		address_row->visible = !custom;
+	if (list->focused_child && !list->focused_child->visible)
+		list->focused_child = custom ? default_row : address_row;
+	text_field_show(named(list, "connection_address_value", 0),
+		daily_connection.address[0] ? daily_connection.address : "https://", text_field_editing(address_row));
+}
+
+static void daily_connection_address_done(char const *text)
+{
+	snprintf(daily_connection.address, sizeof(daily_connection.address), "%s", text);
+}
+
+/* the window's choice made: back to the challenge, which asks again */
+static boolean daily_connection_back(struct widget_instance *widget, boolean *widget_deleted)
+{
+	daily_connection_reset();
+	ui_play_audio_feedback_sound(SOUND_FORWARD);
+	ui_widget_port_go_back(widget);
+	*widget_deleted = TRUE;
+	return TRUE;
+}
+
+/* "port daily try default" (TRY THE DEFAULT SERVER) */
+static boolean daily_connection_try_default(struct widget_instance *widget, boolean *widget_deleted)
+{
+	if (!config_write("community.server_mode", "default"))
+		platform_log("menus: could not write community.server_mode");
+	return daily_connection_back(widget, widget_deleted);
+}
+
+/* "port daily connection edit" (SERVER ADDRESS's A: the typing begins; its
+end, Enter, asks that server, kept as the custom one) */
+static boolean daily_connection_edit(struct widget_instance *row, boolean *widget_deleted)
+{
+	if (!text_field_editing(row))
+	{
+		text_field_begin(row, daily_connection.address, TEXT_FIELD_LENGTH - 1, daily_connection_address_done);
+		return TRUE;
+	}
+	text_field_end(TRUE);
+	if (!daily_connection.address[0])
+		return campaign_fail();
+	if (!config_write("community.custom_server", daily_connection.address) ||
+		!config_write("community.server_mode", "custom"))
+	{
+		platform_log("menus: could not write community.custom_server");
+	}
+	return daily_connection_back(row, widget_deleted);
+}
+
+/* "port daily go offline" (GO OFFLINE: community.enabled off) */
+static boolean daily_connection_offline(struct widget_instance *widget, boolean *widget_deleted)
+{
+	if (!config_write("community.enabled", "false"))
+		platform_log("menus: could not write community.enabled");
+	return daily_connection_back(widget, widget_deleted);
 }
 
 /* "ss copy invite" */
@@ -7895,6 +8553,62 @@ boolean pc_menu_event_function_invoke(
 		{
 			return leaderboard_initialize();
 		}
+		else if (!strcmp(name, "port leaderboard view"))
+		{
+			return leaderboard_view();
+		}
+		else if (!strcmp(name, "port daily today"))
+		{
+			return daily_today();
+		}
+		else if (!strcmp(name, "port daily init"))
+		{
+			return daily_initialize();
+		}
+		else if (!strcmp(name, "port daily play"))
+		{
+			return daily_play(controller);
+		}
+		else if (!strcmp(name, "port daily choose"))
+		{
+			return daily_choose(widget);
+		}
+		else if (!strcmp(name, "port daily leaderboard init"))
+		{
+			return daily_leaderboard_initialize();
+		}
+		else if (!strcmp(name, "port history init"))
+		{
+			return daily_history_initialize();
+		}
+		else if (!strcmp(name, "port daily try default"))
+		{
+			return daily_connection_try_default(widget, widget_deleted);
+		}
+		else if (!strcmp(name, "port daily connection edit"))
+		{
+			return daily_connection_edit(widget, widget_deleted);
+		}
+		else if (!strcmp(name, "port daily go offline"))
+		{
+			return daily_connection_offline(widget, widget_deleted);
+		}
+		else if (!strcmp(name, "port daily retry"))
+		{
+			return daily_connection_back(widget, widget_deleted);
+		}
+		else if (!strcmp(name, "port daily settings init"))
+		{
+			return daily_settings_initialize();
+		}
+		else if (!strcmp(name, "port daily server edit"))
+		{
+			return daily_server_edit(widget);
+		}
+		else if (!strcmp(name, "port field back"))
+		{
+			return field_back(widget, widget_deleted);
+		}
 		else if (!strcmp(name, "port password edit"))
 		{
 			return password_screen_edit(widget, widget_deleted);
@@ -7926,11 +8640,14 @@ boolean pc_menu_event_function_invoke(
 		else if (!strcmp(name, "port settings save"))
 		{
 			settings_each(screen_of(widget), setting_changed_save);
+			daily_settings_save();
 			platform_display_apply();
 		}
 		else if (!strcmp(name, "port settings defaults"))
 		{
 			settings_each(screen_of(widget), setting_default_show);
+			if (named(screen_of(widget), "op_server_address", 0))
+				daily_settings_defaults();
 		}
 		else if (!strcmp(name, "port mods init") || !strcmp(name, "port mods close"))
 		{
@@ -8034,7 +8751,7 @@ boolean pc_menu_event_function_invoke(
 		}
 		else if (!strcmp(name, "campaign menu init"))
 		{
-			return campaign_menu_initialize(controller);
+			return campaign_menu_initialize(widget, controller);
 		}
 		else if (!strcmp(name, "campaign menu continue"))
 		{
@@ -8199,6 +8916,14 @@ void pc_menu_game_data_function_invoke(
 		password_screen_update(widget);
 	else if (!strcmp(name, "port leaderboard update"))
 		leaderboard_update(widget);
+	else if (!strcmp(name, "port daily update"))
+		daily_update(widget);
+	else if (!strcmp(name, "port history update"))
+		daily_history_update(widget);
+	else if (!strcmp(name, "port daily connection update"))
+		daily_connection_update(widget);
+	else if (!strcmp(name, "port daily settings update"))
+		daily_settings_update(widget);
 	else if (!strcmp(name, "gamespy screen update"))
 		browser_update(widget);
 	else if (!strcmp(name, "gt edit list update"))

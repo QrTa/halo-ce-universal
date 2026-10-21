@@ -26,6 +26,14 @@ MODS = "main_menu/mods"
 MOD_ROWS = 11
 MODS_ITEM_PLACE = (192, 391)
 QUIT_ITEM_PLACE = (192, 427)
+# the daily challenge's screens, and Campaign's DAILY CHALLENGE (_daily),
+# above Back, which goes a row down (wider than the other items, about the
+# same middle; menu_functions.c's campaign_menu_initialize takes it away,
+# and Back up again, with game.daily_challenge off)
+DAILY = "main_menu/daily"
+DAILY_ITEM = "main_menu/campaign_select/menu_item_daily"
+DAILY_ITEM_PLACE = (160, 391)
+CAMPAIGN_BACK_ITEM_PLACE = (192, 427)
 # the profile settings' rows, in order: the PC version's nine and Gameplay,
 # second to last, all in the nine's room (78 to About's top, 342) so the
 # last one's 32-unit highlight stays beside the description panel. Each is
@@ -468,6 +476,8 @@ SCREENS["gameplay"] = {
          "The randomizer: a campaign level's enemies\nand weapons swapped."),
         ("SKULLS", "gameplay/skulls", "The Master Chief Collection's skulls, and\nhow they are found."),
         ("SCORING", "gameplay/scoring", "The campaign's score, its time and par times,\nand its medals."),
+        ("DAILY CHALLENGE", "gameplay/daily",
+         "The daily challenge, and the server of it and\nof the online leaderboards."),
     ],
 }
 SCREENS["gameplay/ragdolls"] = {
@@ -496,6 +506,32 @@ SCREENS["gameplay/scoring"] = {
          "Show the medals you win at the center left as\nyou win them. Medals always count with scoring.",
          None),
     ],
+}
+# (the daily challenge and the online leaderboards: port/linux/game/
+# community.c; SERVER ADDRESS shown with SERVER CUSTOM, typed in its row and
+# written with OK: menu_functions.c's "port daily settings" functions)
+SCREENS["gameplay/daily"] = {
+    "screen": "daily_settings_screen", "header": _GAMEPLAY_HEADER, "spacing": 30,
+    "rows": [
+        ("DAILY CHALLENGE:", "game.daily_challenge", ON_OFF,
+         "Campaign's DAILY CHALLENGE: a level a day, its\nenemies and skulls the same for everyone.",
+         None),
+        ("ONLINE:", "community.enabled", ON_OFF,
+         "On: the challenge and the leaderboards come from\nthe server. Off: they are made on this machine.",
+         None),
+        ("SHARE LEVEL SCORES:", "community.upload_scores", ON_OFF,
+         "Online: each campaign level you win with scoring\non goes to its online leaderboard.",
+         None),
+        ("SERVER:", "community.server_mode", [("DEFAULT", "default"), ("CUSTOM", "custom")],
+         "Default: the OpenCE server. Custom: another\ncommunity server, at the address below.",
+         None),
+    ],
+    "fields": [
+        ("SERVER ADDRESS:", "port daily server edit", "server_address",
+         "The custom server's address, https://... A types\nit, Enter keeps it; OK writes it."),
+    ],
+    "inputs": ["port daily settings update"],
+    "handlers": ['<on event="created" run="port daily settings init"/>'],
 }
 SCREENS["gameplay/randomizer"] = {
     "screen": "randomizer_settings_screen", "header": _GAMEPLAY_HEADER, "spacing": 30,
@@ -839,24 +875,50 @@ def _setting_screen(folder: str, spec: dict) -> list:
                          [("type", "text"), ("controller", 1), ("width", 512), ("height", 22),
                           ("string_list", f"{base}/labels"), ("string_index", len(spec["rows"]) + categories + index),
                           ("font", "ui\\large_ui"), ("color", "#FF2896FF"), ("text_x", 13), ("text_y", 4)], [])
+    # (each field's row: its label, the function A runs (the typing begins,
+    # or ends), its key (its value's widget is <key>_value, which the screen's
+    # inputs show) and its help)
+    actions = len(spec.get("actions", ()))
+    for index, (label, function, key, _) in enumerate(spec.get("fields", ())):
+        row = f"{base}/op_{key}"
+        rows.append((row, None, place + 1 + categories + actions + index))
+        extra += _widget(row, [("width", 512), ("height", 28), ("flags", "pass_unhandled_to_focused_child"),
+                               ("bitmap", "bitmaps/option_bkds"), ("color", "#FF2896FF")],
+                         [f'<on event="a" run="{function}"/>', f'<on event="start" run="{function}"/>',
+                          # (B ends the typing, else leaves as Cancel does)
+                          '<on event="b" run="port field back"/>', '<on event="back" run="port field back"/>',
+                          '<on event="left_mouse" run="mouse emit accept event"/>',
+                          f'<child widget="{base}/{key}_label"/>', f'<child widget="{base}/{key}_value" x="200" y="1"/>'])
+        extra += _widget(f"{base}/{key}_label",
+                         [("type", "text"), ("controller", 1), ("width", 200), ("height", 22),
+                          ("string_list", f"{base}/labels"),
+                          ("string_index", len(spec["rows"]) + categories + actions + index),
+                          ("font", "ui\\large_ui"), ("color", "#FF2896FF"), ("text_x", 13), ("text_y", 4)], [])
+        extra += _widget(f"{base}/{key}_value",
+                         [("type", "text"), ("controller", 1), ("width", 306), ("height", 22), ("font", "ui\\small_ui"),
+                          ("color", "#FF2896FF"), ("align", "center"), ("text_y", 5), ("text_flags", "no_focus_test")],
+                         [])
     extra += _button(f"{base}/button_defaults", 3, ['<on event="a" run="port settings defaults"/>',
                                                     '<on event="start" run="port settings defaults"/>'])
     extra += _button(f"{base}/button_ok", 1, ['<on event="a" run="port settings save" back="true"/>',
                                               '<on event="start" run="port settings save" back="true"/>'])
     extra += _strings(f"{base}/labels", [label for label, *_ in spec["rows"]] +
                       [label for label, *_ in spec.get("categories", ())] +
-                      [label for label, *_ in spec.get("actions", ())])
+                      [label for label, *_ in spec.get("actions", ())] +
+                      [label for label, *_ in spec.get("fields", ())])
     # (the help of the row whose label is string n is n + 1: the buttons' is 0)
     extra += _strings(f"{base}/help_strings",
                       [""] + [help_text.replace("\n", "\\n") for _, _, _, help_text, *_ in spec["rows"]] +
                       [help_text.replace("\n", "\\n") for _, _, help_text, *_ in spec.get("categories", ())] +
                       [text.replace("\n", "\\n") for *_, help_text, more in spec.get("actions", ())
-                       for text in [help_text, *more]])
+                       for text in [help_text, *more]] +
+                      [help_text.replace("\n", "\\n") for *_, help_text in spec.get("fields", ())])
     # (a note's place None: the one after its platform's last row)
     if spec.get("notes"):
         spec = dict(spec, notes=[(text, platform, places[platform] + 1 if place is None else place)
                                  for text, platform, place in spec["notes"]])
-    return _screen(folder, spec, rows, ["port settings help", *spec.get("inputs", ())], [], extra)
+    return _screen(folder, spec, rows, ["port settings help", *spec.get("inputs", ())], spec.get("handlers", []),
+                   extra)
 
 
 def _controls_screen() -> list:
@@ -1472,6 +1534,10 @@ WIDGET_PATCHES = {
     # (the main menu's MODS, before Quit: _mods)
     "main_menu/main_menu_select_list": {"insert_before": {"main_menu/main_menu_item_quit_game": [
         f'<child widget="main_menu/main_menu_item_mods" x="{MODS_ITEM_PLACE[0]}" y="{MODS_ITEM_PLACE[1]}"/>']}},
+    # (Campaign's DAILY CHALLENGE, before Back: _daily)
+    "main_menu/campaign_select/campaign_menu_select_list": {"insert_before": {
+        "main_menu/campaign_select/menu_item_back": [
+            f'<child widget="{DAILY_ITEM}" x="{DAILY_ITEM_PLACE[0]}" y="{DAILY_ITEM_PLACE[1]}"/>']}},
     f"{PLAYER_EDIT}/player_options_menu": {"insert_before": {
         f"{PLAYER_EDIT}/player_button_bar": [
             f'<child widget="{PLAYER_EDIT}/op_aim_assist" x="54" y="313"/>']}},
@@ -2445,12 +2511,60 @@ def _level_records() -> list:
     return lines
 
 
+def _leaderboard_screen(base: str, init: str, buttons: list) -> list:
+    """a leaderboard's screen (base/leaderboard_screen): its title, a line of
+    what it is of, the columns' headings (LEADERBOARD_COLUMNS) and their
+    LEADERBOARD_ROWS rows, a note (none yet, loading, the server down), and
+    the button bar's buttons (BACK at the right). init is run as it opens;
+    menu_functions.c's "port leaderboard update" shows the rows, whichever
+    leaderboard it is"""
+    rows = []
+    for index in range(LEADERBOARD_ROWS):
+        top = 150 + 24 * index
+        rows += [f'<child widget="{base}/row_{name}" y="{top}"/>' for name, *_ in LEADERBOARD_COLUMNS]
+    lines = _widget(f"{base}/leaderboard_screen",
+                    [("width", 640), ("height", 480), ("flags", "pass_unhandled_to_focused_child"),
+                     ("bitmap", "bitmaps/gradient")],
+                    [f'<data input="port leaderboard update"/>',
+                     f'<on event="created" run="{init}"/>',
+                     '<on event="b" back="true"/>', '<on event="back" back="true"/>',
+                     f'<child widget="{base}/title"/>', f'<child widget="{base}/level"/>',
+                     *[f'<child widget="{base}/heading_{name}"/>' for name, *_ in LEADERBOARD_COLUMNS],
+                     f'<child widget="{base}/note"/>',
+                     *rows, f'<child widget="{base}/button_bar" y="414"/>'])
+    text = [("type", "text"), ("controller", 1)]
+    lines += _widget(f"{base}/title", text + [("left", 60), ("top", 40), ("width", 520), ("height", 40),
+                                              ("text", "LEADERBOARD"), ("font", "ui\\large_ui"),
+                                              ("color", "#FF2896FF")], [])
+    lines += _widget(f"{base}/level", text + [("left", 60), ("top", 80), ("width", 520), ("height", 30),
+                                              ("font", "ui\\large_ui"), ("color", "#FFFFFFFF")], [])
+    for name, label, left, width, align, large in LEADERBOARD_COLUMNS:
+        lines += _widget(f"{base}/heading_{name}",
+                         text + [("left", left), ("top", 122), ("width", width), ("height", 22), ("text", label),
+                                 ("font", "ui\\small_ui"), ("color", "#FF808080"), ("align", align)], [])
+        # (the rows', placed by the screen's children: menu_functions.c's
+        # leaderboard_update; the name, score and time in the large font,
+        # the rest in the small one, a line lower to share its foot)
+        lines += _widget(f"{base}/row_{name}",
+                         text + [("left", left), ("top", 0 if large else 4), ("width", width), ("height", 22),
+                                 ("font", "ui\\large_ui" if large else "ui\\small_ui"),
+                                 ("color", "#FF2896FF" if large else "#FFB8C8E0"), ("align", align)], [])
+    lines += _widget(f"{base}/note", text + [("left", 90), ("top", 150), ("width", 470), ("height", 60),
+                                             ("font", "ui\\small_ui"), ("color", "#FFB0B0B0")], [])
+    lines += _widget(f"{base}/button_bar", [("type", "column_list"), ("width", 640), ("height", 28),
+                                            ("flags", "pass_unhandled_to_focused_child left_right_tabs_items")],
+                     [*buttons, '<child widget="common_button_back" x="510" y="1"/>'])
+    return lines
+
+
 def _leaderboard() -> list:
     """New Game's LEADERBOARD button (LEADERBOARD_BUTTON) and its screen:
-    the level's name, then a row for each profile with a record of it, its
-    name, best score and best time (menu_functions.c's "port leaderboard
+    the level's name, then a row for each player with a record of it, its
+    name, best score and best time, or a note of none; the online
+    leaderboard's (community.c), or this machine's profiles' (VIEW: its
+    button, "port leaderboard view"). menu_functions.c's "port leaderboard
     init" reads them as the screen opens; "port leaderboard update" shows
-    them), or a note of none; BACK"""
+    them"""
     lines = _widget(LEADERBOARD_BUTTON, [("type", "text"), ("width", 128), ("height", 24),
                                          ("bitmap", "bitmaps/text_button_background"), ("text", "LEADERBOARD"),
                                          ("font", "ui\\small_ui"), ("color", "#FFFFFFFF"), ("align", "center"),
@@ -2458,42 +2572,200 @@ def _leaderboard() -> list:
                     [f'<on event="a" open="{LEADERBOARD}/leaderboard_screen"/>',
                      f'<on event="start" open="{LEADERBOARD}/leaderboard_screen"/>',
                      '<on event="left_mouse" run="mouse emit accept event"/>'])
-    rows = []
-    for index in range(LEADERBOARD_ROWS):
-        top = 150 + 24 * index
-        rows += [f'<child widget="{LEADERBOARD}/row_{name}" y="{top}"/>' for name, *_ in LEADERBOARD_COLUMNS]
-    lines += _widget(f"{LEADERBOARD}/leaderboard_screen",
+    lines += _leaderboard_screen(LEADERBOARD, "port leaderboard init",
+                                 [f'<child widget="{LEADERBOARD}/button_view" x="24" y="1"/>'])
+    lines += _text_button(f"{LEADERBOARD}/button_view", "VIEW: ONLINE",
+                          ['<on event="a" run="port leaderboard view"/>',
+                           '<on event="start" run="port leaderboard view"/>'])
+    return lines
+
+
+# ---------- the daily challenge (port/linux/game/community.c): Campaign's
+# DAILY CHALLENGE (with Settings > Gameplay > Daily Challenge's on) opens
+# today's, from the community server or, offline, made on this machine (its
+# level, difficulty, enemies and skulls, and this install's best of it); PLAY
+# plays it with its settings, LEADERBOARD shows the day's, PAST DAYS the
+# challenges before it, each of which opens the same screen. When the server
+# cannot be reached, a window asks what to do: the default server (a custom
+# one's), another server's address (the default's), offline, or again
+# (menu_functions.c's "port daily" functions)
+
+DAILY_ITEM_WIDTH = 320
+DAILY_HISTORY_ROWS = 10
+# the past days' columns: the widgets' name, heading, left (in the row),
+# width, alignment and whether in the large font
+# (the small font's capitals are some 8 units wide: the mission's name, the
+# longest 27 characters, in it; the day TODAY for today's; your place on the
+# day's leaderboard)
+DAILY_HISTORY_COLUMNS = [
+    ("date", "DAY", 10, 64, None, True),
+    ("level", "MISSION", 78, 236, None, False),
+    ("difficulty", "DIFFICULTY", 316, 80, None, False),
+    ("players", "PLAYERS", 398, 52, "right", False),
+    ("mine", "RANK", 452, 56, "right", False),
+]
+DAILY_HISTORY_LEFT = 64
+
+
+def _daily() -> list:
+    """Campaign's DAILY CHALLENGE (DAILY_ITEM: its picture, tools/ce_menus.py's)
+    and its screens: the day's challenge, its leaderboard, the past days, and
+    the window of a server not reached"""
+    text = [("type", "text"), ("controller", 1)]
+    lines = _widget(DAILY_ITEM, [("type", "text"), ("width", DAILY_ITEM_WIDTH), ("height", 33),
+                                 ("bitmap", "main_menu/menu_daily")],
+                    [f'<on event="a" run="port daily today" open="{DAILY}/daily_screen"/>',
+                     f'<on event="start" run="port daily today" open="{DAILY}/daily_screen"/>',
+                     '<on event="left_mouse" run="mouse emit accept event"/>'])
+    # the day's challenge: what it is, and this install's best of it; the
+    # note says what is wrong (the server down) or that a past day's does not
+    # count
+    lines += _widget(f"{DAILY}/daily_screen",
                      [("width", 640), ("height", 480), ("flags", "pass_unhandled_to_focused_child"),
                       ("bitmap", "bitmaps/gradient")],
-                     [f'<data input="port leaderboard update"/>',
-                      '<on event="created" run="port leaderboard init"/>',
+                     ['<data input="port daily update"/>', '<on event="created" run="port daily init"/>',
                       '<on event="b" back="true"/>', '<on event="back" back="true"/>',
-                      f'<child widget="{LEADERBOARD}/title"/>', f'<child widget="{LEADERBOARD}/level"/>',
-                      *[f'<child widget="{LEADERBOARD}/heading_{name}"/>' for name, *_ in LEADERBOARD_COLUMNS],
-                      f'<child widget="{LEADERBOARD}/note"/>',
-                      *rows, f'<child widget="{LEADERBOARD}/button_bar" y="414"/>'])
-    text = [("type", "text"), ("controller", 1)]
-    lines += _widget(f"{LEADERBOARD}/title", text + [("left", 60), ("top", 40), ("width", 520), ("height", 40),
-                                                     ("text", "LEADERBOARD"), ("font", "ui\\large_ui"),
-                                                     ("color", "#FF2896FF")], [])
-    lines += _widget(f"{LEADERBOARD}/level", text + [("left", 60), ("top", 80), ("width", 520), ("height", 30),
-                                                     ("font", "ui\\large_ui"), ("color", "#FFFFFFFF")], [])
-    for name, label, left, width, align, large in LEADERBOARD_COLUMNS:
-        lines += _widget(f"{LEADERBOARD}/heading_{name}",
-                         text + [("left", left), ("top", 122), ("width", width), ("height", 22), ("text", label),
-                                 ("font", "ui\\small_ui"), ("color", "#FF808080"), ("align", align)], [])
-        # (the rows', placed by the screen's children: menu_functions.c's
-        # leaderboard_update; the name, score and time in the large font,
-        # the rest in the small one, a line lower to share its foot)
-        lines += _widget(f"{LEADERBOARD}/row_{name}",
-                         text + [("left", left), ("top", 0 if large else 4), ("width", width), ("height", 22),
-                                 ("font", "ui\\large_ui" if large else "ui\\small_ui"),
-                                 ("color", "#FF2896FF" if large else "#FFB8C8E0"), ("align", align)], [])
-    lines += _widget(f"{LEADERBOARD}/note", text + [("left", 90), ("top", 150), ("width", 470), ("height", 60),
-                                                    ("font", "ui\\small_ui"), ("color", "#FFB0B0B0")], [])
-    lines += _widget(f"{LEADERBOARD}/button_bar", [("type", "column_list"), ("width", 640), ("height", 28),
-                                                   ("flags", "pass_unhandled_to_focused_child left_right_tabs_items")],
+                      *[f'<child widget="{DAILY}/{name}"/>' for name in
+                        ("title", "date", "level", "difficulty", "details", "skulls_heading", "skulls", "mine",
+                         "note")],
+                      f'<child widget="{DAILY}/button_bar" y="414"/>'])
+    for name, top, height, font, color, label in [
+            ("title", 36, 36, "large", "#FF2896FF", "DAILY CHALLENGE"),
+            ("date", 72, 20, "small", "#FF909090", None),
+            ("level", 98, 28, "large", "#FFFFFFFF", None),
+            ("difficulty", 126, 28, "large", "#FFFFD659", None),
+            ("details", 160, 70, "small", "#FFB8C8E0", None),
+            ("skulls_heading", 232, 20, "small", "#FF909090", None),
+            ("skulls", 250, 80, "small", "#FFB8C8E0", None),
+            ("mine", 334, 28, "large", "#FF2896FF", None),
+            ("note", 366, 44, "small", "#FFB0B0B0", None)]:
+        lines += _widget(f"{DAILY}/{name}", text + [("left", 60), ("top", top), ("width", 520), ("height", height),
+                                                    *([("text", label)] if label else []),
+                                                    ("font", f"ui\\{font}_ui"), ("color", color)], [])
+    lines += _widget(f"{DAILY}/button_bar", [("type", "column_list"), ("width", 640), ("height", 28),
+                                             ("flags", "pass_unhandled_to_focused_child left_right_tabs_items")],
+                     [f'<child widget="{DAILY}/button_play" x="24" y="1"/>',
+                      f'<child widget="{DAILY}/button_leaderboard" x="154" y="1"/>',
+                      f'<child widget="{DAILY}/button_history" x="284" y="1"/>',
+                      '<child widget="common_button_back" x="510" y="1"/>'])
+    lines += _text_button(f"{DAILY}/button_play", "PLAY", ['<on event="a" run="port daily play"/>',
+                                                          '<on event="start" run="port daily play"/>'])
+    lines += _text_button(f"{DAILY}/button_leaderboard", "LEADERBOARD",
+                          [f'<on event="a" open="{DAILY}/leaderboard/leaderboard_screen"/>',
+                           f'<on event="start" open="{DAILY}/leaderboard/leaderboard_screen"/>'])
+    lines += _text_button(f"{DAILY}/button_history", "PAST DAYS",
+                          [f'<on event="a" open="{DAILY}/history_screen"/>',
+                           f'<on event="start" open="{DAILY}/history_screen"/>'])
+    # the day's leaderboard, as New Game's
+    lines += _leaderboard_screen(f"{DAILY}/leaderboard", "port daily leaderboard init", [])
+    # the past days, newest first: a row each (DAILY_HISTORY_ROWS of them,
+    # scrolling over more, as the mods' list), A opening its challenge
+    rows = [f'<child widget="{DAILY}/history_row_{index + 1}" x="{DAILY_HISTORY_LEFT}" y="{104 + 30 * index}"/>'
+            for index in range(DAILY_HISTORY_ROWS)]
+    lines += _widget(f"{DAILY}/history_screen",
+                     [("width", 640), ("height", 480), ("flags", "pass_unhandled_to_focused_child"),
+                      ("bitmap", "bitmaps/gradient")],
+                     ['<on event="b" back="true"/>', '<on event="back" back="true"/>',
+                      f'<child widget="{DAILY}/history_title"/>',
+                      *[f'<child widget="{DAILY}/history_heading_{name}"/>' for name, *_ in DAILY_HISTORY_COLUMNS],
+                      f'<child widget="{DAILY}/history_note"/>', f'<child widget="{DAILY}/history_list"/>'])
+    lines += _widget(f"{DAILY}/history_title", text + [("left", 60), ("top", 36), ("width", 520), ("height", 36),
+                                                       ("text", "PAST CHALLENGES"), ("font", "ui\\large_ui"),
+                                                       ("color", "#FF2896FF")], [])
+    for name, label, left, width, align, large in DAILY_HISTORY_COLUMNS:
+        lines += _widget(f"{DAILY}/history_heading_{name}",
+                         text + [("left", DAILY_HISTORY_LEFT + left), ("top", 82), ("width", width), ("height", 20),
+                                 ("text", label), ("font", "ui\\small_ui"), ("color", "#FF808080"),
+                                 ("align", align)], [])
+    lines += _widget(f"{DAILY}/history_note", text + [("left", 90), ("top", 110), ("width", 470), ("height", 60),
+                                                      ("font", "ui\\small_ui"), ("color", "#FFB0B0B0")], [])
+    lines += _widget(f"{DAILY}/history_list",
+                     [("type", "column_list"), ("width", 640), ("height", 480),
+                      ("flags", "pass_unhandled_to_focused_child up_down_tabs_children")],
+                     ['<data input="port history update"/>', '<on event="created" run="port history init"/>', *rows,
+                      f'<child widget="{DAILY}/history_button_bar" y="414"/>'])
+    for index in range(DAILY_HISTORY_ROWS):
+        lines += _widget(f"{DAILY}/history_row_{index + 1}",
+                         [("width", 512), ("height", 28), ("flags", "pass_unhandled_to_focused_child"),
+                          ("bitmap", "bitmaps/sel_list_item_bkd_top" if index == 0 else "bitmaps/sel_list_item_bkd"),
+                          ("color", "#FF2896FF")],
+                         [f'<on event="a" run="port daily choose" open="{DAILY}/daily_screen"/>',
+                          f'<on event="start" run="port daily choose" open="{DAILY}/daily_screen"/>',
+                          '<on event="left_mouse" run="mouse emit accept event"/>',
+                          *[f'<child widget="{DAILY}/history_{name}" x="{left}"/>'
+                            for name, label, left, *_ in DAILY_HISTORY_COLUMNS]])
+    for name, label, left, width, align, large in DAILY_HISTORY_COLUMNS:
+        lines += _widget(f"{DAILY}/history_{name}",
+                         text + [("width", width), ("height", 22), ("font", f"ui\\{'large' if large else 'small'}_ui"),
+                                 ("color", "#FF2896FF" if large else "#FFB8C8E0"), ("align", align),
+                                 ("text_y", 4 if large else 7), ("text_flags", "no_focus_test")], [])
+    lines += _widget(f"{DAILY}/history_button_bar",
+                     [("type", "column_list"), ("width", 640), ("height", 28),
+                      ("flags", "pass_unhandled_to_focused_child left_right_tabs_items")],
                      ['<child widget="common_button_back" x="510" y="1"/>'])
+    lines += _daily_connection()
+    return lines
+
+
+# the server not reached's window's rows (its question, as the skulls'):
+# the widget, its words, the function A runs; TRY THE DEFAULT SERVER with a
+# custom server, the address (a field) with the default one, in one place
+DAILY_CONNECTION_ROWS = [
+    ("connection_default", "TRY THE DEFAULT SERVER", "port daily try default", 0),
+    ("connection_address", None, "port daily connection edit", 0),
+    ("connection_offline", "GO OFFLINE", "port daily go offline", 1),
+    ("connection_retry", "TRY AGAIN", "port daily retry", 2),
+]
+
+
+def _daily_connection() -> list:
+    """the window the daily challenge's screen opens when the server cannot be
+    reached (menu_functions.c's daily_menu_poll): what happened, and what to
+    do, its rows each running its function, which goes back to the challenge;
+    B and Cancel back to it as it was"""
+    base = DAILY
+    lines = _widget(f"{base}/connection_screen",
+                    [("width", 640), ("height", 480), ("flags", "pass_unhandled_to_focused_child"),
+                     ("bitmap", "bitmaps/gradient")],
+                    ['<on event="b" back="true"/>', '<on event="back" back="true"/>',
+                     f'<child widget="{base}/connection_title"/>', f'<child widget="{base}/connection_text"/>',
+                     f'<child widget="{base}/connection_menu"/>'])
+    lines += _widget(f"{base}/connection_title",
+                     [("type", "text"), ("controller", 1), ("left", 40), ("top", 40), ("width", 560), ("height", 36),
+                      ("text", "NO CONNECTION"), ("font", "ui\\large_ui"), ("color", "#FF2896FF")], [])
+    lines += _widget(f"{base}/connection_text",
+                     [("type", "text"), ("controller", 1), ("left", 40), ("top", 84), ("width", 560), ("height", 196),
+                      ("font", "ui\\small_ui"), ("color", "#FFFFFFFF")], [])
+    children = ['<data input="port daily connection update"/>']
+    for row, _, _, place in DAILY_CONNECTION_ROWS:
+        children.append(f'<child{attributes([("widget", f"{base}/{row}"), ("x", 64), ("y", 290 + place * 32)])}/>')
+    children.append('<child widget="common_button_cancel" x="510" y="415"/>')
+    lines += _widget(f"{base}/connection_menu",
+                     [("type", "column_list"), ("width", 640), ("height", 480),
+                      ("flags", "pass_unhandled_to_focused_child up_down_tabs_children")], children)
+    for row, label, function, _ in DAILY_CONNECTION_ROWS:
+        handlers = [f'<on event="a" run="{function}"/>', f'<on event="start" run="{function}"/>',
+                    '<on event="left_mouse" run="mouse emit accept event"/>']
+        if label:
+            lines += _widget(f"{base}/{row}",
+                             [("type", "text"), ("width", 512), ("height", 28), ("bitmap", "bitmaps/option_bkds"),
+                              ("text", label), ("font", "ui\\large_ui"), ("color", "#FF2896FF"), ("text_x", 13),
+                              ("text_y", 4)], handlers)
+            continue
+        # (the address: its label, and its value the field shows)
+        lines += _widget(f"{base}/{row}",
+                         [("width", 512), ("height", 28), ("flags", "pass_unhandled_to_focused_child"),
+                          ("bitmap", "bitmaps/option_bkds"), ("color", "#FF2896FF")],
+                         [*handlers, '<on event="b" run="port field back"/>', '<on event="back" run="port field back"/>',
+                          f'<child widget="{base}/connection_address_label"/>',
+                          f'<child widget="{base}/connection_address_value" x="200" y="1"/>'])
+        lines += _widget(f"{base}/connection_address_label",
+                         [("type", "text"), ("controller", 1), ("width", 200), ("height", 22), ("text", "SERVER ADDRESS:"),
+                          ("font", "ui\\large_ui"), ("color", "#FF2896FF"), ("text_x", 13), ("text_y", 4)], [])
+        lines += _widget(f"{base}/connection_address_value",
+                         [("type", "text"), ("controller", 1), ("width", 306), ("height", 22), ("font", "ui\\small_ui"),
+                          ("color", "#FF2896FF"), ("align", "center"), ("text_y", 5), ("text_flags", "no_focus_test")],
+                         [])
     return lines
 
 
@@ -2515,6 +2787,9 @@ def multiplayer_files() -> dict:
         TEAMPLAY_EDIT.replace("/", ".") + ".port.xml": head + _teamplay_options_extras() + ["</menus>", ""],
         MODS.replace("/", ".") + ".xml": [head[0], "<!-- The port's Mods screen, in the PC version's style "
                                           "(tools/port_settings.py) -->", head[2]] + _mods() + ["</menus>", ""],
+        DAILY.replace("/", ".") + ".xml": [head[0], "<!-- The port's Daily Challenge screens, in the PC version's "
+                                           "style (tools/port_settings.py) -->", head[2]] + _daily() +
+        ["</menus>", ""],
     }
 
 
@@ -2533,8 +2808,12 @@ MENU_ITEM_TOP, MENU_ITEM_SCALE, MENU_ITEM_MIDDLE = 6.57, 0.9037, 130.0
 # capitals are 21.5 high), for the pairs the port's items have: no redraw has
 # these pairs, so each is the sum of a space after the first letter and one
 # before the second, fitted (least squares) to the 53 pairs the redraws' items
-# and headers have (D-I, of the main menu's Credits, gives D's right side)
-MENU_ITEM_SPACES = {"MO": 3.17, "OD": 2.8, "DS": 2.3}
+# and headers have (D-I, of the main menu's Credits, gives D's right side).
+# DAILY CHALLENGE's the same way, fitted to all 110 pairs of the redraws'
+# words and the 24 that a space parts ("Y C": the space between words too)
+MENU_ITEM_SPACES = {"MO": 3.17, "OD": 2.8, "DS": 2.3,
+                    "DA": 0.93, "AI": 1.03, "IL": 4.12, "LY": -3.02, "Y C": 10.89, "CH": 3.13, "HA": 1.74,
+                    "AL": 0.71, "LL": 0.8, "LE": 0.19, "EN": 4.22, "NG": 2.72, "GE": 2.5}
 # the mods' status icons (port/assets/icons/lucide): a mod out of the order it
 # asks for, and one that cannot be played (another mod says it cannot be
 # played with it, or this build cannot play it): menu_functions.c's
@@ -2555,37 +2834,42 @@ def redraw_letters(redraws: Path) -> dict:
     return letters
 
 
-def menu_item_frames(text: str, redraws: Path) -> list:
+def menu_item_frames(text: str, redraws: Path, width: int = 256) -> list:
     """the frames (svg, width, height) of a main menu item of the port's: its
     text in the redraws' own letters (redraw_letters), spaced, placed and
-    coloured as their items are, dim, then white with their blue glow"""
+    coloured as their items are, dim, then white with their blue glow; a
+    wider one (DAILY CHALLENGE's) as wide as `width`, about the same middle"""
     from fontTools.pens.boundsPen import BoundsPen
     from fontTools.svgLib.path import parse_path
 
     letters = redraw_letters(redraws)
+    glyphs = text.replace(" ", "")
     widths = []
-    for letter in text:
+    for letter in glyphs:
         pen = BoundsPen(None)
         parse_path(letters[letter], pen)
         widths.append(pen.bounds[2])
-    spaces = [MENU_ITEM_SPACES[first + second] for first, second in zip(text, text[1:])]
-    x = MENU_ITEM_MIDDLE - (sum(widths) + sum(spaces)) * MENU_ITEM_SCALE / 2
+    # (each pair's space; a pair a space parts is keyed with it, "Y C")
+    pairs = re.findall(r"(?=([A-Z] ?[A-Z]))", text)
+    spaces = [MENU_ITEM_SPACES[pair] for pair in pairs]
+    middle = MENU_ITEM_MIDDLE + (width - 256) / 2
+    x = middle - (sum(widths) + sum(spaces)) * MENU_ITEM_SCALE / 2
     uses = []
-    for index, letter in enumerate(text):
+    for index, letter in enumerate(glyphs):
         uses.append(f'<use href="#g{letter}" transform="translate({x:.2f},{MENU_ITEM_TOP}) scale({MENU_ITEM_SCALE})"/>')
         x += (widths[index] + (spaces[index] if index < len(spaces) else 0)) * MENU_ITEM_SCALE
-    paths = [f'    <path id="g{letter}" d="{letters[letter]}"/>' for letter in sorted(set(text))]
-    head = ['<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="256" '
-            'height="64" viewBox="0 0 256 64">', "  <defs>", *paths]
+    paths = [f'    <path id="g{letter}" d="{letters[letter]}"/>' for letter in sorted(set(glyphs))]
+    head = ['<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" '
+            f'width="{width}" height="64" viewBox="0 0 {width} 64">', "  <defs>", *paths]
     dim = [*head, "  </defs>", f'  <!-- "{text}" (normal state: dim blue) -->',
            '  <g id="text" fill="#2895ff" fill-opacity="0.467">', *[f"    {use}" for use in uses], "  </g>", "</svg>", ""]
-    glow = [*head, '    <filter id="glow" filterUnits="userSpaceOnUse" x="0" y="0" width="256" height="64">',
+    glow = [*head, f'    <filter id="glow" filterUnits="userSpaceOnUse" x="0" y="0" width="{width}" height="64">',
             '      <feGaussianBlur stdDeviation="2.19"/>', "    </filter>", "  </defs>",
             f'  <!-- "{text}" (highlighted: white with blue glow) -->',
             '  <g fill="#2895ff" stroke="#2895ff" stroke-width="6.3" stroke-linejoin="round" opacity="0.650" '
             'filter="url(#glow)">', *[f"    {use}" for use in uses], "  </g>",
             '  <g id="text" fill="#fff">', *[f"    {use}" for use in uses], "  </g>", "</svg>", ""]
-    return [("\n".join(dim), 256, 64), ("\n".join(glow), 256, 64)]
+    return [("\n".join(dim), width, 64), ("\n".join(glow), width, 64)]
 
 
 def mod_status_frames(icons: Path, size: int = 24) -> list:

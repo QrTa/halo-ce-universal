@@ -104,6 +104,12 @@
 	<widget name="main_menu/solo_level_select/leaderboard/note" type="text" controller="1" left="90" top="150" width="470" height="60" font="ui\small_ui" color="#FFB0B0B0">
 	</widget>
 	<widget name="main_menu/solo_level_select/leaderboard/button_bar" type="column_list" width="640" height="28" flags="pass_unhandled_to_focused_child left_right_tabs_items">
+		<child widget="main_menu/solo_level_select/leaderboard/button_view" x="24" y="1"/>
 		<child widget="common_button_back" x="510" y="1"/>
+	</widget>
+	<widget name="main_menu/solo_level_select/leaderboard/button_view" type="text" width="128" height="24" bitmap="bitmaps/text_button_background" text="VIEW: ONLINE" font="ui\small_ui" color="#FFFFFFFF" align="center" text_y="2">
+		<on event="a" run="port leaderboard view"/>
+		<on event="start" run="port leaderboard view"/>
+		<on event="left_mouse" run="mouse emit accept event"/>
 	</widget>
 </menus>

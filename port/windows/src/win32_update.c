@@ -14,6 +14,7 @@ Paths are UTF-8, as SDL gives them.
 #include <windows.h>
 #include <winhttp.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "update.h"
@@ -166,6 +167,136 @@ done:
 	if (session)
 		WinHttpCloseHandle(session);
 	return succeeded;
+}
+
+int update_request(const char *method, const char *url, const char *headers, const char *body, char *response,
+	int response_size, char *error, int error_size)
+{
+	wchar_t wide_url[2048], wide_method[16], host[256], url_path[2048];
+	wchar_t *wide_headers = NULL;
+	URL_COMPONENTS components;
+	HINTERNET session = NULL, connection = NULL, request = NULL;
+	DWORD status = 0, status_size = sizeof(status);
+	DWORD protocols;
+	DWORD body_size = body ? (DWORD)strlen(body) : 0;
+	int received = 0;
+	int result = 0;
+
+	if (!response || response_size <= 0)
+	{
+		snprintf(error, (size_t)error_size, "no room for the answer");
+		return 0;
+	}
+	response[0] = 0;
+	if (!wide_from_utf8(url, wide_url, 2048) || !wide_from_utf8(method, wide_method, 16))
+	{
+		snprintf(error, (size_t)error_size, "a bad address");
+		return 0;
+	}
+	if (headers && headers[0])
+	{
+		int count = MultiByteToWideChar(CP_UTF8, 0, headers, -1, NULL, 0);
+
+		wide_headers = count > 0 ? malloc((size_t)count * sizeof(*wide_headers)) : NULL;
+		if (!wide_headers || !wide_from_utf8(headers, wide_headers, count))
+		{
+			snprintf(error, (size_t)error_size, "bad headers");
+			free(wide_headers);
+			return 0;
+		}
+	}
+	memset(&components, 0, sizeof(components));
+	components.dwStructSize = sizeof(components);
+	components.lpszHostName = host;
+	components.dwHostNameLength = 256;
+	components.lpszUrlPath = url_path;
+	components.dwUrlPathLength = 2048;
+	if (!WinHttpCrackUrl(wide_url, 0, 0, &components) || components.nScheme != INTERNET_SCHEME_HTTPS)
+	{
+		snprintf(error, (size_t)error_size, "not an https:// address: %s", url);
+		free(wide_headers);
+		return 0;
+	}
+	session = WinHttpOpen(UPDATE_USER_AGENT, WINHTTP_ACCESS_TYPE_DEFAULT_PROXY, WINHTTP_NO_PROXY_NAME,
+		WINHTTP_NO_PROXY_BYPASS, 0);
+	if (!session)
+	{
+		set_error(error, error_size, "could not start WinHTTP");
+		goto done;
+	}
+	protocols = WINHTTP_FLAG_SECURE_PROTOCOL_TLS1_2 | WINHTTP_FLAG_SECURE_PROTOCOL_TLS1_3;
+	if (!WinHttpSetOption(session, WINHTTP_OPTION_SECURE_PROTOCOLS, &protocols, sizeof(protocols)))
+	{
+		protocols = WINHTTP_FLAG_SECURE_PROTOCOL_TLS1_2;
+		WinHttpSetOption(session, WINHTTP_OPTION_SECURE_PROTOCOLS, &protocols, sizeof(protocols));
+	}
+	WinHttpSetTimeouts(session, TIMEOUT_MILLISECONDS, TIMEOUT_MILLISECONDS, TIMEOUT_MILLISECONDS,
+		TIMEOUT_MILLISECONDS);
+	connection = WinHttpConnect(session, host, components.nPort, 0);
+	if (connection)
+	{
+		request = WinHttpOpenRequest(connection, wide_method, url_path, NULL, WINHTTP_NO_REFERER,
+			WINHTTP_DEFAULT_ACCEPT_TYPES, WINHTTP_FLAG_SECURE);
+	}
+	/* (no redirects: an answer is the server's own) */
+	if (request)
+	{
+		DWORD policy = WINHTTP_OPTION_REDIRECT_POLICY_NEVER;
+
+		WinHttpSetOption(request, WINHTTP_OPTION_REDIRECT_POLICY, &policy, sizeof(policy));
+	}
+	if (!request || !WinHttpSendRequest(request, wide_headers ? wide_headers : WINHTTP_NO_ADDITIONAL_HEADERS,
+		wide_headers ? (DWORD)-1L : 0, body_size ? (LPVOID)body : WINHTTP_NO_REQUEST_DATA, body_size, body_size, 0) ||
+		!WinHttpReceiveResponse(request, NULL))
+	{
+		set_error(error, error_size, "could not reach the server");
+		goto done;
+	}
+	if (!WinHttpQueryHeaders(request, WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER,
+		WINHTTP_HEADER_NAME_BY_INDEX, &status, &status_size, WINHTTP_NO_HEADER_INDEX) || !status)
+	{
+		snprintf(error, (size_t)error_size, "no answer from the server");
+		goto done;
+	}
+	for (;;)
+	{
+		DWORD count = 0;
+
+		if (received >= response_size - 1)
+		{
+			char extra;
+
+			/* (anything past the room is an answer larger than expected) */
+			if (WinHttpReadData(request, &extra, 1, &count) && count)
+			{
+				snprintf(error, (size_t)error_size, "the answer is larger than expected");
+				goto done;
+			}
+			break;
+		}
+		if (!WinHttpReadData(request, response + received, (DWORD)(response_size - 1 - received), &count))
+		{
+			set_error(error, error_size, "the answer broke off");
+			goto done;
+		}
+		if (!count)
+			break;
+		received += (int)count;
+	}
+	response[received] = 0;
+	result = (int)status;
+
+done:
+	if (!result)
+		response[0] = 0;
+	free(wide_headers);
+	if (request)
+		WinHttpCloseHandle(request);
+	if (connection)
+		WinHttpCloseHandle(connection);
+	if (session)
+		WinHttpCloseHandle(session);
+	return result;
 }
 
 /* ---------- files and processes */
