@@ -916,27 +916,27 @@ static const struct config_setting config_settings[] =
 		"Discord desktop client runs; empty for none." },
 
 	{ "game.daily_challenge", _config_boolean, "true", "HALO_DAILY_CHALLENGE", _environment_value, _platform_all,
-		"Settings > Gameplay > Daily Challenge's DAILY CHALLENGE: Campaign's DAILY\n"
+		"Settings > Gameplay > Community's DAILY CHALLENGE: Campaign's DAILY\n"
 		"CHALLENGE, a level a day with the randomizer and skulls set, the same\n"
 		"for everyone (port/linux/game/community.c). false: no such item." },
 	{ "community.enabled", _config_boolean, "true", "HALO_COMMUNITY", _environment_value, _platform_all,
-		"Settings > Gameplay > Daily Challenge's ONLINE. true: the daily\n"
+		"Settings > Gameplay > Community's ONLINE. true: the daily\n"
 		"challenge and the leaderboards come from the community server\n"
 		"(community.server_mode). false: nothing is sent or asked; the day's\n"
 		"challenge is made on this machine, and the leaderboards are its own." },
 	{ "community.server_mode", _config_string, "\"default\"", "HALO_COMMUNITY_SERVER_MODE", _environment_value,
 		_platform_all,
-		"Settings > Gameplay > Daily Challenge's SERVER: \"default\" (the\n"
+		"Settings > Gameplay > Community's SERVER: \"default\" (the\n"
 		"OpenCE server, https://oceapi.watanoge.com) or \"custom\"\n"
 		"(community.custom_server)." },
 	{ "community.custom_server", _config_string, "\"\"", "HALO_COMMUNITY_CUSTOM_SERVER", _environment_value,
 		_platform_all,
-		"Settings > Gameplay > Daily Challenge's SERVER ADDRESS, with\n"
+		"Settings > Gameplay > Community's SERVER ADDRESS, with\n"
 		"community.server_mode \"custom\": another community server's address\n"
 		"(https only), as https://example.com." },
 	{ "community.upload_scores", _config_boolean, "true", "HALO_COMMUNITY_UPLOAD_SCORES", _environment_value,
 		_platform_all,
-		"Settings > Gameplay > Daily Challenge's SHARE LEVEL SCORES, with\n"
+		"Settings > Gameplay > Community's SHARE LEVEL SCORES, with\n"
 		"community.enabled: a campaign level won with scoring on, by one player\n"
 		"on this machine, is sent to the online leaderboard with the profile's\n"
 		"name. A daily challenge's run is always sent." },

@@ -409,8 +409,8 @@ static char const *const port_function_names[] =
 	leaderboard and the past days, community.c's) */
 	"port daily today", "port daily init", "port daily play", "port daily choose", "port daily leaderboard init",
 	"port history init",
-	/* (its window of a server not reached, and Settings > Gameplay > Daily
-	Challenge's SERVER ADDRESS; B on a field's row) */
+	/* (its window of a server not reached, and Settings > Gameplay >
+	Community's SERVER ADDRESS; B on a field's row) */
 	"port daily try default", "port daily connection edit", "port daily go offline", "port daily retry",
 	"port daily settings init", "port daily server edit", "port field back",
 };

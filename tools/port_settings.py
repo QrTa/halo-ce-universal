@@ -476,8 +476,8 @@ SCREENS["gameplay"] = {
          "The randomizer: a campaign level's enemies\nand weapons swapped."),
         ("SKULLS", "gameplay/skulls", "The Master Chief Collection's skulls, and\nhow they are found."),
         ("SCORING", "gameplay/scoring", "The campaign's score, its time and par times,\nand its medals."),
-        ("DAILY CHALLENGE", "gameplay/daily",
-         "The daily challenge, and the server of it and\nof the online leaderboards."),
+        ("COMMUNITY", "gameplay/community",
+         "Online leaderboards, the daily challenge, and\nthe community server."),
     ],
 }
 SCREENS["gameplay/ragdolls"] = {
@@ -507,17 +507,17 @@ SCREENS["gameplay/scoring"] = {
          None),
     ],
 }
-# (the daily challenge and the online leaderboards: port/linux/game/
-# community.c; SERVER ADDRESS shown with SERVER CUSTOM, typed in its row and
-# written with OK: menu_functions.c's "port daily settings" functions)
-SCREENS["gameplay/daily"] = {
-    "screen": "daily_settings_screen", "header": _GAMEPLAY_HEADER, "spacing": 30,
+# (Community: the daily challenge and the online leaderboards, port/linux/
+# game/community.c; SERVER ADDRESS shown with SERVER CUSTOM, typed in its row
+# and written with OK: menu_functions.c's "port daily settings" functions)
+SCREENS["gameplay/community"] = {
+    "screen": "community_settings_screen", "header": _GAMEPLAY_HEADER, "spacing": 30,
     "rows": [
         ("DAILY CHALLENGE:", "game.daily_challenge", ON_OFF,
          "Campaign's DAILY CHALLENGE: a level a day, its\nenemies and skulls the same for everyone.",
          None),
         ("ONLINE:", "community.enabled", ON_OFF,
-         "On: the challenge and the leaderboards come from\nthe server. Off: they are made on this machine.",
+         "Enable online features like campaign mission and\ndaily challenge global leaderboards.",
          None),
         ("SHARE LEVEL SCORES:", "community.upload_scores", ON_OFF,
          "Online: each campaign level you win with scoring\non goes to its online leaderboard.",
@@ -2581,7 +2581,7 @@ def _leaderboard() -> list:
 
 
 # ---------- the daily challenge (port/linux/game/community.c): Campaign's
-# DAILY CHALLENGE (with Settings > Gameplay > Daily Challenge's on) opens
+# DAILY CHALLENGE (with Settings > Gameplay > Community's on) opens
 # today's, from the community server or, offline, made on this machine (its
 # level, difficulty, enemies and skulls, and this install's best of it); PLAY
 # plays it with its settings, LEADERBOARD shows the day's, PAST DAYS the
@@ -2591,20 +2591,39 @@ def _leaderboard() -> list:
 # (menu_functions.c's "port daily" functions)
 
 DAILY_ITEM_WIDTH = 320
+# the challenge's screen's words: the widget, left, top, width, height,
+# font, colour, its own words, and its text_scale
+DAILY_TEXTS = [
+    ("title", 60, 36, 520, 36, "large", "#FF2896FF", "DAILY CHALLENGE"),
+    ("date", 60, 72, 520, 20, "small", "#FF909090", None),
+    ("mission", 214, 100, 366, 18, "small", "#FF909090", None),
+    ("level", 214, 118, 366, 28, "large", "#FFFFFFFF", None, 90),
+    ("difficulty", 266, 166, 314, 28, "large", "#FFFFD659", None),
+    ("details", 60, 224, 520, 66, "small", "#FFB8C8E0", None),
+    ("skulls_heading", 60, 294, 520, 18, "small", "#FF909090", None),
+    ("skulls", 60, 340, 520, 32, "small", "#FFB8C8E0", None),
+    ("mine", 60, 372, 520, 22, "large", "#FF2896FF", None),
+    ("note", 60, 396, 520, 18, "small", "#FFB0B0B0", None),
+]
+# the skulls' icons (skulls/icons, a frame a skull): as many as a challenge
+# turns on, in a row
+DAILY_SKULL_ICONS = 16
+DAILY_SKULL_ICON_SPACE = 28
 DAILY_HISTORY_ROWS = 10
 # the past days' columns: the widgets' name, heading, left (in the row),
 # width, alignment and whether in the large font
-# (the small font's capitals are some 8 units wide: the mission's name, the
-# longest 27 characters, in it; the day TODAY for today's; your place on the
-# day's leaderboard)
+# (the small font's capitals are some 9 units wide: the mission's name, the
+# longest 27 characters, in it; the day TODAY for today's; PLAYERS online only,
+# and PLAYERS and RANK with scoring on)
 DAILY_HISTORY_COLUMNS = [
-    ("date", "DAY", 10, 64, None, True),
-    ("level", "MISSION", 78, 236, None, False),
-    ("difficulty", "DIFFICULTY", 316, 80, None, False),
-    ("players", "PLAYERS", 398, 52, "right", False),
-    ("mine", "RANK", 452, 56, "right", False),
+    ("date", "DAY", 8, 86, None, True),
+    ("level", "MISSION", 98, 244, None, False),
+    ("difficulty", "DIFFICULTY", 346, 92, None, False),
+    ("players", "PLAYERS", 440, 64, "right", False),
+    ("mine", "RANK", 508, 48, "right", False),
 ]
-DAILY_HISTORY_LEFT = 64
+DAILY_HISTORY_LEFT = 40
+DAILY_HISTORY_WIDTH = 560
 
 
 def _daily() -> list:
@@ -2617,31 +2636,34 @@ def _daily() -> list:
                     [f'<on event="a" run="port daily today" open="{DAILY}/daily_screen"/>',
                      f'<on event="start" run="port daily today" open="{DAILY}/daily_screen"/>',
                      '<on event="left_mouse" run="mouse emit accept event"/>'])
-    # the day's challenge: what it is, and this install's best of it; the
-    # note says what is wrong (the server down) or that a past day's does not
-    # count
+    # the day's challenge: its level's picture, number and name, its
+    # difficulty's icon and name, what is swapped, its skulls' icons and
+    # names, and this install's best of it; the note (a line) says what is
+    # wrong or what the challenge is (menu_functions.c's daily_update)
+    icons = [f'<child widget="{DAILY}/skull_icon" x="{60 + index * DAILY_SKULL_ICON_SPACE}" y="312"/>'
+             for index in range(DAILY_SKULL_ICONS)]
     lines += _widget(f"{DAILY}/daily_screen",
                      [("width", 640), ("height", 480), ("flags", "pass_unhandled_to_focused_child"),
                       ("bitmap", "bitmaps/gradient")],
                      ['<data input="port daily update"/>', '<on event="created" run="port daily init"/>',
                       '<on event="b" back="true"/>', '<on event="back" back="true"/>',
-                      *[f'<child widget="{DAILY}/{name}"/>' for name in
-                        ("title", "date", "level", "difficulty", "details", "skulls_heading", "skulls", "mine",
-                         "note")],
+                      *[f'<child widget="{DAILY}/{name}"/>' for name, *_ in DAILY_TEXTS],
+                      f'<child widget="{DAILY}/picture"/>', f'<child widget="{DAILY}/difficulty_icon"/>', *icons,
                       f'<child widget="{DAILY}/button_bar" y="414"/>'])
-    for name, top, height, font, color, label in [
-            ("title", 36, 36, "large", "#FF2896FF", "DAILY CHALLENGE"),
-            ("date", 72, 20, "small", "#FF909090", None),
-            ("level", 98, 28, "large", "#FFFFFFFF", None),
-            ("difficulty", 126, 28, "large", "#FFFFD659", None),
-            ("details", 160, 70, "small", "#FFB8C8E0", None),
-            ("skulls_heading", 232, 20, "small", "#FF909090", None),
-            ("skulls", 250, 80, "small", "#FFB8C8E0", None),
-            ("mine", 334, 28, "large", "#FF2896FF", None),
-            ("note", 366, 44, "small", "#FFB0B0B0", None)]:
-        lines += _widget(f"{DAILY}/{name}", text + [("left", 60), ("top", top), ("width", 520), ("height", height),
+    for name, left, top, width, height, font, color, label, *scale in DAILY_TEXTS:
+        lines += _widget(f"{DAILY}/{name}", text + [("left", left), ("top", top), ("width", width), ("height", height),
                                                     *([("text", label)] if label else []),
-                                                    ("font", f"ui\\{font}_ui"), ("color", color)], [])
+                                                    ("font", f"ui\\{font}_ui"), ("color", color),
+                                                    *([("text_scale", scale[0])] if scale else [])], [])
+    # (the level's picture, as New Game's has it: ui.map's sp_levels, a
+    # frame a level; the difficulties' icons, Normal to Legendary)
+    lines += _widget(f"{DAILY}/picture", [("controller", 1), ("left", 60), ("top", 100), ("width", 140),
+                                          ("height", 114), ("bitmap", "ui\\shell\\bitmaps\\sp_levels")], [])
+    lines += _widget(f"{DAILY}/difficulty_icon",
+                     [("controller", 1), ("left", 214), ("top", 152), ("width", 44), ("height", 48),
+                      ("bitmap", "ui\\shell\\main_menu\\difficulty_select\\difficulty_options_small")], [])
+    lines += _widget(f"{DAILY}/skull_icon", [("controller", 1), ("width", 24), ("height", 24),
+                                             ("bitmap", "skulls/icons")], [])
     lines += _widget(f"{DAILY}/button_bar", [("type", "column_list"), ("width", 640), ("height", 28),
                                              ("flags", "pass_unhandled_to_focused_child left_right_tabs_items")],
                      [f'<child widget="{DAILY}/button_play" x="24" y="1"/>',
@@ -2686,7 +2708,7 @@ def _daily() -> list:
                       f'<child widget="{DAILY}/history_button_bar" y="414"/>'])
     for index in range(DAILY_HISTORY_ROWS):
         lines += _widget(f"{DAILY}/history_row_{index + 1}",
-                         [("width", 512), ("height", 28), ("flags", "pass_unhandled_to_focused_child"),
+                         [("width", DAILY_HISTORY_WIDTH), ("height", 28), ("flags", "pass_unhandled_to_focused_child"),
                           ("bitmap", "bitmaps/sel_list_item_bkd_top" if index == 0 else "bitmaps/sel_list_item_bkd"),
                           ("color", "#FF2896FF")],
                          [f'<on event="a" run="port daily choose" open="{DAILY}/daily_screen"/>',

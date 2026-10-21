@@ -113,6 +113,8 @@ void community_update(boolean main_menu);
 /* community.enabled: online (else the daily challenge and its
 leaderboards are made on this machine) */
 boolean community_enabled(void);
+/* game.campaign_score: with it off no score is kept, sent, asked for or shown */
+boolean community_scoring(void);
 
 /* ---------- the daily challenge (the main menu's DAILY CHALLENGE) */
 

@@ -499,6 +499,11 @@ boolean community_enabled(void)
 	return community_net_enabled() != 0;
 }
 
+boolean community_scoring(void)
+{
+	return config_boolean("game.campaign_score") != 0;
+}
+
 static void request_start(struct community_request *request, char const *asked, char const *path, char const *body)
 {
 	if (request->ticket)
@@ -866,7 +871,6 @@ static void local_challenge(char const *day, boolean settings)
 	if (!settings)
 		return;
 	community.setting_count = 0;
-	local_setting("game.campaign_score", "true");
 	local_setting("game.randomizer", "true");
 	local_setting("game.randomizer_enemies", "true");
 	local_setting("game.randomizer_allies", allies ? "true" : "false");
@@ -1157,8 +1161,8 @@ static void challenge_read(char const *data)
 		challenge->mine_seconds = json_long(json_path(data, "mine.seconds"), 0);
 		challenge->mine_attempts = json_long(json_path(data, "mine.attempts"), 0);
 	}
-	/* (its settings, those of the randomizer's, the skulls' and scoring
-	only: config_override sets nothing else of the server's) */
+	/* (its settings, the randomizer's and the skulls' only: config_override
+	sets nothing else of the server's, scoring the player's own choice) */
 	community.setting_count = 0;
 	config = json_space(json_member(data, "config"));
 	if (config && *config == '{')
@@ -1179,7 +1183,7 @@ static void challenge_read(char const *data)
 				break;
 			value = json_space(cursor + 1);
 			if ((!strncmp(name, "game.randomizer", 15) && strncmp(name, "game.randomizer_profile", 23)) ||
-				!strncmp(name, "game.skulls", 11) || !strcmp(name, "game.campaign_score"))
+				!strncmp(name, "game.skulls", 11))
 			{
 				snprintf(community.setting_names[community.setting_count], sizeof(community.setting_names[0]), "%s",
 					name);
@@ -1309,8 +1313,6 @@ boolean community_daily_begin(char const **map_name, short *difficulty)
 		if (!config_override(community.setting_names[index], community.setting_values[index]))
 			platform_log("community: the challenge's %s could not be set", community.setting_names[index]);
 	}
-	/* (scored, whatever the settings sent) */
-	config_override("game.campaign_score", "true");
 	community.running = TRUE;
 	community.running_loaded = FALSE;
 	community.running_since = system_milliseconds();
@@ -1494,6 +1496,16 @@ static void board_open(char const *asked, char const *path)
 	community.board_count = 0;
 	memset(&community.board_mine, 0, sizeof(community.board_mine));
 	community.board_players = 0;
+	/* (no scores asked for with scoring off) */
+	if (!community_scoring())
+	{
+		if (community.board.ticket)
+			community_net_forget(community.board.ticket);
+		community.board.ticket = 0;
+		community.board.state = _community_off;
+		status_set(L"Scoring is off (Settings > Gameplay > Scoring).");
+		return;
+	}
 	request_start(&community.board, asked, path, NULL);
 	if (community.board.state == _community_off)
 		status_set(L"Online leaderboards are off (community.enabled in config.toml).");
@@ -1515,8 +1527,8 @@ void community_board_open_day(char const *day)
 {
 	char path[96];
 
-	/* (offline: this machine's profiles') */
-	if (!community_enabled())
+	/* (offline: this machine's profiles'; none with scoring off) */
+	if (!community_enabled() && community_scoring())
 	{
 		if (community.board.ticket)
 			community_net_forget(community.board.ticket);
@@ -1590,6 +1602,9 @@ void community_level_won(char const *level_name, struct community_run const *run
 	char body[COMMUNITY_BODY_LENGTH];
 	long length;
 
+	/* (no score kept or sent with scoring off) */
+	if (!community_scoring())
+		return;
 	level_key(level_name, key, sizeof(key));
 	/* (offline: a challenge's run kept in the profile's records, and its
 	place among this machine's profiles') */
@@ -1606,9 +1621,8 @@ void community_level_won(char const *level_name, struct community_run const *run
 			boolean improved = local_record_add(profile_index, community.running_challenge.day, run);
 
 			local_board(community.running_challenge.day);
-			usnprintf(community.result, COMMUNITY_RESULT_LENGTH, L"THIS MACHINE: #%ld OF %ld%s",
-				community.board_mine.rank ? community.board_mine.rank : 1, MAX(community.board_players, 1),
-				improved ? L"  NEW BEST" : L"");
+			usnprintf(community.result, COMMUNITY_RESULT_LENGTH, L"THIS MACHINE: #%ld%s",
+				community.board_mine.rank ? community.board_mine.rank : 1, improved ? L"  NEW BEST" : L"");
 		}
 		return;
 	}
