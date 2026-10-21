@@ -488,14 +488,14 @@ static const struct config_setting config_settings[] =
 		"How an AI's body falls, the same choices as game.ragdoll_players.\n"
 		"Settings > Gameplay, or here. A cinematic keeps its own." },
 	{ "game.campaign_score", _config_boolean, "false", "HALO_CAMPAIGN_SCORE", _environment_value, _platform_all,
-		"Settings > Gameplay's CAMPAIGN SCORING. Score the campaign: each enemy\n"
-		"a player kills is worth points by its actor variant (a base by the kind\n"
-		"of actor, times a rank by the variant's name, times the difficulty: easy\n"
-		"0.5, normal 1, heroic 2, legendary 5, rounded up to a multiple of 5). A\n"
-		"ghost, banshee or wraith destroyed is worth 50, 75 or 100. The score and\n"
-		"the level's time are drawn at the bottom right (the skulls' icons above\n"
-		"them), the scoreboard (hold BACK, or tab) lists every player's, and a\n"
-		"summary is shown when a level is won, until A or B is pressed." },
+		"Settings > Gameplay's CAMPAIGN SCORING. Score the campaign as Halo 3: a\n"
+		"kill is its enemy's points times its style (one shot one kill, headshot,\n"
+		"melee, backsmack), the difficulty and the skulls on; killing allies or\n"
+		"players, dying and reverting take points; the level's points are\n"
+		"multiplied by its time against its par time when it is won. The values\n"
+		"are port/linux/game/campaign_score_values.json's. The score and time are\n"
+		"at the bottom right, the scoreboard (hold BACK, or tab) lists everyone's,\n"
+		"and a summary is shown when a level is won, until A or B is pressed." },
 	{ "game.campaign_progression", _config_string, "\"default\"", "HALO_CAMPAIGN_PROGRESSION", _environment_value,
 		_platform_all,
 		"Settings > Gameplay's CAMPAIGN PROGRESSION. \"default\": the campaign's\n"

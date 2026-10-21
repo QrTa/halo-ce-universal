@@ -1753,6 +1753,10 @@ enum
 {
 	SCOREBOARD_CAMPAIGN_PLACE_WIDTH = 30,
 	SCOREBOARD_CAMPAIGN_SCORE_WIDTH = 70,
+	/* the multipliers' table (Difficulty, Skulls, Time, Total): where the
+	skulls' and the time's columns start (the total's is the score's) */
+	SCOREBOARD_MULTIPLIER_SKULLS_LEFT = 120,
+	SCOREBOARD_MULTIPLIER_TIME_LEFT = 205,
 };
 
 /* network_distributed.c's */
@@ -2111,6 +2115,9 @@ static void game_engine_rasterize_scoreboard(
 	/* port: the campaign's score (game.campaign_score), each player's in
 	the score's column, the players in order of it */
 	boolean scored = campaign && campaign_score_enabled();
+	/* (the rows over the players': the title and the columns' heading, and
+	the campaign's score's multipliers, a heading and their values, between) */
+	long head_rows = scored ? 4 : 2;
 	wchar_t place_string[16];
 	wchar_t name_string[16];
 	boolean team_columns;
@@ -2186,7 +2193,7 @@ static void game_engine_rasterize_scoreboard(
 		scoreboard_pick.a_down = TRUE;
 	}
 	extra_rows = (voting ? 1 : 0) + (network && (pointer_state >= 0 || picking) ? 1 : 0);
-	rows = (long)((bounds.y1 - SCOREBOARD_LAYOUT_TOP_ROWS * line_height) / SCOREBOARD_SCALE / line_height) - 2 -
+	rows = (long)((bounds.y1 - SCOREBOARD_LAYOUT_TOP_ROWS * line_height) / SCOREBOARD_SCALE / line_height) - head_rows -
 		SCOREBOARD_BOTTOM_ROWS - extra_rows;
 	rows = MAX(rows, 1);
 	if (campaign)
@@ -2376,7 +2383,7 @@ static void game_engine_rasterize_scoreboard(
 		shown_rows++;
 	shown_rows += extra_rows;
 	{
-		real height = (2 + shown_rows) * line_height * SCOREBOARD_SCALE;
+		real height = (head_rows + shown_rows) * line_height * SCOREBOARD_SCALE;
 
 		top = (short)(bounds.y0 + ((bounds.y1 - bounds.y0) - height) / 2);
 		top = MAX(top, (short)(SCOREBOARD_MINIMUM_TOP_ROWS * line_height));
@@ -2481,6 +2488,44 @@ static void game_engine_rasterize_scoreboard(
 		draw_string_set_draw_mode(font_index, NONE, 1, 0, &color);
 		rasterizer_draw_unicode_string(&score_bounds, NULL, NULL, 0, total_string);
 	}
+	/* port: the campaign's score's multipliers now, a column each across
+	the board: the difficulty's, the skulls', the time's and their total */
+	if (scored)
+	{
+		real const multipliers[4] =
+		{
+			campaign_score_difficulty_multiplier(),
+			campaign_score_skulls_multiplier(),
+			campaign_score_time_multiplier(),
+			campaign_score_total_multiplier(),
+		};
+		wchar_t const *const headings[4] = { L"Difficulty", L"Skulls", L"Time", L"Total" };
+		/* (where each starts: the difficulty's at the left, room past its
+		heading, the widest; the total's over the players' scores) */
+		short const cell_lefts[4] =
+		{
+			0,
+			SCOREBOARD_MULTIPLIER_SKULLS_LEFT,
+			SCOREBOARD_MULTIPLIER_TIME_LEFT,
+			(short)(scoreboard_widths.place + scoreboard_widths.name),
+		};
+		real_argb_color value_color;
+		short cell;
+
+		value_color = *hud_get_text_color(&text_color);
+		value_color.alpha = alpha;
+		for (cell = 0; cell < 4; cell++)
+		{
+			wchar_t value_string[16];
+
+			color.alpha = alpha;
+			color.red = color.green = color.blue = 0.5f;
+			scoreboard_draw_row(headings[cell], FALSE, &color, 1, top, (short)(left + cell_lefts[cell]), FALSE);
+			campaign_score_multiplier_text(multipliers[cell], value_string, NUMBEROF(value_string));
+			scoreboard_draw_row(value_string, cell == 3, &value_color, 2, top, (short)(left + cell_lefts[cell]),
+				FALSE);
+		}
+	}
 
 	string_list_index = tag_loaded('ustr', "ui\\multiplayer_game_text");
 	column_name = string_list_index != NONE && !campaign ? unicode_string_list_get_string(string_list_index, 0x43) : L"";
@@ -2512,7 +2557,7 @@ static void game_engine_rasterize_scoreboard(
 				color.alpha = alpha;
 				color.red = color.green = color.blue = 0.5f;
 			}
-			scoreboard_draw_row(row_string, FALSE, &color, 1, top,
+			scoreboard_draw_row(row_string, FALSE, &color, head_rows - 1, top,
 				(short)(left + column * (SCOREBOARD_COLUMN_WIDTH + SCOREBOARD_COLUMN_GAP)), TRUE);
 		}
 	}
@@ -2620,12 +2665,12 @@ static void game_engine_rasterize_scoreboard(
 			within the name's column) */
 			text.x0 = (short)(row_left + scoreboard_widths.place);
 			text.x1 = (short)(text.x0 + scoreboard_widths.name);
-			text.y0 = (short)(top + (2 + row) * line_height);
+			text.y0 = (short)(top + (head_rows + row) * line_height);
 			text.y1 = (short)(text.y0 + line_height);
 			draw_string_set_draw_mode(font_index, NONE, 0, 0, row_color);
 			draw_unicode_string_compute_bounds(&text, name_string, &ink, &cursor);
 			middle = (short)(top + (draw_unicode_string_capital_middle(&text, name_string) - top) * SCOREBOARD_SCALE);
-			scoreboard_rectangle(&icon, bounds.x0, top, line_height, text.x0, scoreboard_widths.name, 2 + row, 1);
+			scoreboard_rectangle(&icon, bounds.x0, top, line_height, text.x0, scoreboard_widths.name, head_rows + row, 1);
 			size = (short)((icon.y1 - icon.y0) * 2 / 3);
 			name_end = (short)(bounds.x0 + (MAX(ink.x1, text.x0) - bounds.x0) * SCOREBOARD_SCALE);
 			icon.x0 = (short)MIN(name_end + 4, icon.x1 - size);
@@ -2642,7 +2687,7 @@ static void game_engine_rasterize_scoreboard(
 			short row_left = (short)(left + column * (SCOREBOARD_COLUMN_WIDTH + SCOREBOARD_COLUMN_GAP));
 
 			scoreboard_rectangle(&rectangle, bounds.x0, top, line_height, row_left, SCOREBOARD_COLUMN_WIDTH,
-				2 + row, 1);
+				head_rows + row, 1);
 			draw_quad(&rectangle, ((pixel32)(long)(110 * PIN(alpha, 0.0f, 1.0f)) << 24) | 0x00FFFFFF);
 		}
 		/* port: another machine's player, picked with the pointer: lit
@@ -2654,7 +2699,7 @@ static void game_engine_rasterize_scoreboard(
 			short row_left = (short)(left + column * (SCOREBOARD_COLUMN_WIDTH + SCOREBOARD_COLUMN_GAP));
 
 			scoreboard_rectangle(&rectangle, bounds.x0, top, line_height, row_left, SCOREBOARD_COLUMN_WIDTH,
-				2 + row, 1);
+				head_rows + row, 1);
 			scoreboard_rectangle(&menu_rectangle, bounds.x0, top, line_height, scoreboard_menu.left,
 				SCOREBOARD_MENU_WIDTH, menu_first_row, menu_item_count);
 			if (scoreboard_point_in(&rectangle, pointer_x, pointer_y) &&
@@ -2665,7 +2710,7 @@ static void game_engine_rasterize_scoreboard(
 			if (clicked && scoreboard_point_in(&rectangle, click_x, click_y))
 			{
 				scoreboard_menu.player_index = entry->player_index;
-				scoreboard_menu.row_index = 2 + row;
+				scoreboard_menu.row_index = head_rows + row;
 				scoreboard_menu.left = (short)(row_left + scoreboard_widths.place);
 				scoreboard_menu.ban_picked = FALSE;
 				clicked = FALSE;
@@ -2675,7 +2720,7 @@ static void game_engine_rasterize_scoreboard(
 			row_string,
 			player_index == entry->player_index,
 			row_color,
-			2 + row,
+			head_rows + row,
 			top,
 			(short)(left + column * (SCOREBOARD_COLUMN_WIDTH + SCOREBOARD_COLUMN_GAP)),
 			TRUE);
@@ -2691,7 +2736,7 @@ static void game_engine_rasterize_scoreboard(
 				row_string,
 				FALSE,
 				&ping_color,
-				2 + row,
+				head_rows + row,
 				top,
 				(short)(left + column * (SCOREBOARD_COLUMN_WIDTH + SCOREBOARD_COLUMN_GAP)),
 				TRUE);
@@ -2706,10 +2751,10 @@ static void game_engine_rasterize_scoreboard(
 		color.alpha = alpha;
 		color.red = color.green = color.blue = 0.6f;
 		usprintf(row_string, L"%ld-%ld of %ld   (Page Up / Page Down, mouse wheel)", first, last, total);
-		scoreboard_draw_row(row_string, FALSE, &color, 2 + rows, top, left, FALSE);
+		scoreboard_draw_row(row_string, FALSE, &color, head_rows + rows, top, left, FALSE);
 	}
 	/* port: the vote running, and how to pick a player */
-	next_row = 2 + MIN(rows, total) + (total > page ? 1 : 0);
+	next_row = head_rows + MIN(rows, total) + (total > page ? 1 : 0);
 	if (voting)
 	{
 		struct data_iterator iterator;

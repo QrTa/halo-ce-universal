@@ -10,7 +10,7 @@ import sys
 from pathlib import Path
 from types import SimpleNamespace
 
-from tools import ninja_syntax
+from tools import campaign_score_values, ninja_syntax
 from tools.android_build import android_configure_inputs, generate_android_build
 from tools.linux_guest_build import generate_linux_guest_builds, linux_guest_configure_inputs, native_linux_guest
 from tools.linux_build import check_profile_options, generate_linux_build, linux_configure_inputs
@@ -243,6 +243,14 @@ if not is_windows():
     sln.windows_sdk_dir = args.windows_sdk_dir
 
 
+# the campaign's scoring values (port/linux/game/campaign_score_values.c),
+# written from their JSON before the builds compile it: ninja reruns this
+# script when the JSON changes (the inputs below)
+try:
+    campaign_score_values.write()
+except campaign_score_values.ValuesError as error:
+    sys.exit(f"campaign score values: {error}")
+
 # build.ninja
 out = io.StringIO()
 n = ninja_syntax.Writer(out)
@@ -279,6 +287,10 @@ n.build(
     implicit=[
         configure_script,
         Path("tools/ninja_syntax.py"),
+        Path("tools/campaign_score_values.py"),
+        campaign_score_values.JSON_PATH.relative_to(campaign_score_values.ROOT),
+        campaign_score_values.ACTOR_TYPES.relative_to(campaign_score_values.ROOT),
+        campaign_score_values.SKULLS_C.relative_to(campaign_score_values.ROOT),
         *linux_configure_inputs(),
         *android_configure_inputs(),
         *linux_guest_configure_inputs(),

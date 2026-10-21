@@ -2,34 +2,45 @@
 CAMPAIGN_SCORE.C
 
 The campaign's score (game.campaign_score, Settings > Gameplay's CAMPAIGN
-SCORING, off by default: the stock game has none). Each enemy a player kills
-is worth points by its actor variant: a base by the kind of actor (a grunt, a
-jackal, an elite, a hunter, the Flood's forms, a sentinel) times a rank by the
-variant's name (minor 1, major 1.5, ultra 2, zealot 3, and so on) times the
-difficulty (easy 0.5, normal 1, heroic 2, legendary 5), rounded up to a
-multiple of 5. A ghost, a banshee and a wraith destroyed are worth 50, 75 and
-100 points, scaled by the difficulty the same way. Marines, crew and the like
-are worth nothing, so friendly fire gains no points.
+SCORING, off by default: the stock game has none), as Halo 3's and the Master
+Chief Collection's. Its values are campaign_score_values.json's
+(campaign_score_values.c, which tools/campaign_score_values.py writes from it
+as the build is configured):
+
+- a kill is worth its enemy's base points (by its actor's type and its
+  variant's name, or a vehicle's by its name), times its style's multiplier
+  (one shot one kill, a headshot, a melee hit, a backsmack: from behind),
+  times the difficulty's, times the skulls on, rounded to a point;
+- an ally killed (or a friendly vehicle destroyed), another player killed
+  (a betrayal), a death and Revert to Checkpoint take points as they are
+  (the only cost of a checkpoint: the score and the time go on through it);
+- when the level is won, its points are multiplied by its time's multiplier,
+  by its time over the level's par time.
 
 Only the machine that runs the AI knows the kills: the host of a co-op
-game, or a single player. The host sends each kill, and the level's win, to
+game, or a single player. The host sends each entry, and the level's win, to
 the clients of a network co-op game (network_coop.c), which keep the same
 log. A co-op game's score is the players' added together (network.coop_score_type
 "cooperative") or each player's own ("competitive"); the host's choice counts.
 
-The score is a log of kills, each with the game time it happened at and its
-player's absolute index (the same on every machine of a co-op game). Going
-back to a checkpoint puts the game time back, and the kills after it are
-forgotten with it; the totals are summed from the log.
+The score is a log of entries, each with the game time it happened at and
+its player's absolute index (the same on every machine of a co-op game); the
+totals are summed from it. Going back to a checkpoint (a death, or Revert to
+Checkpoint) takes nothing from the log, nor from the level's time, which is
+counted on each tick the game time goes forward (campaign_score_tick), not
+read from it.
 
-On the HUD, the score and the level's time are a panel at the bottom right,
-as the Master Chief Collection's (campaign_score_draw_view); the skulls' icons
-are drawn above it (skulls.c, campaign_score_hud_height). The scoreboard
-(hold BACK, or tab: game_engine.c) lists every player's score.
+On the HUD, the score and the level's time (a strip of the par time left
+over them, and a row of the score's multipliers: the difficulty's, the
+skulls', the time's and their total) are a panel at the bottom right, as the
+Master Chief Collection's (campaign_score_draw_view); the skulls' icons are drawn
+above it (skulls.c, campaign_score_hud_height). The scoreboard (hold BACK, or
+tab: game_engine.c) lists every player's score.
 
-When a level is won (main_won_map) its totals, each player's score and kills
-and its best variants are written to the log, and shown over the level until
-A or B is pressed, before the main menu (or the co-op lobby) loads.
+When a level is won (main_won_map) its totals, its time against its par,
+each player's score and the best variants are written to the log, and shown
+over the level until A or B is pressed, before the main menu (or the co-op
+lobby) loads.
 */
 
 #include "cseries.h"
@@ -57,6 +68,8 @@ A or B is pressed, before the main menu (or the co-op lobby) loads.
 
 #include "campaign_score.h"
 #include "custom_edition_maps.h"
+#include "campaign_score_values.h"
+#include "halo_skulls.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -74,6 +87,11 @@ enum
 	/* the lines of the summary, and their length */
 	CAMPAIGN_SCORE_SUMMARY_LINES = 14,
 	CAMPAIGN_SCORE_SUMMARY_LENGTH = 56,
+	/* the units a level's one shot, one kill remembers as hurt */
+	CAMPAIGN_SCORE_HURT_SLOTS = 2048,
+	/* units.c's _unit_damage_part_head (its enum is its own): a body part
+	object_damage_aftermath is told of */
+	CAMPAIGN_SCORE_HEAD_BODY_PART = 2,
 	/* draw_string.c's justifications (its enum is its own) */
 	_campaign_score_text_left = 0,
 	_campaign_score_text_right = 1,
@@ -102,8 +120,12 @@ enum
 #define CAMPAIGN_SCORE_PANEL_FILL 0xA00A2246
 #define CAMPAIGN_SCORE_PANEL_EDGE 0xE04F9BE0
 #define CAMPAIGN_SCORE_STRIP_FILL 0xC06EB4F0
+#define CAMPAIGN_SCORE_STRIP_UNLIT 0x406EB4F0
 /* the subline's text, smaller than the row's */
 #define CAMPAIGN_SCORE_SUBLINE_SIZE 0.72f
+
+/* a melee hit from behind: the blow going this nearly the way the body faces */
+#define CAMPAIGN_SCORE_BACKSMACK_DOT 0.5f
 
 /* the summary's colour: a player's name in the chat (network_chat.c's
 chat_color) */
@@ -113,12 +135,41 @@ chat_color) */
 
 /* ---------- structures */
 
-struct campaign_score_kill
+/* what an entry of the log is: a kill (its points the enemy's, as its style,
+the difficulty and the skulls make them), or a penalty (as it is) */
+enum
+{
+	_campaign_score_entry_kill = 0,
+	/* an ally killed, or a friendly vehicle destroyed */
+	_campaign_score_entry_ally,
+	/* another player killed */
+	_campaign_score_entry_betrayal,
+	/* the player's death */
+	_campaign_score_entry_death,
+	/* Revert to Checkpoint, from the pause menu */
+	_campaign_score_entry_revert,
+	NUMBER_OF_CAMPAIGN_SCORE_ENTRIES
+};
+
+/* a kill's style, its entry's style bits */
+enum
+{
+	_campaign_score_style_one_shot_bit = 0,
+	_campaign_score_style_headshot_bit,
+	_campaign_score_style_melee_bit,
+	_campaign_score_style_backsmack_bit,
+	NUMBER_OF_CAMPAIGN_SCORE_STYLES
+};
+
+struct campaign_score_entry
 {
 	long game_time;
+	/* (the enemy's actor variant, or the vehicle's definition; NONE) */
 	long variant_index;
+	long points;
 	short player_index;
-	short points;
+	byte kind;
+	byte style;
 };
 
 struct campaign_score_variant
@@ -139,9 +190,10 @@ char *tag_get_name(long tag_index);
 /* sdl_platform.c's: the log (debug.txt) only, not the console on screen */
 void platform_log(char const *format, ...);
 /* network_coop.c's: co-op is a network game on a campaign level; the host's
-kills and its win are sent to the clients (campaign_score_network_kill, ...) */
+entries and its win are sent to the clients (campaign_score_network_kill, ...) */
 boolean network_coop_active(void);
-void network_coop_note_score_kill(short player_index, long variant_index, short points, boolean competitive);
+void network_coop_note_score_kill(short player_index, long variant_index, long points, short kind, byte style,
+	boolean competitive);
 void network_coop_note_score_won(boolean competitive);
 /* port_config.c's */
 char const *config_string(char const *name);
@@ -150,11 +202,13 @@ void draw_quad(rectangle2d *rectangle, pixel32 color);
 
 /* ---------- globals */
 
-static struct campaign_score_kill campaign_score_kills[CAMPAIGN_SCORE_MAXIMUM_KILLS];
-static long campaign_score_kill_count = 0;
+static struct campaign_score_entry campaign_score_entries[CAMPAIGN_SCORE_MAXIMUM_KILLS];
+static long campaign_score_entry_count = 0;
 static boolean campaign_score_full_logged = FALSE;
-/* (the last game time seen: a smaller one is a checkpoint reverted to) */
-static long campaign_score_last_time = 0;
+/* the last game time seen (NONE: none yet; a smaller one is a checkpoint
+reverted to), and the level's time, counted on through reverts */
+static long campaign_score_last_time = NONE;
+static long campaign_score_ticks = 0;
 /* a level just won, for the next one, and the one shown now */
 static char campaign_score_pending[CAMPAIGN_SCORE_SUMMARY_LINES][CAMPAIGN_SCORE_SUMMARY_LENGTH];
 static short campaign_score_pending_lines = 0;
@@ -171,37 +225,13 @@ static boolean campaign_score_competitive = FALSE;
 /* the height the panel took in the view drawn last, for the skulls' icons
 above it (campaign_score_hud_height), in the HUD's 480 lines */
 static short campaign_score_drawn_height = 0;
+/* the units hurt by any blow since the level began (or a checkpoint was
+reverted to): a kill of one not among them is one shot, one kill. A set of
+their indices (salted: a unit made later in a freed slot is another) */
+static long campaign_score_hurt[CAMPAIGN_SCORE_HURT_SLOTS];
 
-/* the difficulty's share of a point, in tenths: easy, normal, heroic, legendary */
-static short const campaign_score_difficulty_tenths[NUMBER_OF_GAME_DIFFICULTY_LEVELS] = { 5, 10, 20, 50 };
 static char const *const campaign_score_difficulty_names[NUMBER_OF_GAME_DIFFICULTY_LEVELS] =
 	{ "EASY", "NORMAL", "HEROIC", "LEGENDARY" };
-
-/* the rank of a variant by its name's words, tenths of a point per point
-(the first that is in the name) */
-static struct
-{
-	char const *word;
-	short tenths;
-} const campaign_score_ranks[] =
-{
-	{ "honor", 35 },
-	{ "zealot", 30 },
-	{ "commander", 30 },
-	{ "captain", 30 },
-	{ "gold", 30 },
-	{ "white", 30 },
-	{ "ultra", 20 },
-	{ "spec", 20 },
-	{ "stealth", 20 },
-	{ "red", 20 },
-	{ "major", 15 },
-	{ "ranger", 15 },
-	{ "heavy", 15 },
-	{ "leader", 15 },
-	{ "minor", 10 },
-	{ NULL, 0 },
-};
 
 /* ---------- private code */
 
@@ -216,7 +246,7 @@ static boolean campaign_score_level(
 	return scenario != NULL && scenario->type == _scenario_type_solo;
 }
 
-/* the difficulty, as an index of the tables above */
+/* the difficulty, as an index of the tables */
 static short campaign_score_difficulty(
 	void)
 {
@@ -242,90 +272,174 @@ static boolean campaign_score_type_competitive(
 	return competitive;
 }
 
-/* the points a variant is worth (0 for one that is no enemy) */
-static short campaign_score_variant_points(
-	long variant_definition_index)
+/* ---------- the values (campaign_score_values.json) */
+
+/* a tag's name in lower case ("" for none) */
+static void campaign_score_lower_name(
+	long tag_index,
+	char *lower,
+	long size)
+{
+	char const *name = tag_index != NONE ? tag_get_name(tag_index) : NULL;
+	long index = 0;
+
+	for (; name && index < size - 1 && name[index]; index++)
+		lower[index] = (char)((name[index] >= 'A' && name[index] <= 'Z') ? name[index] + 32 : name[index]);
+	lower[index] = '\0';
+
+	return;
+}
+
+static boolean campaign_score_name_has(
+	char const *lower,
+	char const *const *words)
+{
+	for (; *words; words++)
+	{
+		if (strstr(lower, *words))
+			return TRUE;
+	}
+	return FALSE;
+}
+
+/* the points of the first entry with a word in the name (0 for none) */
+static long campaign_score_match_points(
+	struct campaign_score_match_value const *values,
+	short count,
+	char const *lower)
+{
+	short index;
+
+	for (index = 0; index < count; index++)
+	{
+		if (campaign_score_name_has(lower, values[index].words))
+			return values[index].points;
+	}
+	return 0;
+}
+
+/* an actor variant's points by its actor's type, and its name's words (0 for
+a type not in the table) */
+static long campaign_score_actor_points(
+	struct campaign_score_actor_value const *values,
+	short count,
+	long variant_index)
 {
 	struct actor_variant_definition *variant;
-	struct actor_definition *actor;
-	char const *name;
+	short actor_type;
 	char lower[128];
-	long base;
-	long tenths = 10;
-	long points;
-	long index;
+	short index;
 
-	if (variant_definition_index == NONE)
+	if (variant_index == NONE)
 		return 0;
-	variant = actor_variant_definition_get(variant_definition_index);
+	variant = actor_variant_definition_get(variant_index);
 	if (variant->actor_reference.index == NONE)
 		return 0;
-	actor = actor_definition_get(variant->actor_reference.index);
-	switch (actor->type)
+	actor_type = actor_definition_get(variant->actor_reference.index)->type;
+	campaign_score_lower_name(variant_index, lower, sizeof(lower));
+	for (index = 0; index < count; index++)
 	{
-	case _actor_elite: base = 30; break;
-	case _actor_jackal: base = 15; break;
-	case _actor_grunt: base = 10; break;
-	case _actor_hunter: base = 100; break;
-	case _actor_engineer: base = 5; break;
-	case _actor_assassin: base = 30; break;
-	case _actor_combat_form: base = 10; break;
-	case _actor_infection_form: base = 5; break;
-	case _actor_carrier_form: base = 10; break;
-	case _actor_sentinel: base = 15; break;
-	default: base = 0; break;
+		long points;
+
+		if (values[index].actor_type != actor_type)
+			continue;
+		points = campaign_score_match_points(values[index].variants, values[index].variant_count, lower);
+		return points ? points : values[index].points;
 	}
-	if (base == 0)
-		return 0;
-	name = tag_get_name(variant_definition_index);
-	if (name != NULL)
+	return 0;
+}
+
+/* the skulls on, their multiplier: each one's, multiplied together (or the
+highest), 1 with none on */
+real campaign_score_skulls_multiplier(
+	void)
+{
+	struct campaign_score_values const *values = &campaign_score_values;
+	boolean highest = values->skull_combine == _campaign_score_combine_highest;
+	boolean any = FALSE;
+	real multiplier = 1.0f;
+	int skull;
+
+	for (skull = 0; skull < NUMBER_OF_SKULLS; skull++)
 	{
-		for (index = 0; index < (long)sizeof(lower) - 1 && name[index]; index++)
-			lower[index] = (char)((name[index] >= 'A' && name[index] <= 'Z') ? name[index] + 32 : name[index]);
-		lower[index] = '\0';
-		for (index = 0; campaign_score_ranks[index].word; index++)
+		real value = values->skull_default;
+		short index;
+
+		if (!skull_active(skull))
+			continue;
+		for (index = 0; index < values->skull_count; index++)
 		{
-			if (strstr(lower, campaign_score_ranks[index].word))
+			if (!strcmp(values->skulls[index].skull, skull_descriptions[skull].key))
 			{
-				tenths = campaign_score_ranks[index].tenths;
+				value = values->skulls[index].multiplier;
 				break;
 			}
 		}
+		if (highest)
+			multiplier = any ? MAX(multiplier, value) : value;
+		else
+			multiplier *= value;
+		any = TRUE;
 	}
-	points = base * tenths * campaign_score_difficulty_tenths[campaign_score_difficulty()];
-	/* (up to a multiple of 5: an enemy worth any is worth at least 5) */
-	points = (points + 499) / 500 * 5;
-	return (short)points;
+	return multiplier;
 }
 
-/* a vehicle's worth (the ghost, banshee and wraith), scaled by difficulty
-like an enemy; 0 for any other vehicle */
-static short campaign_score_vehicle_points(
-	long definition_index)
+/* a kill's style's multiplier: those of its styles multiplied together (or
+the highest), the regular kill's with none */
+static real campaign_score_style_multiplier(
+	byte style)
 {
-	char const *name = tag_get_name(definition_index);
-	char lower[128];
-	long base = 0;
-	long index;
-	long points;
+	struct campaign_score_values const *values = &campaign_score_values;
+	real const multipliers[NUMBER_OF_CAMPAIGN_SCORE_STYLES] =
+	{
+		values->style_one_shot_one_kill,
+		values->style_headshot,
+		values->style_melee,
+		values->style_backsmack,
+	};
+	boolean highest = values->style_combine == _campaign_score_combine_highest;
+	boolean any = FALSE;
+	real multiplier = 1.0f;
+	short bit;
 
-	if (name == NULL)
-		return 0;
-	for (index = 0; index < (long)sizeof(lower) - 1 && name[index]; index++)
-		lower[index] = (char)((name[index] >= 'A' && name[index] <= 'Z') ? name[index] + 32 : name[index]);
-	lower[index] = '\0';
-	if (strstr(lower, "ghost"))
-		base = 50;
-	else if (strstr(lower, "banshee"))
-		base = 75;
-	else if (strstr(lower, "wraith"))
-		base = 100;
-	if (base == 0)
-		return 0;
-	points = base * 10 * campaign_score_difficulty_tenths[campaign_score_difficulty()];
-	points = (points + 499) / 500 * 5;
-	return (short)points;
+	for (bit = 0; bit < NUMBER_OF_CAMPAIGN_SCORE_STYLES; bit++)
+	{
+		if (!TEST_FLAG(style, bit))
+			continue;
+		if (highest)
+			multiplier = any ? MAX(multiplier, multipliers[bit]) : multipliers[bit];
+		else
+			multiplier *= multipliers[bit];
+		any = TRUE;
+	}
+	return any ? multiplier : values->style_regular;
 }
+
+/* the level's par time, in seconds, by its name (a10, of levels\a10\a10):
+NONE for a level with none */
+static long campaign_score_par_seconds(
+	void)
+{
+	char lower[128];
+	char const *last;
+	short index;
+
+	campaign_score_lower_name(global_scenario_index, lower, sizeof(lower));
+	last = lower;
+	for (index = 0; lower[index]; index++)
+	{
+		if (lower[index] == '\\' || lower[index] == '/')
+			last = lower + index + 1;
+	}
+	for (index = 0; index < campaign_score_values.par_time_count; index++)
+	{
+		if (!strcmp(campaign_score_values.par_times[index].level, last))
+			return campaign_score_values.par_times[index].seconds;
+	}
+	return NONE;
+}
+
+/* ---------- the log */
 
 /* whether A or B is down on a controller (or the keyboard's jump key, A) */
 static boolean campaign_score_button_down(
@@ -347,18 +461,49 @@ static boolean campaign_score_button_down(
 	return FALSE;
 }
 
-/* the kills after the game time are gone: a checkpoint was reverted to */
+/* the units hurt forgotten (a new level, or a checkpoint reverted to) */
+static void campaign_score_hurt_reset(
+	void)
+{
+	long index;
+
+	for (index = 0; index < CAMPAIGN_SCORE_HURT_SLOTS; index++)
+		campaign_score_hurt[index] = NONE;
+
+	return;
+}
+
+/* the unit's slot: its own, or the free one it would take (NONE: full) */
+static long campaign_score_hurt_slot(
+	long unit_index)
+{
+	long index = (long)((((unsigned long)unit_index * 2654435761UL) >> 16) % CAMPAIGN_SCORE_HURT_SLOTS);
+	long tries;
+
+	for (tries = 0; tries < CAMPAIGN_SCORE_HURT_SLOTS; tries++, index = (index + 1) % CAMPAIGN_SCORE_HURT_SLOTS)
+	{
+		if (campaign_score_hurt[index] == unit_index || campaign_score_hurt[index] == NONE)
+			return index;
+	}
+	return NONE;
+}
+
+/* the level's time counted on: each tick the game time goes forward adds to
+it, and going back to a checkpoint (the game time back) takes nothing from
+it, as it takes nothing from the log. The units hurt are forgotten then:
+those the checkpoint has are whole again */
 static void campaign_score_update(
 	void)
 {
 	long time = game_time_get();
 
-	if (time < campaign_score_last_time)
-	{
-		while (campaign_score_kill_count > 0 &&
-			campaign_score_kills[campaign_score_kill_count - 1].game_time > time)
-			campaign_score_kill_count--;
-	}
+	/* (the level's first look: its time so far, a saved game's too) */
+	if (campaign_score_last_time == NONE)
+		campaign_score_ticks = MAX(time, 0);
+	else if (time > campaign_score_last_time)
+		campaign_score_ticks += time - campaign_score_last_time;
+	else if (time < campaign_score_last_time)
+		campaign_score_hurt_reset();
 	campaign_score_last_time = time;
 
 	return;
@@ -370,10 +515,10 @@ static long campaign_score_total(
 	long total = 0;
 	long index;
 
-	for (index = 0; index < campaign_score_kill_count; index++)
+	for (index = 0; index < campaign_score_entry_count; index++)
 	{
-		if (campaign_score_kills[index].player_index == player_index)
-			total += campaign_score_kills[index].points;
+		if (campaign_score_entries[index].player_index == player_index)
+			total += campaign_score_entries[index].points;
 	}
 	return total;
 }
@@ -408,31 +553,63 @@ static void campaign_score_player_name(
 	return;
 }
 
-/* how many kills a player has */
-static long campaign_score_kills_of(
-	short player_index)
+/* how many of a player's entries are of a kind (NONE: any player's) */
+static long campaign_score_count_of(
+	short player_index,
+	short kind)
 {
 	long total = 0;
 	long index;
 
-	for (index = 0; index < campaign_score_kill_count; index++)
+	for (index = 0; index < campaign_score_entry_count; index++)
 	{
-		if (campaign_score_kills[index].player_index == player_index)
+		if ((player_index == NONE || campaign_score_entries[index].player_index == player_index) &&
+			campaign_score_entries[index].kind == kind)
+		{
 			total++;
+		}
 	}
 	return total;
 }
 
-/* the points of all the players' kills together (a co-op team's score) */
+/* how many kills had a style (NONE: any player's) */
+static long campaign_score_style_count(
+	short player_index,
+	short style_bit)
+{
+	long total = 0;
+	long index;
+
+	for (index = 0; index < campaign_score_entry_count; index++)
+	{
+		if ((player_index == NONE || campaign_score_entries[index].player_index == player_index) &&
+			campaign_score_entries[index].kind == _campaign_score_entry_kill &&
+			TEST_FLAG(campaign_score_entries[index].style, style_bit))
+		{
+			total++;
+		}
+	}
+	return total;
+}
+
+/* the points of all the players' entries together (a co-op team's score) */
 static long campaign_score_team_total(
 	void)
 {
 	long total = 0;
 	long index;
 
-	for (index = 0; index < campaign_score_kill_count; index++)
-		total += campaign_score_kills[index].points;
+	for (index = 0; index < campaign_score_entry_count; index++)
+		total += campaign_score_entries[index].points;
 	return total;
+}
+
+/* a score at the level's end: the time's multiplier on it (none on less
+than nothing) */
+static long campaign_score_final(
+	long points)
+{
+	return points > 0 ? (long)(points * campaign_score_time_multiplier() + 0.5f) : points;
 }
 
 /* a variant's name as the summary has it: the last of its path, in capitals,
@@ -469,19 +646,52 @@ static void campaign_score_variant_name(
 	return;
 }
 
-/* the level's time, H:MM:SS, as the Master Chief Collection's */
-static void campaign_score_time_string(
+/* a time, H:MM:SS, as the Master Chief Collection's */
+static void campaign_score_seconds_string(
+	long seconds,
 	char *text,
 	long size)
 {
-	long seconds = MAX(campaign_score_level_ticks(), 0) / TICKS_PER_SECOND;
-
+	seconds = MAX(seconds, 0);
 	snprintf(text, size, "%ld:%02ld:%02ld", seconds / 3600, seconds / 60 % 60, seconds % 60);
 
 	return;
 }
 
-/* the level's totals and best variants, as lines */
+/* the level's time */
+static void campaign_score_time_string(
+	char *text,
+	long size)
+{
+	campaign_score_seconds_string(campaign_score_level_ticks() / TICKS_PER_SECOND, text, size);
+
+	return;
+}
+
+/* a multiplier as the panel and the summary have it: x3, x0.5, x1.25 */
+static void campaign_score_multiplier_string(
+	real multiplier,
+	char *text,
+	long size)
+{
+	char *end;
+
+	/* (to two places, its zeros after the point dropped: x7.92, x0.5, x3) */
+	snprintf(text, size, "x%.2f", (double)multiplier);
+	end = text + strlen(text);
+	while (end > text && strchr(text, '.') && (end[-1] == '0' || end[-1] == '.'))
+	{
+		boolean point = end[-1] == '.';
+
+		*--end = '\0';
+		if (point)
+			break;
+	}
+
+	return;
+}
+
+/* the level's totals, its time and the best variants, as lines */
 static short campaign_score_compose(
 	char lines[CAMPAIGN_SCORE_SUMMARY_LINES][CAMPAIGN_SCORE_SUMMARY_LENGTH])
 {
@@ -490,25 +700,29 @@ static short campaign_score_compose(
 	short count = 0;
 	short player_index;
 	long index;
-	long kills = 0;
-	long points = 0;
+	long points = campaign_score_team_total();
+	long kills = campaign_score_count_of(NONE, _campaign_score_entry_kill);
 	long players = 0;
+	long par = campaign_score_par_seconds();
 	char time[16];
+	char par_time[16];
+	char multiplier[16];
 
-	for (index = 0; index < campaign_score_kill_count; index++)
+	for (index = 0; index < campaign_score_entry_count; index++)
 	{
+		struct campaign_score_entry const *entry = &campaign_score_entries[index];
 		long found;
 
-		kills++;
-		points += campaign_score_kills[index].points;
+		if (entry->kind != _campaign_score_entry_kill)
+			continue;
 		for (found = 0; found < variant_count; found++)
 		{
-			if (variants[found].variant_index == campaign_score_kills[index].variant_index)
+			if (variants[found].variant_index == entry->variant_index)
 				break;
 		}
 		if (found == variant_count && variant_count < CAMPAIGN_SCORE_MAXIMUM_VARIANTS)
 		{
-			variants[found].variant_index = campaign_score_kills[index].variant_index;
+			variants[found].variant_index = entry->variant_index;
 			variants[found].kills = 0;
 			variants[found].points = 0;
 			variant_count++;
@@ -516,19 +730,36 @@ static short campaign_score_compose(
 		if (found < variant_count)
 		{
 			variants[found].kills++;
-			variants[found].points += campaign_score_kills[index].points;
+			variants[found].points += entry->points;
 		}
 	}
-	if (kills == 0)
+	if (campaign_score_entry_count == 0)
 		return 0;
 
 	campaign_score_time_string(time, sizeof(time));
-	snprintf(lines[count++], CAMPAIGN_SCORE_SUMMARY_LENGTH, "LEVEL COMPLETE  %s x%.1f  %s",
-		campaign_score_difficulty_names[campaign_score_difficulty()],
-		campaign_score_difficulty_tenths[campaign_score_difficulty()] / 10.0, time);
+	campaign_score_multiplier_string(campaign_score_values.difficulty[campaign_score_difficulty()],
+		multiplier, sizeof(multiplier));
+	{
+		char skulls[16];
+
+		campaign_score_multiplier_string(campaign_score_skulls_multiplier(), skulls, sizeof(skulls));
+		snprintf(lines[count++], CAMPAIGN_SCORE_SUMMARY_LENGTH, "LEVEL COMPLETE  %s %s  SKULLS %s",
+			campaign_score_difficulty_names[campaign_score_difficulty()], multiplier, skulls);
+	}
+	/* (the time, against the level's par time) */
+	campaign_score_multiplier_string(campaign_score_time_multiplier(), multiplier, sizeof(multiplier));
+	if (par != NONE)
+	{
+		campaign_score_seconds_string(par, par_time, sizeof(par_time));
+		snprintf(lines[count++], CAMPAIGN_SCORE_SUMMARY_LENGTH, "TIME %s  PAR %s  %s", time, par_time, multiplier);
+	}
+	else
+	{
+		snprintf(lines[count++], CAMPAIGN_SCORE_SUMMARY_LENGTH, "TIME %s", time);
+	}
 	for (player_index = 0; player_index < CAMPAIGN_SCORE_MAXIMUM_PLAYERS; player_index++)
 	{
-		if (campaign_score_total(player_index) > 0)
+		if (campaign_score_total(player_index) != 0)
 			players++;
 	}
 	if (players > 1)
@@ -536,20 +767,30 @@ static short campaign_score_compose(
 		for (player_index = 0; player_index < CAMPAIGN_SCORE_MAXIMUM_PLAYERS &&
 			count < CAMPAIGN_SCORE_SUMMARY_LINES - 6; player_index++)
 		{
-			if (campaign_score_total(player_index) > 0)
+			if (campaign_score_total(player_index) != 0)
 			{
 				char name[24];
 
 				campaign_score_player_name(player_index, name, sizeof(name));
 				snprintf(lines[count++], CAMPAIGN_SCORE_SUMMARY_LENGTH, "%s  %ld  KILLS %ld",
-					name, campaign_score_total(player_index), campaign_score_kills_of(player_index));
+					name, campaign_score_final(campaign_score_total(player_index)),
+					campaign_score_count_of(player_index, _campaign_score_entry_kill));
 			}
 		}
 	}
-	if (campaign_score_competitive && players > 1)
-		snprintf(lines[count++], CAMPAIGN_SCORE_SUMMARY_LENGTH, "KILLS %ld", kills);
-	else
-		snprintf(lines[count++], CAMPAIGN_SCORE_SUMMARY_LENGTH, "SCORE %ld  KILLS %ld", points, kills);
+	snprintf(lines[count++], CAMPAIGN_SCORE_SUMMARY_LENGTH, "KILLS %ld  HEADSHOTS %ld  MELEE %ld",
+		kills, campaign_score_style_count(NONE, _campaign_score_style_headshot_bit),
+		campaign_score_style_count(NONE, _campaign_score_style_melee_bit) +
+			campaign_score_style_count(NONE, _campaign_score_style_backsmack_bit));
+	snprintf(lines[count++], CAMPAIGN_SCORE_SUMMARY_LENGTH, "DEATHS %ld  BETRAYALS %ld  ALLIES %ld",
+		campaign_score_count_of(NONE, _campaign_score_entry_death),
+		campaign_score_count_of(NONE, _campaign_score_entry_betrayal),
+		campaign_score_count_of(NONE, _campaign_score_entry_ally));
+	if (!(campaign_score_competitive && players > 1))
+	{
+		snprintf(lines[count++], CAMPAIGN_SCORE_SUMMARY_LENGTH, "POINTS %ld  %s  SCORE %ld",
+			points, multiplier, campaign_score_final(points));
+	}
 	/* (the best variants, the most points first) */
 	while (count < CAMPAIGN_SCORE_SUMMARY_LINES && variant_count > 0)
 	{
@@ -592,11 +833,13 @@ void campaign_score_new_map(
 {
 	short line;
 
-	campaign_score_kill_count = 0;
+	campaign_score_entry_count = 0;
 	campaign_score_postgame = FALSE;
 	campaign_score_full_logged = FALSE;
-	campaign_score_last_time = 0;
+	campaign_score_last_time = NONE;
+	campaign_score_ticks = 0;
 	campaign_score_drawn_height = 0;
+	campaign_score_hurt_reset();
 	/* (a level just won, shown now; else nothing) */
 	campaign_score_summary_lines = campaign_score_pending_lines;
 	for (line = 0; line < campaign_score_pending_lines; line++)
@@ -607,92 +850,215 @@ void campaign_score_new_map(
 	return;
 }
 
-/* a kill is logged (the host's own, or one it sent): FALSE if the log is full */
+/* an entry is logged (the host's own, or one it sent): FALSE if the log is full */
 static boolean campaign_score_append(
+	short kind,
 	long variant_index,
 	short player_index,
-	short points)
+	long points,
+	byte style)
 {
+	struct campaign_score_entry *entry;
+
 	campaign_score_update();
-	if (campaign_score_kill_count >= CAMPAIGN_SCORE_MAXIMUM_KILLS)
+	if (campaign_score_entry_count >= CAMPAIGN_SCORE_MAXIMUM_KILLS)
 	{
 		if (!campaign_score_full_logged)
 		{
 			campaign_score_full_logged = TRUE;
-			console_warning("campaign score: the level's %d kills are logged; no more are scored",
+			console_warning("campaign score: the level's %d entries are logged; no more are scored",
 				(int)CAMPAIGN_SCORE_MAXIMUM_KILLS);
 		}
 		return FALSE;
 	}
-	campaign_score_kills[campaign_score_kill_count].game_time = game_time_get();
-	campaign_score_kills[campaign_score_kill_count].variant_index = variant_index;
-	campaign_score_kills[campaign_score_kill_count].player_index = player_index;
-	campaign_score_kills[campaign_score_kill_count].points = points;
-	campaign_score_kill_count++;
+	entry = &campaign_score_entries[campaign_score_entry_count++];
+	entry->game_time = game_time_get();
+	entry->variant_index = variant_index;
+	entry->player_index = player_index;
+	entry->points = points;
+	entry->kind = (byte)kind;
+	entry->style = style;
 	if (campaign_score_enabled())
-		platform_log("campaign score: player %d killed %s for %d",
-			(int)player_index, tag_get_name(variant_index), (int)points);
+	{
+		platform_log("campaign score: player %d, %s %s, %ld (style %d)", (int)player_index,
+			kind == _campaign_score_entry_kill ? "killed" : kind == _campaign_score_entry_ally ? "killed an ally" :
+			kind == _campaign_score_entry_betrayal ? "betrayed" : kind == _campaign_score_entry_death ? "died" : "reverted",
+			variant_index != NONE ? tag_get_name(variant_index) : "", points, (int)style);
+	}
 
 	return TRUE;
 }
 
-void campaign_score_record_kill(
-	long unit_index,
-	long killing_player_index)
+/* an entry of this machine's (the host's, or a single player's), sent to a
+network co-op game's clients */
+static void campaign_score_note(
+	short kind,
+	long variant_index,
+	long player_index,
+	long points,
+	byte style)
 {
-	struct unit_datum *unit;
-	long actor_index;
-	long variant_index;
-	short player_index;
-	short points;
+	short absolute_index;
 
-	/* (a client's kills are the host's, which sends them: the AI is the host's) */
-	if (killing_player_index == NONE || !campaign_score_level() || game_connection() == _game_connection_network_client)
-		return;
-	/* (the killer's datum index, salted; the log keeps its absolute index,
+	/* (the player's datum index, salted; the log keeps its absolute index,
 	which every machine of a co-op game gives the same player) */
-	if (!player_try_and_get(killing_player_index))
+	if (!player_try_and_get(player_index))
 		return;
-	player_index = (short)DATUM_INDEX_TO_ABSOLUTE_INDEX(killing_player_index);
-	if (player_index >= CAMPAIGN_SCORE_MAXIMUM_PLAYERS)
-		return;
-	unit = unit_get(unit_index);
-	/* (a destroyed ghost, banshee or wraith is worth its own points) */
-	variant_index = NONE;
-	points = 0;
-	if (unit->object.type == _object_type_vehicle)
-	{
-		variant_index = unit->definition_index;
-		points = campaign_score_vehicle_points(variant_index);
-	}
-	if (points <= 0)
-	{
-		actor_index = unit->unit.swarm_actor_index != NONE ? unit->unit.swarm_actor_index : unit->unit.actor_index;
-		if (actor_index == NONE)
-			return;
-		variant_index = actor_get(actor_index)->meta.variant_definition_index;
-		points = campaign_score_variant_points(variant_index);
-	}
-	if (points <= 0)
+	absolute_index = (short)DATUM_INDEX_TO_ABSOLUTE_INDEX(player_index);
+	if (absolute_index >= CAMPAIGN_SCORE_MAXIMUM_PLAYERS)
 		return;
 	campaign_score_competitive = campaign_score_type_competitive();
-	if (campaign_score_append(variant_index, player_index, points) && network_coop_active())
-		network_coop_note_score_kill(player_index, variant_index, points, campaign_score_competitive);
+	if (campaign_score_append(kind, variant_index, absolute_index, points, style) && network_coop_active())
+		network_coop_note_score_kill(absolute_index, variant_index, points, kind, style, campaign_score_competitive);
 
 	return;
 }
 
-/* (network_coop.c) a kill the host scored, on a client */
+void campaign_score_unit_damaged(
+	long unit_index,
+	long killing_player_index,
+	short body_part,
+	boolean melee,
+	void const *direction,
+	boolean lethal,
+	boolean no_statistics)
+{
+	struct campaign_score_values const *values = &campaign_score_values;
+	struct unit_datum *unit;
+	long slot;
+	long variant_index = NONE;
+	long base = 0;
+	byte style = 0;
+
+	/* (a client's are the host's, which sends them: the AI is the host's) */
+	if (!campaign_score_level() || game_connection() == _game_connection_network_client)
+		return;
+	campaign_score_update();
+	slot = campaign_score_hurt_slot(unit_index);
+	if (!lethal)
+	{
+		if (slot != NONE)
+			campaign_score_hurt[slot] = unit_index;
+		return;
+	}
+	if (no_statistics)
+		return;
+	unit = unit_get(unit_index);
+
+	/* a player's death, and another player's betrayal */
+	if (unit->object.type == _object_type_biped && unit->unit.player_index != NONE)
+	{
+		if (values->penalty_death)
+			campaign_score_note(_campaign_score_entry_death, NONE, unit->unit.player_index, values->penalty_death, 0);
+		if (values->penalty_betrayal && killing_player_index != NONE && killing_player_index != unit->unit.player_index)
+			campaign_score_note(_campaign_score_entry_betrayal, NONE, killing_player_index, values->penalty_betrayal, 0);
+		return;
+	}
+	if (killing_player_index == NONE)
+		return;
+
+	/* the enemy's (or the ally's) points: a vehicle's by its name, else its
+	actor variant's */
+	if (unit->object.type == _object_type_vehicle)
+	{
+		char lower[128];
+
+		variant_index = unit->definition_index;
+		campaign_score_lower_name(variant_index, lower, sizeof(lower));
+		base = campaign_score_match_points(values->vehicles, values->vehicle_count, lower);
+		if (!base)
+			base = campaign_score_match_points(values->ally_vehicles, values->ally_vehicle_count, lower);
+	}
+	else
+	{
+		long actor_index = unit->unit.swarm_actor_index != NONE ? unit->unit.swarm_actor_index : unit->unit.actor_index;
+
+		if (actor_index == NONE)
+			return;
+		variant_index = actor_get(actor_index)->meta.variant_definition_index;
+		base = campaign_score_actor_points(values->enemies, values->enemy_count, variant_index);
+		if (!base)
+			base = campaign_score_actor_points(values->allies, values->ally_count, variant_index);
+	}
+	if (base < 0)
+	{
+		campaign_score_note(_campaign_score_entry_ally, variant_index, killing_player_index, base, 0);
+		return;
+	}
+	if (base == 0)
+		return;
+
+	/* the kill's style: hurt by nothing before, a hit to the head (none
+	with Leadhead), a melee hit, from behind (the blow going the way the
+	body faces) */
+	if (slot != NONE && campaign_score_hurt[slot] != unit_index)
+		SET_FLAG(style, _campaign_score_style_one_shot_bit, TRUE);
+	if (body_part == CAMPAIGN_SCORE_HEAD_BODY_PART && !skull_active(_skull_leadhead))
+		SET_FLAG(style, _campaign_score_style_headshot_bit, TRUE);
+	if (melee)
+	{
+		real_vector3d blow = { 0.0f, 0.0f, 0.0f };
+		boolean behind;
+
+		if (direction)
+			blow = *(real_vector3d const *)direction;
+		behind = direction && normalize3d(&blow) > 0.0f &&
+			dot_product3d(&blow, &unit->object.forward) > CAMPAIGN_SCORE_BACKSMACK_DOT;
+
+		SET_FLAG(style, behind ? _campaign_score_style_backsmack_bit : _campaign_score_style_melee_bit, TRUE);
+	}
+	if (slot != NONE)
+		campaign_score_hurt[slot] = unit_index;
+	campaign_score_note(_campaign_score_entry_kill, variant_index, killing_player_index,
+		(long)(base * campaign_score_style_multiplier(style) * values->difficulty[campaign_score_difficulty()] *
+			campaign_score_skulls_multiplier() + 0.5f),
+		style);
+
+	return;
+}
+
+void campaign_score_checkpoint_reverted(
+	void)
+{
+	short local_player_index;
+	long player_index;
+
+	if (!campaign_score_level() || game_connection() == _game_connection_network_client ||
+		!campaign_score_values.penalty_checkpoint_revert)
+	{
+		return;
+	}
+	/* (each of this machine's players: the game goes back for all of them) */
+	for (local_player_index = local_player_get_next(NONE); local_player_index != NONE;
+		local_player_index = local_player_get_next(local_player_index))
+	{
+		player_index = local_player_get_player_index(local_player_index);
+		if (player_index != NONE)
+		{
+			campaign_score_note(_campaign_score_entry_revert, NONE, player_index,
+				campaign_score_values.penalty_checkpoint_revert, 0);
+		}
+	}
+
+	return;
+}
+
+/* (network_coop.c) an entry the host logged, on a client */
 void campaign_score_network_kill(
 	short player_index,
 	long variant_index,
-	short points,
+	long points,
+	short kind,
+	byte style,
 	boolean competitive)
 {
-	if (!campaign_score_level() || player_index < 0 || player_index >= CAMPAIGN_SCORE_MAXIMUM_PLAYERS || points <= 0)
+	if (!campaign_score_level() || player_index < 0 || player_index >= CAMPAIGN_SCORE_MAXIMUM_PLAYERS ||
+		kind < 0 || kind >= NUMBER_OF_CAMPAIGN_SCORE_ENTRIES)
+	{
 		return;
+	}
 	campaign_score_competitive = competitive;
-	campaign_score_append(variant_index, player_index, points);
+	campaign_score_append(kind, variant_index, player_index, points, style);
 
 	return;
 }
@@ -756,7 +1122,7 @@ void campaign_score_level_won(
 		return;
 	if (game_connection() != _game_connection_network_client)
 		campaign_score_competitive = campaign_score_type_competitive();
-	/* (the clients write their own summaries from the kills they were sent) */
+	/* (the clients write their own summaries from the entries they were sent) */
 	if (game_connection() == _game_connection_network_server && network_coop_active())
 		network_coop_note_score_won(campaign_score_competitive);
 	campaign_score_win_compose();
@@ -798,7 +1164,7 @@ long campaign_score_player_kills(
 	long player_index)
 {
 	campaign_score_update();
-	return campaign_score_kills_of((short)DATUM_INDEX_TO_ABSOLUTE_INDEX(player_index));
+	return campaign_score_count_of((short)DATUM_INDEX_TO_ABSOLUTE_INDEX(player_index), _campaign_score_entry_kill);
 }
 
 long campaign_score_team_points(
@@ -811,7 +1177,78 @@ long campaign_score_team_points(
 long campaign_score_level_ticks(
 	void)
 {
-	return game_time_get();
+	if (campaign_score_level())
+		campaign_score_update();
+	return campaign_score_ticks;
+}
+
+void campaign_score_tick(
+	void)
+{
+	/* (each tick: a checkpoint reverted to between two looks would take the
+	ticks played since it from the time) */
+	if (campaign_score_level())
+		campaign_score_update();
+
+	return;
+}
+
+real campaign_score_time_multiplier(
+	void)
+{
+	struct campaign_score_values const *values = &campaign_score_values;
+	long par = campaign_score_par_seconds();
+	real ratio;
+	short index;
+
+	if (par == NONE || par <= 0)
+		return 1.0f;
+	ratio = (real)campaign_score_level_ticks() / (real)(par * TICKS_PER_SECOND);
+	for (index = 0; index < values->time_bracket_count; index++)
+	{
+		if (values->time_brackets[index].up_to_par < 0.0f || ratio <= values->time_brackets[index].up_to_par)
+			return values->time_brackets[index].multiplier;
+	}
+	return 1.0f;
+}
+
+real campaign_score_difficulty_multiplier(
+	void)
+{
+	return campaign_score_values.difficulty[campaign_score_difficulty()];
+}
+
+real campaign_score_total_multiplier(
+	void)
+{
+	return campaign_score_difficulty_multiplier() * campaign_score_skulls_multiplier() *
+		campaign_score_time_multiplier();
+}
+
+void campaign_score_multiplier_text(
+	real multiplier,
+	wchar_t *text,
+	long count)
+{
+	char narrow[16];
+	long index;
+
+	campaign_score_multiplier_string(multiplier, narrow, sizeof(narrow));
+	for (index = 0; index < count - 1 && narrow[index]; index++)
+		text[index] = (wchar_t)narrow[index];
+	text[index] = 0;
+
+	return;
+}
+
+real campaign_score_par_fraction(
+	void)
+{
+	long par = campaign_score_par_seconds();
+
+	if (par == NONE || par <= 0)
+		return -1.0f;
+	return (real)campaign_score_level_ticks() / (real)(par * TICKS_PER_SECOND);
 }
 
 void campaign_score_time_text(
@@ -1140,13 +1577,15 @@ void campaign_score_draw_view(
 	boolean competitive;
 	boolean coop;
 	real row_height;
+	real multipliers_height;
+	real rows_top;
 	real height;
 	short rows;
 	short width;
 	short view_height;
 	short segment;
 	char score[24];
-	char time[16];
+	char time[32];
 	wchar_t own_name[MAXIMUM_PLAYER_PROFILE_NAME_LENGTH + 1];
 
 	campaign_score_drawn_height = 0;
@@ -1190,22 +1629,64 @@ void campaign_score_draw_view(
 	/* (each row a line of the HUD's text and a smaller one beneath) */
 	row_height = panel.line_height * (1.0f + CAMPAIGN_SCORE_SUBLINE_SIZE) + CAMPAIGN_SCORE_ROW_PADDING * 2;
 	row_height = MAX(row_height, CAMPAIGN_SCORE_ROW_MINIMUM);
-	height = CAMPAIGN_SCORE_STRIP_HEIGHT + CAMPAIGN_SCORE_STRIP_GAP + rows * row_height + (rows - 1) * CAMPAIGN_SCORE_ROW_GAP;
+	/* (and the multipliers' row, of the smaller text) */
+	multipliers_height = panel.line_height * CAMPAIGN_SCORE_SUBLINE_SIZE + CAMPAIGN_SCORE_ROW_PADDING * 2;
+	rows_top = CAMPAIGN_SCORE_STRIP_HEIGHT + CAMPAIGN_SCORE_STRIP_GAP + multipliers_height + CAMPAIGN_SCORE_ROW_GAP;
+	height = rows_top + rows * row_height + (rows - 1) * CAMPAIGN_SCORE_ROW_GAP;
 	panel.left = width - (CAMPAIGN_SCORE_PANEL_MARGIN + CAMPAIGN_SCORE_PANEL_WIDTH) * panel.scale;
 	panel.top = view_height - (CAMPAIGN_SCORE_PANEL_MARGIN + height) * panel.scale;
 
-	/* the strip of segments over the rows */
-	campaign_score_panel_quad(&panel, 0.0f, 0.0f, CAMPAIGN_SCORE_PANEL_WIDTH, CAMPAIGN_SCORE_STRIP_HEIGHT,
-		CAMPAIGN_SCORE_PANEL_FILL);
-	campaign_score_panel_frame(&panel, 0.0f, 0.0f, CAMPAIGN_SCORE_PANEL_WIDTH, CAMPAIGN_SCORE_STRIP_HEIGHT,
-		CAMPAIGN_SCORE_PANEL_EDGE);
-	for (segment = 0; segment < CAMPAIGN_SCORE_STRIP_SEGMENTS; segment++)
+	/* the strip of segments over the rows: the time left until the time's
+	multiplier is the last (x0: half again the par time), lit from the left,
+	going out as it passes; all lit for a level with no par time */
 	{
-		real span = (CAMPAIGN_SCORE_PANEL_WIDTH - 4.0f) / CAMPAIGN_SCORE_STRIP_SEGMENTS;
-		real x0 = 2.0f + segment * span;
+		real fraction = campaign_score_par_fraction();
+		real limit = 0.0f;
+		short lit = CAMPAIGN_SCORE_STRIP_SEGMENTS;
+		short index;
 
-		campaign_score_panel_quad(&panel, x0 + 0.5f, 2.0f, x0 + span - 0.5f, CAMPAIGN_SCORE_STRIP_HEIGHT - 2.0f,
-			CAMPAIGN_SCORE_STRIP_FILL);
+		for (index = 0; index < campaign_score_values.time_bracket_count; index++)
+			limit = MAX(limit, campaign_score_values.time_brackets[index].up_to_par);
+		if (fraction >= 0.0f && limit > 0.0f)
+			lit = (short)(CAMPAIGN_SCORE_STRIP_SEGMENTS * (1.0f - fraction / limit) + 0.999f);
+		lit = PIN(lit, 0, CAMPAIGN_SCORE_STRIP_SEGMENTS);
+		campaign_score_panel_quad(&panel, 0.0f, 0.0f, CAMPAIGN_SCORE_PANEL_WIDTH, CAMPAIGN_SCORE_STRIP_HEIGHT,
+			CAMPAIGN_SCORE_PANEL_FILL);
+		campaign_score_panel_frame(&panel, 0.0f, 0.0f, CAMPAIGN_SCORE_PANEL_WIDTH, CAMPAIGN_SCORE_STRIP_HEIGHT,
+			CAMPAIGN_SCORE_PANEL_EDGE);
+		for (segment = 0; segment < CAMPAIGN_SCORE_STRIP_SEGMENTS; segment++)
+		{
+			real span = (CAMPAIGN_SCORE_PANEL_WIDTH - 4.0f) / CAMPAIGN_SCORE_STRIP_SEGMENTS;
+			real x0 = 2.0f + segment * span;
+
+			campaign_score_panel_quad(&panel, x0 + 0.5f, 2.0f, x0 + span - 0.5f, CAMPAIGN_SCORE_STRIP_HEIGHT - 2.0f,
+				segment < lit ? CAMPAIGN_SCORE_STRIP_FILL : CAMPAIGN_SCORE_STRIP_UNLIT);
+		}
+	}
+
+	/* the score's multiplier now, over the rows: the difficulty's, the
+	skulls' and the time's together (a kill's style's is its own; the
+	scoreboard has each: campaign_score_multipliers) */
+	{
+		char total_text[16];
+		real y = CAMPAIGN_SCORE_STRIP_HEIGHT + CAMPAIGN_SCORE_STRIP_GAP;
+		real_argb_color color;
+
+		campaign_score_multiplier_string(campaign_score_total_multiplier(), total_text, sizeof(total_text));
+		campaign_score_panel_quad(&panel, 0.0f, y, CAMPAIGN_SCORE_PANEL_WIDTH, y + multipliers_height,
+			CAMPAIGN_SCORE_PANEL_FILL);
+		campaign_score_panel_frame(&panel, 0.0f, y, CAMPAIGN_SCORE_PANEL_WIDTH, y + multipliers_height,
+			CAMPAIGN_SCORE_PANEL_EDGE);
+		color.alpha = 1.0f;
+		color.red = 0.62f;
+		color.green = 0.80f;
+		color.blue = 1.0f;
+		campaign_score_panel_text(&panel, "SCORE MULTIPLIER:", NULL, CAMPAIGN_SCORE_ROW_PADDING * 2,
+			CAMPAIGN_SCORE_PANEL_WIDTH - CAMPAIGN_SCORE_ROW_PADDING * 2, y + CAMPAIGN_SCORE_ROW_PADDING,
+			CAMPAIGN_SCORE_SUBLINE_SIZE, _campaign_score_text_left, &color);
+		campaign_score_panel_text(&panel, total_text, NULL, CAMPAIGN_SCORE_ROW_PADDING * 2,
+			CAMPAIGN_SCORE_PANEL_WIDTH - CAMPAIGN_SCORE_ROW_PADDING * 2, y + CAMPAIGN_SCORE_ROW_PADDING,
+			CAMPAIGN_SCORE_SUBLINE_SIZE, _campaign_score_text_right, &color);
 	}
 
 	campaign_score_time_string(time, sizeof(time));
@@ -1214,7 +1695,7 @@ void campaign_score_draw_view(
 	/* (the player's own name, their profile's; a cooperative co-op
 	game's row is the team's) */
 	campaign_score_player_display_name(player_index, own_name, NUMBEROF(own_name));
-	campaign_score_panel_row(&panel, CAMPAIGN_SCORE_STRIP_HEIGHT + CAMPAIGN_SCORE_STRIP_GAP, row_height,
+	campaign_score_panel_row(&panel, rows_top, row_height,
 		coop && !competitive ? "TEAM" : NULL, coop && !competitive ? NULL : own_name, score,
 		campaign_score_difficulty_names[campaign_score_difficulty()], time);
 	if (rival_index != NONE)
@@ -1225,8 +1706,7 @@ void campaign_score_draw_view(
 		campaign_score_player_display_name(rival_index, rival_name, NUMBEROF(rival_name));
 		snprintf(score, sizeof(score), "%ld", rival_points);
 		snprintf(rival_kills, sizeof(rival_kills), "KILLS %ld", campaign_score_player_kills(rival_index));
-		campaign_score_panel_row(&panel,
-			CAMPAIGN_SCORE_STRIP_HEIGHT + CAMPAIGN_SCORE_STRIP_GAP + row_height + CAMPAIGN_SCORE_ROW_GAP, row_height,
+		campaign_score_panel_row(&panel, rows_top + row_height + CAMPAIGN_SCORE_ROW_GAP, row_height,
 			NULL, rival_name, score, "RIVAL", rival_kills);
 	}
 

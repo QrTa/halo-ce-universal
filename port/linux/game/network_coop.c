@@ -215,9 +215,10 @@ enum
 	/* a breakable surface broke: value its index, frame its BSP, reals the
 	damage's epicenter */
 	_coop_event_surface_broken,
-	/* the host scored a kill (campaign_score.c): value the player, frame the
-	points, tag_index the variant, target whether the scoring is competitive;
-	or won the level (target the same) */
+	/* the host scored a kill or a penalty (campaign_score.c): value the
+	player, definition_index the points, tag_index the variant, name_index
+	its kind, interpolate its style, target whether the scoring is
+	competitive; or won the level (target the same) */
 	_coop_event_score_kill,
 	_coop_event_score_won,
 };
@@ -1885,7 +1886,8 @@ static void client_apply_event(
 		}
 		break;
 	case _coop_event_score_kill:
-		campaign_score_network_kill(event->value, event->tag_index, event->frame, event->target == 1);
+		campaign_score_network_kill(event->value, event->tag_index, event->definition_index, event->name_index,
+			event->interpolate, event->target == 1);
 		break;
 	case _coop_event_score_won:
 		campaign_score_network_won(event->target == 1);
@@ -2443,7 +2445,9 @@ void network_coop_note_unit_animation(
 void network_coop_note_score_kill(
 	short player_index,
 	long variant_index,
-	short points,
+	long points,
+	short kind,
+	byte style,
 	boolean competitive)
 {
 	struct distributed_coop_event *event = event_new(_coop_event_score_kill);
@@ -2452,8 +2456,10 @@ void network_coop_note_score_kill(
 		return;
 	event->target = competitive ? 1 : 0;
 	event->value = player_index;
-	event->frame = points;
+	event->definition_index = points;
 	event->tag_index = variant_index;
+	event->name_index = kind;
+	event->interpolate = style;
 }
 
 void network_coop_note_score_won(

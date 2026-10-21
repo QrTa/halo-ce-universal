@@ -932,6 +932,7 @@ symbols in this file:
 #include "saved games/saved_game_files.h"
 #include "text/unicode.h"
 #include "halo_menus.h" /* port: PC_MENU_FUNCTION_BASE */
+#include "campaign_score.h" /* port: port/linux/game/campaign_score.c */
 
 /* ---------- constants */
 
@@ -1997,6 +1998,8 @@ static boolean pause_game_restart_at_checkpoint(
 	/* port: in co-op this would revert only this machine */
 	if (network_coop_active())
 		return FALSE;
+	/* port: the campaign's score's penalty (port/linux/game/campaign_score.c) */
+	campaign_score_checkpoint_reverted();
 	main_revert_map();
 	return TRUE;
 }

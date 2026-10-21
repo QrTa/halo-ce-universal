@@ -411,6 +411,13 @@ void game_tick(
 
 		randomizer_tick();
 	}
+	/* port: the campaign's score's time, counted on through checkpoints
+	(port/linux/game/campaign_score.c) */
+	{
+		extern void campaign_score_tick(void);
+
+		campaign_score_tick();
+	}
 	/* port: and at its end, before the frame draws the lights */
 	game_state_check_data_arrays();
 	lights_port_recover();

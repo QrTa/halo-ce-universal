@@ -1207,14 +1207,21 @@ static void object_damage_aftermath(
 		}
 	}
 
-	/* port: an enemy a player kills scores points (game.campaign_score). Not in
-	the chain above: game_engine_can_score() is true in the campaign, where
-	that chain records nothing for an actor's death. */
-	if (!TEST_FLAG(damage->flags, _damage_no_statistics_bit) &&
-		TEST_FLAG(being_damaged_flags, _object_being_damaged_body_depleted_bit) &&
-		TEST_FLAG(_object_mask_unit, object->object.type))
+	/* port: the campaign's score (game.campaign_score): an enemy a player
+	kills scores points by the blow's style (each blow is told of, for one
+	shot, one kill), and allies', players' deaths and betrayals take them.
+	Not in the chain above: game_engine_can_score() is true in the campaign,
+	where that chain records nothing for an actor's death. */
+	if (TEST_FLAG(_object_mask_unit, object->object.type))
 	{
-		campaign_score_record_kill(object_index, damage->owner_player_index);
+		campaign_score_unit_damaged(
+			object_index,
+			damage->owner_player_index,
+			body_part,
+			damage_effect->damage.category == _damage_category_melee,
+			&damage->direction,
+			TEST_FLAG(being_damaged_flags, _object_being_damaged_body_depleted_bit),
+			TEST_FLAG(damage->flags, _damage_no_statistics_bit));
 	}
 
 	if (TEST_FLAG(_object_mask_unit, object->object.type))
