@@ -492,8 +492,8 @@ SCREENS["gameplay/scoring"] = {
         ("SCORING:", "game.campaign_score", ON_OFF,
          "Score each kill in the campaign: your score and\ntime at the bottom right, everyone's on tab.",
          None),
-        ("MEDALS:", "game.campaign_medals", ON_OFF,
-         "With scoring on: Halo 3's and Reach's medals,\neach worth points, shown as they are won.",
+        ("MEDAL POPUPS:", "game.campaign_medals", ON_OFF,
+         "Show the medals you win at the center left as\nyou win them. Medals always count with scoring.",
          None),
     ],
 }
@@ -1407,12 +1407,62 @@ OVERRIDE_ORIGINALS = {
     "main_menu/settings_select/multiplayer_setup/item_options_edit/var_weapon_set": list(range(13)) + [None],
 }
 
+# New Game's level details' lines of the level's records, the profile's best
+# score and time (menu_functions.c's level_description, campaign_score.c's
+# records), under the level's words, where the difficulties' large icons were;
+# and those icons, the difficulties the level was won on (Normal, Heroic,
+# Legendary), small badges over the picture's top right corner instead
+LEVEL_RECORD = "main_menu/solo_level_select/replay_level_right_record"
+# (the level's words, at this percentage of their font, so that the
+# records' three lines fit beneath them: four lines of words end at 326)
+LEVEL_DATA_TEXT_SCALE = 85
+LEVEL_BADGE = "main_menu/solo_level_select/difficulty_badge"
+LEVEL_BADGE_SIZE = (22, 24)
+# (along the picture's bottom, centred: it is 140 wide from 419, 114 high
+# from 87)
+LEVEL_BADGE_LEFTS = (454, 478, 502)
+# (the icons' art has a few units of room at its foot: the badges' boxes
+# reach past the picture's, their icons 3 units from its bottom)
+LEVEL_BADGE_TOP = 180
+# (the difficulties' icons, ui.map's difficulty_options_small, easy to
+# legendary, scaled to the badges' size: a widget draws its picture texel for
+# texel, so its own size would only crop the large icons; tools/ce_menus.py
+# writes the bitmap)
+LEVEL_BADGE_BITMAP = "main_menu/solo_level_select/difficulty_badges"
+LEVEL_BADGE_SOURCE = "ui\\shell\\main_menu\\difficulty_select\\difficulty_options_small"
+LEVEL_BADGE_FRAMES = 4
+# (and behind them, shown with any, a gradient up from the picture's bottom,
+# a little higher than they are, so that they stand out of it: the menus'
+# panel blue, port/assets/records/badge_gradient_blue.png)
+LEVEL_BADGE_PLATE = "main_menu/solo_level_select/difficulty_badges_plate"
+LEVEL_BADGE_PLATE_BITMAP = "records/badge_gradient"
+LEVEL_BADGE_PLATE_PNG = "badge_gradient_blue.png"
+LEVEL_BADGE_PLATE_PLACE = (419, 161, 140, 40)
+# New Game's LEADERBOARD (its button bar's, at the left, with the campaign's
+# levels shown): the level shown's records, every profile's of this machine,
+# best score first (menu_functions.c's leaderboard_*, campaign_score.c's
+# records)
+LEADERBOARD = "main_menu/solo_level_select/leaderboard"
+LEADERBOARD_BUTTON = "main_menu/solo_level_select/button_leaderboard"
+LEADERBOARD_ROWS = 10
+# (its columns: the widgets' name, heading, left, width, alignment, and
+# whether in the large font; each the profile's best of its own, whichever
+# run's: the most skulls on, the most medals, the most points, the
+# shortest time)
+LEADERBOARD_COLUMNS = [
+    ("name", "PROFILE", 40, 190, None, True),
+    ("skulls", "SKULLS", 236, 80, "right", True),
+    ("medals", "MEDALS", 322, 84, "right", True),
+    ("score", "SCORE", 412, 96, "right", True),
+    ("time", "TIME", 514, 86, "right", True),
+]
+
 # the map lists' first row: SINGLEPLAYER, MULTIPLAYER, CUSTOM SINGLEPLAYER or
 # CUSTOM MULTIPLAYER maps (_map_kind)
 MAP_KIND_CHOOSER = "main_menu/new_select/list_item_0_map_kind"
 
 # changes to the PC version's widgets (by our names): attributes set, all
-# their handlers replaced, children added, game data inputs added
+# their handlers replaced, children added or removed, game data inputs added
 WIDGET_PATCHES = {
     # The host returns here after a round with no menu history. Back must
     # reopen the main menu when it closes the last screen, as the lobby does.
@@ -1477,10 +1527,23 @@ WIDGET_PATCHES = {
         '<child widget="main_menu/solo_level_select/replay_level_right_pic"/>',
         '<child widget="main_menu/solo_level_select/replay_level_right_data"/>',
     ]},
-    "main_menu/solo_level_select/replay_level_right_item": {"children": [
+    # (and the level's records, its best score and time, where the large
+    # difficulty icons were, which are small badges over the picture's
+    # corner instead: _level_records)
+    "main_menu/solo_level_select/replay_level_right_item": {"remove": ["main_menu/solo_level_select/difficulty_indicator"],
+                                                            "children": [
         f'<child widget="{MT}/mp_map_select/mp_map_right_name"/>',
         f'<child widget="{MT}/mp_map_select/mp_map_right_pic"/>',
         f'<child widget="{MT}/mp_map_select/mp_map_right_data"/>',
+        f'<child widget="{LEVEL_BADGE_PLATE}" x="{LEVEL_BADGE_PLATE_PLACE[0]}" y="{LEVEL_BADGE_PLATE_PLACE[1]}"/>',
+        *[f'<child widget="{LEVEL_BADGE}" x="{x}" y="{LEVEL_BADGE_TOP}"/>' for x in LEVEL_BADGE_LEFTS],
+        f'<child widget="{LEVEL_RECORD}"/>',
+    ]},
+    # (the level's words a little smaller, for the records' three lines
+    # beneath them: _level_records)
+    "main_menu/solo_level_select/replay_level_right_data": {"set": {"text_scale": LEVEL_DATA_TEXT_SCALE}},
+    "main_menu/solo_level_select/solo_level_select_button_bar": {"children": [
+        f'<child widget="{LEADERBOARD_BUTTON}" x="24" y="1"/>',
     ]},
     f"{MT}/join_game/header_join_game": {"children": [
         f'<child widget="{MT}/join_game/header_server_browser"/>',
@@ -2363,6 +2426,77 @@ def _map_kind() -> list:
     return lines
 
 
+def _level_records() -> list:
+    """New Game's level details' records (LEVEL_RECORD): three lines, the
+    profile's best score, time and medals of the level (PENDING for none),
+    set by menu_functions.c, in the small font under the level's words (four
+    lines at most, from 258, at LEVEL_DATA_TEXT_SCALE), where the
+    difficulties' icons were; and those icons' badges (LEVEL_BADGE), over
+    the picture's bottom"""
+    lines = _widget(LEVEL_RECORD, [("type", "text"), ("controller", 1), ("left", 417), ("top", 334),
+                                   ("width", 146), ("height", 64), ("font", "ui\\small_ui"), ("color", "#FFFFFFFF")],
+                    [])
+    # (the difficulty_indicator's picture, half its size)
+    lines += _widget(LEVEL_BADGE, [("controller", 1), ("width", LEVEL_BADGE_SIZE[0]), ("height", LEVEL_BADGE_SIZE[1]),
+                                   ("bitmap", LEVEL_BADGE_BITMAP)], [])
+    lines += _widget(LEVEL_BADGE_PLATE, [("controller", 1), ("width", LEVEL_BADGE_PLATE_PLACE[2]),
+                                         ("height", LEVEL_BADGE_PLATE_PLACE[3]), ("bitmap", LEVEL_BADGE_PLATE_BITMAP)],
+                     [])
+    return lines
+
+
+def _leaderboard() -> list:
+    """New Game's LEADERBOARD button (LEADERBOARD_BUTTON) and its screen:
+    the level's name, then a row for each profile with a record of it, its
+    name, best score and best time (menu_functions.c's "port leaderboard
+    init" reads them as the screen opens; "port leaderboard update" shows
+    them), or a note of none; BACK"""
+    lines = _widget(LEADERBOARD_BUTTON, [("type", "text"), ("width", 128), ("height", 24),
+                                         ("bitmap", "bitmaps/text_button_background"), ("text", "LEADERBOARD"),
+                                         ("font", "ui\\small_ui"), ("color", "#FFFFFFFF"), ("align", "center"),
+                                         ("text_y", 2)],
+                    [f'<on event="a" open="{LEADERBOARD}/leaderboard_screen"/>',
+                     f'<on event="start" open="{LEADERBOARD}/leaderboard_screen"/>',
+                     '<on event="left_mouse" run="mouse emit accept event"/>'])
+    rows = []
+    for index in range(LEADERBOARD_ROWS):
+        top = 150 + 24 * index
+        rows += [f'<child widget="{LEADERBOARD}/row_{name}" y="{top}"/>' for name, *_ in LEADERBOARD_COLUMNS]
+    lines += _widget(f"{LEADERBOARD}/leaderboard_screen",
+                     [("width", 640), ("height", 480), ("flags", "pass_unhandled_to_focused_child"),
+                      ("bitmap", "bitmaps/gradient")],
+                     [f'<data input="port leaderboard update"/>',
+                      '<on event="created" run="port leaderboard init"/>',
+                      '<on event="b" back="true"/>', '<on event="back" back="true"/>',
+                      f'<child widget="{LEADERBOARD}/title"/>', f'<child widget="{LEADERBOARD}/level"/>',
+                      *[f'<child widget="{LEADERBOARD}/heading_{name}"/>' for name, *_ in LEADERBOARD_COLUMNS],
+                      f'<child widget="{LEADERBOARD}/note"/>',
+                      *rows, f'<child widget="{LEADERBOARD}/button_bar" y="414"/>'])
+    text = [("type", "text"), ("controller", 1)]
+    lines += _widget(f"{LEADERBOARD}/title", text + [("left", 60), ("top", 40), ("width", 520), ("height", 40),
+                                                     ("text", "LEADERBOARD"), ("font", "ui\\large_ui"),
+                                                     ("color", "#FF2896FF")], [])
+    lines += _widget(f"{LEADERBOARD}/level", text + [("left", 60), ("top", 80), ("width", 520), ("height", 30),
+                                                     ("font", "ui\\large_ui"), ("color", "#FFFFFFFF")], [])
+    for name, label, left, width, align, large in LEADERBOARD_COLUMNS:
+        lines += _widget(f"{LEADERBOARD}/heading_{name}",
+                         text + [("left", left), ("top", 122), ("width", width), ("height", 22), ("text", label),
+                                 ("font", "ui\\small_ui"), ("color", "#FF808080"), ("align", align)], [])
+        # (the rows', placed by the screen's children: menu_functions.c's
+        # leaderboard_update; the name, score and time in the large font,
+        # the rest in the small one, a line lower to share its foot)
+        lines += _widget(f"{LEADERBOARD}/row_{name}",
+                         text + [("left", left), ("top", 0 if large else 4), ("width", width), ("height", 22),
+                                 ("font", "ui\\large_ui" if large else "ui\\small_ui"),
+                                 ("color", "#FF2896FF" if large else "#FFB8C8E0"), ("align", align)], [])
+    lines += _widget(f"{LEADERBOARD}/note", text + [("left", 90), ("top", 150), ("width", 470), ("height", 60),
+                                                    ("font", "ui\\small_ui"), ("color", "#FFB0B0B0")], [])
+    lines += _widget(f"{LEADERBOARD}/button_bar", [("type", "column_list"), ("width", 640), ("height", 28),
+                                                   ("flags", "pass_unhandled_to_focused_child left_right_tabs_items")],
+                     ['<child widget="common_button_back" x="510" y="1"/>'])
+    return lines
+
+
 def multiplayer_files() -> dict:
     """the port's multiplayer widgets: the browser's additions, the server
     settings, the lobby"""
@@ -2374,6 +2508,8 @@ def multiplayer_files() -> dict:
         f"{MT}/lobby".replace("/", ".") + ".xml": head + _lobby() + ["</menus>", ""],
         f"{MT}/coop".replace("/", ".") + ".xml": head + _coop() + ["</menus>", ""],
         "main_menu/new_select".replace("/", ".") + ".port.xml": head + _map_kind() + ["</menus>", ""],
+        "main_menu/solo_level_select".replace("/", ".") + ".port.xml": head + _level_records() + _leaderboard() +
+        ["</menus>", ""],
         "main_menu/settings_select/multiplayer_setup/item_options_edit".replace("/", ".") + ".port.xml": head + _item_options_extras() + ["</menus>", ""],
         PLAYER_EDIT.replace("/", ".") + ".port.xml": head + _player_options_extras() + ["</menus>", ""],
         TEAMPLAY_EDIT.replace("/", ".") + ".port.xml": head + _teamplay_options_extras() + ["</menus>", ""],

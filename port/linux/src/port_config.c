@@ -497,12 +497,12 @@ static const struct config_setting config_settings[] =
 		"at the bottom right, the scoreboard (hold BACK, or tab) lists everyone's,\n"
 		"and a summary is shown when a level is won, until A or B is pressed." },
 	{ "game.campaign_medals", _config_boolean, "true", "HALO_CAMPAIGN_MEDALS", _environment_value, _platform_all,
-		"Settings > Gameplay > Scoring's MEDALS. With SCORING on, the\n"
-		"campaign gives Halo 3's and Halo: Reach's medals (multi-kills, sprees,\n"
-		"headshots, Wheelman, ...), each worth points\n"
-		"(port/linux/game/campaign_score_values.json): shown at the center left\n"
-		"as they are won, and the last few above the score. In co-op the host's\n"
-		"choice gives them; each machine's, whether they are shown." },
+		"Settings > Gameplay > Scoring's MEDAL POPUPS: show the medals at the\n"
+		"center left as they are won. With SCORING on, the campaign always gives\n"
+		"Halo 3's and Halo: Reach's medals (multi-kills, sprees, headshots,\n"
+		"Wheelman, ...), each worth points\n"
+		"(port/linux/game/campaign_score_values.json), and shows the last few\n"
+		"above the score; this only hides the popups." },
 	{ "game.campaign_progression", _config_string, "\"default\"", "HALO_CAMPAIGN_PROGRESSION", _environment_value,
 		_platform_all,
 		"Settings > Gameplay's CAMPAIGN PROGRESSION. \"default\": the campaign's\n"

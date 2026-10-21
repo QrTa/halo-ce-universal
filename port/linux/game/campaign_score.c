@@ -77,6 +77,10 @@ lobby) loads.
 
 #include <stdio.h>
 #include <string.h>
+#include <xtl.h>
+
+/* the records' file, in each profile's folder */
+#define CAMPAIGN_SCORE_RECORDS_FILE "campaign_records.txt"
 
 /* ---------- constants */
 
@@ -89,8 +93,11 @@ enum
 	/* the kinds of variant the summary tells apart */
 	CAMPAIGN_SCORE_MAXIMUM_VARIANTS = 64,
 	/* the lines of the summary, and their length */
-	CAMPAIGN_SCORE_SUMMARY_LINES = 14,
 	CAMPAIGN_SCORE_SUMMARY_LENGTH = 56,
+	/* the players the summary lists (a co-op game's) */
+	CAMPAIGN_SCORE_REPORT_PLAYERS = 4,
+	/* the records' text, a profile's every level's (campaign_records.txt) */
+	CAMPAIGN_SCORE_RECORDS_LENGTH = 1024,
 	/* the units a level's one shot, one kill remembers as hurt */
 	CAMPAIGN_SCORE_HURT_SLOTS = 2048,
 	/* units.c's _unit_damage_part_head (its enum is its own): a body part
@@ -162,6 +169,15 @@ enum
 	NUMBER_OF_CAMPAIGN_SCORE_ENTRIES
 };
 
+/* the records a level won beat (campaign_score_record_level) */
+enum
+{
+	_campaign_score_record_score_bit = 0,
+	_campaign_score_record_time_bit,
+	_campaign_score_record_medals_bit,
+	_campaign_score_record_skulls_bit,
+};
+
 /* a kill's style, its entry's style bits */
 enum
 {
@@ -190,6 +206,45 @@ struct campaign_score_variant
 	long points;
 };
 
+/* a level won's summary, as it was won (campaign_score_report_fill), shown
+over it and the next level's start until A or B is pressed (its best enemy
+to the log only) */
+struct campaign_score_report
+{
+	boolean valid;
+	boolean competitive;
+	/* (this machine's first player's profile's records beaten) */
+	boolean record_score;
+	boolean record_time;
+	short difficulty;
+	wchar_t level[48];
+	real difficulty_multiplier;
+	real skulls_multiplier;
+	real time_multiplier;
+	long seconds;
+	long par_seconds;
+	long kills;
+	long headshots;
+	long melee;
+	long medals;
+	long deaths;
+	long betrayals;
+	long allies;
+	long points;
+	long score;
+	short medal_counts[NUMBER_OF_CAMPAIGN_MEDALS];
+	short player_count;
+	struct
+	{
+		char name[24];
+		long score;
+		long kills;
+	} players[CAMPAIGN_SCORE_REPORT_PLAYERS];
+	char best_enemy[40];
+	long best_enemy_kills;
+	long best_enemy_points;
+};
+
 /* ---------- prototypes */
 
 /* port_config.c's, cinematics.c's / cseries_windows.c's, tag_files.c's */
@@ -210,6 +265,8 @@ void network_coop_note_score_won(boolean competitive);
 char const *config_string(char const *name);
 /* cinematics.c's */
 void draw_quad(rectangle2d *rectangle, pixel32 color);
+/* player_profile.c's: a profile's folder (its blam.sav's), ending with \\ */
+boolean player_profile_get_enclosing_directory_path(long profile, char *full_path);
 
 /* ---------- globals */
 
@@ -221,10 +278,8 @@ reverted to), and the level's time, counted on through reverts */
 static long campaign_score_last_time = NONE;
 static long campaign_score_ticks = 0;
 /* a level just won, for the next one, and the one shown now */
-static char campaign_score_pending[CAMPAIGN_SCORE_SUMMARY_LINES][CAMPAIGN_SCORE_SUMMARY_LENGTH];
-static short campaign_score_pending_lines = 0;
-static char campaign_score_summary[CAMPAIGN_SCORE_SUMMARY_LINES][CAMPAIGN_SCORE_SUMMARY_LENGTH];
-static short campaign_score_summary_lines = 0;
+static struct campaign_score_report campaign_score_pending;
+static struct campaign_score_report campaign_score_summary;
 /* (a button held when the summary came up does not dismiss it: only a new press) */
 static boolean campaign_score_button_primed = FALSE;
 static boolean campaign_score_button_held = FALSE;
@@ -702,28 +757,50 @@ static void campaign_score_multiplier_string(
 	return;
 }
 
-/* the level's totals, its time and the best variants, as lines */
-static short campaign_score_compose(
-	char lines[CAMPAIGN_SCORE_SUMMARY_LINES][CAMPAIGN_SCORE_SUMMARY_LENGTH])
+/* the level's summary: its totals, its time against its par time, its
+medals, its players' (a co-op game's) and its best enemy, and the score's */
+static void campaign_score_report_fill(
+	struct campaign_score_report *report)
 {
+	struct campaign_score_variant best = { NONE, 0, 0 };
 	struct campaign_score_variant variants[CAMPAIGN_SCORE_MAXIMUM_VARIANTS];
 	long variant_count = 0;
-	short count = 0;
 	short player_index;
 	long index;
-	long points = campaign_score_team_total();
-	long kills = campaign_score_count_of(NONE, _campaign_score_entry_kill);
-	long players = 0;
-	long par = campaign_score_par_seconds();
-	char time[16];
-	char par_time[16];
-	char multiplier[16];
 
+	csmemset(report, 0, sizeof(*report));
+	if (campaign_score_entry_count == 0)
+		return;
+	report->valid = TRUE;
+	report->competitive = campaign_score_competitive;
+	report->difficulty = campaign_score_difficulty();
+	campaign_score_level_title(report->level, NUMBEROF(report->level));
+	report->difficulty_multiplier = campaign_score_difficulty_multiplier();
+	report->skulls_multiplier = campaign_score_skulls_multiplier();
+	report->time_multiplier = campaign_score_time_multiplier();
+	report->seconds = campaign_score_level_ticks() / TICKS_PER_SECOND;
+	report->par_seconds = campaign_score_par_seconds();
+	report->kills = campaign_score_count_of(NONE, _campaign_score_entry_kill);
+	report->headshots = campaign_score_style_count(NONE, _campaign_score_style_headshot_bit);
+	report->melee = campaign_score_style_count(NONE, _campaign_score_style_melee_bit) +
+		campaign_score_style_count(NONE, _campaign_score_style_backsmack_bit);
+	report->deaths = campaign_score_count_of(NONE, _campaign_score_entry_death);
+	report->betrayals = campaign_score_count_of(NONE, _campaign_score_entry_betrayal);
+	report->allies = campaign_score_count_of(NONE, _campaign_score_entry_ally);
+	report->points = campaign_score_team_total();
+	report->score = campaign_score_final(report->points);
 	for (index = 0; index < campaign_score_entry_count; index++)
 	{
 		struct campaign_score_entry const *entry = &campaign_score_entries[index];
 		long found;
 
+		if (entry->kind == _campaign_score_entry_medal)
+		{
+			report->medals++;
+			if (entry->variant_index >= 0 && entry->variant_index < NUMBER_OF_CAMPAIGN_MEDALS)
+				report->medal_counts[entry->variant_index]++;
+			continue;
+		}
 		if (entry->kind != _campaign_score_entry_kill)
 			continue;
 		for (found = 0; found < variant_count; found++)
@@ -742,86 +819,62 @@ static short campaign_score_compose(
 		{
 			variants[found].kills++;
 			variants[found].points += entry->points;
+			if (variants[found].points > best.points)
+				best = variants[found];
 		}
 	}
-	if (campaign_score_entry_count == 0)
-		return 0;
-
-	campaign_score_time_string(time, sizeof(time));
-	campaign_score_multiplier_string(campaign_score_values.difficulty[campaign_score_difficulty()],
-		multiplier, sizeof(multiplier));
+	if (best.variant_index != NONE)
 	{
-		char skulls[16];
-
-		campaign_score_multiplier_string(campaign_score_skulls_multiplier(), skulls, sizeof(skulls));
-		snprintf(lines[count++], CAMPAIGN_SCORE_SUMMARY_LENGTH, "LEVEL COMPLETE  %s %s  SKULLS %s",
-			campaign_score_difficulty_names[campaign_score_difficulty()], multiplier, skulls);
+		campaign_score_variant_name(best.variant_index, report->best_enemy, sizeof(report->best_enemy));
+		report->best_enemy_kills = best.kills;
+		report->best_enemy_points = best.points;
 	}
-	/* (the time, against the level's par time) */
-	campaign_score_multiplier_string(campaign_score_time_multiplier(), multiplier, sizeof(multiplier));
-	if (par != NONE)
-	{
-		campaign_score_seconds_string(par, par_time, sizeof(par_time));
-		snprintf(lines[count++], CAMPAIGN_SCORE_SUMMARY_LENGTH, "TIME %s  PAR %s  %s", time, par_time, multiplier);
-	}
-	else
-	{
-		snprintf(lines[count++], CAMPAIGN_SCORE_SUMMARY_LENGTH, "TIME %s", time);
-	}
-	for (player_index = 0; player_index < CAMPAIGN_SCORE_MAXIMUM_PLAYERS; player_index++)
+	/* (a co-op game's players, each with points) */
+	for (player_index = 0; player_index < CAMPAIGN_SCORE_MAXIMUM_PLAYERS &&
+		report->player_count < CAMPAIGN_SCORE_REPORT_PLAYERS; player_index++)
 	{
 		if (campaign_score_total(player_index) != 0)
-			players++;
-	}
-	if (players > 1)
-	{
-		for (player_index = 0; player_index < CAMPAIGN_SCORE_MAXIMUM_PLAYERS &&
-			count < CAMPAIGN_SCORE_SUMMARY_LINES - 6; player_index++)
 		{
-			if (campaign_score_total(player_index) != 0)
-			{
-				char name[24];
-
-				campaign_score_player_name(player_index, name, sizeof(name));
-				snprintf(lines[count++], CAMPAIGN_SCORE_SUMMARY_LENGTH, "%s  %ld  KILLS %ld",
-					name, campaign_score_final(campaign_score_total(player_index)),
-					campaign_score_count_of(player_index, _campaign_score_entry_kill));
-			}
+			campaign_score_player_name(player_index, report->players[report->player_count].name,
+				sizeof(report->players[report->player_count].name));
+			report->players[report->player_count].score = campaign_score_final(campaign_score_total(player_index));
+			report->players[report->player_count].kills = campaign_score_count_of(player_index,
+				_campaign_score_entry_kill);
+			report->player_count++;
 		}
 	}
-	snprintf(lines[count++], CAMPAIGN_SCORE_SUMMARY_LENGTH, "KILLS %ld  HEADSHOTS %ld  MELEE %ld",
-		kills, campaign_score_style_count(NONE, _campaign_score_style_headshot_bit),
-		campaign_score_style_count(NONE, _campaign_score_style_melee_bit) +
-			campaign_score_style_count(NONE, _campaign_score_style_backsmack_bit));
-	snprintf(lines[count++], CAMPAIGN_SCORE_SUMMARY_LENGTH, "MEDALS %ld", campaign_score_count_of(NONE, _campaign_score_entry_medal));
-	snprintf(lines[count++], CAMPAIGN_SCORE_SUMMARY_LENGTH, "DEATHS %ld  BETRAYALS %ld  ALLIES %ld",
-		campaign_score_count_of(NONE, _campaign_score_entry_death),
-		campaign_score_count_of(NONE, _campaign_score_entry_betrayal),
-		campaign_score_count_of(NONE, _campaign_score_entry_ally));
-	if (!(campaign_score_competitive && players > 1))
-	{
-		snprintf(lines[count++], CAMPAIGN_SCORE_SUMMARY_LENGTH, "POINTS %ld  %s  SCORE %ld",
-			points, multiplier, campaign_score_final(points));
-	}
-	/* (the best variants, the most points first) */
-	while (count < CAMPAIGN_SCORE_SUMMARY_LINES && variant_count > 0)
-	{
-		long best = 0;
-		char name[40];
 
-		for (index = 1; index < variant_count; index++)
-		{
-			if (variants[index].points > variants[best].points)
-				best = index;
-		}
-		campaign_score_variant_name(variants[best].variant_index, name, sizeof(name));
-		snprintf(lines[count++], CAMPAIGN_SCORE_SUMMARY_LENGTH, "%s x%ld  %ld",
-			name, variants[best].kills, variants[best].points);
-		variants[best] = variants[variant_count - 1];
-		variant_count--;
-	}
+	return;
+}
 
-	return count;
+/* the summary, to the log */
+static void campaign_score_report_log(
+	struct campaign_score_report const *report)
+{
+	char time[16];
+	char par[16];
+	short index;
+
+	if (!report->valid)
+		return;
+	campaign_score_seconds_string(report->seconds, time, sizeof(time));
+	campaign_score_seconds_string(report->par_seconds, par, sizeof(par));
+	platform_log("campaign score: level complete, %s x%.2f, skulls x%.2f, time %s (par %s) x%.2f",
+		campaign_score_difficulty_names[report->difficulty], (double)report->difficulty_multiplier,
+		(double)report->skulls_multiplier, time, report->par_seconds != NONE ? par : "-", (double)report->time_multiplier);
+	platform_log("campaign score: kills %ld, headshots %ld, melee %ld, medals %ld, deaths %ld, betrayals %ld, allies %ld",
+		report->kills, report->headshots, report->melee, report->medals, report->deaths, report->betrayals,
+		report->allies);
+	platform_log("campaign score: points %ld, score %ld%s%s", report->points, report->score,
+		report->record_score ? " (a new record)" : "", report->record_time ? " (a new best time)" : "");
+	for (index = 0; index < report->player_count; index++)
+		platform_log("campaign score: %s %ld, kills %ld", report->players[index].name, report->players[index].score,
+			report->players[index].kills);
+	if (report->best_enemy[0])
+		platform_log("campaign score: best enemy %s, x%ld for %ld", report->best_enemy, report->best_enemy_kills,
+			report->best_enemy_points);
+
+	return;
 }
 
 /* ---------- public code */
@@ -843,8 +896,6 @@ boolean campaign_score_enabled(
 void campaign_score_new_map(
 	void)
 {
-	short line;
-
 	campaign_score_entry_count = 0;
 	campaign_score_postgame = FALSE;
 	campaign_score_full_logged = FALSE;
@@ -854,10 +905,8 @@ void campaign_score_new_map(
 	campaign_score_hurt_reset();
 	campaign_medals_new_map();
 	/* (a level just won, shown now; else nothing) */
-	campaign_score_summary_lines = campaign_score_pending_lines;
-	for (line = 0; line < campaign_score_pending_lines; line++)
-		memcpy(campaign_score_summary[line], campaign_score_pending[line], CAMPAIGN_SCORE_SUMMARY_LENGTH);
-	campaign_score_pending_lines = 0;
+	campaign_score_summary = campaign_score_pending;
+	campaign_score_pending.valid = FALSE;
 	campaign_score_button_primed = FALSE;
 
 	return;
@@ -1131,17 +1180,274 @@ void campaign_score_network_kill(
 	return;
 }
 
+/* ---------- the records: each profile's, its campaign_records.txt beside its
+blam.sav ("level:score:seconds;..."), each level's best score and best time,
+written as a level is won */
+
+/* a level's key in the records: its name's last part (levels\\a10\\a10: a10),
+lower case, of letters, digits and underscores */
+static void campaign_score_record_key(
+	char const *level_name,
+	char *key,
+	long size)
+{
+	char const *last = level_name ? level_name : "";
+	long index;
+	long length = 0;
+
+	for (index = 0; level_name && level_name[index]; index++)
+	{
+		if (level_name[index] == '\\' || level_name[index] == '/')
+			last = level_name + index + 1;
+	}
+	for (index = 0; last[index] && length < size - 1; index++)
+	{
+		char c = last[index];
+
+		if (c >= 'A' && c <= 'Z')
+			c = (char)(c + 32);
+		if ((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_')
+			key[length++] = c;
+	}
+	key[length] = '\0';
+
+	return;
+}
+
+/* the profile's records file's path: FALSE for no profile */
+static boolean campaign_score_records_path(
+	long profile_index,
+	char *path,
+	long size)
+{
+	char directory[256];
+
+	if (profile_index == NONE || !player_profile_get_enclosing_directory_path(profile_index, directory) ||
+		!directory[0])
+	{
+		return FALSE;
+	}
+	snprintf(path, size, "%s%s", directory, CAMPAIGN_SCORE_RECORDS_FILE);
+	return TRUE;
+}
+
+/* the profile's records, as text ("" for none) */
+static void campaign_score_records_read(
+	long profile_index,
+	char *text,
+	long size)
+{
+	char path[300];
+	HANDLE file;
+	unsigned long read = 0;
+
+	text[0] = '\0';
+	if (!campaign_score_records_path(profile_index, path, sizeof(path)))
+		return;
+	file = CreateFileA(path, GENERIC_READ, 0, NULL, OPEN_EXISTING, 0, NULL);
+	if (file == INVALID_HANDLE_VALUE)
+		return;
+	if (!ReadFile(file, text, (unsigned long)(size - 1), &read, NULL))
+		read = 0;
+	CloseHandle(file);
+	text[read] = '\0';
+
+	return;
+}
+
+static boolean campaign_score_records_write(
+	long profile_index,
+	char const *text)
+{
+	char path[300];
+	HANDLE file;
+	unsigned long written = 0;
+	boolean success;
+
+	if (!campaign_score_records_path(profile_index, path, sizeof(path)))
+		return FALSE;
+	file = CreateFileA(path, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, 0, NULL);
+	if (file == INVALID_HANDLE_VALUE)
+		return FALSE;
+	success = WriteFile(file, text, (unsigned long)strlen(text), &written, NULL) && written == strlen(text);
+	CloseHandle(file);
+	return success;
+}
+
+/* the record of the key in the records' text ("level:score:seconds", and
+since the leaderboard ":difficulty:skulls:skulls percent:medals": each the
+best of its own, the difficulty the best score's; NONE for those an older
+record has not): FALSE for none */
+static boolean campaign_score_record_find(
+	char const *records,
+	char const *key,
+	struct campaign_score_record *record)
+{
+	size_t key_length = strlen(key);
+	char const *entry = records;
+
+	while (entry && *entry && key_length)
+	{
+		char const *end = strchr(entry, ';');
+
+		if (!strncmp(entry, key, key_length) && entry[key_length] == ':')
+		{
+			record->difficulty = record->skulls = record->skulls_percent = record->medals = NONE;
+			if (sscanf(entry + key_length + 1, "%ld:%ld:%ld:%ld:%ld:%ld", &record->score, &record->seconds,
+				&record->difficulty, &record->skulls, &record->skulls_percent, &record->medals) >= 2)
+			{
+				return TRUE;
+			}
+		}
+		entry = end ? end + 1 : NULL;
+	}
+	return FALSE;
+}
+
+/* the level won (the run's record): kept in the profile's records where
+better than its record's, each record on its own; which were beaten
+(_campaign_score_record_*_bit) */
+static long campaign_score_record_level(
+	long profile_index,
+	struct campaign_score_record const *run)
+{
+	char records[CAMPAIGN_SCORE_RECORDS_LENGTH];
+	char key[32];
+	char text[CAMPAIGN_SCORE_RECORDS_LENGTH];
+	struct campaign_score_record best;
+	long length = 0;
+	long beaten = 0;
+	char const *entry;
+
+	campaign_score_record_key(global_scenario_index != NONE ? tag_get_name(global_scenario_index) : NULL, key,
+		sizeof(key));
+	if (!key[0] || profile_index == NONE)
+		return 0;
+	campaign_score_records_read(profile_index, records, sizeof(records));
+	if (campaign_score_record_find(records, key, &best))
+	{
+		/* (each its own best, whichever run's: the most points, the
+		shortest time, the most medals, the most skulls and the highest
+		skulls' multiplier; the difficulty the best score's) */
+		if (run->score > best.score)
+			SET_FLAG(beaten, _campaign_score_record_score_bit, TRUE);
+		if (run->seconds < best.seconds)
+			SET_FLAG(beaten, _campaign_score_record_time_bit, TRUE);
+		if (run->medals > best.medals)
+			SET_FLAG(beaten, _campaign_score_record_medals_bit, TRUE);
+		if (run->skulls > best.skulls || run->skulls_percent > best.skulls_percent)
+			SET_FLAG(beaten, _campaign_score_record_skulls_bit, TRUE);
+		if (!beaten)
+			return 0;
+		if (TEST_FLAG(beaten, _campaign_score_record_score_bit))
+		{
+			best.score = run->score;
+			best.difficulty = run->difficulty;
+		}
+		best.seconds = MIN(best.seconds, run->seconds);
+		best.medals = MAX(best.medals, run->medals);
+		best.skulls = MAX(best.skulls, run->skulls);
+		best.skulls_percent = MAX(best.skulls_percent, run->skulls_percent);
+	}
+	else
+	{
+		/* (the level's first: all its records) */
+		beaten = FLAG(_campaign_score_record_score_bit) | FLAG(_campaign_score_record_time_bit) |
+			FLAG(_campaign_score_record_medals_bit) | FLAG(_campaign_score_record_skulls_bit);
+		best = *run;
+	}
+	/* (the others as they were, then this level's) */
+	text[0] = '\0';
+	for (entry = records; entry && *entry;)
+	{
+		char const *end = strchr(entry, ';');
+		long entry_length = end ? (long)(end - entry) : (long)strlen(entry);
+
+		if (!(strncmp(entry, key, strlen(key)) == 0 && entry[strlen(key)] == ':') && entry_length > 0 &&
+			length + entry_length + 2 < (long)sizeof(text))
+		{
+			memcpy(text + length, entry, (size_t)entry_length);
+			length += entry_length;
+			text[length++] = ';';
+			text[length] = '\0';
+		}
+		entry = end ? end + 1 : NULL;
+	}
+	snprintf(text + length, sizeof(text) - (size_t)length, "%s:%ld:%ld:%ld:%ld:%ld:%ld", key, best.score,
+		best.seconds, best.difficulty, best.skulls, best.skulls_percent, best.medals);
+	if (!campaign_score_records_write(profile_index, text))
+		platform_log("campaign score: could not write the profile's %s", CAMPAIGN_SCORE_RECORDS_FILE);
+	else
+		platform_log("campaign score: %s's record now %ld points, %ld seconds", key, best.score, best.seconds);
+
+	return beaten;
+}
+
+boolean campaign_score_level_record(
+	char const *level_name,
+	long profile_index,
+	struct campaign_score_record *record)
+{
+	char records[CAMPAIGN_SCORE_RECORDS_LENGTH];
+	char key[32];
+
+	campaign_score_record_key(level_name, key, sizeof(key));
+	if (!key[0] || profile_index == NONE)
+		return FALSE;
+	campaign_score_records_read(profile_index, records, sizeof(records));
+	return campaign_score_record_find(records, key, record);
+}
+
 static void campaign_score_win_compose(
 	void)
 {
-	short line;
+	long first_records = 0;
 
 	if (!campaign_score_enabled())
 		return;
 	campaign_score_update();
-	campaign_score_pending_lines = campaign_score_compose(campaign_score_pending);
-	for (line = 0; line < campaign_score_pending_lines; line++)
-		platform_log("campaign score: %s", campaign_score_pending[line]);
+	/* (each of this machine's players' records of the level, in their
+	profiles: a co-op team's score, or in a competitive game their own) */
+	{
+		short local_player_index;
+		boolean first = TRUE;
+		long records;
+
+		for (local_player_index = local_player_get_next(NONE); local_player_index != NONE;
+			local_player_index = local_player_get_next(local_player_index))
+		{
+			long player_index = local_player_get_player_index(local_player_index);
+			short absolute_index = player_index != NONE ? (short)DATUM_INDEX_TO_ABSOLUTE_INDEX(player_index) : NONE;
+			long points = campaign_score_team_total();
+			struct campaign_score_record run;
+			int skull;
+
+			if (campaign_score_competitive && player_index != NONE)
+				points = campaign_score_total(absolute_index);
+			run.score = campaign_score_final(points);
+			run.seconds = campaign_score_level_ticks() / TICKS_PER_SECOND;
+			run.difficulty = campaign_score_difficulty();
+			run.skulls = 0;
+			for (skull = 0; skull < NUMBER_OF_SKULLS; skull++)
+				run.skulls += skull_active(skull) ? 1 : 0;
+			run.skulls_percent = (long)(campaign_score_skulls_multiplier() * 100.0f + 0.5f);
+			/* (the player's own medals; the team's, as its score, in a
+			cooperative game) */
+			run.medals = campaign_score_count_of(campaign_score_competitive ? absolute_index : NONE,
+				_campaign_score_entry_medal);
+			records = campaign_score_record_level(player_ui_get_active_player_profile_index(local_player_index), &run);
+			/* (the summary's records: the first player's) */
+			if (first)
+			{
+				first_records = records;
+				first = FALSE;
+			}
+		}
+	}
+	campaign_score_report_fill(&campaign_score_pending);
+	campaign_score_pending.record_score = TEST_FLAG(first_records, _campaign_score_record_score_bit);
+	campaign_score_pending.record_time = TEST_FLAG(first_records, _campaign_score_record_time_bit);
+	campaign_score_report_log(&campaign_score_pending);
 
 	return;
 }
@@ -1151,14 +1457,10 @@ still running): FALSE if there is none to show */
 static boolean campaign_score_postgame_begin(
 	void)
 {
-	short line;
-
-	if (campaign_score_pending_lines <= 0 || !campaign_score_level() || cinematic_in_progress())
+	if (!campaign_score_pending.valid || !campaign_score_level() || cinematic_in_progress())
 		return FALSE;
-	campaign_score_summary_lines = campaign_score_pending_lines;
-	for (line = 0; line < campaign_score_pending_lines; line++)
-		memcpy(campaign_score_summary[line], campaign_score_pending[line], CAMPAIGN_SCORE_SUMMARY_LENGTH);
-	campaign_score_pending_lines = 0;
+	campaign_score_summary = campaign_score_pending;
+	campaign_score_pending.valid = FALSE;
 	campaign_score_button_primed = FALSE;
 
 	return TRUE;
@@ -1175,10 +1477,10 @@ boolean campaign_score_postgame_wait(
 		return TRUE;
 	}
 	/* (until A or B is pressed: campaign_score_draw) */
-	if (campaign_score_summary_lines > 0 && campaign_score_level())
+	if (campaign_score_summary.valid && campaign_score_level())
 		return TRUE;
 	campaign_score_postgame = FALSE;
-	campaign_score_summary_lines = 0;
+	campaign_score_summary.valid = FALSE;
 
 	return FALSE;
 }
@@ -1414,72 +1716,6 @@ short campaign_score_hud_height(
 	void)
 {
 	return campaign_score_drawn_height;
-}
-
-void campaign_score_draw(
-	void)
-{
-	long font_index;
-	struct font_header *font;
-	short line_height;
-	real_argb_color color;
-	rectangle2d bounds;
-	rectangle2d window;
-	short line;
-
-	if (cinematic_in_progress() || !game_in_progress())
-		return;
-	/* (the match clock's font: the HUD's) */
-	font_index = hud_get_font_index();
-	if (font_index == NONE)
-		return;
-	font = font_definition_get(font_index);
-	line_height = (short)(font->ascending_height + font->descending_height + font->leading_height);
-	if (line_height <= 0)
-		return;
-	window = render.camera.window_bounds;
-	offset_rectangle2d(&window, (short)-render.camera.viewport_bounds.x0, (short)-render.camera.viewport_bounds.y0);
-
-	/* the last level's summary, over this one's start */
-	if (campaign_score_summary_lines > 0 && campaign_score_level())
-	{
-		boolean down = campaign_score_button_down();
-		short top = (short)(window.y0 + (window.y1 - window.y0) / 4);
-
-		/* (until A or B is pressed anew) */
-		if (!campaign_score_button_primed)
-			campaign_score_button_primed = TRUE;
-		else if (down && !campaign_score_button_held)
-			campaign_score_summary_lines = 0;
-		campaign_score_button_held = down;
-
-		color.alpha = 1.0f;
-		for (line = 0; line < campaign_score_summary_lines; line++)
-		{
-			bounds.x0 = window.x0;
-			bounds.x1 = window.x1;
-			bounds.y0 = (short)(top + line * line_height);
-			bounds.y1 = (short)(bounds.y0 + line_height);
-			/* (the blue of a player's name in the chat, the header paler) */
-			color.red = line == 0 ? 0.60f : CAMPAIGN_SCORE_BLUE_RED;
-			color.green = line == 0 ? 0.74f : CAMPAIGN_SCORE_BLUE_GREEN;
-			color.blue = line == 0 ? 1.0f : CAMPAIGN_SCORE_BLUE_BLUE;
-			draw_string_set_draw_mode(font_index, NONE, _campaign_score_text_center, 0, &color);
-			rasterizer_draw_string(&bounds, NULL, NULL, 0, campaign_score_summary[line]);
-		}
-		if (campaign_score_summary_lines > 0)
-		{
-			bounds.x0 = window.x0;
-			bounds.x1 = window.x1;
-			bounds.y0 = (short)(top + (campaign_score_summary_lines + 1) * line_height);
-			bounds.y1 = (short)(bounds.y0 + line_height);
-			color.red = color.green = color.blue = 0.7f;
-			draw_string_set_draw_mode(font_index, NONE, _campaign_score_text_center, 0, &color);
-			rasterizer_draw_string(&bounds, NULL, NULL, 0, "PRESS A OR B TO CONTINUE");
-		}
-	}
-
-	return;
 }
 
 /* the player's last medals (as many as the JSON's medal history, and the
@@ -1749,8 +1985,15 @@ void campaign_score_draw_view(
 	height = rows_top + rows * row_height + (rows - 1) * CAMPAIGN_SCORE_ROW_GAP;
 	/* (and over it all, the player's last medals: none before the first) */
 	history_count = campaign_score_medal_history(player_index, history, NUMBEROF(history));
-	history_height = history_count > 0 ? CAMPAIGN_SCORE_HISTORY_SIZE + CAMPAIGN_SCORE_ROW_PADDING * 2 +
-		CAMPAIGN_SCORE_ROW_GAP : 0.0f;
+	history_height = 0.0f;
+	if (history_count > 0)
+	{
+		short slots = (short)PIN(campaign_score_values.medal_history, 1, CAMPAIGN_SCORE_HISTORY_MAXIMUM);
+
+		history_height = MIN((real)CAMPAIGN_SCORE_HISTORY_SIZE,
+			(CAMPAIGN_SCORE_PANEL_WIDTH - CAMPAIGN_SCORE_ROW_PADDING * 4 - (slots - 1) * CAMPAIGN_SCORE_HISTORY_GAP) /
+				(real)slots) + CAMPAIGN_SCORE_ROW_PADDING * 2 + CAMPAIGN_SCORE_ROW_GAP;
+	}
 	panel.left = width - (CAMPAIGN_SCORE_PANEL_MARGIN + CAMPAIGN_SCORE_PANEL_WIDTH) * panel.scale;
 	panel.top = view_height - (CAMPAIGN_SCORE_PANEL_MARGIN + history_height + height) * panel.scale;
 
@@ -1759,7 +2002,12 @@ void campaign_score_draw_view(
 	if (history_count > 0)
 	{
 		long bitmap_index = campaign_medals_bitmap();
-		real size = CAMPAIGN_SCORE_HISTORY_SIZE;
+		short slots = (short)PIN(campaign_score_values.medal_history, 1, CAMPAIGN_SCORE_HISTORY_MAXIMUM);
+		/* (as many slots as the history has, across the whole row: the icons
+		smaller, if they must be, to fit them) */
+		real size = MIN((real)CAMPAIGN_SCORE_HISTORY_SIZE,
+			(CAMPAIGN_SCORE_PANEL_WIDTH - CAMPAIGN_SCORE_ROW_PADDING * 4 - (slots - 1) * CAMPAIGN_SCORE_HISTORY_GAP) /
+				(real)slots);
 		real row = size + CAMPAIGN_SCORE_ROW_PADDING * 2;
 		short index;
 
@@ -1772,7 +2020,7 @@ void campaign_score_draw_view(
 				(history_count - 1 - index) * (size + CAMPAIGN_SCORE_HISTORY_GAP);
 			rectangle2d bounds;
 
-			if (!bitmap || x1 - size < CAMPAIGN_SCORE_ROW_PADDING)
+			if (!bitmap)
 				continue;
 			bounds.x0 = (short)(panel.left + (x1 - size) * panel.scale);
 			bounds.x1 = (short)(panel.left + x1 * panel.scale);
@@ -1861,6 +2109,304 @@ void campaign_score_draw_view(
 	campaign_score_drawn_height = (short)(history_height + height + CAMPAIGN_SCORE_SKULLS_GAP + 0.5f);
 	/* the medals just won, at the center left (campaign_medals.c) */
 	campaign_medals_draw_popups(player_index);
+
+	return;
+}
+
+/* ---------- the level's summary
+
+shown over the level just won (and the next one's start) on black, until A
+or B is pressed: a card, as the HUD's panel is drawn (in the screen's 480
+lines, centred), of the level's name and difficulty, its numbers in two
+columns, its score, the medals won and the players' (a co-op game's) */
+
+enum
+{
+	CAMPAIGN_SCORE_CARD_WIDTH = 440,
+	CAMPAIGN_SCORE_CARD_PADDING = 14,
+	CAMPAIGN_SCORE_CARD_GAP = 8,
+	CAMPAIGN_SCORE_CARD_MEDAL_SIZE = 22,
+	/* (the least a medal and its count take: the row's room shared out
+	among as many as fit) */
+	CAMPAIGN_SCORE_CARD_MEDAL_SPACE = 56,
+};
+
+/* the summary's colours */
+#define CAMPAIGN_SCORE_CARD_FILL 0xF0081830
+#define CAMPAIGN_SCORE_CARD_RULE 0x804F9BE0
+
+static void campaign_score_card_color(
+	real_argb_color *color,
+	real red,
+	real green,
+	real blue)
+{
+	color->alpha = 1.0f;
+	color->red = red;
+	color->green = green;
+	color->blue = blue;
+
+	return;
+}
+
+/* a label at the left of the column and its value at its right */
+static void campaign_score_card_pair(
+	struct campaign_score_panel const *panel,
+	boolean draw,
+	real x0,
+	real x1,
+	real y,
+	char const *label,
+	char const *value,
+	boolean highlight)
+{
+	real_argb_color label_color;
+	real_argb_color value_color;
+
+	if (!draw)
+		return;
+	campaign_score_card_color(&label_color, 0.55f, 0.72f, 1.0f);
+	if (highlight)
+		campaign_score_card_color(&value_color, 1.0f, 0.84f, 0.35f);
+	else
+		campaign_score_card_color(&value_color, 0.95f, 0.95f, 0.95f);
+	campaign_score_panel_text(panel, label, NULL, x0, x1, y, CAMPAIGN_SCORE_SUBLINE_SIZE, _campaign_score_text_left,
+		&label_color);
+	campaign_score_panel_text(panel, value, NULL, x0, x1, y, CAMPAIGN_SCORE_SUBLINE_SIZE, _campaign_score_text_right,
+		&value_color);
+
+	return;
+}
+
+/* the card, from its top (panel's): its height, drawn or not */
+static real campaign_score_card_layout(
+	struct campaign_score_panel const *panel,
+	struct campaign_score_report const *report,
+	boolean draw)
+{
+	real const width = CAMPAIGN_SCORE_CARD_WIDTH;
+	real const left = CAMPAIGN_SCORE_CARD_PADDING;
+	real const right = width - CAMPAIGN_SCORE_CARD_PADDING;
+	real const middle = width / 2.0f;
+	real const line = panel->line_height;
+	real const small = panel->line_height * CAMPAIGN_SCORE_SUBLINE_SIZE;
+	real_argb_color color;
+	char text[64];
+	char value[48];
+	char other[24];
+	real y = CAMPAIGN_SCORE_CARD_PADDING;
+	short index;
+
+	/* the title, the level's name, its difficulty and skulls */
+	if (draw)
+	{
+		wchar_t level[64];
+
+		campaign_score_card_color(&color, 0.95f, 0.95f, 0.95f);
+		campaign_score_panel_text(panel, "LEVEL COMPLETE", NULL, left, right, y, 1.0f, _campaign_score_text_center,
+			&color);
+		campaign_score_card_color(&color, CAMPAIGN_SCORE_BLUE_RED + 0.2f, CAMPAIGN_SCORE_BLUE_GREEN + 0.2f, 1.0f);
+		ustrncpy(level, report->level, NUMBEROF(level) - 1);
+		level[NUMBEROF(level) - 1] = 0;
+		campaign_score_panel_text(panel, NULL, level, left, right, y + line + 2.0f, 1.0f, _campaign_score_text_center,
+			&color);
+	}
+	y += line * 2.0f + 4.0f;
+	campaign_score_multiplier_string(report->difficulty_multiplier, value, sizeof(value));
+	campaign_score_multiplier_string(report->skulls_multiplier, other, sizeof(other));
+	snprintf(text, sizeof(text), "%s %s   SKULLS %s", campaign_score_difficulty_names[report->difficulty], value,
+		other);
+	if (draw)
+	{
+		campaign_score_card_color(&color, 0.6f, 0.66f, 0.75f);
+		campaign_score_panel_text(panel, text, NULL, left, right, y, CAMPAIGN_SCORE_SUBLINE_SIZE,
+			_campaign_score_text_center, &color);
+	}
+	y += small + CAMPAIGN_SCORE_CARD_GAP;
+	if (draw)
+		campaign_score_panel_quad(panel, left, y, right, y + 1.0f, CAMPAIGN_SCORE_CARD_RULE);
+	y += CAMPAIGN_SCORE_CARD_GAP;
+
+	/* the numbers, two columns */
+	{
+		real const column_gap = 24.0f;
+		real const left_x1 = middle - column_gap / 2.0f;
+		real const right_x0 = middle + column_gap / 2.0f;
+		real const row = small + 6.0f;
+		char numbers[5][2][2][24];
+		short row_index;
+
+		campaign_score_seconds_string(report->seconds, numbers[0][0][1], sizeof(numbers[0][0][1]));
+		snprintf(numbers[0][0][0], sizeof(numbers[0][0][0]), "%s", report->record_time ? "TIME (BEST!)" : "TIME");
+		snprintf(numbers[0][1][0], sizeof(numbers[0][1][0]), "PAR");
+		if (report->par_seconds != NONE)
+			campaign_score_seconds_string(report->par_seconds, numbers[0][1][1], sizeof(numbers[0][1][1]));
+		else
+			snprintf(numbers[0][1][1], sizeof(numbers[0][1][1]), "-");
+		snprintf(numbers[1][0][0], sizeof(numbers[1][0][0]), "KILLS");
+		snprintf(numbers[1][0][1], sizeof(numbers[1][0][1]), "%ld", report->kills);
+		snprintf(numbers[1][1][0], sizeof(numbers[1][1][0]), "HEADSHOTS");
+		snprintf(numbers[1][1][1], sizeof(numbers[1][1][1]), "%ld", report->headshots);
+		snprintf(numbers[2][0][0], sizeof(numbers[2][0][0]), "MELEE KILLS");
+		snprintf(numbers[2][0][1], sizeof(numbers[2][0][1]), "%ld", report->melee);
+		snprintf(numbers[2][1][0], sizeof(numbers[2][1][0]), "MEDALS");
+		snprintf(numbers[2][1][1], sizeof(numbers[2][1][1]), "%ld", report->medals);
+		snprintf(numbers[3][0][0], sizeof(numbers[3][0][0]), "DEATHS");
+		snprintf(numbers[3][0][1], sizeof(numbers[3][0][1]), "%ld", report->deaths);
+		snprintf(numbers[3][1][0], sizeof(numbers[3][1][0]), "BETRAYALS");
+		snprintf(numbers[3][1][1], sizeof(numbers[3][1][1]), "%ld", report->betrayals);
+		snprintf(numbers[4][0][0], sizeof(numbers[4][0][0]), "ALLIES KILLED");
+		snprintf(numbers[4][0][1], sizeof(numbers[4][0][1]), "%ld", report->allies);
+		snprintf(numbers[4][1][0], sizeof(numbers[4][1][0]), "TIME BONUS");
+		campaign_score_multiplier_string(report->time_multiplier, numbers[4][1][1], sizeof(numbers[4][1][1]));
+		for (row_index = 0; row_index < 5; row_index++)
+		{
+			campaign_score_card_pair(panel, draw, left, left_x1, y, numbers[row_index][0][0], numbers[row_index][0][1],
+				row_index == 0 && report->record_time);
+			campaign_score_card_pair(panel, draw, right_x0, right, y, numbers[row_index][1][0],
+				numbers[row_index][1][1], FALSE);
+			y += row;
+		}
+	}
+	y += CAMPAIGN_SCORE_CARD_GAP - 6.0f;
+	if (draw)
+		campaign_score_panel_quad(panel, left, y, right, y + 1.0f, CAMPAIGN_SCORE_CARD_RULE);
+	y += CAMPAIGN_SCORE_CARD_GAP;
+
+	/* the score: the points, times the time's bonus */
+	snprintf(value, sizeof(value), "%ld", report->points);
+	campaign_score_multiplier_string(report->time_multiplier, other, sizeof(other));
+	snprintf(text, sizeof(text), "POINTS %s  x  TIME BONUS %s", value, other);
+	if (draw)
+	{
+		campaign_score_card_color(&color, 0.6f, 0.66f, 0.75f);
+		campaign_score_panel_text(panel, text, NULL, left, right, y, CAMPAIGN_SCORE_SUBLINE_SIZE,
+			_campaign_score_text_center, &color);
+	}
+	y += small + 4.0f;
+	if (!(report->competitive && report->player_count > 1))
+	{
+		snprintf(value, sizeof(value), "%ld", report->score);
+		if (draw)
+		{
+			campaign_score_card_color(&color, 0.95f, 0.95f, 0.95f);
+			campaign_score_panel_text(panel, "SCORE", NULL, left, right, y, 1.0f, _campaign_score_text_left, &color);
+			campaign_score_card_color(&color, 1.0f, 0.84f, 0.35f);
+			campaign_score_panel_text(panel, value, NULL, left, right, y, 1.0f, _campaign_score_text_right, &color);
+			if (report->record_score)
+			{
+				campaign_score_panel_text(panel, "NEW RECORD!", NULL, left, right, y + (line - small) / 2.0f,
+					CAMPAIGN_SCORE_SUBLINE_SIZE, _campaign_score_text_center, &color);
+			}
+		}
+		y += line + 4.0f;
+	}
+	/* (a co-op game's players: each one's score and kills) */
+	if (report->player_count > 1)
+	{
+		for (index = 0; index < report->player_count; index++)
+		{
+			snprintf(value, sizeof(value), "%ld   KILLS %ld", report->players[index].score, report->players[index].kills);
+			campaign_score_card_pair(panel, draw, left, right, y, report->players[index].name, value, FALSE);
+			y += small + 6.0f;
+		}
+	}
+
+	/* the medals won, each with how many */
+	if (report->medals > 0)
+	{
+		long bitmap_index = campaign_medals_bitmap();
+		short per_row = (short)MAX((right - left) / CAMPAIGN_SCORE_CARD_MEDAL_SPACE, 1);
+		real space = (right - left) / per_row;
+		short shown = 0;
+
+		y += CAMPAIGN_SCORE_CARD_GAP - 4.0f;
+		if (draw)
+			campaign_score_panel_quad(panel, left, y, right, y + 1.0f, CAMPAIGN_SCORE_CARD_RULE);
+		y += CAMPAIGN_SCORE_CARD_GAP;
+		for (index = 0; index < NUMBER_OF_CAMPAIGN_MEDALS; index++)
+		{
+			real x;
+
+			if (report->medal_counts[index] <= 0)
+				continue;
+			/* (a row of as many as fit, spread over the whole width) */
+			if (shown > 0 && shown % per_row == 0)
+				y += CAMPAIGN_SCORE_CARD_MEDAL_SIZE + 4.0f;
+			x = left + (shown % per_row) * space;
+			shown++;
+			if (draw)
+			{
+				struct bitmap_data *bitmap = bitmap_index != NONE ?
+					bitmap_group_try_and_get_bitmap(bitmap_index, index) : NULL;
+
+				if (bitmap)
+				{
+					rectangle2d bounds;
+
+					bounds.x0 = (short)(panel->left + x * panel->scale);
+					bounds.y0 = (short)(panel->top + y * panel->scale);
+					bounds.x1 = (short)(panel->left + (x + CAMPAIGN_SCORE_CARD_MEDAL_SIZE) * panel->scale);
+					bounds.y1 = (short)(panel->top + (y + CAMPAIGN_SCORE_CARD_MEDAL_SIZE) * panel->scale);
+					draw_bitmap_in_rect(bitmap, &bounds, NULL, NULL, 0xFFFFFFFF, NULL, TRUE);
+				}
+				snprintf(value, sizeof(value), "x%d", (int)report->medal_counts[index]);
+				campaign_score_card_color(&color, 0.95f, 0.95f, 0.95f);
+				campaign_score_panel_text(panel, value, NULL, x + CAMPAIGN_SCORE_CARD_MEDAL_SIZE + 4.0f,
+					x + space, y + (CAMPAIGN_SCORE_CARD_MEDAL_SIZE - small) / 2.0f,
+					CAMPAIGN_SCORE_SUBLINE_SIZE, _campaign_score_text_left, &color);
+			}
+		}
+		y += CAMPAIGN_SCORE_CARD_MEDAL_SIZE + 4.0f;
+	}
+
+	return y + CAMPAIGN_SCORE_CARD_PADDING - 4.0f;
+}
+
+void campaign_score_draw(
+	void)
+{
+	struct campaign_score_panel panel;
+	struct font_header *font;
+	rectangle2d screen;
+	real_argb_color color;
+	real height;
+	boolean down;
+
+	if (cinematic_in_progress() || !game_in_progress() || !campaign_score_summary.valid || !campaign_score_level())
+		return;
+	/* (until A or B is pressed anew) */
+	down = campaign_score_button_down();
+	if (!campaign_score_button_primed)
+		campaign_score_button_primed = TRUE;
+	else if (down && !campaign_score_button_held)
+		campaign_score_summary.valid = FALSE;
+	campaign_score_button_held = down;
+	if (!campaign_score_summary.valid)
+		return;
+	panel.font_index = hud_get_font_index();
+	if (panel.font_index == NONE)
+		return;
+	font = font_definition_get(panel.font_index);
+	panel.line_height = (short)(font->ascending_height + font->descending_height);
+	if (panel.line_height <= 0)
+		return;
+	/* (the whole screen black: the fullscreen overlays' camera is the
+	screen's, as cinematic_render's letterbox has it) */
+	screen = render.camera.viewport_bounds;
+	draw_quad(&screen, 0xFF000000);
+	panel.scale = (real)(screen.y1 - screen.y0) / 480.0f;
+	if (panel.scale <= 0.0f)
+		return;
+	height = campaign_score_card_layout(&panel, &campaign_score_summary, FALSE);
+	panel.left = screen.x0 + ((screen.x1 - screen.x0) - CAMPAIGN_SCORE_CARD_WIDTH * panel.scale) / 2.0f;
+	panel.top = screen.y0 + ((screen.y1 - screen.y0) - (height + panel.line_height * 2.0f) * panel.scale) / 2.0f;
+	campaign_score_panel_quad(&panel, 0.0f, 0.0f, CAMPAIGN_SCORE_CARD_WIDTH, height, CAMPAIGN_SCORE_CARD_FILL);
+	campaign_score_panel_frame(&panel, 0.0f, 0.0f, CAMPAIGN_SCORE_CARD_WIDTH, height, CAMPAIGN_SCORE_PANEL_EDGE);
+	campaign_score_card_layout(&panel, &campaign_score_summary, TRUE);
+	campaign_score_card_color(&color, 0.55f, 0.55f, 0.55f);
+	campaign_score_panel_text(&panel, "PRESS A OR B TO CONTINUE", NULL, 0.0f, CAMPAIGN_SCORE_CARD_WIDTH,
+		height + panel.line_height, CAMPAIGN_SCORE_SUBLINE_SIZE, _campaign_score_text_center, &color);
 
 	return;
 }

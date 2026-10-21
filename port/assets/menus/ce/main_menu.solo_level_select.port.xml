@@ -1,0 +1,109 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- The port's multiplayer screens, in the PC version's style (tools/port_settings.py) -->
+<menus>
+	<widget name="main_menu/solo_level_select/replay_level_right_record" type="text" controller="1" left="417" top="334" width="146" height="64" font="ui\small_ui" color="#FFFFFFFF">
+	</widget>
+	<widget name="main_menu/solo_level_select/difficulty_badge" controller="1" width="22" height="24" bitmap="main_menu/solo_level_select/difficulty_badges">
+	</widget>
+	<widget name="main_menu/solo_level_select/difficulty_badges_plate" controller="1" width="140" height="40" bitmap="records/badge_gradient">
+	</widget>
+	<widget name="main_menu/solo_level_select/button_leaderboard" type="text" width="128" height="24" bitmap="bitmaps/text_button_background" text="LEADERBOARD" font="ui\small_ui" color="#FFFFFFFF" align="center" text_y="2">
+		<on event="a" open="main_menu/solo_level_select/leaderboard/leaderboard_screen"/>
+		<on event="start" open="main_menu/solo_level_select/leaderboard/leaderboard_screen"/>
+		<on event="left_mouse" run="mouse emit accept event"/>
+	</widget>
+	<widget name="main_menu/solo_level_select/leaderboard/leaderboard_screen" width="640" height="480" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/gradient">
+		<data input="port leaderboard update"/>
+		<on event="created" run="port leaderboard init"/>
+		<on event="b" back="true"/>
+		<on event="back" back="true"/>
+		<child widget="main_menu/solo_level_select/leaderboard/title"/>
+		<child widget="main_menu/solo_level_select/leaderboard/level"/>
+		<child widget="main_menu/solo_level_select/leaderboard/heading_name"/>
+		<child widget="main_menu/solo_level_select/leaderboard/heading_skulls"/>
+		<child widget="main_menu/solo_level_select/leaderboard/heading_medals"/>
+		<child widget="main_menu/solo_level_select/leaderboard/heading_score"/>
+		<child widget="main_menu/solo_level_select/leaderboard/heading_time"/>
+		<child widget="main_menu/solo_level_select/leaderboard/note"/>
+		<child widget="main_menu/solo_level_select/leaderboard/row_name" y="150"/>
+		<child widget="main_menu/solo_level_select/leaderboard/row_skulls" y="150"/>
+		<child widget="main_menu/solo_level_select/leaderboard/row_medals" y="150"/>
+		<child widget="main_menu/solo_level_select/leaderboard/row_score" y="150"/>
+		<child widget="main_menu/solo_level_select/leaderboard/row_time" y="150"/>
+		<child widget="main_menu/solo_level_select/leaderboard/row_name" y="174"/>
+		<child widget="main_menu/solo_level_select/leaderboard/row_skulls" y="174"/>
+		<child widget="main_menu/solo_level_select/leaderboard/row_medals" y="174"/>
+		<child widget="main_menu/solo_level_select/leaderboard/row_score" y="174"/>
+		<child widget="main_menu/solo_level_select/leaderboard/row_time" y="174"/>
+		<child widget="main_menu/solo_level_select/leaderboard/row_name" y="198"/>
+		<child widget="main_menu/solo_level_select/leaderboard/row_skulls" y="198"/>
+		<child widget="main_menu/solo_level_select/leaderboard/row_medals" y="198"/>
+		<child widget="main_menu/solo_level_select/leaderboard/row_score" y="198"/>
+		<child widget="main_menu/solo_level_select/leaderboard/row_time" y="198"/>
+		<child widget="main_menu/solo_level_select/leaderboard/row_name" y="222"/>
+		<child widget="main_menu/solo_level_select/leaderboard/row_skulls" y="222"/>
+		<child widget="main_menu/solo_level_select/leaderboard/row_medals" y="222"/>
+		<child widget="main_menu/solo_level_select/leaderboard/row_score" y="222"/>
+		<child widget="main_menu/solo_level_select/leaderboard/row_time" y="222"/>
+		<child widget="main_menu/solo_level_select/leaderboard/row_name" y="246"/>
+		<child widget="main_menu/solo_level_select/leaderboard/row_skulls" y="246"/>
+		<child widget="main_menu/solo_level_select/leaderboard/row_medals" y="246"/>
+		<child widget="main_menu/solo_level_select/leaderboard/row_score" y="246"/>
+		<child widget="main_menu/solo_level_select/leaderboard/row_time" y="246"/>
+		<child widget="main_menu/solo_level_select/leaderboard/row_name" y="270"/>
+		<child widget="main_menu/solo_level_select/leaderboard/row_skulls" y="270"/>
+		<child widget="main_menu/solo_level_select/leaderboard/row_medals" y="270"/>
+		<child widget="main_menu/solo_level_select/leaderboard/row_score" y="270"/>
+		<child widget="main_menu/solo_level_select/leaderboard/row_time" y="270"/>
+		<child widget="main_menu/solo_level_select/leaderboard/row_name" y="294"/>
+		<child widget="main_menu/solo_level_select/leaderboard/row_skulls" y="294"/>
+		<child widget="main_menu/solo_level_select/leaderboard/row_medals" y="294"/>
+		<child widget="main_menu/solo_level_select/leaderboard/row_score" y="294"/>
+		<child widget="main_menu/solo_level_select/leaderboard/row_time" y="294"/>
+		<child widget="main_menu/solo_level_select/leaderboard/row_name" y="318"/>
+		<child widget="main_menu/solo_level_select/leaderboard/row_skulls" y="318"/>
+		<child widget="main_menu/solo_level_select/leaderboard/row_medals" y="318"/>
+		<child widget="main_menu/solo_level_select/leaderboard/row_score" y="318"/>
+		<child widget="main_menu/solo_level_select/leaderboard/row_time" y="318"/>
+		<child widget="main_menu/solo_level_select/leaderboard/row_name" y="342"/>
+		<child widget="main_menu/solo_level_select/leaderboard/row_skulls" y="342"/>
+		<child widget="main_menu/solo_level_select/leaderboard/row_medals" y="342"/>
+		<child widget="main_menu/solo_level_select/leaderboard/row_score" y="342"/>
+		<child widget="main_menu/solo_level_select/leaderboard/row_time" y="342"/>
+		<child widget="main_menu/solo_level_select/leaderboard/row_name" y="366"/>
+		<child widget="main_menu/solo_level_select/leaderboard/row_skulls" y="366"/>
+		<child widget="main_menu/solo_level_select/leaderboard/row_medals" y="366"/>
+		<child widget="main_menu/solo_level_select/leaderboard/row_score" y="366"/>
+		<child widget="main_menu/solo_level_select/leaderboard/row_time" y="366"/>
+		<child widget="main_menu/solo_level_select/leaderboard/button_bar" y="414"/>
+	</widget>
+	<widget name="main_menu/solo_level_select/leaderboard/title" type="text" controller="1" left="60" top="40" width="520" height="40" text="LEADERBOARD" font="ui\large_ui" color="#FF2896FF">
+	</widget>
+	<widget name="main_menu/solo_level_select/leaderboard/level" type="text" controller="1" left="60" top="80" width="520" height="30" font="ui\large_ui" color="#FFFFFFFF">
+	</widget>
+	<widget name="main_menu/solo_level_select/leaderboard/heading_name" type="text" controller="1" left="40" top="122" width="190" height="22" text="PROFILE" font="ui\small_ui" color="#FF808080">
+	</widget>
+	<widget name="main_menu/solo_level_select/leaderboard/row_name" type="text" controller="1" left="40" top="0" width="190" height="22" font="ui\large_ui" color="#FF2896FF">
+	</widget>
+	<widget name="main_menu/solo_level_select/leaderboard/heading_skulls" type="text" controller="1" left="236" top="122" width="80" height="22" text="SKULLS" font="ui\small_ui" color="#FF808080" align="right">
+	</widget>
+	<widget name="main_menu/solo_level_select/leaderboard/row_skulls" type="text" controller="1" left="236" top="0" width="80" height="22" font="ui\large_ui" color="#FF2896FF" align="right">
+	</widget>
+	<widget name="main_menu/solo_level_select/leaderboard/heading_medals" type="text" controller="1" left="322" top="122" width="84" height="22" text="MEDALS" font="ui\small_ui" color="#FF808080" align="right">
+	</widget>
+	<widget name="main_menu/solo_level_select/leaderboard/row_medals" type="text" controller="1" left="322" top="0" width="84" height="22" font="ui\large_ui" color="#FF2896FF" align="right">
+	</widget>
+	<widget name="main_menu/solo_level_select/leaderboard/heading_score" type="text" controller="1" left="412" top="122" width="96" height="22" text="SCORE" font="ui\small_ui" color="#FF808080" align="right">
+	</widget>
+	<widget name="main_menu/solo_level_select/leaderboard/row_score" type="text" controller="1" left="412" top="0" width="96" height="22" font="ui\large_ui" color="#FF2896FF" align="right">
+	</widget>
+	<widget name="main_menu/solo_level_select/leaderboard/heading_time" type="text" controller="1" left="514" top="122" width="86" height="22" text="TIME" font="ui\small_ui" color="#FF808080" align="right">
+	</widget>
+	<widget name="main_menu/solo_level_select/leaderboard/row_time" type="text" controller="1" left="514" top="0" width="86" height="22" font="ui\large_ui" color="#FF2896FF" align="right">
+	</widget>
+	<widget name="main_menu/solo_level_select/leaderboard/note" type="text" controller="1" left="90" top="150" width="470" height="60" font="ui\small_ui" color="#FFB0B0B0">
+	</widget>
+	<widget name="main_menu/solo_level_select/leaderboard/button_bar" type="column_list" width="640" height="28" flags="pass_unhandled_to_focused_child left_right_tabs_items">
+		<child widget="common_button_back" x="510" y="1"/>
+	</widget>
+</menus>

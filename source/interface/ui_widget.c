@@ -682,6 +682,9 @@ struct widget_instance;
 /* port: port/linux/game/menu_functions.c: a text's colour in place of its
 own (the server browser's pings) */
 boolean pc_menu_text_color(struct widget_instance *widget, real_argb_color *color);
+/* port: a menu text's size, of its font's (a widget's text_scale:
+port/linux/game/menu_tags.c): 1 for its own */
+real pc_menu_text_scale(void const *definition);
 
 /* ---------- constants */
 
@@ -5310,6 +5313,7 @@ static void widget_instance_render_text_box(
 	real_argb_color color;
 	rectangle2d bounds;
 	rectangle2d clip;
+	real text_scale;
 
 	if (definition->text_label_string_list.index != NONE)
 	{
@@ -5476,10 +5480,29 @@ static void widget_instance_render_text_box(
 		}
 		ui_widget_port_text_wrap(*text, &bounds, width);
 	}
+	/* port: a text drawn smaller (or larger) than its font, about its top
+	left: laid out as wide and as tall as the box holds of it at that size,
+	and clipped so (rasterizer_text_set_scale) */
+	text_scale = pc_menu_text_scale(definition);
+	if (text_scale != 1.0f)
+	{
+		real origin_x = (real)bounds.x0;
+		real origin_y = (real)bounds.y0;
+
+		bounds.x1 = (short)(origin_x + (bounds.x1 - origin_x) / text_scale);
+		bounds.y1 = (short)(origin_y + (bounds.y1 - origin_y) / text_scale);
+		clip.x0 = (short)(origin_x + (clip.x0 - origin_x) / text_scale);
+		clip.y0 = (short)(origin_y + (clip.y0 - origin_y) / text_scale);
+		clip.x1 = (short)(origin_x + (clip.x1 - origin_x) / text_scale);
+		clip.y1 = (short)(origin_y + (clip.y1 - origin_y) / text_scale);
+		rasterizer_text_set_scale(text_scale, origin_x, origin_y);
+	}
 	if (string_has_icons_to_draw(*text))
 		draw_string_and_hack_in_icons(&bounds, &clip, NULL, 0, *text, FALSE);
 	else
 		rasterizer_draw_unicode_string(&bounds, &clip, NULL, 0, *text);
+	if (text_scale != 1.0f)
+		rasterizer_text_set_scale(1.0f, 0.0f, 0.0f);
 
 	return;
 }

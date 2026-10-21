@@ -402,6 +402,8 @@ static char const *const port_function_names[] =
 	/* (Server Setup's RANDOMIZER and SKULLS rows, a co-op game's: the
 	screens above, whose OK comes back to it) */
 	"ss randomizer", "ss skulls",
+	/* (New Game's LEADERBOARD: the level's records, every profile's) */
+	"port leaderboard init",
 };
 
 /* the PC version's game data functions that the Xbox's have not, from
@@ -433,6 +435,8 @@ static char const *const port_game_data_input_names[] =
 	"port mods update",
 	/* (network co-op's pause menu's FRIENDLY FIRE: its text, ON or OFF) */
 	"port coop friendly fire text",
+	/* (New Game's LEADERBOARD's rows) */
+	"port leaderboard update",
 };
 
 static struct
@@ -444,6 +448,14 @@ static struct
 	long bitmap_count;
 	struct menu_frame_placement *placements;
 	long placement_count;
+	/* the widgets whose text is drawn smaller or larger than its font
+	(text_scale): their definitions, and how much */
+	struct
+	{
+		void const *definition;
+		real scale;
+	} *text_scales;
+	long text_scale_count;
 	struct cache_file_tag_instance *original_instances;
 	long original_count;
 	struct pc_menu_setting *settings;
@@ -1257,6 +1269,20 @@ static void *widget_build(long widget_index)
 		source->file, source->line);
 	definition->horizontal_offset = (short)source->text_x;
 	definition->vertical_offset = (short)source->text_y;
+	if (source->text_scale && (source->text_scale < 25 || source->text_scale > 400))
+		problem(source->file, source->line, "text_scale is a percentage, 25 to 400:", source->name);
+	else if (source->text_scale && source->text_scale != 100)
+	{
+		void *scales = realloc(menu_tags.text_scales, (menu_tags.text_scale_count + 1) * sizeof(*menu_tags.text_scales));
+
+		if (scales)
+		{
+			menu_tags.text_scales = scales;
+			menu_tags.text_scales[menu_tags.text_scale_count].definition = definition;
+			menu_tags.text_scales[menu_tags.text_scale_count].scale = source->text_scale / 100.0f;
+			menu_tags.text_scale_count++;
+		}
+	}
 	/* the list */
 	definition->list_flags |= flags_parse(source->list_flags, list_flag_names, NUMBEROF(list_flag_names),
 		source->file, source->line);
@@ -1493,6 +1519,8 @@ static void menu_tags_release(void)
 		free(menu_tags.bitmaps);
 	if (menu_tags.placements)
 		free(menu_tags.placements);
+	if (menu_tags.text_scales)
+		free(menu_tags.text_scales);
 	if (menu_tags.settings)
 		free(menu_tags.settings);
 	memset(&menu_tags, 0, sizeof(menu_tags));
@@ -2420,6 +2448,19 @@ boolean pc_menu_frame_placement(
 		}
 	}
 	return FALSE;
+}
+
+real pc_menu_text_scale(
+	void const *definition)
+{
+	long index;
+
+	for (index = 0; index < menu_tags.text_scale_count; index++)
+	{
+		if (menu_tags.text_scales[index].definition == definition)
+			return menu_tags.text_scales[index].scale;
+	}
+	return 1.0f;
 }
 
 char const *pc_menu_function_name(

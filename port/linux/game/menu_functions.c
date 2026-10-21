@@ -99,6 +99,7 @@ their handlers open opens.
 #include "halo_menus.h"
 #include "custom_edition_cache.h"
 #include "custom_edition_maps.h"
+#include "campaign_score.h"
 #include "network_voice.h"
 #include "text/draw_string.h"
 /* (internet play's server browser: the platform layer's) */
@@ -910,6 +911,40 @@ static void level_description(struct widget_instance *description, char const *p
 	}
 	else if (widget)
 		widget->parameters.text_box.string_list_index = in_progress ? LEVEL_IN_PROGRESS : level;
+	/* (the level's records, this machine's best score and time, with the
+	campaign's score: campaign_score.c's; none for a level not reached) */
+	snprintf(name, sizeof(name), "%s_right_record", prefix);
+	if ((widget = named(description, name, 0)) != NULL)
+	{
+		wchar_t text[ROW_TEXT_LENGTH];
+		wchar_t score_text[24];
+		wchar_t time_text[24];
+		wchar_t medals_text[24];
+		struct campaign_score_record record;
+		long profile_index = player_ui_get_active_player_profile_index(0);
+
+		/* (player 1's profile's: the active one, else the one used last) */
+		if (profile_index == NONE)
+			profile_index = player_ui_get_player1_last_used_profile_index();
+		text[0] = 0;
+		if (level >= 0 && level < NUMBER_OF_SINGLE_PLAYER_LEVELS && finished)
+		{
+			usprintf(score_text, L"PENDING");
+			usprintf(time_text, L"PENDING");
+			usprintf(medals_text, L"PENDING");
+			if (campaign_score_level_record(main_get_solo_level_name(level), profile_index, &record))
+			{
+				usnprintf(score_text, NUMBEROF(score_text), L"%ld", record.score);
+				usnprintf(time_text, NUMBEROF(time_text), L"%ld:%02ld:%02ld", record.seconds / 3600,
+					record.seconds / 60 % 60, record.seconds % 60);
+				if (record.medals != NONE)
+					usnprintf(medals_text, NUMBEROF(medals_text), L"%ld", record.medals);
+			}
+			/* (two lines: draw_string.c's line ends at '\r') */
+			usnprintf(text, NUMBEROF(text), L"SCORE: %s\rTIME: %s\rMEDALS: %s", score_text, time_text, medals_text);
+		}
+		text_set(widget, text);
+	}
 	for (marker = 0; marker < 3; marker++)
 	{
 		if ((widget = named(description, "difficulty_indicator", marker)) != NULL)
@@ -917,7 +952,17 @@ static void level_description(struct widget_instance *description, char const *p
 			widget->visible = saved_difficulty != NONE ? marker == 0 : finished && finished[marker];
 			widget->animation.current_frame_index = saved_difficulty != NONE ? saved_difficulty : marker + 1;
 		}
+		/* (New Game's, small badges over the picture's corner, where its
+		records have the icons' place: port_settings.py's LEVEL_BADGE) */
+		if ((widget = named(description, "difficulty_badge", marker)) != NULL)
+		{
+			widget->visible = finished && finished[marker];
+			widget->animation.current_frame_index = marker + 1;
+		}
 	}
+	/* (the badges' plate, with any of them) */
+	if ((widget = named(description, "difficulty_badges_plate", 0)) != NULL)
+		widget->visible = finished && (finished[0] || finished[1] || finished[2]);
 }
 
 /* player 1's profile's name (the active one, else the one used last: the
@@ -1002,6 +1047,7 @@ enum
 #define MAP_KIND_ROWS 10
 
 static void visible_set(struct widget_instance *widget, boolean visible);
+static struct widget_instance *screen_of(struct widget_instance *widget);
 short ui_widget_port_multiplayer_maps(char const *const **names, short *last_used);
 
 static boolean map_kind_singleplayer(short kind)
@@ -1520,11 +1566,17 @@ static void level_list_update(struct widget_instance *list)
 		}
 		visible_set(named(description, "replay_level_right_item", 0), display != NONE);
 		map_description_show(description, NONE, display);
+		/* (no LEADERBOARD for a map: only the campaign's levels have records) */
+		visible_set(named(screen_of(list), "button_leaderboard", 0), FALSE);
+		/* (a map's: no level's records) */
+		text_set(named(description, "replay_level_right_record", 0), L"");
 		profile_name_show(description);
 		return;
 	}
 	visible_set(named(description, "replay_level_right_item", 0), TRUE);
 	map_description_show(description, 0, NONE);
+	/* (LEADERBOARD, the campaign's levels': tools/port_settings.py's _leaderboard) */
+	visible_set(named(screen_of(list), "button_leaderboard", 0), TRUE);
 	campaign.shown_level = level_list.chosen;
 	level = campaign.shown_level;
 	if (!campaign.levels[level].available)
@@ -2562,6 +2614,104 @@ static void saved_games_read(short controller)
 	}
 	player_ui_set_active_player_profile(0, active_index, &active);
 	campaign_levels_read(&active);
+}
+
+/* New Game's LEADERBOARD (tools/port_settings.py's _leaderboard): the level
+shown's records, every profile's of this machine that has one (its
+campaign_records.txt: campaign_score.c), best score first, read as its
+screen opens */
+#define LEADERBOARD_ROWS 10
+
+static struct
+{
+	short count;
+	wchar_t level[64];
+	struct
+	{
+		wchar_t name[MAXIMUM_PLAYER_PROFILE_NAME_LENGTH + 1];
+		struct campaign_score_record record;
+	} rows[MAXIMUM_PROFILES];
+} leaderboard;
+
+/* "port leaderboard init" */
+static boolean leaderboard_initialize(void)
+{
+	short level = campaign.shown_level;
+	char const *map_name = level >= 0 && level < NUMBER_OF_SINGLE_PLAYER_LEVELS ? main_get_solo_level_name(level) : NULL;
+	wchar_t const *title = map_name ? custom_edition_maps_level_title(map_name) : NULL;
+	long profiles[MAXIMUM_PROFILES];
+	word count = MAXIMUM_PROFILES;
+	short index;
+
+	leaderboard.count = 0;
+	ustrncpy(leaderboard.level, title ? title : L"", NUMBEROF(leaderboard.level) - 1);
+	leaderboard.level[NUMBEROF(leaderboard.level) - 1] = 0;
+	if (!map_name)
+		return TRUE;
+	player_profiles_enumerate_available_to_local_player_index(NONE, &count, profiles, FALSE);
+	for (index = 0; index < (short)count && leaderboard.count < MAXIMUM_PROFILES; index++)
+	{
+		struct player_profile profile;
+		struct campaign_score_record record;
+		short place;
+
+		if (!((unsigned long)profiles[index] & PROFILE_VALID_BIT) || !player_profile_get(profiles[index], &profile) ||
+			!campaign_score_level_record(map_name, profiles[index], &record))
+		{
+			continue;
+		}
+		/* (in its place: the best score first) */
+		for (place = leaderboard.count; place > 0 && leaderboard.rows[place - 1].record.score < record.score; place--)
+			leaderboard.rows[place] = leaderboard.rows[place - 1];
+		ustrncpy(leaderboard.rows[place].name, profile.player_name, MAXIMUM_PLAYER_PROFILE_NAME_LENGTH);
+		leaderboard.rows[place].name[MAXIMUM_PLAYER_PROFILE_NAME_LENGTH] = 0;
+		leaderboard.rows[place].record = record;
+		leaderboard.count++;
+	}
+	return TRUE;
+}
+
+/* "port leaderboard update" */
+static void leaderboard_update(struct widget_instance *screen)
+{
+	short row;
+
+	text_set(named(screen, "level", 0), leaderboard.level);
+	for (row = 0; row < LEADERBOARD_ROWS; row++)
+	{
+		wchar_t name[ROW_TEXT_LENGTH] = { 0 };
+		wchar_t skulls[24] = { 0 };
+		wchar_t medals[24] = { 0 };
+		wchar_t score[24] = { 0 };
+		wchar_t time[24] = { 0 };
+
+		if (row < leaderboard.count)
+		{
+			struct campaign_score_record const *record = &leaderboard.rows[row].record;
+			long seconds = record->seconds;
+
+			usnprintf(name, NUMBEROF(name), L"%d.  %s", (int)row + 1, leaderboard.rows[row].name);
+			/* (each the profile's best of its own: "-" for a record from
+			before they were kept) */
+			if (record->skulls == NONE)
+				usprintf(skulls, L"-");
+			else
+				usnprintf(skulls, NUMBEROF(skulls), L"%ld", record->skulls);
+			if (record->medals == NONE)
+				usprintf(medals, L"-");
+			else
+				usnprintf(medals, NUMBEROF(medals), L"%ld", record->medals);
+			usnprintf(score, NUMBEROF(score), L"%ld", record->score);
+			usnprintf(time, NUMBEROF(time), L"%ld:%02ld:%02ld", seconds / 3600, seconds / 60 % 60, seconds % 60);
+		}
+		text_set(named(screen, "row_name", row), name);
+		text_set(named(screen, "row_skulls", row), skulls);
+		text_set(named(screen, "row_medals", row), medals);
+		text_set(named(screen, "row_score", row), score);
+		text_set(named(screen, "row_time", row), time);
+	}
+	text_set(named(screen, "note", 0), leaderboard.count ? L"" :
+		L"No scores yet. Win this level with scoring on\r(Settings > Gameplay > Scoring) to set one.");
 }
 
 /* "load game menu init" */
@@ -7741,6 +7891,10 @@ boolean pc_menu_event_function_invoke(
 		{
 			return password_screen_initialize(widget);
 		}
+		else if (!strcmp(name, "port leaderboard init"))
+		{
+			return leaderboard_initialize();
+		}
 		else if (!strcmp(name, "port password edit"))
 		{
 			return password_screen_edit(widget, widget_deleted);
@@ -8043,6 +8197,8 @@ void pc_menu_game_data_function_invoke(
 		server_settings_update(widget);
 	else if (!strcmp(name, "port password update"))
 		password_screen_update(widget);
+	else if (!strcmp(name, "port leaderboard update"))
+		leaderboard_update(widget);
 	else if (!strcmp(name, "gamespy screen update"))
 		browser_update(widget);
 	else if (!strcmp(name, "gt edit list update"))

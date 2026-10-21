@@ -323,7 +323,7 @@
   },
   "medals": {
     "_about": [
-      "Medals (campaign_medals.c), with MEDALS on (Settings > Gameplay > Scoring): each is worth its points,",
+      "Medals (campaign_medals.c), always given with the scoring (Settings > Gameplay > Scoring's MEDAL POPUPS shows those just won): each is worth its points,",
       "times the difficulty and the skulls when 'scaled' (as a kill is). The time's multiplier applies to them at",
       "the level's end, as to every point. multi_kill_seconds: a kill within this of the last is a multi-kill.",
       "perfection_kills: Perfection's kills (won without dying). close_call_health: Close Call's health (0 to 1),",
@@ -336,7 +336,7 @@
     "multi_kill_seconds": 4,
     "perfection_kills": 15,
     "close_call_health": 0.25,
-    "history": 8,
+    "history": 12,
     "popup_seconds": 3,
     "scaled": true,
     "weapons": {

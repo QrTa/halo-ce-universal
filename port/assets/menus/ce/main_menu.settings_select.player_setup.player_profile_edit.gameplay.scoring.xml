@@ -52,11 +52,11 @@
 	</widget>
 	<strings name="main_menu/settings_select/player_setup/player_profile_edit/gameplay/scoring/labels">
 		<string text="SCORING:"/>
-		<string text="MEDALS:"/>
+		<string text="MEDAL POPUPS:"/>
 	</strings>
 	<strings name="main_menu/settings_select/player_setup/player_profile_edit/gameplay/scoring/help_strings">
 		<string text=""/>
 		<string text="Score each kill in the campaign: your score and\ntime at the bottom right, everyone's on tab."/>
-		<string text="With scoring on: Halo 3's and Reach's medals,\neach worth points, shown as they are won."/>
+		<string text="Show the medals you win at the center left as\nyou win them. Medals always count with scoring."/>
 	</strings>
 </menus>

@@ -493,4 +493,13 @@
 		<frame png="ce/port/medals/icons__36.png" width="32" height="32"/>
 		<frame png="ce/port/medals/icons__37.png" width="32" height="32"/>
 	</bitmap>
+	<bitmap name="main_menu/solo_level_select/difficulty_badges">
+		<frame map="ui\shell\main_menu\difficulty_select\difficulty_options_small" index="0" width="22" height="24"/>
+		<frame map="ui\shell\main_menu\difficulty_select\difficulty_options_small" index="1" width="22" height="24"/>
+		<frame map="ui\shell\main_menu\difficulty_select\difficulty_options_small" index="2" width="22" height="24"/>
+		<frame map="ui\shell\main_menu\difficulty_select\difficulty_options_small" index="3" width="22" height="24"/>
+	</bitmap>
+	<bitmap name="records/badge_gradient">
+		<frame png="ce/port/records/badge_gradient__0.png" width="140" height="40"/>
+	</bitmap>
 </menus>

@@ -568,7 +568,7 @@ def widget_xml(tag: str, widget: dict, tags: Tags, functions: list, inputs: list
         lines.append(f"{inner}<conditional{attributes([('widget', our_name(conditional['widget tag'])), ('if_failed', 'true' if conditional['flags'] & 1 else None)])}/>")
     for child in widget["child widgets"]:
         child_tag = child["widget tag"]
-        if child_tag in LEFT_OUT:
+        if child_tag in LEFT_OUT or our_name(child_tag) in patch.get("remove", []):
             continue
         x, y = CHILD_OFFSETS.get((tag, child_tag), (child["horizontal offset"], child["vertical offset"]))
         name = patch.get("swap", {}).get(our_name(child_tag), our_name(child_tag))
@@ -708,6 +708,16 @@ def main() -> None:
     # in campaign_medals.c's order, which it and campaign_score.c draw)
     lines.append(art.port_pngs("medals/icons", [(ROOT / "port/assets/medals" / f"{key}.png", 32, 32)
                                                 for key in campaign_score_values.medal_keys()]))
+    # (New Game's level details' difficulty badges: ui.map's difficulty icons,
+    # scaled to the badges' size, port_settings.LEVEL_BADGE)
+    width, height = port_settings.LEVEL_BADGE_SIZE
+    lines.append(f"\t<bitmap{attributes([('name', port_settings.LEVEL_BADGE_BITMAP)])}>")
+    lines += [f"\t\t<frame{attributes([('map', port_settings.LEVEL_BADGE_SOURCE), ('index', index), ('width', width), ('height', height)])}/>"
+              for index in range(port_settings.LEVEL_BADGE_FRAMES)]
+    lines.append("\t</bitmap>")
+    lines.append(art.port_pngs(port_settings.LEVEL_BADGE_PLATE_BITMAP,
+                               [(ROOT / "port/assets/records" / port_settings.LEVEL_BADGE_PLATE_PNG,
+                                 *port_settings.LEVEL_BADGE_PLATE_PLACE[2:])]))
     lines.append("</menus>")
     (CE / "bitmaps.xml").write_text("\n".join(lines) + "\n")
     # what is not hand-drawn

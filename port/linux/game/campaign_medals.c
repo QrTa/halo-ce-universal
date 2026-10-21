@@ -1,7 +1,8 @@
 /*
 CAMPAIGN_MEDALS.C
 
-The campaign's medals (game.campaign_medals, with game.campaign_score): those
+The campaign's medals (always, with game.campaign_score; game.campaign_medals
+shows or hides those just won, at the center left): those
 of Halo 3's and Halo: Reach's that the campaign's weapons, enemies and
 vehicles can earn. Each is worth its points (campaign_score_values.json's
 "medals", times the difficulty and the skulls, as a kill is), logged as an
@@ -65,8 +66,8 @@ enum
 	CAMPAIGN_MEDALS_POPUPS_PER_ROW = 5,
 	/* the popups' icons, their gap, and where they are, in the HUD's 480
 	lines: from the view's left, and their middle's height */
-	CAMPAIGN_MEDALS_POPUP_SIZE = 40,
-	CAMPAIGN_MEDALS_POPUP_GAP = 6,
+	CAMPAIGN_MEDALS_POPUP_SIZE = 20,
+	CAMPAIGN_MEDALS_POPUP_GAP = 3,
 	CAMPAIGN_MEDALS_POPUP_LEFT = 24,
 	CAMPAIGN_MEDALS_POPUP_MIDDLE = 250,
 	/* a kill spree's medals: one every this many kills, as many as there are */
@@ -283,15 +284,21 @@ static long campaign_medals_wheelman(
 boolean campaign_medals_enabled(
 	void)
 {
+	return campaign_score_enabled();
+}
+
+boolean campaign_medals_popups_shown(
+	void)
+{
 	static unsigned long changes = (unsigned long)-1;
-	static boolean enabled = TRUE;
+	static boolean shown = TRUE;
 
 	if (changes != config_changes())
 	{
 		changes = config_changes();
-		enabled = config_boolean("game.campaign_medals") != 0;
+		shown = config_boolean("game.campaign_medals") != 0;
 	}
-	return enabled && campaign_score_enabled();
+	return shown && campaign_medals_enabled();
 }
 
 void campaign_medals_new_map(
@@ -527,7 +534,7 @@ void campaign_medals_draw_popups(
 	short newest = NONE;
 	short index;
 
-	if (player_index == NONE || !campaign_medals_enabled())
+	if (player_index == NONE || !campaign_medals_popups_shown())
 		return;
 	absolute_index = (short)DATUM_INDEX_TO_ABSOLUTE_INDEX(player_index);
 	if (absolute_index >= CAMPAIGN_MEDALS_MAXIMUM_PLAYERS)

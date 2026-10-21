@@ -92,6 +92,25 @@ void campaign_score_time_text(wchar_t *text, long count);
 /* a player's name (by datum index): their own, else, for one of this
 machine's campaign, their profile's (a single player's has none) */
 void campaign_score_player_display_name(long player_index, wchar_t *name, long count);
+/* a level's records in a profile's, each its own best, whichever run's:
+the most points, the shortest time (in seconds), the most skulls on, the
+highest skulls' multiplier (in hundredths) and the most medals; and the
+best score's difficulty (0 easy to 3 legendary); NONE for those a record
+older than the leaderboard has not */
+struct campaign_score_record
+{
+	long score;
+	long seconds;
+	long difficulty;
+	long skulls;
+	long skulls_percent;
+	long medals;
+};
+
+/* (menu_functions.c's New Game and leaderboard) a level's records (by its
+name, levels\a10\a10) in the profile's (its index; its
+campaign_records.txt); FALSE for none */
+boolean campaign_score_level_record(char const *level_name, long profile_index, struct campaign_score_record *record);
 /* the level's title (The Pillar of Autumn), else its map's name */
 void campaign_score_level_title(wchar_t *text, long count);
 

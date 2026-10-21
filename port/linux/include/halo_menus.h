@@ -110,6 +110,8 @@ struct halo_menu_widget
 		*align, *description, *string_list, *list_flags, *text_flags, *header_bitmap, *footer_bitmap,
 		*header_bounds, *footer_bounds;
 	long x, y, left, top, width, height, text_x, text_y, auto_close, auto_close_fade, string_index;
+	/* (a text's size, a percentage of its font's: 0 for its own) */
+	long text_scale;
 	long has_width, has_height;
 	/* indices in their arrays, or HALO_MENU_NONE */
 	long parent, first_child, first_handler, first_input, first_conditional, first_replace;

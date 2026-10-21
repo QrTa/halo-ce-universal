@@ -67,9 +67,11 @@ struct campaign_medal_description
 
 extern struct campaign_medal_description const campaign_medal_descriptions[NUMBER_OF_CAMPAIGN_MEDALS];
 
-/* game.campaign_medals: medals are given (the host's, in co-op) and shown
-(each machine's) */
+/* medals are given, as the score is kept (game.campaign_score: the host's,
+in co-op); game.campaign_medals, whether this machine shows those just won
+at the center left (the history above the score is always shown) */
 boolean campaign_medals_enabled(void);
+boolean campaign_medals_popups_shown(void);
 
 /* (campaign_score.c) a new level: the sprees and the popups forgotten */
 void campaign_medals_new_map(void);

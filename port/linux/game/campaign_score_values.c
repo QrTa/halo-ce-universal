@@ -226,7 +226,7 @@ struct campaign_score_values const campaign_score_values =
 	4.0f,
 	15,
 	0.25f,
-	8,
+	12,
 	3.0f,
 	1,
 	{ campaign_score_words_31, campaign_score_words_32, campaign_score_words_33, campaign_score_words_34, campaign_score_words_35 },
