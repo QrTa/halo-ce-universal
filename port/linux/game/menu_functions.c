@@ -3329,6 +3329,37 @@ static boolean daily_back(boolean *widget_deleted)
 	return TRUE;
 }
 
+/* (ui_widget.c's main_screen_shell_load, the main menu just opened) after a
+challenge's level won here, its day's leaderboard, whose BACK is the
+challenge's screen (and its own Campaign's menu); after a random run's, the
+challenge's screen */
+#define DAILY_SCREEN_NAME "pc\\main_menu\\daily\\daily_screen"
+#define DAILY_LEADERBOARD_NAME "pc\\main_menu\\daily\\leaderboard\\leaderboard_screen"
+
+void pc_menus_shell_loaded(void)
+{
+	struct community_challenge const *challenge;
+	long main_menu, daily_screen;
+	boolean random;
+
+	if (!community_daily_won_take(&random))
+		return;
+	main_menu = tag_loaded(DAILY_WIDGET_DEFINITION_TAG, MAIN_MENU_NAME);
+	daily_screen = tag_loaded(DAILY_WIDGET_DEFINITION_TAG, DAILY_SCREEN_NAME);
+	if (main_menu == NONE || daily_screen == NONE)
+		return;
+	/* (the day played shown, a random run's the one shown before it) */
+	challenge = community_daily();
+	if (!random && challenge)
+		snprintf(daily.day, sizeof(daily.day), "%s", community_daily_is_today() ? "" : challenge->day);
+	if (!ui_widget_load_by_name_or_tag(NULL, daily_screen, NULL, NONE, main_menu, NONE, NONE) || random ||
+		!challenge)
+	{
+		return;
+	}
+	ui_widget_load_by_name_or_tag(DAILY_LEADERBOARD_NAME, NONE, NULL, NONE, daily_screen, NONE, NONE);
+}
+
 /* "port daily leaderboard init" (the challenge's LEADERBOARD) */
 static boolean daily_leaderboard_initialize(void)
 {

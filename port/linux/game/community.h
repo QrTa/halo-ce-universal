@@ -150,6 +150,12 @@ void community_daily_cancel(void);
 /* a daily challenge is being played (its settings are set): this
 machine's, or as a network co-op host's lobby's */
 boolean community_challenge_running(void);
+/* (main.c) the challenge's level was won here, its game this machine's
+alone: the menus come back to it (community_daily_won_take) */
+void community_daily_won(void);
+/* (menu_functions.c, as the main menu opens) a challenge's level was just
+won here, and whether it was a random run's: once, FALSE after */
+boolean community_daily_won_take(boolean *random);
 /* the level just won is a daily challenge's: this machine's, or (a network
 co-op client) its host's */
 boolean community_daily_run(void);

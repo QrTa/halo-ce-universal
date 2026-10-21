@@ -16,8 +16,10 @@ from this machine.
   Its settings are set for the run alone (config_override: config.toml is
   left as it is) and taken away when the main menu is back; the randomizer
   rolls the seed in place of its own (randomizer.c), so that everyone meets
-  the same enemies. Its runs go to the day's leaderboard while the day lasts;
-  a past day's can be played, and is not sent.
+  the same enemies. Its runs go to the day's leaderboard whenever they are
+  played (a past day's too); the server keeps the day's own top three, while
+  it lasted, on top. A level won as a challenge's comes back to its day's
+  leaderboard, over its screen (menu_functions.c).
 - Offline, the day is this machine's (its midnight ends it) and its challenge
   is made here (local_challenge: the server's choices, utils/halo_daily.js,
   rolled from the day, so every offline game has the same one that day); its
@@ -490,6 +492,10 @@ static struct
 	/* (when it began: a level that never loaded gives the settings back) */
 	unsigned long running_since;
 	struct community_challenge running_challenge;
+	/* (its level won here, for the menus to come back to: a random run's or
+	a challenge's) */
+	boolean won;
+	boolean won_random;
 
 	/* (a network co-op client) its host's challenge, as the level is won:
 	its day (days since 1970, 0 for none) and flags */
@@ -499,6 +505,9 @@ static struct
 	/* the scores sent (each for a summary card's slot), and what each came to */
 	int submit_tickets[COMMUNITY_RESULT_SLOTS];
 	short submit_slots[COMMUNITY_RESULT_SLOTS];
+	/* (a challenge's: its day, whose leaderboard is asked for again if it
+	was answered before the score was taken; "" for a level's) */
+	char submit_days[COMMUNITY_RESULT_SLOTS][COMMUNITY_DAY_LENGTH];
 	wchar_t result[COMMUNITY_RESULT_SLOTS][COMMUNITY_RESULT_LENGTH];
 
 	wchar_t status[COMMUNITY_STATUS_LENGTH];
@@ -1433,6 +1442,23 @@ boolean community_challenge_running(void)
 	return community.running;
 }
 
+void community_daily_won(void)
+{
+	if (!community.running)
+		return;
+	community.won = TRUE;
+	community.won_random = community.running_challenge.random;
+}
+
+boolean community_daily_won_take(boolean *random)
+{
+	boolean won = community.won;
+
+	*random = community.won_random;
+	community.won = FALSE;
+	return won;
+}
+
 unsigned long community_randomizer_seed(char const *scenario_name)
 {
 	char key[COMMUNITY_LEVEL_KEY_LENGTH];
@@ -1711,7 +1737,7 @@ static void result_set(short slot, wchar_t const *text)
 	community.result[slot][COMMUNITY_RESULT_LENGTH - 1] = 0;
 }
 
-static void submit(char const *path, char const *body, char const *player, short slot)
+static void submit(char const *path, char const *body, char const *player, char const *day, short slot)
 {
 	short index;
 	int ticket;
@@ -1734,6 +1760,7 @@ static void submit(char const *path, char const *body, char const *player, short
 	}
 	community.submit_tickets[index] = ticket;
 	community.submit_slots[index] = slot;
+	snprintf(community.submit_days[index], sizeof(community.submit_days[0]), "%s", day ? day : "");
 	result_set(slot, L"ONLINE: SENDING...");
 }
 
@@ -1869,11 +1896,11 @@ void community_level_won(char const *level_name, struct community_run const *run
 		}
 		snprintf(body + length, sizeof(body) - (size_t)length, "]}");
 		snprintf(path, sizeof(path), "/daily/%s/scores", challenge.day);
-		submit(path, body, player, slot);
+		submit(path, body, player, challenge.day, slot);
 		return;
 	}
 	snprintf(body + length, sizeof(body) - (size_t)length, "}");
-	submit("/levels/scores", body, player, slot);
+	submit("/levels/scores", body, player, NULL, slot);
 }
 
 wchar_t const *community_result_text(short slot)
@@ -1927,6 +1954,12 @@ static void submit_poll(void)
 			}
 			else
 				result_set(slot, L"ONLINE: SENT");
+			/* (the day's leaderboard, already shown: asked for again, with it) */
+			if (community.submit_days[index][0] && community.board.state != _community_loading &&
+				!strcmp(community.board.asked, community.submit_days[index]))
+			{
+				community_board_open_day(community.submit_days[index]);
+			}
 		}
 		else
 		{

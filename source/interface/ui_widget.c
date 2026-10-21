@@ -5040,6 +5040,13 @@ void main_screen_shell_load(
 			if (!ui_widget_load_by_name_or_tag(pc_menus_root_name(), NONE, NULL, NONE, NONE, NONE, NONE))
 				error(_error_silent, "failed to load main screen shell window");
 		}
+		/* port: after a daily challenge's level, its screens over the main
+		menu (port/linux/game/menu_functions.c) */
+		{
+			extern void pc_menus_shell_loaded(void);
+
+			pc_menus_shell_loaded();
+		}
 		if (widget_globals.main_menu_deferred_error_code != NONE)
 		{
 			display_error(widget_globals.main_menu_deferred_error_code, NONE, TRUE, FALSE);

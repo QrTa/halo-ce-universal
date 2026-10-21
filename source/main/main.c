@@ -2413,9 +2413,12 @@ static void main_won_map_private(
 	/* port: a daily challenge's level won ends its game: back to the lobby,
 	which plays it again, or to the menus, never on to the next level, and
 	the campaign's progress not kept, its settings the challenge's
-	(port/linux/game/community.c) */
+	(port/linux/game/community.c). The menus come back to its day's
+	leaderboard (not the campaign's end, ui_set_next_level's NONE, whose
+	credits roll) */
 	{
 		extern boolean community_challenge_running(void);
+		extern void community_daily_won(void);
 
 		if (community_challenge_running())
 		{
@@ -2425,8 +2428,8 @@ static void main_won_map_private(
 				network_game_server_port_cooperative_won(NULL);
 				return;
 			}
-			main_globals.want_to_be_at_main_menu = TRUE;
-			ui_set_next_level(NONE);
+			community_daily_won();
+			main_goto_main_menu();
 			return;
 		}
 	}
