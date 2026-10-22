@@ -90,7 +90,7 @@ parser.add_argument(
 parser.add_argument(
     "--android-guest-cc",
     type=str,
-    help="clang with the arm64_32 target for the Android guest (default: clang)",
+    help="clang with the arm64_32 target for the Android guest (default: clang; on macOS Homebrew LLVM's)",
 )
 parser.add_argument(
     "--android-vulkan-validation",
@@ -273,6 +273,18 @@ generate_windows_build(n, sln)
 generate_switch_build(n, sln)
 generate_ps5_build(n, sln)
 generate_web_build(n, sln)
+
+# every build generated for this computer, in one target (`ninja all`): the
+# x86 Linux build is generated everywhere but only builds on Linux, and the
+# PS5 target is a stub that fails when its dependencies are missing
+all_builds = [
+    name
+    for name in ("linux", "linux_arm64", "linux_x86_64", "windows", "android_apk", "switch", "ps5", "web")
+    if f"\nbuild {name}: phony" in out.getvalue() and (name != "linux" or sys.platform.startswith("linux"))
+]
+n.comment("Every build generated for this computer")
+n.build(outputs="all", rule="phony", inputs=all_builds)
+n.newline()
 
 n.comment("Reconfigure on change")
 n.rule(

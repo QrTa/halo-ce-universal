@@ -35,6 +35,7 @@ from .linux_build import (LINUX_PROFILE, MINIUPNPC_DEFINES, MINIUPNPC_DIR, MUSL_
 from . import check_host_imports
 from .embed_assets import hud_assets_build, hud_configure_inputs
 from .linux_sysroot import download
+from .macos_toolchain import android_sdk, default_clang, java_home
 from .ninja_syntax import Writer
 
 PORT_DIR = Path("port/android")
@@ -180,13 +181,9 @@ def _find_ndk() -> Optional[Path]:
     for variable in ("ANDROID_NDK_HOME", "ANDROID_NDK_ROOT", "ANDROID_NDK"):
         if os.environ.get(variable) and Path(os.environ[variable]).is_dir():
             return Path(os.environ[variable])
-    for variable in ("ANDROID_HOME", "ANDROID_SDK_ROOT"):
-        sdk = os.environ.get(variable)
-        if sdk and (Path(sdk) / "ndk").is_dir():
-            versions = sorted((Path(sdk) / "ndk").iterdir())
-            if versions:
-                return versions[-1]
-    for sdk in (Path.home() / "Android/Sdk", Path("/opt/android-sdk")):
+    # (ANDROID_HOME's, or on macOS Android Studio's: tools/macos_toolchain.py)
+    sdk_found = android_sdk()
+    for sdk in (*([sdk_found] if sdk_found else []), Path.home() / "Android/Sdk", Path("/opt/android-sdk")):
         if (sdk / "ndk").is_dir():
             versions = sorted((sdk / "ndk").iterdir())
             if versions:
@@ -325,7 +322,7 @@ def _musl_sources(musl_dir: Path = MUSL_DIR) -> List[Path]:
 
 
 def android_configure_inputs() -> List[Path]:
-    return [Path(__file__), GUEST_ARCH_SCRIPT, SDL_ANDROID_MOUSE_PATCH, PORT_DIR / "guest", PORT_DIR / "guest" / "runtime",
+    return [Path(__file__), Path(__file__).with_name("macos_toolchain.py"), GUEST_ARCH_SCRIPT, SDL_ANDROID_MOUSE_PATCH, PORT_DIR / "guest", PORT_DIR / "guest" / "runtime",
             PORT_DIR / "host", PORT_DIR / "probe", PORT_DIR / "probe" / "adrenotools.patch", LINUX_DIR / "src",
             *hud_configure_inputs()]
 
@@ -764,7 +761,7 @@ def generate_android_build(n: Writer, sln: Any) -> None:
     sysroot_include = toolchain / "sysroot" / "usr" / "include"
     host_cc = toolchain / "bin" / f"aarch64-linux-android{ANDROID_API}-clang"
     ndk_bin = toolchain / "bin"
-    guest_cc = getattr(sln, "android_guest_cc", None) or "clang"
+    guest_cc = getattr(sln, "android_guest_cc", None) or default_clang()
 
     python = "$python"
     n.comment("Android build (ninja android); see port/android/README.md")
@@ -978,10 +975,14 @@ def generate_android_build(n: Writer, sln: Any) -> None:
 
     apk = PORT_DIR / "app" / "build" / "outputs" / "apk" / "debug" / "app-debug.apk"
     sdl_android_mouse_listener = SDL_DIR / SDL_ANDROID_MOUSE_LISTENER
+    # (the JDK and SDK found now, so that Gradle needs neither in the shell
+    # that runs ninja: tools/macos_toolchain.py)
+    gradle_environment = "".join(f"{name}={_quote(path)} " for name, path in
+                                 (("JAVA_HOME", java_home()), ("ANDROID_HOME", android_sdk())) if path)
     n.rule(
         name="android_gradle",
         # Gradle leaves the APK alone when its contents would not change
-        command=(f"cd {PORT_DIR} && ./gradlew --console=plain -q assembleDebug && "
+        command=(f"cd {PORT_DIR} && {gradle_environment}./gradlew --console=plain -q assembleDebug && "
                  "touch app/build/outputs/apk/debug/app-debug.apk"),
         description="ANDROID GRADLE $out",
         pool="console",

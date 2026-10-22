@@ -200,6 +200,13 @@ def generate() -> str:
     out.lines.append("static struct campaign_score_time_bracket const campaign_score_time_brackets[] =\n{")
     out.lines += bracket_rows
     out.lines.append("};")
+    par_difficulty = time.get("par_difficulty", {})
+    par_difficulties = [_number(f"time.par_difficulty.{name}", par_difficulty.get(name, 1.0)) for name in DIFFICULTIES]
+    daily_challenge_par = _number("time.daily_challenge_par", time.get("daily_challenge_par", 1.0))
+    for where, value in [*zip((f"time.par_difficulty.{name}" for name in DIFFICULTIES), par_difficulties),
+                         ("time.daily_challenge_par", daily_challenge_par)]:
+        if value <= 0:
+            raise ValuesError(f"{where}: {value} should be more than 0")
     par_rows = [f"\t{{ {_c_string(level.lower())}, {_par_seconds(level, text)} }},"
                 for level, text in time.get("par_times", {}).items() if not level.startswith("_")]
     if par_rows:
@@ -269,6 +276,8 @@ def generate() -> str:
         "\t{ " + ", ".join(_c_float(value) for value in difficulties) + " },",
         f"\t{len(bracket_rows)}, campaign_score_time_brackets,",
         f"\t{len(par_rows)}, {'campaign_score_par_times' if par_rows else 'NULL'},",
+        "\t{ " + ", ".join(_c_float(value) for value in par_difficulties) + " },",
+        f"\t{_c_float(daily_challenge_par)},",
         f"\t{style_combine},",
         *(f"\t{_c_float(value)}," for value in styles),
         f"\t{enemy_count}, {enemies},",

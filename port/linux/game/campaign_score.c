@@ -498,8 +498,9 @@ static real campaign_score_style_multiplier(
 	return any ? multiplier : values->style_regular;
 }
 
-/* the level's par time, in seconds, by its name (a10, of levels\a10\a10):
-NONE for a level with none */
+/* the level's par time, in seconds, by its name (a10, of levels\a10\a10),
+times the difficulty's (and a daily challenge's) par multiplier: NONE for a
+level with none */
 static long campaign_score_par_seconds(
 	void)
 {
@@ -517,7 +518,14 @@ static long campaign_score_par_seconds(
 	for (index = 0; index < campaign_score_values.par_time_count; index++)
 	{
 		if (!strcmp(campaign_score_values.par_times[index].level, last))
-			return campaign_score_values.par_times[index].seconds;
+		{
+			real seconds = (real)campaign_score_values.par_times[index].seconds *
+				campaign_score_values.par_difficulty[campaign_score_difficulty()];
+
+			if (community_daily_run())
+				seconds *= campaign_score_values.par_daily_challenge;
+			return (long)(seconds + 0.5f);
+		}
 	}
 	return NONE;
 }

@@ -27,6 +27,7 @@ from .linux_build import (LINUX_PROFILE, MINIUPNPC_DIR, OPTIMISATION, STB_VORBIS
                           game_defines_and_includes, game_sources, musl_math_cflags, musl_math_sources, opus_cflags,
                           opus_sources, pgo_profile, profile_use_flags, xdk_headers)
 from .embed_assets import hud_assets_build, hud_configure_inputs
+from .macos_toolchain import default_clang, lld_link
 from .ninja_syntax import Writer
 from .windows_cross_build import cross_toolchain_prefix
 
@@ -156,6 +157,7 @@ def windows_configure_inputs() -> List[Path]:
     return [
         Path(__file__),
         Path(__file__).with_name("windows_cross_build.py"),
+        Path(__file__).with_name("macos_toolchain.py"),
         PORT_CONFIG,
         PORT_DIR / "src",
         LINUX_DIR / "src",
@@ -291,7 +293,7 @@ def generate_windows_build(n: Writer, sln: Any) -> None:
     obj_dir = BUILD / "obj"
     output = BUILD / "halo.exe"
     sdl_dll = BUILD / "SDL3.dll"
-    cc = getattr(sln, "windows_cc", None) or "clang"
+    cc = getattr(sln, "windows_cc", None) or default_clang()
     prefix_header = PORT_DIR / "include" / "halo_windows_prefix.h"
     crt_include = PORT_DIR / "include" / "crt"
     posix_include = PORT_DIR / "include" / "posix"
@@ -361,6 +363,8 @@ def generate_windows_build(n: Writer, sln: Any) -> None:
     base_ldflags = [
         "--target=i686-pc-windows-msvc",
         "-fuse-ld=lld",
+        # (on macOS Homebrew's lld-link, not the PATH's: tools/macos_toolchain.py)
+        *([f"--ld-path={_quote(lld_link())}"] if lld_link() else []),
         "-g",
         # the Xbox memory window is at 0x80000000, in the upper half of the
         # 32-bit address space

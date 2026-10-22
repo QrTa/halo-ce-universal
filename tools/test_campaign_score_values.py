@@ -42,7 +42,9 @@ def test_values():
     assert "{ 0.5f, 1.0f, 2.0f, 4.0f }," in text
     assert '{ "a10", 900 },' in text
     assert '{ "c10", 720 },' in text
-    assert "{ -1.0f, 0.0f }," in text
+    assert "{ -1.0f, 0.5f }," in text
+    assert "{ 0.8f, 1.0f, 1.3f, 1.8f }," in text
+    assert "\t1.2f," in text
 
 
 def test_names_are_checked():

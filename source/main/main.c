@@ -3659,9 +3659,12 @@ static boolean main_loop_iteration(
 			{
 				extern void randomizer_pack_update(boolean main_menu);
 				extern void randomizer_profiles_poll(void);
+				extern void skulls_setup_poll(boolean main_menu);
 
 				randomizer_profiles_poll();
 				randomizer_pack_update(main_globals.main_menu_scenario_loaded);
+				/* (then the skulls' question, once their pack is written) */
+				skulls_setup_poll(main_globals.main_menu_scenario_loaded);
 			}
 			/* port: the community server's answers, and a daily challenge's
 			settings taken away once its level is over

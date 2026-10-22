@@ -449,6 +449,12 @@ int skulls_pack_wanted(void)
 {
 	struct skull_set chosen;
 
+	/* (the question of how they are had not answered yet: written before it
+	is asked, as either answer may want it, menu_functions.c's
+	skulls_setup_poll; with the skulls off too, as a daily challenge or a
+	co-op host's skulls apply whatever SKULLS says) */
+	if (skulls_unlock_mode() == _skulls_unlock_unset)
+		return 1;
 	if (!config_boolean("game.skulls"))
 		return 0;
 	chosen = skull_set_intersection(skulls_set_from_text(config_string("game.skulls_active")),

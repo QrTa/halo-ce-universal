@@ -1944,6 +1944,14 @@ by its OK (tools/port_settings.py's SKULLS); and the screen Back returns to
 from it, or from the question of how the skulls are had before it */
 static struct skull_set skulls_menu_set;
 static long skulls_menu_back_tag = NONE;
+/* the question of how the skulls are had, asked by itself (skulls_setup_poll)
+rather than before the skulls screen: asked already, and open, its answer
+going back to the screen it opened over */
+static struct
+{
+	boolean asked;
+	boolean open;
+} skulls_setup;
 /* the randomizer's and the skulls' screens opened from Server Setup (a
 co-op game's: "ss randomizer", "ss skulls"), whose OK writes them and goes
 back there, rather than from a level's difficulty, whose OK starts it */
@@ -2422,6 +2430,7 @@ static boolean skulls_open_over(long back_tag, boolean *widget_deleted)
 		"pc\\main_menu\\difficulty_select\\skulls\\skulls_screen";
 
 	skulls_menu_back_tag = back_tag;
+	skulls_setup.open = FALSE;
 	skulls_menu_set = skull_set_intersection(skulls_set_from_text(config_string("game.skulls_active")),
 		skulls_unlocked_set());
 	if (!ui_widget_load_by_name_or_tag(screen, NONE, NULL, NONE, back_tag, NONE, NONE))
@@ -2438,8 +2447,10 @@ static boolean skulls_open(struct widget_instance *widget, boolean *widget_delet
 /* "skulls unlock all", "skulls unlock pickup", and "skulls death lose" and
 "skulls death keep" (the question's answers, the last two UNLOCK VIA
 GAMEPLAY's, after the question of a death): the answers kept, then the
-skulls screen, over the screen the questions were over */
-static boolean skulls_unlock_choose(boolean play, boolean instant, boolean lose_on_death, boolean *widget_deleted)
+skulls screen, over the screen the questions were over (asked by itself:
+back to that screen) */
+static boolean skulls_unlock_choose(struct widget_instance *widget, boolean play, boolean instant,
+	boolean lose_on_death, boolean *widget_deleted)
 {
 	/* (every answer unlocking by playing, with ALL SKULLS on for ALL
 	UNLOCKED, and INSTANT UNLOCK on for UNLOCK ON PICKUP: Settings >
@@ -2454,16 +2465,23 @@ static boolean skulls_unlock_choose(boolean play, boolean instant, boolean lose_
 	if (play && skulls_drop())
 		skulls_pack_request();
 	ui_play_audio_feedback_sound(SOUND_FORWARD);
+	if (skulls_setup.open)
+	{
+		skulls_setup.open = FALSE;
+		ui_widget_port_go_back(widget);
+		*widget_deleted = TRUE;
+		return TRUE;
+	}
 	return skulls_open_over(skulls_menu_back_tag, widget_deleted);
 }
 
 /* "skulls unlock play" (UNLOCK VIA GAMEPLAY), and "skulls death back" (B
 on the question it asks): the question of whether a death loses the skulls
 picked up, and back from it to the first, each over the screen the first
-was over */
+was over (the first's already in the history, which Back pops once) */
 static boolean skulls_question_open(char const *screen, boolean forward, boolean *widget_deleted)
 {
-	if (!ui_widget_load_by_name_or_tag(screen, NONE, NULL, NONE, skulls_menu_back_tag, NONE, NONE))
+	if (!ui_widget_load_by_name_or_tag(screen, NONE, NULL, NONE, NONE, NONE, NONE))
 		return FALSE;
 	ui_play_audio_feedback_sound(forward ? SOUND_FORWARD : SOUND_BACK);
 	*widget_deleted = TRUE;
@@ -2668,6 +2686,8 @@ static void skulls_reset_progress(struct widget_instance *widget)
 	}
 	platform_log("menus: skull progress reset");
 	skulls_reset_state = _skulls_reset_done;
+	/* (the question asked again before the skulls screen, not now) */
+	skulls_setup.asked = TRUE;
 	/* (the spinners, what is saved now) */
 	settings_each(screen_of(widget), setting_show_saved);
 	ui_play_audio_feedback_sound(SOUND_BACK);
@@ -3609,6 +3629,10 @@ static void setting_written(char const *name, char const *value)
 {
 	if (!strcmp(name, "game.randomizer") && !strcmp(value, "true"))
 		randomizer_pack_request();
+	/* (the skulls turned on, their question asked once the pack is written:
+	skulls_setup_poll) */
+	if (!strcmp(name, "game.skulls") && !strcmp(value, "true"))
+		skulls_setup.asked = FALSE;
 	/* (and the skulls': skulls to be found, carried by the enemies) */
 	if ((!strcmp(name, "game.skulls") || !strcmp(name, "game.skulls_all_unlocked")) && skulls_pack_wanted())
 	{
@@ -6085,6 +6109,46 @@ void daily_menu_poll(void)
 	{
 		daily_connection.asked = TRUE;
 		ui_play_audio_feedback_sound(SOUND_ERROR);
+	}
+}
+
+/* (main.c's main loop, each frame, after randomizer_pack_update) the
+question of how the skulls are had not answered (the first start, or after
+RESET SKULL PROGRESS), with SKULLS on or off, as the daily challenge and a
+co-op host's skulls apply either way: once the packs wanted are written
+(randomizer_pack.c), the question, over the main menu, the settings screen
+or the daily challenge's screen shown, and Back there. Asked once, until
+SKULLS is turned on again; skipped, it is asked before the skulls screen
+still */
+#define SKULLS_UNLOCK_SCREEN_NAME "pc\\main_menu\\difficulty_select\\skulls\\unlock_screen"
+#define SETTINGS_SCREEN_PREFIX "pc\\main_menu\\settings_select\\"
+
+extern int randomizer_pack_busy(void);
+extern struct widget_instance *ui_widget_port_active_screen(void);
+extern char *tag_get_name(long tag_index);
+
+void skulls_setup_poll(boolean main_menu)
+{
+	struct widget_instance *screen;
+	char const *name;
+
+	if (!main_menu || skulls_setup.asked || skulls_unlock_mode() != _skulls_unlock_unset)
+		return;
+	if (randomizer_pack_busy() || ui_widget_port_error_showing() || text_field_editing(NULL))
+		return;
+	screen = ui_widget_port_active_screen();
+	name = screen ? tag_get_name(screen->definition_tag_index) : NULL;
+	if (!name || (strcmp(name, MAIN_MENU_NAME) && strcmp(name, DAILY_SCREEN_NAME) &&
+		strncmp(name, SETTINGS_SCREEN_PREFIX, strlen(SETTINGS_SCREEN_PREFIX))))
+	{
+		return;
+	}
+	skulls_setup.asked = TRUE;
+	skulls_menu_back_tag = screen->definition_tag_index;
+	if (ui_widget_load_by_name_or_tag(SKULLS_UNLOCK_SCREEN_NAME, NONE, NULL, NONE, skulls_menu_back_tag, NONE, NONE))
+	{
+		skulls_setup.open = TRUE;
+		ui_play_audio_feedback_sound(SOUND_FORWARD);
 	}
 }
 
@@ -9227,7 +9291,7 @@ boolean pc_menu_event_function_invoke(
 		}
 		else if (!strcmp(name, "skulls unlock all"))
 		{
-			return skulls_unlock_choose(FALSE, FALSE, TRUE, widget_deleted);
+			return skulls_unlock_choose(widget, FALSE, FALSE, TRUE, widget_deleted);
 		}
 		else if (!strcmp(name, "skulls unlock play"))
 		{
@@ -9236,15 +9300,15 @@ boolean pc_menu_event_function_invoke(
 		}
 		else if (!strcmp(name, "skulls unlock pickup"))
 		{
-			return skulls_unlock_choose(TRUE, TRUE, TRUE, widget_deleted);
+			return skulls_unlock_choose(widget, TRUE, TRUE, TRUE, widget_deleted);
 		}
 		else if (!strcmp(name, "skulls death lose"))
 		{
-			return skulls_unlock_choose(TRUE, FALSE, TRUE, widget_deleted);
+			return skulls_unlock_choose(widget, TRUE, FALSE, TRUE, widget_deleted);
 		}
 		else if (!strcmp(name, "skulls death keep"))
 		{
-			return skulls_unlock_choose(TRUE, FALSE, FALSE, widget_deleted);
+			return skulls_unlock_choose(widget, TRUE, FALSE, FALSE, widget_deleted);
 		}
 		else if (!strcmp(name, "skulls death back"))
 		{

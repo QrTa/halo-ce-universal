@@ -13,6 +13,7 @@
 [![Discord](https://img.shields.io/badge/Discord-join%20the%20server-5865F2?logo=discord&logoColor=white)](https://discord.gg/9gqcHyr5km)
 
 [**Download**](#download) ·
+[Campaign upgrades](#campaign-upgrades) ·
 [Install](#install) ·
 [Graphics](#graphics-vulkan-turnip-and-deko3d) ·
 [Multiplayer](#multiplayer) ·
@@ -25,6 +26,12 @@
 then a row of three, each taken on a phone, a Switch or a PS5. -->
 
 </div>
+
+On top of the port, this fork upgrades the campaign: an **enemy
+randomizer**, **40 skulls**, and a **scoring system** with medals,
+**online leaderboards** and a **daily challenge**. Not everyone will want
+all of it, so every part can be turned off or tuned in
+**Settings > Gameplay**. See [Campaign upgrades](#campaign-upgrades).
 
 It is not an emulator. The game's own code, decompiled from the Xbox build
 2342, is compiled for the device's processor (ARM, or the PS5's x86-64).
@@ -53,6 +60,7 @@ and to **deko3d**, the Switch's own GPU interface, on the Switch.
 ## Contents
 
 - [What works](#what-works) · [Known issues](#known-issues)
+- [Campaign upgrades](#campaign-upgrades): [daily challenge](#daily-challenge), [randomizer](#enemy-randomizer), [skulls](#skulls), [multiplayer and co-op](#multiplayer-and-co-op), [settings](#gameplay-settings)
 - [Download](#download) · [Install](#install): [Android](#android), [Nintendo Switch](#nintendo-switch), [PlayStation 5](#playstation-5), [updating](#updating)
 - [Graphics: Vulkan, Turnip and deko3d](#graphics-vulkan-turnip-and-deko3d)
 - [Multiplayer](#multiplayer) · [Controls](#controls)
@@ -64,6 +72,7 @@ and to **deko3d**, the Switch's own GPU interface, on the Switch.
 | | |
 | --- | --- |
 | 🎮 **Campaign** | The whole campaign, with checkpoints, saves and cinematics. Xbox maps of every region; PAL maps are made to play as NTSC ones. |
+| 🎲 **Campaign upgrades** | An enemy and weapon randomizer, 40 skulls, Halo 3-style scoring and medals, online leaderboards and a daily challenge. All optional. See [Campaign upgrades](#campaign-upgrades). |
 | 🖼️ **Vulkan on Android** | The default renderer. On Qualcomm Adreno GPUs the app can download and use **Turnip**, Mesa's open-source driver, in place of the phone's own. OpenGL ES 3 is still there as a fallback. |
 | 🟥 **deko3d on the Switch** | A renderer written for the console's GPU, docked at 1080p or handheld at 720p, switching on its own when you dock. |
 | 🟦 **The PS5** | A homebrew title for a jailbroken console: up to native 4K at 120 frames a second, aiming with the DualSense's gyroscope, voice chat through the pad's microphone. |
@@ -88,6 +97,178 @@ and to **deko3d**, the Switch's own GPU interface, on the Switch.
   restarting the game usually fixes it.
 
 The current list is in the [issues](https://github.com/thelinkin3000/halo-ce-universal/issues).
+
+## Campaign upgrades
+
+The aim of this fork is a better campaign: new ways to replay the levels
+you know, and a score to chase on them. Every feature below is optional.
+Each one has its own page in **Settings > Gameplay**, where it can be
+turned off or tuned, and the defaults leave the original game alone where
+it matters (scoring, for example, starts off).
+
+### Daily challenge
+
+<img width="640" alt="The Campaign menu, with DAILY CHALLENGE" src="https://github.com/user-attachments/assets/38bf5664-44e7-487e-bcd9-894360953401" />
+
+**DAILY CHALLENGE** is a new item in the Campaign menu. Each day there is
+one challenge, the same for everyone: a campaign level at a set difficulty,
+a randomizer setup and a set of skulls, and a seed for the randomizer, so
+every player meets the same enemies in the same places.
+
+<img width="640" alt="The daily challenge screen: today's level, difficulty, skulls and leaderboard" src="https://github.com/user-attachments/assets/450b7b8f-8962-451d-acc1-92e67f65feaf" />
+
+The challenge screen shows the day's level, difficulty and skulls, your
+best run, and the day's leaderboard. **PLAY** applies the challenge's
+settings for that run only: your own randomizer and skull settings are
+kept and come back when you return to the main menu. Every run you finish
+is sent to the leaderboard, and the screen comes back when the level is
+won, so you can see where you placed.
+
+<img width="640" alt="PAST DAYS: earlier challenges with their best score and your place" src="https://github.com/user-attachments/assets/4e3916f3-d0ee-45b1-b6d8-b039acdaac73" />
+
+**PAST DAYS** lists the earlier challenges, with each one's best score,
+your own score and place, and how many people played it. Past challenges
+can still be played, and still count on their day's leaderboard; the top
+three from while the day was live stay at the top. A **random run**, made
+up on the spot from your unlocked skulls and settings, is there for when
+you want something new that doesn't count.
+
+The challenges and leaderboards come from a community server running
+[api-opence](https://github.com/Watanoge/api-opence). By default that is
+`https://oceapi.watanoge.com`; you can point the game at your own server
+instead, or play offline. Offline, the day's challenge is generated on the
+device from the date, and the leaderboard is your own profiles'.
+
+### Enemy randomizer
+
+<img width="640" alt="The randomizer screen shown after choosing a level's difficulty" src="https://github.com/user-attachments/assets/bbcfb82c-911f-43b4-8ea9-7bd9af21e7bf" />
+
+With the randomizer on, choosing a campaign level's difficulty opens a
+screen that sets how the level is shuffled:
+
+- **Enemies:** each squad's actors are drawn from a pool: any, Covenant,
+  Flood, human, or a single type (and rank, like all Zealots or all
+  Spec Ops grunts). Allies can be swapped too.
+- **Enemy weapons:** each actor's weapon is swapped for another it can
+  hold, from a pool of your choosing.
+- **Pickups:** the weapons lying around the level are swapped as well.
+
+Characters and weapons a level doesn't have are copied in from the other
+campaign maps. Scripted characters (in a conversation or following a
+command list) keep their own actor, so the story still plays out.
+
+<img width="640" alt="Loading a saved randomizer preset" src="https://github.com/user-attachments/assets/eb88a82c-dc57-4d13-b233-8daa2ae842c7" />
+
+The setup is kept for the following levels, and up to eight setups can be
+saved as named presets and loaded again from this screen.
+
+On the first start (or the first time the randomizer is turned on, with
+the daily challenge off), the game builds `maps/randomizer.pack` (about
+500 MB) from your maps, once, so randomized levels load quickly.
+
+### Skulls
+
+<img width="640" alt="The skulls screen" src="https://github.com/user-attachments/assets/af8fc80e-503c-45a2-a35b-40ddf5ec8268" />
+
+After the difficulty (and the randomizer, if it's on), a screen turns
+skulls on and off. There are 40: the 22 Halo: Combat Evolved skulls of the
+Master Chief Collection, some from Halo 2 Anniversary and Halo 3 (Envy,
+Assassins, Streaking, Swarm), and new ones made for this port, such as:
+
+- **Outbreak:** killed enemies may release Flood spores that raise nearby
+  bodies as combat forms.
+- **Scarab:** your human weapons fire rockets, and Covenant ones fuel rods.
+- **Floor Is Lava:** standing on the level's ground burns you.
+- **Give & Take:** health only comes back by hitting enemies.
+- **Woe Is Me:** everyone is your enemy, the marines included.
+- **Rip & Tear:** melee only, but punches hit twice as hard and you get an
+  overshield.
+
+The help line on the screen describes each skull. On the first start,
+once the game has built the skulls' data, it asks how you want to get them: all unlocked from the start, or
+unlocked by playing. Played for, skulls drop from enemies you kill (more
+often for headshots, assassinations and multi-kills), and are kept once
+you finish the level, or lost on death if you choose. How many skulls drop
+per level, and how often, can be changed.
+
+### Scoring and medals
+
+With **SCORING** on, the campaign is scored as in Halo 3 and the Master
+Chief Collection. Each kill is worth its enemy's points, multiplied by
+how it was done (headshot, melee, assassination...), the difficulty and
+the skulls on. Dying and reverting to a checkpoint cost points, and
+finishing under the level's par time multiplies the total by up to four.
+
+The score, time and current multiplier sit at the bottom right during
+play, Halo 3 and Reach medals pop up as you earn them, and a summary of
+the level is shown when you win it. Each profile keeps its best score and
+time for every level, and finished runs can be shared to each level's
+online leaderboard, which is shown from the level list in **New Game**.
+In co-op each player can score separately, or as a team.
+
+All the point values are in
+[campaign_score_values.json](port/linux/game/campaign_score_values.json).
+
+### Multiplayer and co-op
+
+<img width="640" alt="The co-op map list with the daily challenges" src="https://github.com/user-attachments/assets/a7633055-687e-47de-a3cc-6154918e9301" />
+
+Daily challenges can be played in co-op too: the host picks one from the
+map list in the lobby, and the run goes to that day's leaderboard.
+
+<img width="640" alt="The lobby's game settings, with Skulls and Randomizer" src="https://github.com/user-attachments/assets/4a1c3225-bc7f-4d36-8c31-a5d0e8e53068" />
+
+The lobby's settings have their own **SKULLS** and **RANDOMIZER** pages,
+so a host sets them for the whole game. Clients play with the host's
+settings, and a randomized game is listed with `[RNDM MOD]` before the
+level's name so players know what they're joining.
+
+### Gameplay settings
+
+<img width="640" alt="The Settings menu, with GAMEPLAY" src="https://github.com/user-attachments/assets/21528b89-dc57-490c-98ac-430a9ad01dfd" />
+
+Everything above is configured from **Settings > Gameplay**.
+
+<img width="640" alt="The Gameplay menu" src="https://github.com/user-attachments/assets/66bfd967-3d17-44d1-9736-3cdb976ca9e7" />
+
+The Gameplay menu also holds settings that aren't part of the campaign
+upgrades, such as ragdolls and campaign progression (unlock every level
+from the start), and has a page for each feature.
+
+<img width="640" alt="Randomizer settings with GO CRAZY on" src="https://github.com/user-attachments/assets/0d08f176-44db-4ea0-9648-f78c1e7b4c8b" />
+
+<img width="640" alt="Randomizer settings with GO CRAZY off" src="https://github.com/user-attachments/assets/929c8381-3964-4290-92de-001d688fd143" />
+
+**Randomizer** turns the randomizer screen on or off. **GO CRAZY** unlocks
+the less stable options: any character can hold any weapon (even one it
+has no animations for), engineers and sentinels join the enemy pools, the
+multiplayer flamethrower can show up, and more of the Flood's infection
+forms are swapped. Expect some odd behavior with it on.
+
+<img width="640" alt="Skulls settings, all options shown" src="https://github.com/user-attachments/assets/e8ffaee4-b54b-40b1-b518-9473e250ab3b" />
+
+**Skulls** turns the skulls screen on or off and sets how skulls are
+earned: all unlocked, unlocked as soon as they're picked up, or only by
+finishing the level, whether they are lost on death, how many drop per
+level and how often. **RESET SKULL PROGRESS** starts over.
+
+<img width="640" alt="Scoring settings" src="https://github.com/user-attachments/assets/83c7bf5d-08ce-4c09-a4fa-095cc0cc8626" />
+
+**Scoring** turns the campaign score on or off and shows or hides the
+medal popups.
+
+<img width="640" alt="Community settings" src="https://github.com/user-attachments/assets/a194434c-e622-45bf-89b4-d338e2db9642" />
+
+**Community** sets the online side: whether the game talks to a community
+server at all, which one (the default or your own), whether your level
+scores are shared to the leaderboards, and whether the daily challenge is
+in the Campaign menu. With **ONLINE** off nothing is sent anywhere.
+Your scores are tied to a key made for this install, kept in
+`config.toml` as `community.key`; copy it to another install to keep
+them.
+
+Every one of these settings is also in `config.toml`; they are listed in
+"Settings" in [port/linux/README.md](port/linux/README.md#settings).
 
 ## Download
 

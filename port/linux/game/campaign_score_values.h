@@ -80,6 +80,10 @@ struct campaign_score_values
 	struct campaign_score_time_bracket const *time_brackets;
 	short par_time_count;
 	struct campaign_score_par_time const *par_times;
+	/* the par times' multipliers: by the difficulty (easy, normal, heroic,
+	legendary), and in a daily challenge's run */
+	float par_difficulty[4];
+	float par_daily_challenge;
 
 	short style_combine;
 	float style_regular;

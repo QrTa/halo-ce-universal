@@ -36,6 +36,7 @@ from .linux_build import (LINUX_PROFILE, MINIUPNPC_DEFINES, MINIUPNPC_DIR, MUSL_
                           musl_math_sources, opus_cflags, opus_sources, pgo_mode, pgo_profile,
                           profile_use_flags, updater_defines, xdk_headers)
 from .embed_assets import hud_assets_build, hud_configure_inputs
+from .macos_toolchain import default_clang
 from .ninja_syntax import Writer
 
 PORT_DIR = Path("port/switch")
@@ -210,7 +211,7 @@ def _devkita64(devkitpro: Path) -> Optional[Path]:
 
 
 def switch_configure_inputs() -> List[Path]:
-    return [Path(__file__), PORT_DIR / "host", PORT_DIR / "guest", ANDROID_PORT_DIR / "host_imports.list",
+    return [Path(__file__), Path(__file__).with_name("macos_toolchain.py"), PORT_DIR / "host", PORT_DIR / "guest", ANDROID_PORT_DIR / "host_imports.list",
             LINUX_DIR / "src", UAM_PATCH, *hud_configure_inputs()]
 
 
@@ -277,7 +278,7 @@ def generate_switch_build(n: Writer, sln: Any) -> None:
     toolchain = prebuilt / host_tag
     sysroot_include = toolchain / "sysroot" / "usr" / "include"
     ndk_bin = toolchain / "bin"
-    guest_cc = getattr(sln, "android_guest_cc", None) or "clang"
+    guest_cc = getattr(sln, "android_guest_cc", None) or default_clang()
     # devkitPro's aarch64-none-elf cross compiler, not the aarch64-linux-gnu
     # one: this is a bare-metal homebrew program with libnx and newlib, not
     # a Linux process.

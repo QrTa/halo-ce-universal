@@ -4429,6 +4429,14 @@ boolean ui_widget_port_error_open(
 	return FALSE;
 }
 
+/* port: the screen shown (the first player's): the skulls' question opens
+over it (port/linux/game/menu_functions.c's skulls_setup_poll) */
+struct widget_instance *ui_widget_port_active_screen(
+	void)
+{
+	return widget_globals.active_widgets[0];
+}
+
 void display_errors_deferred_until_cinematic_stop(
 	void)
 {

@@ -510,7 +510,7 @@ static const struct config_setting config_settings[] =
 		"after the last finished). \"all_unlocked\": every one of the ten can be\n"
 		"chosen, whatever the profile has finished; what it has finished is\n"
 		"kept, and shown as before." },
-	{ "game.randomizer", _config_boolean, "false", "HALO_RANDOMIZER", _environment_value, _platform_all,
+	{ "game.randomizer", _config_boolean, "true", "HALO_RANDOMIZER", _environment_value, _platform_all,
 		"Settings > Gameplay. true: after the difficulty of one of the ten\n"
 		"campaign levels, a screen sets how that level's enemies and weapons\n"
 		"are swapped. The choice is kept for the later levels. A co-op game\n"
@@ -626,7 +626,7 @@ static const struct config_setting config_settings[] =
 		"A saved setup of the randomizer screen (game.randomizer_profile_1)." },
 	{ "game.randomizer_profile_8", _config_string, "\"\"", "HALO_RANDOMIZER_PROFILE_8", _environment_value, _platform_all,
 		"A saved setup of the randomizer screen (game.randomizer_profile_1)." },
-	{ "game.skulls", _config_boolean, "false", "HALO_SKULLS", _environment_value, _platform_all,
+	{ "game.skulls", _config_boolean, "true", "HALO_SKULLS", _environment_value, _platform_all,
 		"Settings > Gameplay. true: after a campaign level's difficulty (and\n"
 		"after the randomizer's screen, when that is on), a screen turns the\n"
 		"skulls on and off (game.skulls_active), as the Master Chief\n"

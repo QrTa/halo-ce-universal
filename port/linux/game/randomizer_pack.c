@@ -26,7 +26,8 @@ maps/skulls.pack is the same file of one multiplayer map, Wizard's, keeping
 the pixels and samples of its oddball (the skull the enemies carry when
 skulls are to be found, skulls.c) and of the HUD: about 9 MB, a few
 seconds, written the same way once game.skulls is on with the skulls
-unlocked by playing. A record names a map in seven letters, which
+unlocked by playing, or their question not answered yet. At start-up both
+are written too with game.daily_challenge on, as its levels have both. A record names a map in seven letters, which
 Blood Gulch's name is too long for; Wizard's oddball is the same.
 */
 
@@ -1147,6 +1148,12 @@ static void pack_request(struct pack_kind const *kind)
 	error(_error_silent, "randomizer pack: %s wanted; written at the main menu, after its notice", kind->file_name);
 }
 
+/* a pack's notice or dialog up, or a pack waiting for its turn */
+int randomizer_pack_busy(void)
+{
+	return pack_current != NULL || pack_queued > 0;
+}
+
 int randomizer_pack_ready(void)
 {
 	return pack_ready(&randomizer_kind);
@@ -1173,13 +1180,18 @@ void randomizer_pack_update(boolean main_menu)
 
 	if (!main_menu)
 		return;
-	/* (at start-up, with the randomizer, or skulls to find, already on) */
+	/* (at start-up, with the randomizer, or skulls to find, already on; or
+	the daily challenge in the Campaign menu, whose levels are randomized
+	and have skulls whatever those settings say, as a co-op host's choice
+	of one has) */
 	if (!checked)
 	{
+		int daily = config_boolean("game.daily_challenge");
+
 		checked = 1;
-		if (config_boolean("game.randomizer"))
+		if (daily || config_boolean("game.randomizer"))
 			randomizer_pack_request();
-		if (skulls_pack_wanted())
+		if (daily || skulls_pack_wanted())
 			skulls_pack_request();
 	}
 	switch (pack_step)

@@ -25,7 +25,8 @@
   },
   "time": {
     "_about": [
-      "par_times are in minutes (15: 15:00; 15.5: 15:30). The level's time over its par time:",
+      "par_times are in minutes (15: 15:00; 15.5: 15:30), for normal: par_difficulty multiplies them by the difficulty,",
+      "and daily_challenge_par again in a daily challenge's run. The level's time over that par time:",
       "the first bracket it is within (up to and including 'up_to_par'; null: any) gives the multiplier.",
       "A level with no par time (a Custom Edition map) is x1."
     ],
@@ -48,13 +49,20 @@
       },
       {
         "up_to_par": 1.50,
-        "multiplier": 0.5
+        "multiplier": 0.8
       },
       {
         "up_to_par": null,
-        "multiplier": 0.0
+        "multiplier": 0.5
       }
     ],
+    "par_difficulty": {
+      "easy": 0.8,
+      "normal": 1.0,
+      "heroic": 1.3,
+      "legendary": 1.8
+    },
+    "daily_challenge_par": 1.2,
     "par_times": {
       "a10": 15,
       "a30": 20,

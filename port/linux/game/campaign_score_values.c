@@ -15,8 +15,8 @@ static struct campaign_score_time_bracket const campaign_score_time_brackets[] =
 	{ 0.6f, 3.0f },
 	{ 0.8f, 2.0f },
 	{ 1.0f, 1.0f },
-	{ 1.5f, 0.5f },
-	{ -1.0f, 0.0f },
+	{ 1.5f, 0.8f },
+	{ -1.0f, 0.5f },
 };
 static struct campaign_score_par_time const campaign_score_par_times[] =
 {
@@ -208,6 +208,8 @@ struct campaign_score_values const campaign_score_values =
 	{ 0.5f, 1.0f, 2.0f, 4.0f },
 	6, campaign_score_time_brackets,
 	10, campaign_score_par_times,
+	{ 0.8f, 1.0f, 1.3f, 1.8f },
+	1.2f,
 	0,
 	1.0f,
 	1.25f,
