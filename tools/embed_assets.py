@@ -58,6 +58,8 @@ WINDOW_ICON = Path("port/assets/icon/opence-icon-256.png")
 SOUND_ASSETS = Path("port/assets/sounds")
 SOUND_FILES = (("grunt_birthday_party.wav", "skulls_party_sound"), ("skull_sfx1.wav", "skulls_pickup_sound"),
                ("skull_sfx2.wav", "skulls_carrier_sound"), ("skull_sfx3.wav", "skulls_floor_sound"))
+# the pointer the menus show in place of the system's (port/linux/src/sdl_platform.c)
+MENU_CURSOR = Path("port/assets/cursor/menu_cursor.png")
 PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 
 
@@ -101,6 +103,7 @@ def hud_asset_inputs() -> List[Path]:
             *(FONT_ASSETS / name for name in font_files()), *(MENU_ASSETS / name for name in menu_files()),
             *(SMAA_ASSETS / name for name, _ in smaa_files()),
             *([WINDOW_ICON] if (ROOT / WINDOW_ICON).is_file() else []),
+            *([MENU_CURSOR] if (ROOT / MENU_CURSOR).is_file() else []),
             *(SOUND_ASSETS / name for name, _ in SOUND_FILES if (ROOT / SOUND_ASSETS / name).is_file())]
 
 
@@ -241,9 +244,6 @@ def main() -> None:
     lines.append("};")
     lines.append(f"const unsigned int menu_files_embedded_count = {len(menus)};")
     lines.append("")
-    # SMAA's shader, as text a GLSL compiler takes (ASCII, ending in a NUL),
-    # and its lookup textures (xgpu_post.c); each of size 0 that the
-    # checkout does not have. The OpenGL ES renderer has no SMAA.
     # the sounds (each of size 0 that the checkout does not have), on every
     # renderer
     for name, symbol in SOUND_FILES:
@@ -256,6 +256,9 @@ def main() -> None:
         lines.append(f"const unsigned long {symbol}_size = {len(data)};")
     lines.append("")
     lines.append("#ifndef HALO_GLES")
+    # SMAA's shader, as text a GLSL compiler takes (ASCII, ending in a NUL),
+    # and its lookup textures (xgpu_post.c); each of size 0 that the
+    # checkout does not have. The OpenGL ES renderer has no SMAA.
     present = dict(smaa_files())
     for name, symbol in SMAA_FILES:
         data = (ROOT / SMAA_ASSETS / name).read_bytes() if name in present else b""
@@ -273,6 +276,13 @@ def main() -> None:
     lines.extend(words(data) if data else ["\t0,"])
     lines.append("};")
     lines.append(f"const unsigned long platform_window_icon_size = {len(data)};")
+    # the menus' pointer, a PNG (of size 0 where the checkout has none)
+    data = (ROOT / MENU_CURSOR).read_bytes() if (ROOT / MENU_CURSOR).is_file() else b""
+    lines.append("")
+    lines.append("const unsigned int platform_menu_cursor[] = {")
+    lines.extend(words(data) if data else ["\t0,"])
+    lines.append("};")
+    lines.append(f"const unsigned long platform_menu_cursor_size = {len(data)};")
     lines.append("")
     lines.append("#endif")
     output = Path(sys.argv[1])
