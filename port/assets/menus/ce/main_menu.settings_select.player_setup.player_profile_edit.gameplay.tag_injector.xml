@@ -1,0 +1,161 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- The port's settings screen, in the PC version's style (tools/port_settings.py) -->
+<menus>
+	<widget name="main_menu/settings_select/player_setup/player_profile_edit/gameplay/tag_injector/tag_injector_screen" width="640" height="480" flags="pass_unhandled_to_focused_child pause_game" bitmap="bitmaps/gradient">
+		<on event="b" run="port tags back"/>
+		<on event="back" run="port tags back"/>
+		<child widget="main_menu/new_select/sel_list_desc_bkd"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/gameplay/tag_injector/tags_list"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/gameplay/tag_injector/header_gameplay"/>
+	</widget>
+	<widget name="main_menu/settings_select/player_setup/player_profile_edit/gameplay/tag_injector/header_gameplay" controller="1" left="35" top="11" width="605" height="59" bitmap="main_menu/settings_select/player_setup/player_profile_edit/gameplay/header_gameplay">
+	</widget>
+	<widget name="main_menu/settings_select/player_setup/player_profile_edit/gameplay/tag_injector/tags_list" type="column_list" width="640" height="480" flags="pass_unhandled_to_focused_child up_down_tabs_children" description="main_menu/settings_select/player_setup/player_profile_edit/gameplay/tag_injector/tag_details">
+		<data input="port tags update"/>
+		<on event="created" run="port tags init"/>
+		<on event="deleted" run="port tags close"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/gameplay/tag_injector/op_tag_1" x="20" y="73"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/gameplay/tag_injector/op_tag_2" x="20" y="103"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/gameplay/tag_injector/op_tag_3" x="20" y="133"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/gameplay/tag_injector/op_tag_4" x="20" y="163"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/gameplay/tag_injector/op_tag_5" x="20" y="193"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/gameplay/tag_injector/op_tag_6" x="20" y="223"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/gameplay/tag_injector/op_tag_7" x="20" y="253"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/gameplay/tag_injector/op_tag_8" x="20" y="283"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/gameplay/tag_injector/op_tag_9" x="20" y="313"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/gameplay/tag_injector/op_tag_10" x="20" y="343"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/gameplay/tag_injector/op_tag_11" x="20" y="373"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/gameplay/tag_injector/button_bar" y="414"/>
+	</widget>
+	<widget name="main_menu/settings_select/player_setup/player_profile_edit/gameplay/tag_injector/op_tag_1" width="390" height="28" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/sel_list_item_bkd_top" color="#FF2896FF">
+		<on event="a" run="port tags choose"/>
+		<on event="start" run="port tags choose"/>
+		<on event="left" run="port tags left"/>
+		<on event="right" run="port tags right"/>
+		<on event="left_mouse" run="mouse emit accept event"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/gameplay/tag_injector/tag_name" x="12"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/gameplay/tag_injector/tag_state" x="250"/>
+	</widget>
+	<widget name="main_menu/settings_select/player_setup/player_profile_edit/gameplay/tag_injector/op_tag_2" width="390" height="28" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/sel_list_item_bkd" color="#FF2896FF">
+		<on event="a" run="port tags choose"/>
+		<on event="start" run="port tags choose"/>
+		<on event="left" run="port tags left"/>
+		<on event="right" run="port tags right"/>
+		<on event="left_mouse" run="mouse emit accept event"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/gameplay/tag_injector/tag_name" x="12"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/gameplay/tag_injector/tag_state" x="250"/>
+	</widget>
+	<widget name="main_menu/settings_select/player_setup/player_profile_edit/gameplay/tag_injector/op_tag_3" width="390" height="28" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/sel_list_item_bkd" color="#FF2896FF">
+		<on event="a" run="port tags choose"/>
+		<on event="start" run="port tags choose"/>
+		<on event="left" run="port tags left"/>
+		<on event="right" run="port tags right"/>
+		<on event="left_mouse" run="mouse emit accept event"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/gameplay/tag_injector/tag_name" x="12"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/gameplay/tag_injector/tag_state" x="250"/>
+	</widget>
+	<widget name="main_menu/settings_select/player_setup/player_profile_edit/gameplay/tag_injector/op_tag_4" width="390" height="28" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/sel_list_item_bkd" color="#FF2896FF">
+		<on event="a" run="port tags choose"/>
+		<on event="start" run="port tags choose"/>
+		<on event="left" run="port tags left"/>
+		<on event="right" run="port tags right"/>
+		<on event="left_mouse" run="mouse emit accept event"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/gameplay/tag_injector/tag_name" x="12"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/gameplay/tag_injector/tag_state" x="250"/>
+	</widget>
+	<widget name="main_menu/settings_select/player_setup/player_profile_edit/gameplay/tag_injector/op_tag_5" width="390" height="28" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/sel_list_item_bkd" color="#FF2896FF">
+		<on event="a" run="port tags choose"/>
+		<on event="start" run="port tags choose"/>
+		<on event="left" run="port tags left"/>
+		<on event="right" run="port tags right"/>
+		<on event="left_mouse" run="mouse emit accept event"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/gameplay/tag_injector/tag_name" x="12"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/gameplay/tag_injector/tag_state" x="250"/>
+	</widget>
+	<widget name="main_menu/settings_select/player_setup/player_profile_edit/gameplay/tag_injector/op_tag_6" width="390" height="28" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/sel_list_item_bkd" color="#FF2896FF">
+		<on event="a" run="port tags choose"/>
+		<on event="start" run="port tags choose"/>
+		<on event="left" run="port tags left"/>
+		<on event="right" run="port tags right"/>
+		<on event="left_mouse" run="mouse emit accept event"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/gameplay/tag_injector/tag_name" x="12"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/gameplay/tag_injector/tag_state" x="250"/>
+	</widget>
+	<widget name="main_menu/settings_select/player_setup/player_profile_edit/gameplay/tag_injector/op_tag_7" width="390" height="28" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/sel_list_item_bkd" color="#FF2896FF">
+		<on event="a" run="port tags choose"/>
+		<on event="start" run="port tags choose"/>
+		<on event="left" run="port tags left"/>
+		<on event="right" run="port tags right"/>
+		<on event="left_mouse" run="mouse emit accept event"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/gameplay/tag_injector/tag_name" x="12"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/gameplay/tag_injector/tag_state" x="250"/>
+	</widget>
+	<widget name="main_menu/settings_select/player_setup/player_profile_edit/gameplay/tag_injector/op_tag_8" width="390" height="28" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/sel_list_item_bkd" color="#FF2896FF">
+		<on event="a" run="port tags choose"/>
+		<on event="start" run="port tags choose"/>
+		<on event="left" run="port tags left"/>
+		<on event="right" run="port tags right"/>
+		<on event="left_mouse" run="mouse emit accept event"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/gameplay/tag_injector/tag_name" x="12"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/gameplay/tag_injector/tag_state" x="250"/>
+	</widget>
+	<widget name="main_menu/settings_select/player_setup/player_profile_edit/gameplay/tag_injector/op_tag_9" width="390" height="28" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/sel_list_item_bkd" color="#FF2896FF">
+		<on event="a" run="port tags choose"/>
+		<on event="start" run="port tags choose"/>
+		<on event="left" run="port tags left"/>
+		<on event="right" run="port tags right"/>
+		<on event="left_mouse" run="mouse emit accept event"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/gameplay/tag_injector/tag_name" x="12"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/gameplay/tag_injector/tag_state" x="250"/>
+	</widget>
+	<widget name="main_menu/settings_select/player_setup/player_profile_edit/gameplay/tag_injector/op_tag_10" width="390" height="28" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/sel_list_item_bkd" color="#FF2896FF">
+		<on event="a" run="port tags choose"/>
+		<on event="start" run="port tags choose"/>
+		<on event="left" run="port tags left"/>
+		<on event="right" run="port tags right"/>
+		<on event="left_mouse" run="mouse emit accept event"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/gameplay/tag_injector/tag_name" x="12"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/gameplay/tag_injector/tag_state" x="250"/>
+	</widget>
+	<widget name="main_menu/settings_select/player_setup/player_profile_edit/gameplay/tag_injector/op_tag_11" width="390" height="28" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/sel_list_item_bkd" color="#FF2896FF">
+		<on event="a" run="port tags choose"/>
+		<on event="start" run="port tags choose"/>
+		<on event="left" run="port tags left"/>
+		<on event="right" run="port tags right"/>
+		<on event="left_mouse" run="mouse emit accept event"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/gameplay/tag_injector/tag_name" x="12"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/gameplay/tag_injector/tag_state" x="250"/>
+	</widget>
+	<widget name="main_menu/settings_select/player_setup/player_profile_edit/gameplay/tag_injector/tag_name" type="text" controller="1" width="238" height="22" font="ui\large_ui" color="#FF2896FF" text_y="4">
+	</widget>
+	<widget name="main_menu/settings_select/player_setup/player_profile_edit/gameplay/tag_injector/tag_state" type="text" controller="1" width="134" height="22" font="ui\small_ui" color="#FF2896FF" align="center" text_y="6" text_flags="no_focus_test">
+	</widget>
+	<widget name="main_menu/settings_select/player_setup/player_profile_edit/gameplay/tag_injector/tag_details" width="640" height="480">
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/gameplay/tag_injector/tag_details_name"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/gameplay/tag_injector/tag_details_text"/>
+	</widget>
+	<widget name="main_menu/settings_select/player_setup/player_profile_edit/gameplay/tag_injector/tag_details_name" type="text" controller="1" left="412" top="84" width="200" height="44" font="ui\large_ui" color="#FFFFFFFF">
+	</widget>
+	<widget name="main_menu/settings_select/player_setup/player_profile_edit/gameplay/tag_injector/tag_details_text" type="text" controller="1" left="412" top="130" width="200" height="272" font="ui\small_ui" color="#FF2896FF">
+	</widget>
+	<widget name="main_menu/settings_select/player_setup/player_profile_edit/gameplay/tag_injector/button_bar" type="column_list" width="640" height="28" flags="pass_unhandled_to_focused_child left_right_tabs_items">
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/gameplay/tag_injector/button_new" y="1"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/gameplay/tag_injector/button_delete" x="130" y="1"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/gameplay/tag_injector/button_back" x="510" y="1"/>
+	</widget>
+	<widget name="main_menu/settings_select/player_setup/player_profile_edit/gameplay/tag_injector/button_new" type="text" width="128" height="24" bitmap="bitmaps/text_button_background" text="NEW PROFILE" font="ui\small_ui" color="#FFFFFFFF" align="center" text_y="2">
+		<on event="a" run="port tags new profile"/>
+		<on event="start" run="port tags new profile"/>
+		<on event="left_mouse" run="mouse emit accept event"/>
+	</widget>
+	<widget name="main_menu/settings_select/player_setup/player_profile_edit/gameplay/tag_injector/button_delete" type="text" width="128" height="24" bitmap="bitmaps/text_button_background" text="DELETE PROFILE" font="ui\small_ui" color="#FFFFFFFF" align="center" text_y="2">
+		<on event="a" run="port tags delete profile"/>
+		<on event="start" run="port tags delete profile"/>
+		<on event="left_mouse" run="mouse emit accept event"/>
+	</widget>
+	<widget name="main_menu/settings_select/player_setup/player_profile_edit/gameplay/tag_injector/button_back" type="text" width="128" height="24" bitmap="bitmaps/text_button_background" text="BACK" font="ui\small_ui" color="#FFFFFFFF" align="center" text_y="2">
+		<on event="a" run="port tags back"/>
+		<on event="start" run="port tags back"/>
+		<on event="left_mouse" run="mouse emit accept event"/>
+	</widget>
+</menus>

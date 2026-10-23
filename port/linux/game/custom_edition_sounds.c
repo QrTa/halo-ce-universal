@@ -617,6 +617,17 @@ boolean custom_edition_sounds_decode(
 	long decoded_offset,
 	unsigned long decoded_limit)
 {
+	return custom_edition_sounds_decode_tags(tag_cache, loaded_bytes, decoded_offset, decoded_limit, NULL, 0);
+}
+
+boolean custom_edition_sounds_decode_tags(
+	byte *tag_cache,
+	unsigned long loaded_bytes,
+	long decoded_offset,
+	unsigned long decoded_limit,
+	byte const *tags,
+	long tag_count)
+{
 	struct sound_definition *sound;
 	int32_t tag_index = NONE;
 	long converted_count = 0;
@@ -629,6 +640,12 @@ boolean custom_edition_sounds_decode(
 		boolean any = FALSE;
 		long range_index;
 
+		/* (a sound not asked for is left as it is: the conversion silences
+		it if this build cannot play it) */
+		if (tags && (tag_index >= tag_count || !tags[tag_index]))
+		{
+			continue;
+		}
 		for (range_index = 0; range_index < sound->pitch_ranges.count; range_index++)
 		{
 			struct sound_pitch_range *range = custom_edition_cache_block_element(

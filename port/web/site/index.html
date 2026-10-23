@@ -79,6 +79,19 @@
               <input type="file" id="folder-input" webkitdirectory multiple hidden>
             </label>
           </div>
+          <div class="rows">
+            <div class="row"><span class="row-label">Custom Edition maps</span>
+              <span class="row-value" id="custom-status">Looking…</span></div>
+          </div>
+          <p class="help">A custom_maps folder: Halo Custom Edition maps, in it or in its subfolders (each a category
+            in the game's map lists), with Custom Edition's bitmaps.map, sounds.map and loc.map in the folder itself.
+            Its maps are added to those already here.</p>
+          <div class="button-bar">
+            <label class="button" id="custom-label">Add a custom_maps folder…
+              <input type="file" id="custom-input" webkitdirectory multiple hidden>
+            </label>
+            <button id="custom-remove" class="danger" disabled>Remove the Custom Edition maps</button>
+          </div>
         </section>
 
         <section class="screen" id="mods-panel" aria-labelledby="mods-title">

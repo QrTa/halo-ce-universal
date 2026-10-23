@@ -872,11 +872,15 @@ short cache_file_read(
 		return request_index;
 	}
 	/* port: a tag the campaign randomizer copied from another map: its
-	bitmap pixels and sound samples stay in that map (port/linux/game/randomizer.c) */
+	bitmap pixels and sound samples stay in that map (port/linux/game/randomizer.c);
+	or one the Tag Injector's profile added, in its bundle
+	(port/linux/game/tag_injector.c) */
 	{
 		extern int randomizer_donor_read(long, long, long, void *);
+		extern int tag_injector_read(long, long, long, void *);
 
-		if (randomizer_donor_read(tag_index, offset, size, buffer))
+		if (tag_injector_read(tag_index, offset, size, buffer) ||
+			randomizer_donor_read(tag_index, offset, size, buffer))
 		{
 			*completion_flag_reference = TRUE;
 

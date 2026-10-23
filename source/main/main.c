@@ -3653,15 +3653,17 @@ static boolean main_loop_iteration(
 			network_aim_assist_update();
 			/* port: map sharing, in the lobby and in game (port/linux/game/map_share.c) */
 			map_share_update();
-			/* port: the campaign randomizer's profile being named, and its
-			pack, written at the main menu when it is wanted
-			(port/linux/game/menu_functions.c, randomizer_pack.c) */
+			/* port: the campaign randomizer's profile being named (and the
+			Tag Injector's), and its pack, written at the main menu when it
+			is wanted (port/linux/game/menu_functions.c, randomizer_pack.c) */
 			{
 				extern void randomizer_pack_update(boolean main_menu);
 				extern void randomizer_profiles_poll(void);
+				extern void tag_injector_profiles_poll(void);
 				extern void skulls_setup_poll(boolean main_menu);
 
 				randomizer_profiles_poll();
+				tag_injector_profiles_poll();
 				randomizer_pack_update(main_globals.main_menu_scenario_loaded);
 				/* (then the skulls' question, once their pack is written) */
 				skulls_setup_poll(main_globals.main_menu_scenario_loaded);

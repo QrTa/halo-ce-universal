@@ -267,6 +267,13 @@ Your scores are tied to a key made for this install, kept in
 `config.toml` as `community.key`; copy it to another install to keep
 them.
 
+**Tag Injector** takes weapons and AI out of your Custom Edition maps into
+profiles: pick a map, then its weapons or AI, and add them to a profile
+(**NEW PROFILE** makes one). With **TAG INJECTION** on and GO CRAZY's
+**CUSTOM TAGS** on, the randomizer adds the profile's weapons and enemies to
+a campaign level you play alone, in its pools beside the campaign's. See
+[docs/tag_injector.md](docs/tag_injector.md).
+
 Every one of these settings is also in `config.toml`; they are listed in
 "Settings" in [port/linux/README.md](port/linux/README.md#settings).
 
@@ -387,7 +394,8 @@ can stutter while its shaders are made; the second is smooth.
 ### Custom Edition maps
 
 Put Halo PC / Custom Edition maps in `custom_maps`, beside `maps` (on the
-Switch, `sdmc:/switch/halo/custom_maps/`), with Custom Edition's
+Switch, `sdmc:/switch/halo/custom_maps/`; on the web, **Add a custom_maps
+folder…** under **Game data**), with Custom Edition's
 `bitmaps.map`, `sounds.map` and `loc.map`. The level lists then have CUSTOM
 SINGLEPLAYER and CUSTOM MULTIPLAYER. A subfolder of `custom_maps` is listed
 under its own name and opens to its maps, so a set of maps (Cursed Halo,

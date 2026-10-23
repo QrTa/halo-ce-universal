@@ -45,6 +45,14 @@ calls them from PC_MENU_FUNCTION_BASE on):
   "skulls screen update" ticks them and shows the chosen one's help;
 - Settings > Gameplay > Skulls: "skulls reset progress" (A twice) forgets
   the skulls found and the question of how they are had;
+- Settings > Gameplay > Tag Injector (tools/port_settings.py), laid out as
+  the Mods screen is: "port tags update" shows its rows and the details of
+  the one chosen, "port tags choose" (A) goes down a list (the maps, a map's
+  kinds of tags, a kind's tags) or adds the tag chosen to the profile or
+  takes it out, "port tags left" and "right" change the tag injection and
+  the profile, "port tags back" (B) goes up a list or leaves, and "port tags
+  new profile" and "delete profile" make and delete profiles
+  (tag_injector.c);
 - Controls Setup's: the keyboard and mouse's controls, two bindings each,
   shown a group at a time ("controls update menu"); "controls begin
   binding" takes the next key or button pressed for the binding left and
@@ -99,6 +107,7 @@ their handlers open opens.
 #include "halo_menus.h"
 #include "custom_edition_cache.h"
 #include "custom_edition_maps.h"
+#include "tag_injector.h"
 #include "campaign_score.h"
 #include "community.h"
 #include "../src/community_net.h"
@@ -108,6 +117,7 @@ their handlers open opens.
 #include "../src/p2p.h"
 #include "text_filter.h"
 
+#include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -2697,15 +2707,20 @@ static void skulls_reset_progress(struct widget_instance *widget)
 Randomizer): ALL SKULLS only with the skulls on and the skulls screen's
 question answered, INSTANT UNLOCK, SKULLS PER LEVEL and DROP CHANCE only
 with ALL SKULLS off too, Go Crazy's
-parts only with it on; a hidden row takes no focus. And RESET SKULL
+parts only with it on; a hidden row takes no focus. CUSTOM TAGS is dimmed,
+and passed over, unless the Tag Injector plays a profile of tags (found
+again each second, from its folder). And RESET SKULL
 PROGRESS's question or done in the help line, while it has the focus (its
 help's next strings: tools/port_settings.py) */
 static void gameplay_screen_update(struct widget_instance *list)
 {
 	static char const *const crazy_rows[] = {
 		"op_randomizer_crazy_weapons", "op_randomizer_crazy_enemies", "op_randomizer_crazy_flame",
-		"op_randomizer_crazy_pods"
+		"op_randomizer_crazy_pods", "op_randomizer_crazy_custom_tags"
 	};
+	static unsigned long custom_tags_checked;
+	static boolean custom_tags_playable;
+	struct widget_instance *custom_tags_row = named(list, "op_randomizer_crazy_custom_tags", 0);
 	struct widget_instance *all_row = named(list, "op_skulls_all_unlocked", 0);
 	struct widget_instance *instant_row = named(list, "op_skulls_instant_unlock", 0);
 	struct widget_instance *death_row = named(list, "op_skulls_lose_on_death", 0);
@@ -2726,6 +2741,15 @@ static void gameplay_screen_update(struct widget_instance *list)
 
 		if (crazy_row)
 			crazy_row->visible = crazy;
+	}
+	if (custom_tags_row && crazy)
+	{
+		if (!custom_tags_checked || system_milliseconds() - custom_tags_checked > 1000)
+		{
+			custom_tags_playable = tag_injector_profile_playable() != NONE;
+			custom_tags_checked = system_milliseconds();
+		}
+		enabled_set(custom_tags_row, custom_tags_playable);
 	}
 	if (all_row)
 		all_row->visible = answered;
@@ -4455,6 +4479,10 @@ enum
 it has been drawn, and its font is known */
 static char const *const mod_text_box_names[NUMBER_OF_MOD_TEXT_BOXES] = { "mod_details_name", "mod_details_text",
 	"mod_name" };
+/* ... and the Tag Injector's, laid out as theirs are, which share their
+measures (one screen is shown at a time) */
+static char const *const tag_text_box_names[NUMBER_OF_MOD_TEXT_BOXES] = { "tag_details_name", "tag_details_text",
+	"tag_name" };
 static short const mod_text_box_characters[NUMBER_OF_MOD_TEXT_BOXES] = { 17, 30, 24 };
 
 /* (port/linux/src/port_mods.c, port_mods.h's) */
@@ -4880,6 +4908,677 @@ static boolean mods_save(void)
 	port_mods_save();
 	mods_apply();
 	return TRUE;
+}
+
+/* ---------- the Tag Injector (Settings > Gameplay > Tag Injector,
+tools/port_settings.py's TAG_INJECTOR): laid out as the Mods screen is, its
+rows (op_tag_<n>) a list at a time, and in the frame beside them the
+details of the row chosen. The first list has whether the randomizer's Go
+Crazy plays a profile's tags (game.tag_injection), the profile tags go in
+and it plays (game.tag_injection_profile), and the Custom Edition maps; a
+map's, its kinds of tags; a kind's, its tags, each added to the profile or
+taken out (tag_injector.c). B goes back up a list. A profile is made with a
+name typed (tag_injector_profiles_poll) and deleted with DELETE PROFILE,
+twice. */
+
+#define TAG_ROWS MOD_ROWS
+#define TAG_PROFILE_NAME 24
+/* the rows of the first list before the maps' */
+#define TAG_SETTING_ROWS 2
+/* how long the word of the last thing done stays at the details' top */
+#define TAG_MESSAGE_MILLISECONDS 5000
+
+/* (port/linux/src/port_tag_profiles.c's: port_tag_profiles.h) */
+long port_tag_profiles_scan(void);
+long port_tag_profiles_count(void);
+unsigned long port_tag_profiles_scans(void);
+char const *port_tag_profiles_name(long profile);
+char const *port_tag_profiles_folder(long profile);
+long port_tag_profiles_find(char const *folder);
+long port_tag_profiles_create(char const *name);
+int port_tag_profiles_delete(long profile);
+long port_tag_profiles_tag_count(long profile);
+char const *port_tag_profiles_tag_map(long profile, long tag);
+unsigned long port_tag_profiles_tag_group(long profile, long tag);
+char const *port_tag_profiles_tag_name(long profile, long tag);
+int port_tag_profiles_tag_remove(long profile, long tag);
+
+/* the lists, down from the first */
+enum
+{
+	_tags_list_maps,
+	_tags_list_categories,
+	_tags_list_tags,
+	NUMBER_OF_TAGS_LISTS
+};
+
+static struct
+{
+	/* the list shown, the map and the kind of tags it is of, and each list's
+	first row's place and place chosen (kept to go back up to) */
+	short list;
+	short map;
+	short category;
+	short first[NUMBER_OF_TAGS_LISTS];
+	short chosen[NUMBER_OF_TAGS_LISTS];
+	/* the profile shown, and its name being typed */
+	long profile;
+	boolean naming;
+	wchar_t name[TAG_PROFILE_NAME + 1];
+	/* DELETE PROFILE pressed once, for this profile (NONE) */
+	long deleting;
+	/* the word of the last thing done, and when */
+	char message[256];
+	unsigned long message_time;
+	/* what the details and rows show (they are made again when it changes) */
+	char shown[256];
+	char row_shown[TAG_ROWS][128];
+} tags_screen = { 0, NONE, NONE, { 0 }, { 0 }, NONE, FALSE, { 0 }, NONE };
+
+static void tags_message(char const *text)
+{
+	snprintf(tags_screen.message, sizeof(tags_screen.message), "%s", text ? text : "");
+	tags_screen.message_time = system_milliseconds();
+}
+
+/* the profile shown: game.tag_injection_profile's, else the first */
+static void tags_profile_choose(long profile)
+{
+	long count = port_tag_profiles_count();
+
+	tags_screen.deleting = NONE;
+	tags_screen.profile = count ? (profile + count) % count : NONE;
+	if (!config_write("game.tag_injection_profile", count ? port_tag_profiles_folder(tags_screen.profile) : ""))
+		error(_error_silent, "tag injector: could not write game.tag_injection_profile to config.toml");
+}
+
+/* the row (op_tag_<n>) a widget is or is in, else NULL */
+static struct widget_instance *tag_row(struct widget_instance *widget)
+{
+	for (; widget; widget = widget->parent)
+	{
+		if (!strncmp(widget->name, "op_tag_", 7))
+			return widget;
+	}
+	return NULL;
+}
+
+/* how many rows the list shown has */
+static short tags_count(void)
+{
+	switch (tags_screen.list)
+	{
+	case _tags_list_maps:
+		return (short)(TAG_SETTING_ROWS + tag_injector_map_count());
+	case _tags_list_categories:
+		return NUMBER_OF_TAG_INJECTOR_CATEGORIES;
+	default:
+		return (short)MIN(tag_injector_category_count(tags_screen.category), 0x7FFF);
+	}
+}
+
+static short tag_row_place(struct widget_instance *row)
+{
+	short place = row ? (short)(tags_screen.first[tags_screen.list] + atoi(row->name + 7) - 1) : NONE;
+
+	return place >= 0 && place < tags_count() ? place : NONE;
+}
+
+/* the last part of a tag's path (the name it is listed by) */
+static char const *tag_leaf(char const *path)
+{
+	char const *slash = strrchr(path, '\\');
+
+	return slash ? slash + 1 : path;
+}
+
+static void upper_copy(char *destination, size_t size, char const *source)
+{
+	size_t index;
+
+	for (index = 0; index + 1 < size && source[index]; index++)
+		destination[index] = (char)toupper((unsigned char)source[index]);
+	if (size)
+		destination[index] = 0;
+}
+
+/* a row's name and state, as it shows them */
+static void tags_row_text(short place, char *name, size_t name_size, char *state, size_t state_size)
+{
+	name[0] = 0;
+	state[0] = 0;
+	if (tags_screen.list == _tags_list_maps)
+	{
+		if (place == 0)
+		{
+			snprintf(name, name_size, "TAG INJECTION");
+			snprintf(state, state_size, "%s", config_boolean("game.tag_injection") ? "ON" : "OFF");
+		}
+		else if (place == 1)
+		{
+			snprintf(name, name_size, "PROFILE");
+			upper_copy(state, state_size, tags_screen.profile != NONE ? port_tag_profiles_name(tags_screen.profile) :
+				"NONE");
+		}
+		else
+		{
+			short map = (short)(place - TAG_SETTING_ROWS);
+			wchar_t const *wide = tag_injector_map_name(map);
+			char const *folder = tag_injector_map_folder(map);
+			size_t index;
+
+			/* (the menus' names are ASCII: their files') */
+			for (index = 0; index + 1 < name_size && wide[index]; index++)
+				name[index] = wide[index] < 0x80 ? (char)wide[index] : '?';
+			name[index] = 0;
+			upper_copy(state, state_size, folder[0] ? folder : tag_injector_map_campaign(map) ? "CAMPAIGN" :
+				"MULTIPLAYER");
+		}
+	}
+	else if (tags_screen.list == _tags_list_categories)
+	{
+		snprintf(name, name_size, "%s", tag_injector_category_name(place));
+		snprintf(state, state_size, "%ld", tag_injector_category_count(place));
+	}
+	else
+	{
+		snprintf(name, name_size, "%s", tag_leaf(tag_injector_category_tag(tags_screen.category, place)));
+		if (tag_injector_category_addable(tags_screen.category) &&
+			tag_injector_tag_in_profile(tags_screen.profile, tags_screen.category, place) != NONE)
+			snprintf(state, state_size, "ADDED");
+	}
+}
+
+/* the details of the row at `place`: its name in the frame, and below it
+what it is and what A does */
+static void tags_details_text(short place, char *title, size_t title_size, char *text, size_t text_size)
+{
+	char profile[96];
+
+	snprintf(profile, sizeof(profile), "%s", tags_screen.profile != NONE ? port_tag_profiles_name(tags_screen.profile) :
+		"");
+	title[0] = 0;
+	text[0] = 0;
+	if (tags_screen.list == _tags_list_maps && place == 0)
+	{
+		snprintf(title, title_size, "Tag Injector");
+		snprintf(text, text_size, "On: the randomizer's Go Crazy can add the profile's weapons and AI to a campaign "
+			"level played alone (Gameplay > Randomizer > CUSTOM TAGS).\n \nChoose a Custom Edition map below to add "
+			"its tags to the profile.");
+	}
+	else if (tags_screen.list == _tags_list_maps && place == 1)
+	{
+		long count;
+		long tag;
+		size_t length;
+
+		if (tags_screen.profile == NONE)
+		{
+			snprintf(title, title_size, "No profiles");
+			snprintf(text, text_size, "NEW PROFILE makes one, to add tags to. Each is a folder of the tag_injector "
+				"folder, beside the maps folder.");
+			return;
+		}
+		count = port_tag_profiles_tag_count(tags_screen.profile);
+		snprintf(title, title_size, "%s", profile);
+		snprintf(text, text_size, "%ld tag%s. Left and right choose another profile.\n", count, count == 1 ? "" : "s");
+		for (tag = 0; tag < count; tag++)
+		{
+			length = strlen(text);
+			snprintf(text + length, text_size - length, "\n%s (%s)",
+				tag_leaf(port_tag_profiles_tag_name(tags_screen.profile, tag)),
+				port_tag_profiles_tag_map(tags_screen.profile, tag));
+		}
+	}
+	else if (tags_screen.list == _tags_list_maps)
+	{
+		char name[ROW_TEXT_LENGTH];
+		char state[ROW_TEXT_LENGTH];
+		char reason[160];
+
+		tags_row_text(place, name, sizeof(name), state, sizeof(state));
+		snprintf(title, title_size, "%s", name);
+		if (!tag_injector_maps_available(reason, sizeof(reason)))
+			snprintf(text, text_size, "%s", reason);
+		else
+			snprintf(text, text_size, "%s map%s%s.\n \nA lists its weapons, AI and the rest, to add to the profile.",
+				tag_injector_map_campaign((short)(place - TAG_SETTING_ROWS)) ? "A campaign" : "A multiplayer",
+				tag_injector_map_folder((short)(place - TAG_SETTING_ROWS))[0] ? ", in " : "",
+				tag_injector_map_folder((short)(place - TAG_SETTING_ROWS)));
+	}
+	else if (tags_screen.list == _tags_list_categories)
+	{
+		long count = tag_injector_category_count(place);
+		wchar_t const *wide = tag_injector_map_name(tags_screen.map);
+		size_t index;
+
+		for (index = 0; index + 1 < title_size && wide[index]; index++)
+			title[index] = wide[index] < 0x80 ? (char)wide[index] : '?';
+		title[index] = 0;
+		snprintf(text, text_size, "%ld %s.\n \n%s", count, tag_injector_category_name(place),
+			!count ? "None here." :
+			tag_injector_category_addable(place) ? "A lists them, to add to the profile." :
+			"A lists them. The randomizer cannot play these yet.");
+	}
+	else
+	{
+		char const *path = tag_injector_category_tag(tags_screen.category, place);
+		char reason[320];
+		long size = tag_injector_tag_size(tags_screen.category, place, reason, sizeof(reason));
+		boolean added = tag_injector_tag_in_profile(tags_screen.profile, tags_screen.category, place) != NONE;
+
+		snprintf(title, title_size, "%s", tag_leaf(path));
+		if (size == NONE)
+			snprintf(text, text_size, "%s\n \n%s", path, reason);
+		else if (!tag_injector_category_addable(tags_screen.category))
+			snprintf(text, text_size, "%s\n \n%ld tags with what it names. The randomizer cannot play these yet.",
+				path, size);
+		else if (tags_screen.profile == NONE)
+			snprintf(text, text_size, "%s\n \n%ld tags with what it names. Make a profile to add it to.", path, size);
+		else
+			snprintf(text, text_size, "%s\n \n%ld tags with what it names.\n \nA %s the profile %s.", path, size,
+				added ? "takes it out of" : "adds it to", profile);
+	}
+}
+
+/* "port tags init" (the list's created) and "port tags close" (its
+deleted): the maps found again, and the profile shown game.tag_injection's */
+static boolean tags_screen_reset(boolean opening)
+{
+	short list;
+
+	tag_injector_map_close();
+	tags_screen.list = _tags_list_maps;
+	tags_screen.map = NONE;
+	tags_screen.category = NONE;
+	for (list = 0; list < NUMBER_OF_TAGS_LISTS; list++)
+	{
+		tags_screen.first[list] = 0;
+		tags_screen.chosen[list] = 0;
+	}
+	tags_screen.deleting = NONE;
+	tags_screen.message[0] = 0;
+	tags_screen.shown[0] = 0;
+	csmemset(tags_screen.row_shown, 0, sizeof(tags_screen.row_shown));
+	/* (the text boxes' measures it shares with the Mods screen: none until
+	they are drawn, as mods_screen_reset leaves them, else a font of 0 would
+	be asked for before the Mods screen has ever opened) */
+	for (list = 0; list < NUMBER_OF_MOD_TEXT_BOXES; list++)
+	{
+		mods_screen.fonts[list] = NONE;
+		mods_screen.widths[list] = 0;
+	}
+	if (!opening)
+		return TRUE;
+	port_tag_profiles_scan();
+	tag_injector_maps_find();
+	tags_screen.profile = port_tag_profiles_find(config_string("game.tag_injection_profile"));
+	if (tags_screen.profile == NONE && port_tag_profiles_count())
+		tags_profile_choose(0);
+	return TRUE;
+}
+
+/* the list shown another: its rows as they were left, the focus on the
+place chosen there */
+static void tags_list_show(struct widget_instance *list, short shown)
+{
+	tags_screen.list = shown;
+	tags_screen.shown[0] = 0;
+	csmemset(tags_screen.row_shown, 0, sizeof(tags_screen.row_shown));
+	if (list)
+		focus_row(list, (short)(tags_screen.chosen[shown] - tags_screen.first[shown]));
+}
+
+static struct widget_instance *tags_list_of(struct widget_instance *widget)
+{
+	struct widget_instance *screen = screen_of(widget);
+
+	return screen ? named(screen, "tags_list", 0) : NULL;
+}
+
+/* "port tags choose" (A on a row) */
+static boolean tags_choose(struct widget_instance *widget)
+{
+	struct widget_instance *row = tag_row(widget);
+	struct widget_instance *list = tags_list_of(widget);
+	short place = tag_row_place(row);
+	char reason[320];
+
+	if (place == NONE)
+		return FALSE;
+	tags_screen.chosen[tags_screen.list] = place;
+	tags_screen.message[0] = 0;
+	tags_screen.shown[0] = 0;
+	if (tags_screen.list == _tags_list_maps && place == 0)
+	{
+		config_write("game.tag_injection", config_boolean("game.tag_injection") ? "false" : "true");
+		ui_play_audio_feedback_sound(SOUND_FORWARD);
+	}
+	else if (tags_screen.list == _tags_list_maps && place == 1)
+	{
+		if (tags_screen.profile == NONE)
+			tags_message("No profiles: NEW PROFILE makes one.");
+		else
+			tags_profile_choose(tags_screen.profile + 1);
+		ui_play_audio_feedback_sound(SOUND_CURSOR);
+	}
+	else if (tags_screen.list == _tags_list_maps)
+	{
+		short map = (short)(place - TAG_SETTING_ROWS);
+
+		if (!tag_injector_maps_available(reason, sizeof(reason)))
+		{
+			tags_message(reason);
+			ui_play_audio_feedback_sound(SOUND_ERROR);
+		}
+		else if (!tag_injector_map_open(map))
+		{
+			tags_message("The map cannot be read (the log says why).");
+			ui_play_audio_feedback_sound(SOUND_ERROR);
+		}
+		else
+		{
+			tags_screen.map = map;
+			tags_screen.first[_tags_list_categories] = 0;
+			tags_screen.chosen[_tags_list_categories] = 0;
+			ui_play_audio_feedback_sound(SOUND_FORWARD);
+			tags_list_show(list, _tags_list_categories);
+		}
+	}
+	else if (tags_screen.list == _tags_list_categories)
+	{
+		if (!tag_injector_category_count(place))
+		{
+			ui_play_audio_feedback_sound(SOUND_ERROR);
+			return TRUE;
+		}
+		tags_screen.category = place;
+		tags_screen.first[_tags_list_tags] = 0;
+		tags_screen.chosen[_tags_list_tags] = 0;
+		ui_play_audio_feedback_sound(SOUND_FORWARD);
+		tags_list_show(list, _tags_list_tags);
+	}
+	else if (!tag_injector_category_addable(tags_screen.category))
+	{
+		tags_message("The randomizer cannot play these yet: only weapons and AI can be added.");
+		ui_play_audio_feedback_sound(SOUND_ERROR);
+	}
+	else if (tags_screen.profile == NONE)
+	{
+		tags_message("Make a profile first: NEW PROFILE.");
+		ui_play_audio_feedback_sound(SOUND_ERROR);
+	}
+	else
+	{
+		long tag = tag_injector_tag_in_profile(tags_screen.profile, tags_screen.category, place);
+		char text[sizeof(tags_screen.message)];
+
+		if (tag != NONE)
+		{
+			if (port_tag_profiles_tag_remove(tags_screen.profile, tag))
+			{
+				snprintf(text, sizeof(text), "Taken out of %s.", port_tag_profiles_name(tags_screen.profile));
+				ui_play_audio_feedback_sound(SOUND_BACK);
+			}
+			else
+			{
+				snprintf(text, sizeof(text), "The profile cannot be written (the log says why).");
+				ui_play_audio_feedback_sound(SOUND_ERROR);
+			}
+		}
+		else if (tag_injector_tag_add(tags_screen.profile, tags_screen.category, place, reason, sizeof(reason)))
+		{
+			snprintf(text, sizeof(text), "Added to %s.", port_tag_profiles_name(tags_screen.profile));
+			ui_play_audio_feedback_sound(SOUND_FORWARD);
+		}
+		else
+		{
+			snprintf(text, sizeof(text), "%s", reason[0] ? reason : "It cannot be taken out (the log says why).");
+			ui_play_audio_feedback_sound(SOUND_ERROR);
+		}
+		tags_message(text);
+		/* (a map that could not be read again is closed: back to the maps) */
+		if (tag_injector_map_opened() == NONE)
+			tags_list_show(list, _tags_list_maps);
+	}
+	return TRUE;
+}
+
+/* "port tags left" and "port tags right" (on a row): the tag injection
+turned on or off, or the profile before or after */
+static boolean tags_step(struct widget_instance *widget, short step)
+{
+	short place = tag_row_place(tag_row(widget));
+
+	if (tags_screen.list != _tags_list_maps || place == NONE || place >= TAG_SETTING_ROWS)
+		return TRUE;
+	tags_screen.message[0] = 0;
+	tags_screen.shown[0] = 0;
+	if (place == 0)
+		config_write("game.tag_injection", config_boolean("game.tag_injection") ? "false" : "true");
+	else if (tags_screen.profile != NONE)
+		tags_profile_choose(tags_screen.profile + step);
+	ui_play_audio_feedback_sound(SOUND_CURSOR);
+	return TRUE;
+}
+
+/* "port tags back" (B, and BACK): up a list, else away */
+static boolean tags_back(struct widget_instance *widget, boolean *widget_deleted)
+{
+	struct widget_instance *list = tags_list_of(widget);
+
+	ui_play_audio_feedback_sound(SOUND_BACK);
+	tags_screen.message[0] = 0;
+	if (tags_screen.list == _tags_list_tags)
+	{
+		tags_list_show(list, _tags_list_categories);
+		return TRUE;
+	}
+	if (tags_screen.list == _tags_list_categories)
+	{
+		tag_injector_map_close();
+		tags_screen.map = NONE;
+		tags_list_show(list, _tags_list_maps);
+		return TRUE;
+	}
+	ui_widget_port_go_back(widget);
+	*widget_deleted = TRUE;
+	return TRUE;
+}
+
+/* "port tags new profile": a name asked for, then made
+(tag_injector_profiles_poll) */
+static boolean tags_new_profile(void)
+{
+	if (tags_screen.naming)
+		return TRUE;
+	tags_screen.deleting = NONE;
+	csmemset(tags_screen.name, 0, sizeof(tags_screen.name));
+	virtual_keyboard_allow_any_name();
+	if (!virtual_keyboard_launch(tags_screen.name, (word)sizeof(tags_screen.name), 8))
+	{
+		error(_error_silent, "tag injector: the keyboard did not open for the profile's name");
+		ui_play_audio_feedback_sound(SOUND_ERROR);
+		return TRUE;
+	}
+	tags_screen.naming = TRUE;
+	return TRUE;
+}
+
+/* "port tags delete profile": once, the question; again, the profile
+deleted with its tags */
+static boolean tags_delete_profile(void)
+{
+	char text[sizeof(tags_screen.message)];
+
+	if (tags_screen.profile == NONE)
+	{
+		tags_message("No profile to delete.");
+		ui_play_audio_feedback_sound(SOUND_ERROR);
+		return TRUE;
+	}
+	if (tags_screen.deleting != tags_screen.profile)
+	{
+		tags_screen.deleting = tags_screen.profile;
+		snprintf(text, sizeof(text), "DELETE PROFILE again deletes %s and its %ld tags. This cannot be undone.",
+			port_tag_profiles_name(tags_screen.profile), port_tag_profiles_tag_count(tags_screen.profile));
+		tags_message(text);
+		ui_play_audio_feedback_sound(SOUND_CURSOR);
+		return TRUE;
+	}
+	snprintf(text, sizeof(text), "Deleted %s.", port_tag_profiles_name(tags_screen.profile));
+	if (!port_tag_profiles_delete(tags_screen.profile))
+	{
+		snprintf(text, sizeof(text), "%s cannot be deleted (the log says why).",
+			port_tag_profiles_name(tags_screen.profile));
+		ui_play_audio_feedback_sound(SOUND_ERROR);
+	}
+	else
+	{
+		ui_play_audio_feedback_sound(SOUND_BACK);
+	}
+	tags_profile_choose(0);
+	tags_message(text);
+	return TRUE;
+}
+
+/* the name typed for a profile, once the keyboard has closed: the profile
+made, and shown. Each frame from the main loop (main.c), as
+randomizer_profiles_poll */
+void tag_injector_profiles_poll(void)
+{
+	char name[TAG_PROFILE_NAME + 1];
+	char text[sizeof(tags_screen.message)];
+	long profile;
+	short character;
+
+	if (!tags_screen.naming || virtual_keyboard_active())
+		return;
+	tags_screen.naming = FALSE;
+	for (character = 0; tags_screen.name[character] && character < TAG_PROFILE_NAME; character++)
+		name[character] = tags_screen.name[character] < 0x80 ? (char)tags_screen.name[character] : '?';
+	name[character] = 0;
+	if (!virtual_keyboard_last_exit_saved_text())
+		return;
+	profile = port_tag_profiles_create(name);
+	if (profile == NONE)
+	{
+		tags_message("A profile's name needs a letter or a digit (the log says why).");
+		return;
+	}
+	tags_profile_choose(profile);
+	snprintf(text, sizeof(text), "Made %s. Choose a map, then its weapons or AI to add.", port_tag_profiles_name(profile));
+	tags_message(text);
+}
+
+/* "port tags update": the rows (the list moving on at its ends while there
+are more past them), each one's name (cut short where it is too long) and
+state, and the details of the one chosen, the last thing done's word above
+them for a while */
+static void tags_update(struct widget_instance *list)
+{
+	struct widget_instance *row;
+	struct widget_instance *focused = tag_row(list->focused_child);
+	struct widget_instance *details = list->parameters.list.extended_description;
+	short count = tags_count();
+	short focused_index = focused ? (short)(atoi(focused->name + 7) - 1) : NONE;
+	short *first = &tags_screen.first[tags_screen.list];
+	short *chosen = &tags_screen.chosen[tags_screen.list];
+
+	/* (a profile made or deleted elsewhere, or by this screen) */
+	if (tags_screen.profile >= port_tag_profiles_count())
+		tags_profile_choose(0);
+	if (focused_index == TAG_ROWS - 1 && *first + TAG_ROWS < count && list_scrolls_at_end())
+	{
+		(*first)++;
+		focus_row(list, --focused_index);
+	}
+	else if (focused_index == 0 && *first > 0 && list_scrolls_at_end())
+	{
+		(*first)--;
+		focus_row(list, ++focused_index);
+	}
+	if (*first > 0 && *first + TAG_ROWS > count)
+		*first = (short)MAX(0, count - TAG_ROWS);
+	if (focused_index != NONE && *first + focused_index < count)
+		*chosen = (short)(*first + focused_index);
+	if (tags_screen.deleting != NONE && (tags_screen.list != _tags_list_maps || *chosen != 1))
+		tags_screen.deleting = NONE;
+	for (row = list->child; row; row = row->next)
+	{
+		short place;
+		short row_index;
+		char name[ROW_TEXT_LENGTH];
+		char state[ROW_TEXT_LENGTH];
+		char shown[sizeof(tags_screen.row_shown[0])];
+
+		if (strncmp(row->name, "op_tag_", 7))
+			continue;
+		row->animation.current_frame_index = row == focused ? 1 : 0;
+		place = tag_row_place(row);
+		row->visible = place != NONE;
+		if (place == NONE)
+		{
+			if (row == focused)
+				focus_row(list, count ? (short)(count - 1 - *first) : NONE);
+			continue;
+		}
+		row_index = (short)PIN(atoi(row->name + 7) - 1, 0, TAG_ROWS - 1);
+		tags_row_text(place, name, sizeof(name), state, sizeof(state));
+		snprintf(shown, sizeof(shown), "%s|%s|%ld", name, state, mods_screen.fonts[_mod_row_name]);
+		if (strcmp(shown, tags_screen.row_shown[row_index]))
+		{
+			char shortened[MOD_DETAILS_LENGTH];
+			wchar_t wide[ROW_TEXT_LENGTH];
+
+			if (mods_text_fits(_mod_row_name, name, strlen(name)))
+				snprintf(shortened, sizeof(shortened), "%s", name);
+			else
+				mods_text_shorten(_mod_row_name, name, strlen(name), shortened, sizeof(shortened));
+			mods_wide_text(shortened, wide, ROW_TEXT_LENGTH);
+			text_set(named(row, "tag_name", 0), wide);
+			mods_wide_text(state, wide, ROW_TEXT_LENGTH);
+			text_set(named(row, "tag_state", 0), wide);
+			snprintf(tags_screen.row_shown[row_index], sizeof(tags_screen.row_shown[0]), "%s", shown);
+		}
+	}
+	if (tags_screen.message[0] && system_milliseconds() - tags_screen.message_time > TAG_MESSAGE_MILLISECONDS)
+		tags_screen.message[0] = 0;
+	if (details)
+	{
+		char title[MOD_DETAILS_LENGTH];
+		char text[MOD_DETAILS_LENGTH];
+		char wrapped[MOD_DETAILS_LENGTH];
+		char shown[sizeof(tags_screen.shown)];
+		wchar_t wide[MOD_DETAILS_LENGTH];
+		short line = 0;
+
+		/* (made again only when what they show, or its fonts, change) */
+		snprintf(shown, sizeof(shown), "%d %d %d %d %ld %lu %d %s %ld %d %ld %d", tags_screen.list, *chosen,
+			count, tags_screen.category, tags_screen.profile, port_tag_profiles_scans(),
+			config_boolean("game.tag_injection"), tags_screen.message, mods_screen.fonts[_mod_details_name],
+			mods_screen.widths[_mod_details_name], mods_screen.fonts[_mod_details_text],
+			mods_screen.widths[_mod_details_text]);
+		if (strcmp(shown, tags_screen.shown))
+		{
+			snprintf(tags_screen.shown, sizeof(tags_screen.shown), "%s", shown);
+			tags_details_text(count ? *chosen : NONE, title, sizeof(title), text, sizeof(text));
+			wrapped[0] = 0;
+			mods_wrap(title, wrapped, sizeof(wrapped), _mod_details_name, 2, 0);
+			mods_wide_text(wrapped, wide, NUMBEROF(wide));
+			text_set_length(named(details, "tag_details_name", 0), wide, NUMBEROF(wide));
+			wrapped[0] = 0;
+			if (tags_screen.message[0])
+			{
+				line = mods_wrap(tags_screen.message, wrapped, sizeof(wrapped), _mod_details_text, MOD_DETAILS_LINES,
+					line);
+				line = mods_wrap(" ", wrapped, sizeof(wrapped), _mod_details_text, MOD_DETAILS_LINES, line);
+			}
+			mods_wrap(text, wrapped, sizeof(wrapped), _mod_details_text, MOD_DETAILS_LINES, line);
+			mods_wide_text(wrapped, wide, NUMBEROF(wide));
+			text_set_length(named(details, "tag_details_text", 0), wide, NUMBEROF(wide));
+		}
+	}
 }
 
 /* ---------- Multiplayer (port/assets/menus' PLAN: Create Game > Internet
@@ -7651,7 +8350,7 @@ void menu_functions_text_box_drawn(struct widget_instance *widget, rectangle2d c
 	measured in, mods_text_fits) */
 	for (row = 0; widget->name && row < NUMBER_OF_MOD_TEXT_BOXES; row++)
 	{
-		if (!strcmp(widget->name, mod_text_box_names[row]))
+		if (!strcmp(widget->name, mod_text_box_names[row]) || !strcmp(widget->name, tag_text_box_names[row]))
 		{
 			mods_screen.fonts[row] = draw_string_get_font();
 			mods_screen.widths[row] = (short)(bounds->x1 - bounds->x0);
@@ -9117,6 +9816,30 @@ boolean pc_menu_event_function_invoke(
 		{
 			return mods_save();
 		}
+		else if (!strcmp(name, "port tags init") || !strcmp(name, "port tags close"))
+		{
+			return tags_screen_reset(!strcmp(name, "port tags init"));
+		}
+		else if (!strcmp(name, "port tags choose"))
+		{
+			return tags_choose(widget);
+		}
+		else if (!strcmp(name, "port tags left") || !strcmp(name, "port tags right"))
+		{
+			return tags_step(widget, (short)(!strcmp(name, "port tags left") ? -1 : 1));
+		}
+		else if (!strcmp(name, "port tags back"))
+		{
+			return tags_back(widget, widget_deleted);
+		}
+		else if (!strcmp(name, "port tags new profile"))
+		{
+			return tags_new_profile();
+		}
+		else if (!strcmp(name, "port tags delete profile"))
+		{
+			return tags_delete_profile();
+		}
 		else if (!strcmp(name, "controls screen init") || !strcmp(name, "controls screen defaults"))
 		{
 			return controls_load(!strcmp(name, "controls screen defaults"));
@@ -9403,6 +10126,8 @@ void pc_menu_game_data_function_invoke(
 		controls_update(widget);
 	else if (!strcmp(name, "port mods update"))
 		mods_update(widget);
+	else if (!strcmp(name, "port tags update"))
+		tags_update(widget);
 	else if (!strcmp(name, "color picker update"))
 		color_list_update(widget);
 	else if (!strcmp(name, "3wide player profile list update"))

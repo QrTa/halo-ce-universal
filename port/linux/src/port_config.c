@@ -608,6 +608,13 @@ static const struct config_setting config_settings[] =
 		"infection forms the enemy pool swaps for other actors, a percentage\n"
 		"(10 to 100, in tens): the squad's first, then evenly; the rest are not\n"
 		"placed. Without Go Crazy, one in three." },
+	{ "game.randomizer_crazy_custom_tags", _config_boolean, "false", "HALO_RANDOMIZER_CRAZY_CUSTOM_TAGS",
+		_environment_value, _platform_all,
+		"Go Crazy's, with game.randomizer_crazy and game.tag_injection. true: a\n"
+		"level played alone (not a network game, nor a challenge) is given the\n"
+		"tags of the Tag Injector's profile (game.tag_injection_profile), and its\n"
+		"weapons and actor variants join every enemy and weapon pool but those\n"
+		"of one type." },
 	{ "game.randomizer_profile_1", _config_string, "\"\"", "HALO_RANDOMIZER_PROFILE_1", _environment_value, _platform_all,
 		"The randomizer screen's saved setups (Save, then Load), one a setting:\n"
 		"a name, then the screen's settings, separated by semicolons. Written by\n"
@@ -693,6 +700,16 @@ static const struct config_setting config_settings[] =
 		"as CUSTOM SINGLEPLAYER and CUSTOM MULTIPLAYER. Their tags are checked\n"
 		"as the game's own maps' are before they run; false refuses them\n"
 		"(docs/custom_edition_caches.md)." },
+	{ "game.tag_injection", _config_boolean, "false", "HALO_TAG_INJECTION", _environment_value, _platform_all,
+		"Settings > Gameplay > Tag Injector. true: the randomizer's Go Crazy can\n"
+		"add the tags of a profile (game.tag_injection_profile) to a campaign\n"
+		"level played alone, with game.randomizer_crazy_custom_tags: weapons and\n"
+		"actor variants taken out of Custom Edition maps (docs/tag_injector.md)." },
+	{ "game.tag_injection_profile", _config_string, "\"\"", "HALO_TAG_INJECTION_PROFILE", _environment_value,
+		_platform_all,
+		"The Tag Injector's profile Go Crazy plays, and the menu adds tags to:\n"
+		"its folder's name in the data root's tag_injector folder. Written by\n"
+		"the menu." },
 	{ "bots.count", _config_integer, "0", "HALO_BOTS", _environment_value, _platform_all,
 		"Computer players (bots) in a local (split screen) Slayer game: 0 to 15\n"
 		"join its lobby with the players, as far as the game has room. Not in\n"

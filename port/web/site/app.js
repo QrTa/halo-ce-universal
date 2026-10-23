@@ -3,7 +3,8 @@ APP.JS
 
 The launcher page (index.html): it checks that the browser can run the game,
 copies the game data in from the player's disc image (xiso-worker.js) and
-the player's mods (mods-worker.js), and starts the game (halo.js and halo.wasm: tools/web_build.py), whose canvas
+the player's Custom Edition maps (custom-maps-worker.js) and mods
+(mods-worker.js), and starts the game (halo.js and halo.wasm: tools/web_build.py), whose canvas
 then fills the page.
 
 - The game's threads need SharedArrayBuffer, so a cross-origin isolated
@@ -299,6 +300,102 @@ $('folder-input').addEventListener('change', (event) => {
   const files = [...event.target.files];
   event.target.value = '';
   if (files.length) importData({ type: 'folder', files });
+});
+
+// ---------- Custom Edition maps (custom-maps-worker.js): /data/custom_maps,
+// the folder and one level of subfolders, as the game lists them
+// (port/linux/game/custom_edition_maps.c)
+
+async function refreshCustomMaps() {
+  let maps = 0;
+  let bytes = 0;
+  const resources = [];
+  try {
+    const root = await navigator.storage.getDirectory();
+    const folder = await root.getDirectoryHandle('custom_maps');
+    const count = async (directory, top) => {
+      for await (const [name, handle] of directory.entries()) {
+        if (handle.kind === 'directory') {
+          if (top) await count(handle, false);
+          continue;
+        }
+        const lower = name.toLowerCase();
+        if (!lower.endsWith('.map')) continue;
+        const size = (await handle.getFile()).size;
+        bytes += size;
+        if (top && ['bitmaps.map', 'sounds.map', 'loc.map'].includes(lower)) resources.push(lower);
+        else maps++;
+      }
+    };
+    await count(folder, true);
+  } catch {
+    // none yet
+  }
+  const missing = ['bitmaps.map', 'sounds.map', 'loc.map'].filter((name) => !resources.includes(name));
+  let text = 'None yet.';
+  if (maps || resources.length) {
+    text = `${maps} map${maps === 1 ? '' : 's'} (${formatBytes(bytes)})` +
+      (missing.length ? `; ${missing.join(', ')} missing: the maps cannot be played without them.` : ', ready.');
+  }
+  $('custom-status').textContent = text;
+  $('custom-remove').disabled = !(maps || resources.length);
+  await refreshStorage();
+}
+
+function customMapsTask(message) {
+  const worker = new Worker('custom-maps-worker.js');
+  const busy = (on) => {
+    $('custom-label').classList.toggle('disabled', on);
+    $('custom-input').disabled = on;
+    $('custom-remove').disabled = on;
+  };
+  busy(true);
+  $('import-progress').hidden = false;
+  $('import-bar').style.width = '0';
+  $('import-text').textContent = message.type === 'remove' ? 'Removing…' : 'Reading…';
+  worker.onmessage = async (event) => {
+    const data = event.data;
+    if (data.type === 'progress') {
+      $('import-bar').style.width = (100 * data.done / data.total).toFixed(1) + '%';
+      $('import-text').textContent = `Copying ${data.file}: ${formatBytes(data.done)} of ${formatBytes(data.total)}`;
+      return;
+    }
+    worker.terminate();
+    busy(false);
+    if (data.type === 'error') {
+      $('import-text').textContent = data.message;
+      logLine('custom maps: ' + data.message);
+    } else if (message.type === 'remove') {
+      $('import-text').textContent = 'Removed the Custom Edition maps.';
+    } else {
+      const left = data.skipped.length ? ` Left out ${data.skipped.length}: ` +
+        data.skipped.slice(0, 5).map((entry) => `${entry.path} (${entry.why})`).join(', ') +
+        (data.skipped.length > 5 ? ', …' : '') + '.' : '';
+      $('import-text').textContent = `Copied ${data.files} files.${left}`;
+      logLine(`custom maps: ${data.files} files, ${data.bytes} bytes`);
+      for (const entry of data.skipped) logLine(`custom maps: left out ${entry.path}: ${entry.why}`);
+    }
+    await refreshCustomMaps();
+  };
+  worker.onerror = async (event) => {
+    worker.terminate();
+    busy(false);
+    $('import-text').textContent = 'The copy failed: ' + event.message;
+    await refreshCustomMaps();
+  };
+  if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
+  worker.postMessage(message);
+}
+
+$('custom-input').addEventListener('change', (event) => {
+  const files = [...event.target.files];
+  event.target.value = '';
+  if (files.length) customMapsTask({ type: 'add', files });
+});
+$('custom-remove').addEventListener('click', () => {
+  if (confirm('Remove the Custom Edition maps from this browser (their resource maps too)?')) {
+    customMapsTask({ type: 'remove' });
+  }
 });
 
 // ---------- mods (mods-worker.js): /data/mods, all of them played unless
@@ -833,6 +930,7 @@ document.addEventListener('visibilitychange', async () => {
   }
   if (results.opfs === 'good') {
     await refreshData();
+    await refreshCustomMaps();
     await refreshMods();
   } else {
     updatePlay();

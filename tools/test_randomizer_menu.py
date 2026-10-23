@@ -31,6 +31,7 @@ def test_randomizer_menus():
         "game.randomizer_crazy_enemies",
         "game.randomizer_crazy_flamethrower",
         "game.randomizer_crazy_pods",
+        "game.randomizer_crazy_custom_tags",
     ):
         assert f'setting="{setting}"' in settings
         assert f'setting="{setting}"' not in screen

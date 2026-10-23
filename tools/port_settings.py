@@ -484,6 +484,8 @@ SCREENS["gameplay"] = {
         ("SCORING", "gameplay/scoring", "The campaign's score, its time and par times,\nand its medals."),
         ("COMMUNITY", "gameplay/community",
          "Online leaderboards, the daily challenge, and\nthe community server."),
+        ("TAG INJECTOR", "gameplay/tag_injector",
+         "Weapons and AI of Custom Edition maps, in\nprofiles the randomizer's Go Crazy can add."),
     ],
 }
 SCREENS["gameplay/ragdolls"] = {
@@ -566,6 +568,11 @@ SCREENS["gameplay/randomizer"] = {
         ("FLOOD PODS SWAPPED:", "game.randomizer_crazy_pods",
          [(f"{percent}%", str(percent)) for percent in range(10, 101, 10)],
          "How many flood infection pods become other\nenemies. The rest are left out.",
+         None),
+        # (dimmed unless Gameplay > Tag Injector plays a profile of tags:
+        # menu_functions.c's gameplay_screen_update)
+        ("CUSTOM TAGS:", "game.randomizer_crazy_custom_tags", [("OFF", "false"), ("ON", "true")],
+         "The Tag Injector's profile's weapons and AI join\nthe pools. Played alone only.",
          None),
     ],
     "inputs": ["gameplay screen update"],
@@ -851,7 +858,7 @@ def _setting_screen(folder: str, spec: dict) -> list:
     for index, (label, category_folder, _, *category_platform) in enumerate(spec.get("categories", ())):
         key = category_folder.rsplit("/", 1)[-1]
         row = f"{base}/op_{key}"
-        target = f"{PE}/{category_folder}/{SCREENS[category_folder]['screen']}"
+        target = f"{PE}/{category_folder}/{(SCREENS.get(category_folder) or CUSTOM_SCREENS[category_folder])['screen']}"
         platform = category_platform[0] if category_platform else None
         if spec.get("platform_places"):
             members = platform.split() if platform else list(places)
@@ -1338,6 +1345,85 @@ def _randomizer_profiles_screen(base: str) -> list:
     return lines
 
 
+# the Tag Injector (port/linux/game/tag_injector.c, docs/tag_injector.md):
+# Gameplay's TAG INJECTOR, a screen laid out as the mods' is (_mods), its rows
+# a list at a time: whether Go Crazy plays a profile's tags, the profile, and
+# the Custom Edition maps; a map's kinds of tags; a kind's tags, each added to
+# the profile or taken out by A. B (and BACK) goes back up a list, NEW
+# PROFILE asks for a name, DELETE PROFILE (twice) deletes the profile shown
+# (menu_functions.c's "port tags" functions)
+TAG_INJECTOR = f"{PE}/gameplay/tag_injector"
+TAG_INJECTOR_ROWS = MOD_ROWS
+# the screens of a category that are no settings screen (_setting_screen),
+# made by a function of their own
+CUSTOM_SCREENS = {"gameplay/tag_injector": {"screen": "tag_injector_screen"}}
+
+
+def _tag_injector_screen() -> list:
+    """Gameplay's TAG INJECTOR: on the left two thirds the rows of the list
+    shown, a row each with its name and state (ON, the profile, a map's
+    folder, a kind's tags, ADDED); on the right third, in the lobby's frame,
+    the row chosen's details, the word of the last thing done above them"""
+    base = TAG_INJECTOR
+    back = ['<on event="b" run="port tags back"/>', '<on event="back" run="port tags back"/>']
+    lines = _widget(f"{base}/tag_injector_screen", [("width", 640), ("height", 480),
+                                                   ("flags", "pass_unhandled_to_focused_child pause_game"),
+                                                   ("bitmap", "bitmaps/gradient")],
+                    [*back, '<child widget="main_menu/new_select/sel_list_desc_bkd"/>',
+                     f'<child widget="{base}/tags_list"/>', f'<child widget="{base}/header_gameplay"/>'])
+    lines += _widget(f"{base}/header_gameplay", [("controller", 1), ("left", 35), ("top", 11), ("width", 605),
+                                                ("height", 59), ("bitmap", _GAMEPLAY_HEADER[1])], [])
+    rows = [f'<child widget="{base}/op_tag_{index + 1}" x="20" y="{73 + 30 * index}"/>'
+            for index in range(TAG_INJECTOR_ROWS)]
+    lines += _widget(f"{base}/tags_list", [("type", "column_list"), ("width", 640), ("height", 480),
+                                           ("flags", "pass_unhandled_to_focused_child up_down_tabs_children"),
+                                           ("description", f"{base}/tag_details")],
+                     ['<data input="port tags update"/>', '<on event="created" run="port tags init"/>',
+                      '<on event="deleted" run="port tags close"/>', *rows,
+                      f'<child widget="{base}/button_bar" y="414"/>'])
+    for index in range(TAG_INJECTOR_ROWS):
+        lines += _widget(f"{base}/op_tag_{index + 1}",
+                         [("width", 390), ("height", 28), ("flags", "pass_unhandled_to_focused_child"),
+                          ("bitmap", "bitmaps/sel_list_item_bkd_top" if index == 0 else "bitmaps/sel_list_item_bkd"),
+                          ("color", "#FF2896FF")],
+                         ['<on event="a" run="port tags choose"/>', '<on event="start" run="port tags choose"/>',
+                          '<on event="left" run="port tags left"/>', '<on event="right" run="port tags right"/>',
+                          '<on event="left_mouse" run="mouse emit accept event"/>',
+                          f'<child widget="{base}/tag_name" x="12"/>',
+                          f'<child widget="{base}/tag_state" x="250"/>'])
+    lines += _widget(f"{base}/tag_name",
+                     [("type", "text"), ("controller", 1), ("width", 238), ("height", 22), ("font", "ui\\large_ui"),
+                      ("color", "#FF2896FF"), ("text_y", 4)], [])
+    lines += _widget(f"{base}/tag_state",
+                     [("type", "text"), ("controller", 1), ("width", 134), ("height", 22), ("font", "ui\\small_ui"),
+                      ("color", "#FF2896FF"), ("align", "center"), ("text_y", 6), ("text_flags", "no_focus_test")],
+                     [])
+    # (in the lobby's frame, sel_list_desc_bkd's: the row chosen's name, and
+    # the rest)
+    lines += _widget(f"{base}/tag_details", [("width", 640), ("height", 480)],
+                     [f'<child widget="{base}/tag_details_name"/>', f'<child widget="{base}/tag_details_text"/>'])
+    lines += _widget(f"{base}/tag_details_name",
+                     [("type", "text"), ("controller", 1), ("left", 412), ("top", 84), ("width", 200), ("height", 44),
+                      ("font", "ui\\large_ui"), ("color", "#FFFFFFFF")], [])
+    lines += _widget(f"{base}/tag_details_text",
+                     [("type", "text"), ("controller", 1), ("left", 412), ("top", 130), ("width", 200),
+                      ("height", 272), ("font", "ui\\small_ui"), ("color", "#FF2896FF")], [])
+    lines += _widget(f"{base}/button_bar",
+                     [("type", "column_list"), ("width", 640), ("height", 28),
+                      ("flags", "pass_unhandled_to_focused_child left_right_tabs_items")],
+                     [f'<child widget="{base}/button_new" y="1"/>',
+                      f'<child widget="{base}/button_delete" x="130" y="1"/>',
+                      f'<child widget="{base}/button_back" x="510" y="1"/>'])
+    lines += _text_button(f"{base}/button_new", "NEW PROFILE", ['<on event="a" run="port tags new profile"/>',
+                                                                '<on event="start" run="port tags new profile"/>'])
+    lines += _text_button(f"{base}/button_delete", "DELETE PROFILE",
+                          ['<on event="a" run="port tags delete profile"/>',
+                           '<on event="start" run="port tags delete profile"/>'])
+    lines += _text_button(f"{base}/button_back", "BACK", ['<on event="a" run="port tags back"/>',
+                                                         '<on event="start" run="port tags back"/>'])
+    return lines
+
+
 def settings_files() -> dict:
     """the files of the port's screens, by their names in ce/"""
     files = {}
@@ -1346,6 +1432,7 @@ def settings_files() -> dict:
         if folder == "gameplay":
             lines += _gameplay_profile_item()
         files[f"{PE}/{folder}".replace("/", ".") + ".xml"] = lines
+    files[TAG_INJECTOR.replace("/", ".") + ".xml"] = _tag_injector_screen()
     files[f"{PE}/controls_setup".replace("/", ".") + ".xml"] = _controls_screen()
     files["main_menu.difficulty_select.randomizer.xml"] = _randomizer_screen()
     files["main_menu.difficulty_select.skulls.xml"] = _skulls_screen()

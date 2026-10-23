@@ -21,8 +21,8 @@ The web build (HALO_WEB) has no pages to map or protect: WebAssembly's
 memory is one block, made large enough that the window is its top 128 MB
 (tools/web_build.py), and the C heap stays below it (port/web/src/web_main.c).
 A block is cleared when it is allocated, as fresh pages would be, and
-protection is only remembered. Custom Edition maps, whose window lies in the
-C heap there, do not run.
+protection is only remembered. The Custom Edition window lies in the C
+heap's range there, which grows around it (port/web/src/web_main.c).
 */
 
 #include "platform.h"
@@ -136,8 +136,8 @@ static void custom_edition_tag_cache_reserve(void)
 	void *result;
 
 #ifdef HALO_WEB
-	/* (and the settings are not read before the page's are in place:
-	port/web/src/web_main.c) */
+	/* (the heap leaves the window alone, and the settings are not read
+	before the page's are in place: halo_custom_edition_tag_cache) */
 	(void)wanted;
 	(void)result;
 	return;
@@ -161,7 +161,13 @@ static void custom_edition_tag_cache_reserve(void)
 
 void *halo_custom_edition_tag_cache(void)
 {
+#ifdef HALO_WEB
+	if (!config_boolean("game.custom_edition"))
+		return NULL;
+	return (void *)CUSTOM_EDITION_TAG_CACHE_ADDRESS;
+#else
 	return custom_edition_tag_cache;
+#endif
 }
 
 BOOL platform_is_contiguous(const void *address)

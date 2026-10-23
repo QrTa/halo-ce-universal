@@ -27,7 +27,11 @@ form in a carrier's harmless burst) (randomizer_tick). Of a squad's infection
 forms to be swapped for other actors, only a share is (one in three, or so
 many tenths with Go Crazy: the squad's first, then evenly); the rest are not
 placed. Go Crazy's parts are each a setting of their own
-(game.randomizer_crazy_weapons, _enemies, _flamethrower, _pods).
+(game.randomizer_crazy_weapons, _enemies, _flamethrower, _pods,
+_custom_tags). With game.randomizer_crazy_custom_tags, a level played alone
+(not a network game, nor a challenge) is given the tags of the Tag
+Injector's profile (tag_injector.c), and its weapons and actor variants join
+every pool but those of one type.
 
 Off unless game.randomizer is on, and only for the ten campaign levels. A
 multiplayer game that is not co-op is not randomized. A client uses the
@@ -78,6 +82,7 @@ void platform_log(char const *format, ...);
 #include "randomizer.h"
 #include "community.h"
 #include "tag_schema.h"
+#include "tag_injector.h"
 
 #include <xtl.h>
 /* the port's zlib, the same one that unpacks a map while precaching it
@@ -98,6 +103,8 @@ keeps the tag cache (halo_port_window.h) */
 #define PROTECTED_MAX 128
 #define COPY_BUDGET (32UL * 1024UL * 1024UL)
 #define WALK_DEPTH 32
+/* the most weapons and actor variants of the Tag Injector's profile */
+#define CUSTOM_ROOT_MAX 128
 
 enum
 {
@@ -327,6 +334,9 @@ struct setup
 	int any_weapon;
 	int odd_enemies;
 	int flamethrower;
+	/* the Tag Injector's profile's tags added, and their weapons and actor
+	variants in the pools (never a network game's) */
+	int custom_tags;
 	/* the infection forms swapped, in tenths (the rest are not placed); 0,
 	one in three, without game.randomizer_crazy */
 	int pods;
@@ -436,6 +446,10 @@ static struct weapon_choice
 } pickup_choice, actor_weapon_choice;
 static unsigned long placement_roll;
 static int placement_roll_ready;
+/* the weapons and actor variants of the Tag Injector's profile the level was
+given (tag_injector_tags_load), which join the pools */
+static long custom_roots[CUSTOM_ROOT_MAX];
+static long custom_root_count;
 static void *map_widget;
 static wchar_t prefixed_title[96];
 
@@ -663,6 +677,7 @@ static void setup_from_config(struct setup *setup)
 	setup->any_weapon = setup->crazy && config_boolean("game.randomizer_crazy_weapons");
 	setup->odd_enemies = setup->crazy && config_boolean("game.randomizer_crazy_enemies");
 	setup->flamethrower = setup->crazy && config_boolean("game.randomizer_crazy_flamethrower");
+	setup->custom_tags = setup->crazy && config_boolean("game.randomizer_crazy_custom_tags");
 	/* (a percentage, to the nearest tenth from one to all of them) */
 	setup->pods = setup->crazy ? (int)PIN((config_integer("game.randomizer_crazy_pods") + 5) / 10, 1, 10) : 0;
 	setup->pickups = config_boolean("game.randomizer_pickups");
@@ -718,6 +733,8 @@ static void setup_from_remote(struct setup *setup)
 		setup->flamethrower = setup->crazy;
 		setup->pods = 10;
 	}
+	/* (the host's profile's tags are its own) */
+	setup->custom_tags = 0;
 }
 
 static int setup_swaps(struct setup const *setup)
@@ -2630,6 +2647,47 @@ static void add_weapon(struct weapon_choice *choice, long datum, int pool, int t
 	choice->definitions[choice->count++] = datum;
 }
 
+/* a weapon or an actor variant of the Tag Injector's profile, which no pool
+names by kind: in each pool the setup has, but for one of one type */
+static void add_custom_root(long datum)
+{
+	struct weapon_choice *choices[2];
+	short choice_count = 0;
+	short choice;
+
+	if (datum == NONE)
+		return;
+	if (tag_index_is_group(datum, ACTOR_VARIANT_DEFINITION_TAG))
+	{
+		if (current.enemies && current.pool != POOL_ONE && variant_count < POOL_MAX)
+		{
+			for (choice = 0; choice < variant_count && variant_pool[choice] != datum; choice++)
+			{
+			}
+			if (choice == variant_count)
+				variant_pool[variant_count++] = datum;
+		}
+		return;
+	}
+	if (!tag_index_is_group(datum, WEAPON_DEFINITION_TAG))
+		return;
+	if (current.pickups && current.pickup_pool != WEAPON_POOL_ONE)
+		choices[choice_count++] = &pickup_choice;
+	if (current.weapons && current.weapon_pool != WEAPON_POOL_ONE)
+		choices[choice_count++] = &actor_weapon_choice;
+	for (choice = 0; choice < choice_count; choice++)
+	{
+		struct weapon_choice *weapons = choices[choice];
+		long index;
+
+		for (index = 0; index < weapons->count && weapons->definitions[index] != datum; index++)
+		{
+		}
+		if (index == weapons->count && weapons->count < WEAPON_MAX)
+			weapons->definitions[weapons->count++] = datum;
+	}
+}
+
 /* a block definition still at the address the map was linked with is not a
 pointer on this machine. The tag walk clears the ones it visits */
 static void clear_linked_definition(struct tag_block *block)
@@ -2688,6 +2746,9 @@ static void build_pools(void)
 			add_weapon(&pickup_choice, instances[index].tag_index, current.pickup_pool, current.pickup_type, 1);
 		add_weapon(&actor_weapon_choice, instances[index].tag_index, current.weapon_pool, current.weapon_type, 0);
 	}
+	/* the Tag Injector's profile's: every pool but one of one type */
+	for (index = 0; index < custom_root_count; index++)
+		add_custom_root(custom_roots[index]);
 	/* "any": the level's own lying about, and those its actors carry */
 	if (current.pickup_pool == WEAPON_POOL_ANY)
 	{
@@ -3062,6 +3123,20 @@ void randomizer_tags_loaded(char const *scenario_name)
 		gather_skulls(skull, outbreak, scarab);
 		import_wanted();
 	}
+	/* (the Tag Injector's profile's tags, after those: a level played alone
+	only, as only this machine has them, and never a challenge's, which is
+	the same for everyone) */
+	custom_root_count = 0;
+	if (randomize && current.custom_tags && !game && !network_game_distributed_client() &&
+		!community_challenge_running())
+	{
+		long profile = tag_injector_profile_playable();
+
+		if (profile != NONE)
+			custom_root_count = tag_injector_tags_load(profile, custom_roots, CUSTOM_ROOT_MAX);
+		else
+			error(_error_silent, "randomizer: Go Crazy's custom tags are on, but no profile of tags is chosen");
+	}
 	if (randomize)
 	{
 		error(_error_silent, "randomizer: gathering actors already in %s", leaf);
@@ -3113,6 +3188,8 @@ void randomizer_tags_unloaded(void)
 	already clear */
 	if (loaded)
 		placement_roll_ready = 0;
+	tag_injector_tags_unloaded();
+	custom_root_count = 0;
 	donors_close();
 	bound_release();
 	held_free();
