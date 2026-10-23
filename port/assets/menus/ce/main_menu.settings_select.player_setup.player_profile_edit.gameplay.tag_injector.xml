@@ -140,17 +140,17 @@
 	</widget>
 	<widget name="main_menu/settings_select/player_setup/player_profile_edit/gameplay/tag_injector/button_bar" type="column_list" width="640" height="28" flags="pass_unhandled_to_focused_child left_right_tabs_items">
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/gameplay/tag_injector/button_new" y="1"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/gameplay/tag_injector/button_delete" x="130" y="1"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/gameplay/tag_injector/button_profile" x="164" y="1"/>
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/gameplay/tag_injector/button_back" x="510" y="1"/>
 	</widget>
-	<widget name="main_menu/settings_select/player_setup/player_profile_edit/gameplay/tag_injector/button_new" type="text" width="128" height="24" bitmap="bitmaps/text_button_background" text="NEW PROFILE" font="ui\small_ui" color="#FFFFFFFF" align="center" text_y="2">
+	<widget name="main_menu/settings_select/player_setup/player_profile_edit/gameplay/tag_injector/button_new" type="text" width="160" height="24" bitmap="bitmaps/text_button_background" font="ui\small_ui" color="#FFFFFFFF" align="center" text_y="2">
 		<on event="a" run="port tags new profile"/>
 		<on event="start" run="port tags new profile"/>
 		<on event="left_mouse" run="mouse emit accept event"/>
 	</widget>
-	<widget name="main_menu/settings_select/player_setup/player_profile_edit/gameplay/tag_injector/button_delete" type="text" width="128" height="24" bitmap="bitmaps/text_button_background" text="DELETE PROFILE" font="ui\small_ui" color="#FFFFFFFF" align="center" text_y="2">
-		<on event="a" run="port tags delete profile"/>
-		<on event="start" run="port tags delete profile"/>
+	<widget name="main_menu/settings_select/player_setup/player_profile_edit/gameplay/tag_injector/button_profile" type="text" width="250" height="24" bitmap="bitmaps/text_button_background" font="ui\small_ui" color="#FFFFFFFF" align="center" text_y="2">
+		<on event="a" run="port tags profile button"/>
+		<on event="start" run="port tags profile button"/>
 		<on event="left_mouse" run="mouse emit accept event"/>
 	</widget>
 	<widget name="main_menu/settings_select/player_setup/player_profile_edit/gameplay/tag_injector/button_back" type="text" width="128" height="24" bitmap="bitmaps/text_button_background" text="BACK" font="ui\small_ui" color="#FFFFFFFF" align="center" text_y="2">

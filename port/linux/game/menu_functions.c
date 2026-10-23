@@ -57,9 +57,10 @@ calls them from PC_MENU_FUNCTION_BASE on):
   setting, or adds the tag
   chosen to the profile or takes it out, "port tags left" and "right" change
   the tag injection, a tag's on or off and its settings, and the profile
-  tags are added to, "port tags back" (B) goes up a list or leaves, and
-  "port tags new profile" and "delete profile" make and delete profiles
-  (tag_injector.c);
+  tags are added to, "port tags back" (B) goes up a list or leaves,
+  "port tags new profile" makes a profile, and "port tags profile button"
+  deletes the one chosen in TAG PROFILES or, elsewhere, shows the one tags
+  are added to (tag_injector.c);
 - Controls Setup's: the keyboard and mouse's controls, two bindings each,
   shown a group at a time ("controls update menu"); "controls begin
   binding" takes the next key or button pressed for the binding left and
@@ -2371,6 +2372,7 @@ char const *port_tag_profiles_name(long profile);
 char const *port_tag_profiles_folder(long profile);
 long port_tag_profiles_find(char const *folder);
 long port_tag_profiles_create(char const *name);
+long port_tag_profiles_duplicate(long profile, char const *name);
 int port_tag_profiles_delete(long profile);
 long port_tag_profiles_tag_count(long profile);
 char const *port_tag_profiles_tag_map(long profile, long tag);
@@ -5268,7 +5270,10 @@ and its loose maps as the map lists have them (map_browse_*), a folder its
 maps; a map's, its kinds of tags; a kind's, its tags, each added to the
 profile or taken out (tag_injector.c). B goes back up a list. A profile is
 made with a name typed (tag_injector_profiles_poll) and deleted with DELETE
-PROFILE, twice. */
+PROFILE, twice, which TAG PROFILES has; elsewhere the button is VIEW
+PROFILE, the profile tags are added to shown from any list (B going back
+there). A profile's tag can be given a name of its own (NAME), which the
+menus show it by: a protected map's tags have names made for them. */
 
 #define TAG_ROWS MOD_ROWS
 #define TAG_PROFILE_NAME 24
@@ -5312,6 +5317,7 @@ enum
 weapon's and equipment's) */
 enum
 {
+	_tags_setting_name,
 	_tags_setting_enabled,
 	_tags_setting_faction,
 	_tags_setting_type,
@@ -5320,15 +5326,18 @@ enum
 	_tags_setting_hud,
 	_tags_setting_replace,
 	_tags_setting_remove,
-	MAXIMUM_TAGS_SETTING_ROWS = 7
+	MAXIMUM_TAGS_SETTING_ROWS = 8
 };
 
-/* the name typed: none, a new profile's, or the tag's custom type */
+/* the name typed: none, a new profile's, the tag's custom type, the name
+the tag is shown by, or a copy's of the profile shown */
 enum
 {
 	_tags_naming_none,
 	_tags_naming_profile,
-	_tags_naming_custom_type
+	_tags_naming_custom_type,
+	_tags_naming_tag_name,
+	_tags_naming_duplicate
 };
 
 /* a setting's values as port_tag_profiles.c keeps them ("": AUTO, the
@@ -5392,13 +5401,19 @@ static struct
 	tag (NONE) */
 	long deleting;
 	long removing;
+	/* the list VIEW PROFILE was pressed in, which B on the profile goes back
+	to (NONE: TAG PROFILES, as from there) */
+	short viewed_from;
 	/* the word of the last thing done, and when */
 	char message[256];
 	unsigned long message_time;
-	/* what the details and rows show (they are made again when it changes) */
+	/* what the details, rows and button bar show (they are made again when it
+	changes) */
 	char shown[384];
 	char row_shown[TAG_ROWS][128];
-} tags_screen = { 0, NONE, NONE, NONE, FALSE, FALSE, "", NONE, NONE, { 0 }, { 0 }, _tags_naming_none, { 0 }, NONE, NONE };
+	char buttons_shown[64];
+} tags_screen = { 0, NONE, NONE, NONE, FALSE, FALSE, "", NONE, NONE, { 0 }, { 0 }, _tags_naming_none, { 0 }, NONE, NONE,
+	NONE, "", 0, "", { { 0 } }, "" };
 
 static void tags_message(char const *text)
 {
@@ -5436,6 +5451,7 @@ static short tags_setting_rows(short *rows)
 	unsigned long group = port_tag_profiles_tag_group(tags_screen.profile, tags_screen.tag);
 	short count = 0;
 
+	rows[count++] = _tags_setting_name;
 	rows[count++] = _tags_setting_enabled;
 	if (group == 'weap' || group == 'actv')
 	{
@@ -5627,6 +5643,16 @@ static void tags_ascii_copy(char *destination, size_t size, wchar_t const *sourc
 		destination[index] = 0;
 }
 
+/* the name a profile's tag is shown by (tag_injector_tag_display_name) */
+static char const *tags_tag_shown(long profile, long tag)
+{
+	/* (a path's last part may be longer than a name given) */
+	static char shown[256];
+
+	tag_injector_tag_display_name(profile, tag, shown, sizeof(shown));
+	return shown;
+}
+
 /* the kind of a profile's tag, as the menu names it */
 static char const *tags_group_name(unsigned long group)
 {
@@ -5695,7 +5721,7 @@ static void tags_row_text(short place, char *name, size_t name_size, char *state
 	{
 		long tag = tags_profile_tag_of(place);
 
-		snprintf(name, name_size, "%s", tag_leaf(port_tag_profiles_tag_name(tags_screen.profile, tag)));
+		snprintf(name, name_size, "%s", tags_tag_shown(tags_screen.profile, tag));
 		tags_size_text(port_tag_profiles_tag_size(tags_screen.profile, tag), size, sizeof(size));
 		if (!port_tag_profiles_tag_size(tags_screen.profile, tag))
 			snprintf(state, state_size, "MISSING");
@@ -5707,6 +5733,10 @@ static void tags_row_text(short place, char *name, size_t name_size, char *state
 	case _tags_list_tag:
 		switch (tags_setting_of(place))
 		{
+		case _tags_setting_name:
+			snprintf(name, name_size, "NAME");
+			upper_copy(state, state_size, tags_tag_shown(tags_screen.profile, tags_screen.tag));
+			break;
 		case _tags_setting_enabled:
 			snprintf(name, name_size, "ENABLED");
 			snprintf(state, state_size, "%s", port_tag_profiles_tag_enabled(tags_screen.profile, tags_screen.tag) ?
@@ -5787,7 +5817,7 @@ static void tags_profile_details(long profile, char *text, size_t text_size, cha
 	{
 		size_t length = strlen(text);
 
-		snprintf(text + length, text_size - length, "\n%s (%s)%s", tag_leaf(port_tag_profiles_tag_name(profile, tag)),
+		snprintf(text + length, text_size - length, "\n%s (%s)%s", tags_tag_shown(profile, tag),
 			port_tag_profiles_tag_map(profile, tag), port_tag_profiles_tag_enabled(profile, tag) ? "" : ", off");
 	}
 }
@@ -5817,8 +5847,8 @@ static void tags_details_text(short place, char *title, size_t title_size, char 
 		{
 			snprintf(title, title_size, "Tag Profiles");
 			snprintf(text, text_size, "The profiles, each with its tags' size. A lists them, to see a profile's tags, "
-				"turn them on or off and change their settings.\n \nNEW PROFILE makes one. Each is a folder of the "
-				"tag_injector folder, beside the maps folder.");
+				"turn them on or off and change their settings.\n \nThere NEW PROFILE makes one. Each is a folder of "
+				"the tag_injector folder, beside the maps folder.");
 		}
 		else
 		{
@@ -5841,7 +5871,8 @@ static void tags_details_text(short place, char *title, size_t title_size, char 
 			break;
 		}
 		snprintf(title, title_size, "%s", port_tag_profiles_name(place));
-		tags_profile_details(place, text, text_size, "A lists its tags. DELETE PROFILE, twice, deletes it");
+		tags_profile_details(place, text, text_size, "A lists its tags: there DUPLICATE PROFILE copies it, and DELETE "
+			"PROFILE, twice, deletes it");
 		break;
 	case _tags_list_profile_categories:
 	{
@@ -5870,7 +5901,7 @@ static void tags_details_text(short place, char *title, size_t title_size, char 
 		}
 		path = port_tag_profiles_tag_name(tags_screen.profile, tag);
 		group = port_tag_profiles_tag_group(tags_screen.profile, tag);
-		snprintf(title, title_size, "%s", tag_leaf(path));
+		snprintf(title, title_size, "%s", tags_tag_shown(tags_screen.profile, tag));
 		tags_size_text(port_tag_profiles_tag_size(tags_screen.profile, tag), size, sizeof(size));
 		if (!port_tag_profiles_tag_size(tags_screen.profile, tag))
 			snprintf(size, sizeof(size), "missing: it is left out");
@@ -5881,8 +5912,8 @@ static void tags_details_text(short place, char *title, size_t title_size, char 
 			port_tag_profiles_tag_enabled(tags_screen.profile, tag) ? "On" : "Off",
 			port_tag_profiles_tag_enabled(tags_screen.profile, tag) ? "plays" : "leaves out",
 			port_tag_profiles_tag_enabled(tags_screen.profile, tag) ? "off" : "on",
-			group == 'weap' ? ": its faction, class, custom type and HUD" :
-			group == 'actv' ? ": its faction, type and custom type" : "");
+			group == 'weap' ? ": its name, faction, class, custom type and HUD" :
+			group == 'actv' ? ": its name, faction, type and custom type" : ": its name");
 		break;
 	}
 	case _tags_list_tag:
@@ -5890,9 +5921,16 @@ static void tags_details_text(short place, char *title, size_t title_size, char 
 		char type[TAG_INJECTOR_CUSTOM_TYPE_LENGTH];
 		boolean weapon = port_tag_profiles_tag_group(tags_screen.profile, tags_screen.tag) == 'weap';
 
-		snprintf(title, title_size, "%s", tag_leaf(port_tag_profiles_tag_name(tags_screen.profile, tags_screen.tag)));
+		snprintf(title, title_size, "%s", tags_tag_shown(tags_screen.profile, tags_screen.tag));
 		switch (tags_setting_of(place))
 		{
+		case _tags_setting_name:
+			snprintf(text, text_size, "The name the menus show it by: %s.\n%s %s\n \nA types another. Nothing typed is "
+				"the last part of its path. Its path stays its map's: a level knows it by it.",
+				tags_tag_shown(tags_screen.profile, tags_screen.tag),
+				tags_group_name(port_tag_profiles_tag_group(tags_screen.profile, tags_screen.tag)),
+				port_tag_profiles_tag_name(tags_screen.profile, tags_screen.tag));
+			break;
 		case _tags_setting_enabled:
 			snprintf(text, text_size, "On: the randomizer plays it. Off: it stays in the profile, and is left out.\n \n"
 				"A, left or right turns it on or off.");
@@ -5919,7 +5957,7 @@ static void tags_details_text(short place, char *title, size_t title_size, char 
 			tag_injector_tag_custom_type(tags_screen.profile, tags_screen.tag, type, sizeof(type));
 			snprintf(text, text_size, "The randomizer's ONE TYPE has TAG INJECTOR, and its CUSTOM TYPE these: the "
 				"profile's %s of the custom type %s alone. Give tags the same one (BRUTE) to play them together.\n \n"
-				"A types it. Nothing typed is the last part of its path.", weapon ? "weapons" : "AI", type);
+				"A types it. Nothing typed is its name.", weapon ? "weapons" : "AI", type);
 			break;
 		case _tags_setting_hud:
 			snprintf(text, text_size, "The HUD it is drawn with, whoever carries it (an AI of the profile too). "
@@ -5947,8 +5985,8 @@ static void tags_details_text(short place, char *title, size_t title_size, char 
 			if (tags_screen.profile == NONE)
 				snprintf(text, text_size, "No profiles: NEW PROFILE makes one, to add tags to.");
 			else
-				snprintf(text, text_size, "The profile a map's tags are added to: %s. Left and right choose another.",
-					profile);
+				snprintf(text, text_size, "The profile a map's tags are added to: %s. Left and right choose another."
+					"\n \nVIEW PROFILE, here and in the maps' lists, shows it.", profile);
 		}
 		else
 		{
@@ -6005,6 +6043,7 @@ static void tags_details_text(short place, char *title, size_t title_size, char 
 		char reason[320];
 		long tag_size = tag_injector_tag_size(tags_screen.category, place, reason, sizeof(reason));
 		boolean added = tag_injector_tag_in_profile(tags_screen.profile, tags_screen.category, place) != NONE;
+		size_t length;
 
 		snprintf(title, title_size, "%s", tag_leaf(path));
 		if (tag_size == NONE)
@@ -6022,6 +6061,11 @@ static void tags_details_text(short place, char *title, size_t title_size, char 
 				" The weapons and equipment it carries are added too, as tags of their own." :
 				tags_screen.category == _tag_injector_equipment ?
 				" Equipment joins no pool: it is carried by the profile's AI, or replaces the original." : "");
+		/* (a protected map's: its path is one made for it) */
+		length = strlen(text);
+		if (tag_injector_tag_name_made(tags_screen.category, place))
+			snprintf(text + length, text_size - length, "\n \nIts map hides its tags' names: this one is made from "
+				"what it is. Its profile's NAME can rename it.");
 		break;
 	}
 	}
@@ -6047,9 +6091,11 @@ static boolean tags_screen_reset(boolean opening)
 	}
 	tags_screen.deleting = NONE;
 	tags_screen.removing = NONE;
+	tags_screen.viewed_from = NONE;
 	tags_screen.message[0] = 0;
 	tags_screen.shown[0] = 0;
 	csmemset(tags_screen.row_shown, 0, sizeof(tags_screen.row_shown));
+	tags_screen.buttons_shown[0] = 0;
 	/* (the text boxes' measures it shares with the Mods screen: none until
 	they are drawn, as mods_screen_reset leaves them, else a font of 0 would
 	be asked for before the Mods screen has ever opened) */
@@ -6208,6 +6254,7 @@ static boolean tags_choose(struct widget_instance *widget)
 		break;
 	case _tags_list_profiles:
 		tags_profile_choose(place);
+		tags_screen.viewed_from = NONE;
 		ui_play_audio_feedback_sound(SOUND_FORWARD);
 		tags_list_open(list, _tags_list_profile_categories, 0);
 		break;
@@ -6232,6 +6279,14 @@ static boolean tags_choose(struct widget_instance *widget)
 	case _tags_list_tag:
 		switch (tags_setting_of(place))
 		{
+		case _tags_setting_name:
+		{
+			char shown[TAG_INJECTOR_CUSTOM_TYPE_LENGTH];
+
+			tag_injector_tag_display_name(tags_screen.profile, tags_screen.tag, shown, sizeof(shown));
+			tags_name_ask(_tags_naming_tag_name, shown, TAG_INJECTOR_CUSTOM_TYPE_LENGTH - 1);
+			break;
+		}
 		case _tags_setting_custom_type:
 		{
 			char type[TAG_INJECTOR_CUSTOM_TYPE_LENGTH];
@@ -6243,7 +6298,7 @@ static boolean tags_choose(struct widget_instance *widget)
 		case _tags_setting_remove:
 		{
 			char text[sizeof(tags_screen.message)];
-			char const *name = tag_leaf(port_tag_profiles_tag_name(tags_screen.profile, tags_screen.tag));
+			char const *name = tags_tag_shown(tags_screen.profile, tags_screen.tag);
 
 			if (tags_screen.removing != tags_screen.tag)
 			{
@@ -6407,7 +6462,7 @@ static boolean tags_step(struct widget_instance *widget, short step)
 	{
 		short setting = tags_setting_of(place);
 
-		if (setting == _tags_setting_custom_type || setting == _tags_setting_remove)
+		if (setting == _tags_setting_name || setting == _tags_setting_custom_type || setting == _tags_setting_remove)
 			return TRUE;
 		tags_setting_step(setting, step);
 		return TRUE;
@@ -6436,7 +6491,11 @@ static boolean tags_back(struct widget_instance *widget, boolean *widget_deleted
 	switch (tags_screen.list)
 	{
 	case _tags_list_profiles: up = _tags_list_top; break;
-	case _tags_list_profile_categories: up = _tags_list_profiles; break;
+	case _tags_list_profile_categories:
+		/* (back to the list VIEW PROFILE was pressed in) */
+		up = tags_screen.viewed_from != NONE ? tags_screen.viewed_from : _tags_list_profiles;
+		tags_screen.viewed_from = NONE;
+		break;
 	case _tags_list_profile: up = _tags_list_profile_categories; break;
 	case _tags_list_tag: up = _tags_list_profile; break;
 	case _tags_list_kinds: up = _tags_list_top; break;
@@ -6459,41 +6518,97 @@ static boolean tags_back(struct widget_instance *widget, boolean *widget_deleted
 	return TRUE;
 }
 
-/* "port tags new profile": a name asked for, then made
+/* the button bar's buttons as the list shown has them: none in the first
+list; NEW PROFILE in TAG PROFILES; DUPLICATE PROFILE and DELETE PROFILE in a
+profile's lists (the profile shown's); NEW PROFILE and VIEW <name> PROFILE
+(the profile MAPS adds to) in MAPS' lists */
+enum
+{
+	_tags_buttons_none,
+	_tags_buttons_profiles,
+	_tags_buttons_profile,
+	_tags_buttons_maps
+};
+
+static short tags_buttons(void)
+{
+	switch (tags_screen.list)
+	{
+	case _tags_list_top:
+		return _tags_buttons_none;
+	case _tags_list_profiles:
+		return _tags_buttons_profiles;
+	case _tags_list_profile_categories:
+	case _tags_list_profile:
+	case _tags_list_tag:
+		return _tags_buttons_profile;
+	default:
+		return _tags_buttons_maps;
+	}
+}
+
+/* "port tags new profile": NEW PROFILE, a name asked for, then made; in a
+profile's lists DUPLICATE PROFILE, a name asked for the copy
 (tag_injector_profiles_poll) */
 static boolean tags_new_profile(void)
 {
-	if (tags_screen.naming == _tags_naming_none)
-		tags_name_ask(_tags_naming_profile, NULL, TAG_PROFILE_NAME);
+	short buttons = tags_buttons();
+
+	if (tags_screen.naming != _tags_naming_none || buttons == _tags_buttons_none)
+		return TRUE;
+	if (buttons == _tags_buttons_profile && tags_screen.profile != NONE)
+	{
+		char copy[TAG_PROFILE_NAME + 1];
+
+		snprintf(copy, sizeof(copy), "%.*s 2", TAG_PROFILE_NAME - 2, port_tag_profiles_name(tags_screen.profile));
+		tags_name_ask(_tags_naming_duplicate, copy, TAG_PROFILE_NAME);
+		return TRUE;
+	}
+	tags_name_ask(_tags_naming_profile, NULL, TAG_PROFILE_NAME);
 	return TRUE;
 }
 
-/* the profile DELETE PROFILE deletes: the one chosen in TAG PROFILES, or
-the one whose tags are shown; NONE elsewhere */
+/* the profile DELETE PROFILE deletes: the one whose lists are shown; NONE
+elsewhere */
 static long tags_delete_target(void)
 {
-	short place = tags_screen.chosen[_tags_list_profiles];
-
-	if (tags_screen.list == _tags_list_profiles)
-		return place >= 0 && place < port_tag_profiles_count() ? place : NONE;
-	return tags_screen.list == _tags_list_profile_categories || tags_screen.list == _tags_list_profile ||
-		tags_screen.list == _tags_list_tag ? tags_screen.profile : NONE;
+	return tags_buttons() == _tags_buttons_profile ? tags_screen.profile : NONE;
 }
 
-/* "port tags delete profile": once, the question; again, the profile
-deleted with its tags */
-static boolean tags_delete_profile(struct widget_instance *widget)
+/* VIEW <name> PROFILE: the profile MAPS adds to shown, its kinds of tags, B
+on them going back to the list it was pressed in (a map's, still open) */
+static void tags_view_profile(struct widget_instance *widget)
+{
+	if (tags_screen.profile == NONE)
+	{
+		tags_message("No profiles: NEW PROFILE makes one.");
+		ui_play_audio_feedback_sound(SOUND_ERROR);
+		return;
+	}
+	tags_screen.viewed_from = tags_screen.list;
+	tags_screen.message[0] = 0;
+	tags_screen.removing = NONE;
+	tags_screen.tag = NONE;
+	tags_screen.chosen[_tags_list_profiles] = (short)tags_screen.profile;
+	ui_play_audio_feedback_sound(SOUND_FORWARD);
+	tags_list_open(tags_list_of(widget), _tags_list_profile_categories, 0);
+}
+
+/* "port tags profile button": in a profile's lists DELETE PROFILE (once,
+the question; again, the profile deleted with its tags), in MAPS' VIEW
+<name> PROFILE */
+static boolean tags_profile_button(struct widget_instance *widget)
 {
 	char text[sizeof(tags_screen.message)];
 	long profile = tags_delete_target();
 
-	if (profile == NONE)
+	if (tags_buttons() == _tags_buttons_maps)
 	{
-		tags_message(port_tag_profiles_count() ? "Choose the profile to delete in TAG PROFILES." :
-			"No profile to delete.");
-		ui_play_audio_feedback_sound(SOUND_ERROR);
+		tags_view_profile(widget);
 		return TRUE;
 	}
+	if (profile == NONE)
+		return TRUE;
 	if (tags_screen.deleting != profile)
 	{
 		tags_screen.deleting = profile;
@@ -6515,9 +6630,58 @@ static boolean tags_delete_profile(struct widget_instance *widget)
 	}
 	tags_profile_choose(0);
 	tags_screen.tag = NONE;
+	tags_screen.viewed_from = NONE;
 	tags_list_open(tags_list_of(widget), _tags_list_profiles, 0);
 	tags_message(text);
 	return TRUE;
+}
+
+/* a button of the button bar shown with its words, or hidden (passed over by
+the focus too) */
+static void tags_button_show(struct widget_instance *button, wchar_t const *text)
+{
+	if (!button)
+		return;
+	visible_set(button, text != NULL);
+	button->disabled = text == NULL;
+	if (text)
+		text_set(button, text);
+}
+
+/* the button bar as the list shown has it (tags_buttons), made again when
+its words change */
+static void tags_buttons_update(struct widget_instance *list)
+{
+	struct widget_instance *screen = screen_of(list);
+	struct widget_instance *new_button;
+	struct widget_instance *profile_button;
+	short buttons = tags_buttons();
+	char view[ROW_TEXT_LENGTH];
+	char shown[sizeof(tags_screen.buttons_shown)];
+	wchar_t wide[ROW_TEXT_LENGTH];
+
+	/* (a long name cut short: the button is a third of the bar) */
+	view[0] = 0;
+	if (buttons == _tags_buttons_maps && tags_screen.profile != NONE)
+	{
+		char name[TAG_PROFILE_NAME + 1];
+
+		upper_copy(name, sizeof(name), port_tag_profiles_name(tags_screen.profile));
+		snprintf(view, sizeof(view), "VIEW %.14s%s PROFILE", name, strlen(name) > 14 ? "..." : "");
+	}
+	snprintf(shown, sizeof(shown), "%d %s", buttons, view);
+	if (!strcmp(shown, tags_screen.buttons_shown))
+		return;
+	new_button = named(screen, "button_new", 0);
+	profile_button = named(screen, "button_profile", 0);
+	/* (not yet made, as the list is: done once they are) */
+	if (!new_button || !profile_button)
+		return;
+	snprintf(tags_screen.buttons_shown, sizeof(tags_screen.buttons_shown), "%s", shown);
+	tags_button_show(new_button, buttons == _tags_buttons_none ? NULL :
+		buttons == _tags_buttons_profile ? L"DUPLICATE PROFILE" : L"NEW PROFILE");
+	mods_wide_text(view, wide, ROW_TEXT_LENGTH);
+	tags_button_show(profile_button, buttons == _tags_buttons_profile ? L"DELETE PROFILE" : view[0] ? wide : NULL);
 }
 
 /* the name typed, once the keyboard has closed: a profile made, and shown,
@@ -6544,6 +6708,44 @@ void tag_injector_profiles_poll(void)
 		if (!port_tag_profiles_tag_set_option(tags_screen.profile, tags_screen.tag, "custom_type", name))
 			tags_message("The custom type cannot be kept (the log says why).");
 		tags_screen.shown[0] = 0;
+		return;
+	}
+	if (naming == _tags_naming_tag_name)
+	{
+		if (!port_tag_profiles_tag_set_option(tags_screen.profile, tags_screen.tag, "name", name))
+			tags_message("The name cannot be kept (the log says why).");
+		else
+		{
+			snprintf(text, sizeof(text), "It is %s now.", tags_tag_shown(tags_screen.profile, tags_screen.tag));
+			tags_message(text);
+		}
+		tags_screen.shown[0] = 0;
+		csmemset(tags_screen.row_shown, 0, sizeof(tags_screen.row_shown));
+		return;
+	}
+	if (naming == _tags_naming_duplicate)
+	{
+		long original = tags_screen.profile;
+		char original_name[TAG_PROFILE_NAME + 8];
+
+		snprintf(original_name, sizeof(original_name), "%s", port_tag_profiles_name(original));
+		profile = port_tag_profiles_duplicate(original, name);
+		if (profile == NONE)
+		{
+			tags_message("The copy cannot be made: its name needs a letter or a digit, or the files could not be "
+				"copied (the log says why).");
+			return;
+		}
+		/* (the copy's lists shown, as the original's were) */
+		tags_profile_choose(profile);
+		tags_screen.chosen[_tags_list_profiles] = (short)profile;
+		tags_screen.tag = NONE;
+		if (tags_screen.list == _tags_list_tag)
+			tags_screen.list = _tags_list_profile;
+		snprintf(text, sizeof(text), "Made %s, a copy of %s.", port_tag_profiles_name(profile), original_name);
+		tags_message(text);
+		tags_screen.shown[0] = 0;
+		csmemset(tags_screen.row_shown, 0, sizeof(tags_screen.row_shown));
 		return;
 	}
 	profile = port_tag_profiles_create(name);
@@ -6631,6 +6833,7 @@ static void tags_update(struct widget_instance *list)
 		*chosen = (short)(*first + focused_index);
 	if (tags_screen.deleting != NONE && tags_screen.deleting != tags_delete_target())
 		tags_screen.deleting = NONE;
+	tags_buttons_update(list);
 	if (tags_screen.removing != NONE &&
 		(tags_screen.list != _tags_list_tag || tags_setting_of(*chosen) != _tags_setting_remove))
 		tags_screen.removing = NONE;
@@ -10969,9 +11172,9 @@ boolean pc_menu_event_function_invoke(
 		{
 			return tags_new_profile();
 		}
-		else if (!strcmp(name, "port tags delete profile"))
+		else if (!strcmp(name, "port tags profile button"))
 		{
-			return tags_delete_profile(widget);
+			return tags_profile_button(widget);
 		}
 		else if (!strcmp(name, "controls screen init") || !strcmp(name, "controls screen defaults"))
 		{

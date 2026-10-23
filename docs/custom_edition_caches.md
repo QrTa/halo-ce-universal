@@ -189,6 +189,31 @@ each reference naming a tag of the bundle by its group and path. A level
 loads a bundle's tags alone (`tag_bundle_load_tags`, the same checks), and
 reads its pixels, samples and vertices from its file as they are wanted.
 
+Map protection can also leave tags without a group (FFFFFFFF, their parent
+groups too: 123 animations, bitmaps and weapon HUDs of
+`firefight-portent`), which Halo PC never asked its tag table, but which the
+validator takes as no tag of any group, and names that name them as none (a
+weapon without its first-person animations, which the game then asks for:
+the debug build stops). The loader gives each the one group the references
+naming it say, before anything reads the tags by their groups
+(`groupless_tags_regroup`, in `cache_file_formats.c`): every 4-byte place of
+the tag data whose fourth word is its handle and whose first a group's code
+(not one others inherit from). One they say none of, or several, keeps none.
+`firefight-portent`'s corrections are 13, of 301.
+
+A protected map's tags have no paths of their own: each is `<protected>`,
+nothing, or a path many tags of its group share. A bundle's tags are found
+by their group and path, in a profile and in a level, so each is given a
+name made from what it is, as its map is loaded (`port/linux/game/tag_names.c`;
+the Tag Injector's menu and `ce_tags` both), the same each time it is:
+under the map's name, so that none is another map's path; a weapon or
+equipment by its pickup text (`descent-quarantine\weapons\battle
+rifle\battle rifle`), another object a level places by the stock folder its
+tags with names have most of, else its kind; an actor variant by its unit
+and weapon; every other tag in the folder of the first that names it, by
+the field it is named by (`...\battle rifle\projectile`), numbered where
+two would be the same. The tags of the resource maps keep theirs.
+
 The game's own bundles (the Tag Injector's) have their sounds decoded to the
 Xbox ADPCM this build plays, as a map's are when it is played
 (`custom_edition_cache_bundle_open`); `ce_tags`, which decodes none, writes
@@ -453,7 +478,14 @@ from an Xbox map:
   the model's (`tag_schema_custom_edition_groups`, in `tag_schema_models.c`);
   the game takes them as models;
 - a structure BSP's material vertices are uncompressed, and are checked
-  against its uncompressed vertex data.
+  against its uncompressed vertex data;
+- a collision model's BSP the game could not walk (a surface whose edges
+  are not a ring, or surfaces without planes) is dropped from its node,
+  which has none then, as a node of no geometry has, and logged
+  (`collision_node_check`, in `tag_schema_collision.c`): one part of one
+  model with no collision, where the map was refused before (the flood
+  combat form of `Descent-Quarantine`). A structure BSP's is the level's,
+  and is still refused.
 
 Only after the validator has passed the tags are the scripts given this
 build's function and global indices, the bitmaps checked for the texture

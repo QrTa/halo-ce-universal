@@ -1438,8 +1438,11 @@ def _randomizer_tag_profiles_screen(base: str) -> list:
 # SINGLEPLAYER and CUSTOM MULTIPLAYER, each its folders of custom_maps (and
 # its loose maps), a folder its maps; a map's kinds of tags; a kind's tags,
 # each added to the profile or taken out by A. B (and BACK) goes back up a
-# list, NEW PROFILE asks for a name, DELETE PROFILE (twice) deletes the
-# profile chosen (menu_functions.c's "port tags" functions)
+# list; the button bar has nothing in the first list, NEW PROFILE (a name
+# asked for) in TAG PROFILES, DUPLICATE PROFILE (a name asked for the copy)
+# and DELETE PROFILE (twice) in a profile's lists, and NEW PROFILE and VIEW
+# <name> PROFILE (the profile MAPS adds to shown; B goes back) in MAPS' lists
+# (menu_functions.c's "port tags" functions)
 TAG_INJECTOR = f"{PE}/gameplay/tag_injector"
 TAG_INJECTOR_ROWS = MOD_ROWS
 # the screens of a category that are no settings screen (_setting_screen),
@@ -1501,13 +1504,16 @@ def _tag_injector_screen() -> list:
                      [("type", "column_list"), ("width", 640), ("height", 28),
                       ("flags", "pass_unhandled_to_focused_child left_right_tabs_items")],
                      [f'<child widget="{base}/button_new" y="1"/>',
-                      f'<child widget="{base}/button_delete" x="130" y="1"/>',
+                      f'<child widget="{base}/button_profile" x="164" y="1"/>',
                       f'<child widget="{base}/button_back" x="510" y="1"/>'])
-    lines += _text_button(f"{base}/button_new", "NEW PROFILE", ['<on event="a" run="port tags new profile"/>',
-                                                                '<on event="start" run="port tags new profile"/>'])
-    lines += _text_button(f"{base}/button_delete", "DELETE PROFILE",
-                          ['<on event="a" run="port tags delete profile"/>',
-                           '<on event="start" run="port tags delete profile"/>'])
+    # (their words, and whether they are there, the code's: NEW PROFILE or
+    # DUPLICATE PROFILE, DELETE PROFILE or VIEW <name> PROFILE)
+    lines += _text_button(f"{base}/button_new", None, ['<on event="a" run="port tags new profile"/>',
+                                                       '<on event="start" run="port tags new profile"/>'],
+                          width=160)
+    lines += _text_button(f"{base}/button_profile", None,
+                          ['<on event="a" run="port tags profile button"/>',
+                           '<on event="start" run="port tags profile button"/>'], width=250)
     lines += _text_button(f"{base}/button_back", "BACK", ['<on event="a" run="port tags back"/>',
                                                          '<on event="start" run="port tags back"/>'])
     return lines
@@ -3106,10 +3112,13 @@ def mod_status_frames(icons: Path, size: int = 24) -> list:
         for icon, color in MOD_STATUS_ICONS]
 
 
-def _text_button(name: str, text: str, handlers: list) -> list:
-    """a button of the button bar with its own words"""
-    pairs = [("type", "text"), ("width", 128), ("height", 24), ("bitmap", "bitmaps/text_button_background"),
-             ("text", text), ("font", "ui\\small_ui"), ("color", "#FFFFFFFF"), ("align", "center"), ("text_y", 2)]
+def _text_button(name: str, text, handlers: list, width: int = 128) -> list:
+    """a button of the button bar with its own words; with none (None), the
+    code's (a text widget's words of the file are drawn again each frame,
+    over the code's: ui_widget.c)"""
+    pairs = [("type", "text"), ("width", width), ("height", 24), ("bitmap", "bitmaps/text_button_background"),
+             *([("text", text)] if text is not None else []), ("font", "ui\\small_ui"), ("color", "#FFFFFFFF"),
+             ("align", "center"), ("text_y", 2)]
     return _widget(name, pairs, handlers + ['<on event="left_mouse" run="mouse emit accept event"/>'])
 
 

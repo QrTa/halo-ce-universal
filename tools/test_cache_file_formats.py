@@ -703,6 +703,32 @@ def test_a_protected_scenario_is_given_the_scenario_group(report_tool, tmp_path)
     assert report["scenario_regrouped"] == "1"
 
 
+def test_a_protected_groupless_tag_is_given_the_group_its_references_say(report_tool, tmp_path):
+    """Map protection can give tags no group (FFFFFFFF, as firefight-portent's
+    animations, bitmaps and weapon HUDs): a reference that names one still
+    says its group, which the loader gives it. One nothing names keeps none."""
+    cache = Map()
+    path = cache.write(tmp_path)
+    bitmap = cache.tag_indices["test\\in map bitmap"]
+    weapon = cache.where["index"] + (cache.addresses["test\\weapon"] - BASE)
+    instance_case(bitmap, 0x00, "<I", NONE)(cache, path)
+    # (a bitm reference in the weapon's data: its group, name, name length, tag)
+    patched(path, weapon + 0x10, "<I", code("bitm"))
+    patched(path, weapon + 0x1C, "<I", ((cache.salt + bitmap) << 16) | bitmap)
+    returncode, report = report_one(report_tool, path)
+    assert returncode == 0
+    assert report["load"] == "ok"
+    assert report["groupless_tags"] == "1"
+    assert report["tags_regrouped"] == "1"
+
+    cache = Map()
+    path = cache.write(tmp_path / "unnamed")
+    instance_case(cache.tag_indices["test\\in map bitmap"], 0x00, "<I", NONE)(cache, path)
+    _, report = report_one(report_tool, path)
+    assert report["groupless_tags"] == "1"
+    assert report["tags_regrouped"] == "0"
+
+
 def test_a_structure_bsp_instance_with_its_load_address_loads(report_tool, tmp_path):
     """Invader writes the address a structure BSP loads at in its tag
     instance (cursed-damnation); it has none until it is loaded."""

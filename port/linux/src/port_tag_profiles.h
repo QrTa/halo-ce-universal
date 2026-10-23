@@ -29,6 +29,10 @@ long port_tag_profiles_find(const char *folder);
 /* makes a profile named `name` (its folder's name made of its letters,
 digits, spaces, - and _): its index, or -1 */
 long port_tag_profiles_create(const char *name);
+/* makes a profile named `name` (as port_tag_profiles_create) that is a copy
+of another: its tags, their settings and its pack. Its index, or -1 (a copy
+that could not be made whole is deleted) */
+long port_tag_profiles_duplicate(long profile, const char *name);
 /* deletes a profile, its folder and its bundles; 0 if it cannot */
 int port_tag_profiles_delete(long profile);
 
@@ -52,13 +56,14 @@ int port_tag_profiles_tag_set_enabled(long profile, long tag, int enabled);
 /* a tag's setting, by its key: "faction", "type" (an actor variant's) and
 "class" (a weapon's), the randomizer's names for them, "custom_type", the
 name of its own type it is chosen by, "hud", the HUD a weapon is drawn
-with (tag_injector.h's stock HUDs), and "replace", "true" when the tag
-takes the place of the campaign's of its path (profile.toml's boolean);
-"" when it is not set (the randomizer finds it by the tag's name, its custom
-type its name's last part, a weapon keeps its own HUD, and the campaign's
-tag stays). set_
-keeps the value's letters, digits, spaces, - and _ (lower case but for
-custom_type's), and writes the profile: 0 if it cannot */
+with (tag_injector.h's stock HUDs), "replace", "true" when the tag
+takes the place of the campaign's of its path (profile.toml's boolean), and
+"name", the name the menus show it by (its path stays its map's); "" when it
+is not set (the randomizer finds it by the tag's name, its custom type is
+the name it is shown by, a weapon keeps its own HUD, the campaign's tag
+stays, and it is shown by its path's last part). set_ keeps the value's
+letters, digits, spaces, - and _ (lower case but for custom_type's and
+name's), and writes the profile: 0 if it cannot */
 const char *port_tag_profiles_tag_option(long profile, long tag, const char *key);
 int port_tag_profiles_tag_set_option(long profile, long tag, const char *key, const char *value);
 /* the tag of a group and path (any case) of a profile, or -1 */

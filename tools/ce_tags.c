@@ -13,7 +13,9 @@ bundles"):
 	ce_tags find MAP [TEXT] [--group GROUP]
 		MAP's tags whose path has TEXT in it (any case), of GROUP (as
 		'weap', or weap), each with its index, group, path and where the map
-		read it from.
+		read it from. A protected map's tags without paths of their own are
+		given the names the Tag Injector makes for them
+		(port/linux/game/tag_names.c), and are found and taken out by them.
 	ce_tags extract MAP TAG [--group GROUP] [--out FILE]
 		Writes the bundle of MAP's tag TAG (its path, any case, or its index)
 		and every tag it names to FILE (by default the last part of its path
@@ -118,6 +120,10 @@ struct loaded_map
 	struct tag_header *tags;
 	unsigned long loaded_bytes;
 	long corrections;
+	/* the tags whose names were made for them, the map having none for them
+	(a protected map's: a byte a tag), and how many */
+	unsigned char *names_made;
+	long names_made_count;
 };
 
 /* ---------- the validator's (port/linux/game/tag_validate.c) */
@@ -125,6 +131,9 @@ struct loaded_map
 unsigned char tag_validate_custom_edition_tags(void *tag_header, long loaded_size, unsigned long tag_cache_size,
 	struct tag_validate_file_range const *file_ranges, short file_range_count, char const *map_name);
 long tag_validate_corrections(void);
+
+/* (port/linux/game/tag_names.c's: tag_names.h) */
+long tag_names_restore(void *tag_header, char const *map_name, unsigned char **made);
 
 static int verbose;
 
@@ -330,6 +339,8 @@ static void loaded_map_close(struct loaded_map *loaded)
 		stdio_file_close(&loaded->resource_files[type]);
 	}
 	stdio_file_close(&loaded->map);
+	free(loaded->names_made);
+	loaded->names_made = NULL;
 }
 
 /* reads in the combined space of a map's files (tag_bundle_source) */
@@ -442,13 +453,30 @@ static int loaded_map_open(struct loaded_map *loaded, char const *path, char con
 	}
 	loaded->corrections = tag_validate_corrections();
 	loaded->tags = (struct tag_header *)tag_cache;
+	/* (the names of the tags that have none made, by the map's file's name,
+	as the Tag Injector makes them: tag_injector.c) */
+	{
+		char const *slash = strrchr(path, '/');
+		char const *backslash = strrchr(path, '\\');
+		char const *base = backslash > slash ? backslash + 1 : slash ? slash + 1 : path;
+		char stem[PATH_BYTES];
+		char *extension;
+
+		snprintf(stem, sizeof(stem), "%s", base);
+		extension = strrchr(stem, '.');
+		if (extension && !strcasecmp(extension, ".map"))
+			*extension = 0;
+		loaded->names_made_count = tag_names_restore(loaded->tags, stem, &loaded->names_made);
+	}
 
 	return 1;
 }
 
-static char const *tag_origin(struct tag_instance const *instance)
+static char const *tag_origin(struct loaded_map const *loaded, long absolute_index)
 {
-	return instance->in_resource_map ? "resource map" : "map";
+	if (loaded->tags->instances[absolute_index].in_resource_map)
+		return "resource map";
+	return loaded->names_made && loaded->names_made[absolute_index] ? "map, its name made" : "map";
 }
 
 static char const *tag_name(struct tag_instance const *instance)
@@ -462,7 +490,7 @@ static void tag_print(struct loaded_map const *loaded, long absolute_index)
 	char group[5];
 
 	group_text(instance->group_tag, group);
-	printf("%6ld  %s  %s  (%s)\n", absolute_index, group, tag_name(instance), tag_origin(instance));
+	printf("%6ld  %s  %s  (%s)\n", absolute_index, group, tag_name(instance), tag_origin(loaded, absolute_index));
 }
 
 /* ---------- commands */
@@ -886,6 +914,9 @@ int main(int argc, char **argv)
 	}
 	printf("%s: %s (%s), %ld tags, %ld corrected by the validator\n", positional[0], loaded.report.identity.name,
 		loaded.report.identity.build, loaded.tags->tag_count, loaded.corrections);
+	if (loaded.names_made_count > 0)
+		printf("%ld tags have no names of their own (a protected map): they are given names made from what they are\n",
+			loaded.names_made_count);
 	if (!strcmp(command, "find"))
 		result = command_find(&loaded, positional[1], has_group, group_tag);
 	else

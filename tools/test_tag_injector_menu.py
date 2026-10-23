@@ -31,7 +31,7 @@ def test_the_screen_runs_the_tag_injector_functions():
     names = set(re.findall(r'run="(port tags [^"]+)"', screen))
     inputs = set(re.findall(r'input="(port tags [^"]+)"', screen))
     assert names == {"port tags init", "port tags close", "port tags choose", "port tags left", "port tags right",
-                     "port tags back", "port tags new profile", "port tags delete profile"}
+                     "port tags back", "port tags new profile", "port tags profile button"}
     assert inputs == {"port tags update"}
     for name in names | inputs:
         assert f'"{name}"' in tags, name
@@ -134,3 +134,52 @@ def test_a_weapon_alone_has_a_hud_and_a_stock_tag_can_replace():
     # (a level's references taken by index while a profile's tags are in it)
     assert "custom_edition_cache_tags_loaded() || tag_injector_tags_loaded()" in \
         (ROOT / "source/tag_files/tag_groups.c").read_text()
+
+
+def test_the_button_bar_is_the_list_s():
+    """The button bar's buttons, which menu_functions.c words and shows by the
+    list shown (tags_buttons): none in the first list, NEW PROFILE in TAG
+    PROFILES, DUPLICATE PROFILE and DELETE PROFILE in a profile's lists, NEW
+    PROFILE and VIEW <name> PROFILE in MAPS' lists, B from the profile it shows
+    going back there."""
+    screen = "\n".join(port_settings.settings_files()[SCREEN])
+    functions = (ROOT / "port/linux/game/menu_functions.c").read_text()
+    profiles = (ROOT / "port/linux/src/port_tag_profiles.c").read_text()
+    for name in ("button_new", "button_profile"):
+        assert f'name="{port_settings.TAG_INJECTOR}/{name}"' in screen
+        assert f'"{name}"' in functions
+    buttons = functions[functions.index("static short tags_buttons(void)"):]
+    buttons = buttons[:buttons.index("\n}\n")]
+    assert "case _tags_list_top:\n\t\treturn _tags_buttons_none;" in buttons
+    assert "case _tags_list_profiles:\n\t\treturn _tags_buttons_profiles;" in buttons
+    assert "case _tags_list_tag:\n\t\treturn _tags_buttons_profile;" in buttons
+    assert "default:\n\t\treturn _tags_buttons_maps;" in buttons
+    update = functions[functions.index("static void tags_buttons_update(struct widget_instance *list)"):]
+    update = update[:update.index("\n}\n")]
+    for words in ('L"DUPLICATE PROFILE"', 'L"NEW PROFILE"', 'L"DELETE PROFILE"', '"VIEW %.14s%s PROFILE"'):
+        assert words in update, words
+    assert "port_tag_profiles_duplicate(original, name)" in functions
+    assert "long port_tag_profiles_duplicate(long profile, const char *name)" in profiles
+    back = functions[functions.index("static boolean tags_back("):]
+    assert "tags_screen.viewed_from != NONE ? tags_screen.viewed_from : _tags_list_profiles" in \
+        back[:back.index("\n}\n")]
+
+
+def test_a_profile_s_tag_can_be_renamed():
+    """NAME, every tag's first setting: the "name" key port_tag_profiles.c
+    keeps as it was typed, which the menus show the tag by and the
+    randomizer's AUTO reads words from; a protected map's tags are given
+    names (tag_names.c) as the map opens and loads again."""
+    functions = (ROOT / "port/linux/game/menu_functions.c").read_text()
+    profiles = (ROOT / "port/linux/src/port_tag_profiles.c").read_text()
+    injector = (ROOT / "port/linux/game/tag_injector.c").read_text()
+    randomizer = (ROOT / "port/linux/game/randomizer.c").read_text()
+    rows = functions[functions.index("static short tags_setting_rows(short *rows)"):]
+    rows = rows[:rows.index("\n}\n")]
+    assert rows.index("_tags_setting_name;") < rows.index("_tags_setting_enabled;")
+    assert '"faction", "type", "class", "custom_type", "hud", "replace", "name" }' in profiles
+    assert '!strcmp(tag_option_keys[option], "name")' in profiles
+    assert 'port_tag_profiles_tag_set_option(tags_screen.profile, tags_screen.tag, "name", name)' in functions
+    assert 'port_tag_profiles_tag_option(profile, tag, "name")' in injector
+    assert "tag_injector_tag_display_name(custom_profile" in randomizer
+    assert injector.count("menu_names_restore(header);") == 2

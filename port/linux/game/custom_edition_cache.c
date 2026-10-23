@@ -890,6 +890,11 @@ static void custom_edition_cache_report_log(
 		TEST_FLAG(report->warnings, _custom_edition_warning_checksum_mismatch_bit) ? "mismatched" : "matched");
 	if (report->scenario_regrouped)
 		error(_error_silent, "custom edition: the scenario tag had another group (map protection) and was given the scenario's");
+	if (report->groupless_tags)
+	{
+		error(_error_silent, "custom edition: %ld tags had no group (map protection): %ld were given the one the "
+			"references naming them say", (long)report->groupless_tags, (long)report->tags_regrouped);
+	}
 
 	return;
 }

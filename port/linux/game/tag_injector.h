@@ -87,6 +87,11 @@ long tag_injector_category_count(
 char const *tag_injector_category_tag(
 	short category,
 	long index);
+/* whether a tag's path is one made for it, its map having none for it (a
+protected map's: tag_names.c) */
+boolean tag_injector_tag_name_made(
+	short category,
+	long index);
 /* How many tags the bundle of a tag would hold (itself and every tag it
 names), and the bytes of its tags; NONE when it cannot be taken out,
 `reason` saying why. */
@@ -144,14 +149,20 @@ long tag_injector_profile_enabled_count(
 	long profile,
 	unsigned long group_tag);
 /* a tag's setting the randomizer reads ("faction", "type", "class", "hud",
-"replace":
-port_tag_profiles.h's), "" when it is not set */
+"replace", "name": port_tag_profiles.h's), "" when it is not set */
 char const *tag_injector_tag_setting(
 	long profile,
 	long tag,
 	char const *key);
+/* the name a profile's tag is shown by: the one it was given (its "name"
+setting), else the last part of its path */
+void tag_injector_tag_display_name(
+	long profile,
+	long tag,
+	char *name,
+	long name_size);
 /* the name of a tag's own type, which the randomizer's one type chooses it
-by: its custom_type, else the last part of its path; in capitals */
+by: its custom_type, else the name it is shown by; in capitals */
 void tag_injector_tag_custom_type(
 	long profile,
 	long tag,

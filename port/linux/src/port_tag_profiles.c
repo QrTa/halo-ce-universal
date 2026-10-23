@@ -25,11 +25,14 @@ the tag bundles of its tags (port/linux/game/tag_bundle.h), one a file:
 	custom_type = "Carbine"
 	hud = "auto"
 	replace = true
+	name = "Brute Carbine"
 
 A tag's enabled, and its settings (port_tag_profiles.h's
 port_tag_profiles_tag_option), may be left out: it is on, and its settings
 "" (the randomizer finds them by its tag's name). A build before them reads
-the profile as it did, without them.
+the profile as it did, without them. A tag's name is the one the menus show
+it by, which the player gave it; its path (tag) stays its map's, which its
+bundle has and a level knows it by.
 
 A tag added is kept as port_tag_store.c keeps it: its tags in a tag file
 (carbine.weap.tagref), and its pixels, samples and vertices in the
@@ -92,7 +95,7 @@ through on their way into the Xbox's memory, which the renderer watches
 /* ---------- structures */
 
 /* a tag's settings, by their keys in profile.toml (port_tag_profiles.h) */
-static const char *const tag_option_keys[] = { "faction", "type", "class", "custom_type", "hud", "replace" };
+static const char *const tag_option_keys[] = { "faction", "type", "class", "custom_type", "hud", "replace", "name" };
 #define TAG_OPTION_COUNT (sizeof(tag_option_keys) / sizeof(tag_option_keys[0]))
 
 struct tag_profile_tag
@@ -272,12 +275,15 @@ static int tag_option_index(const char *key)
 }
 
 /* a setting's value as it is kept: its letters, digits, spaces, - and _
-(a custom type's name is typed), lower case but for custom_type's; 0 if it
-is too long */
+(a custom type's name and a tag's are typed), lower case but for
+custom_type's and name's; 0 if it is too long */
 static int tag_option_clean(int option, const char *value, char *clean)
 {
+	int typed = !strcmp(tag_option_keys[option], "custom_type") || !strcmp(tag_option_keys[option], "name");
 	size_t length = 0;
 
+	while (value && *value == ' ')
+		value++;
 	for (; value && *value; value++)
 	{
 		char character = *value;
@@ -287,7 +293,7 @@ static int tag_option_clean(int option, const char *value, char *clean)
 			continue;
 		if (length + 1 >= MAXIMUM_OPTION_LENGTH)
 			return 0;
-		clean[length++] = strcmp(tag_option_keys[option], "custom_type") ? lower(character) : character;
+		clean[length++] = typed ? character : lower(character);
 	}
 	while (length > 0 && clean[length - 1] == ' ')
 		length--;
@@ -697,6 +703,117 @@ long port_tag_profiles_create(const char *name)
 	port_tag_profiles_scan();
 	index = port_tag_profiles_find(profile.folder);
 	platform_log("tag injector: made the profile %s (%s)", profile.name, profile.folder);
+	return index;
+}
+
+/* copies a file, a chunk at a time (a profile's pack is large), beside its
+copy first; 0 if it cannot be */
+static int file_copy(const char *from, const char *to)
+{
+	char temporary[MAXIMUM_PATH_LENGTH];
+	FILE *source;
+	FILE *destination;
+	int copied = 1;
+
+	if (snprintf(temporary, sizeof(temporary), "%s.new", to) >= (int)sizeof(temporary))
+		return 0;
+	source = fopen(from, "rb");
+	if (!source)
+		return 0;
+	destination = fopen(temporary, "wb");
+	if (!destination)
+	{
+		fclose(source);
+		return 0;
+	}
+	while (copied)
+	{
+		size_t count = fread(port_tag_profiles.bounce, 1, sizeof(port_tag_profiles.bounce), source);
+
+		if (!count)
+		{
+			copied = !ferror(source);
+			break;
+		}
+		copied = fwrite(port_tag_profiles.bounce, 1, count, destination) == count;
+	}
+	fclose(source);
+	copied = fclose(destination) == 0 && copied && file_replace(temporary, to);
+	if (!copied)
+		remove(temporary);
+	return copied;
+}
+
+long port_tag_profiles_duplicate(long profile, const char *name)
+{
+	struct tag_profile *found = profile_get(profile);
+	struct tag_profile copy;
+	char folder[MAXIMUM_FOLDER_LENGTH];
+	char from_folder[MAXIMUM_PATH_LENGTH];
+	char to_folder[MAXIMUM_PATH_LENGTH];
+	char file[256];
+	struct tag_profile_tag *tags = NULL;
+	void *directory;
+	long tag_count;
+	long index;
+	int copied = 1;
+
+	if (!found)
+		return -1;
+	/* (the original's, kept while the scans below forget it) */
+	tag_count = found->tag_count;
+	if (tag_count)
+	{
+		tags = malloc((size_t)tag_count * sizeof(*tags));
+		if (!tags)
+			return -1;
+		memcpy(tags, found->tags, (size_t)tag_count * sizeof(*tags));
+	}
+	text_copy(folder, sizeof(folder), found->folder);
+	profile_path(found, NULL, from_folder, sizeof(from_folder));
+	index = port_tag_profiles_create(name);
+	if (index < 0)
+	{
+		free(tags);
+		return -1;
+	}
+	/* (every file of its folder: its tag files, bundles and pack; its
+	profile.toml is written with the copy's name) */
+	profile_path(profile_get(index), NULL, to_folder, sizeof(to_folder));
+	directory = posix_directory_open(from_folder);
+	while (copied && directory && posix_directory_next(directory, file, sizeof(file)))
+	{
+		char from[MAXIMUM_PATH_LENGTH];
+		char to[MAXIMUM_PATH_LENGTH];
+		struct posix_file_information information;
+
+		snprintf(from, sizeof(from), "%s/%s", from_folder, file);
+		snprintf(to, sizeof(to), "%s/%s", to_folder, file);
+		if (file[0] == '.' || !strcmp(file, "profile.toml") || posix_stat(from, &information) != 0 ||
+			(information.flags & _posix_file_is_directory))
+			continue;
+		copied = file_copy(from, to);
+		if (!copied)
+			platform_log("tag injector: %s cannot be copied to %s", from, to);
+	}
+	if (directory)
+		posix_directory_close(directory);
+	copy = *profile_get(index);
+	copy.tags = tags;
+	copy.tag_count = tag_count;
+	copied = copied && profile_write(&copy);
+	free(tags);
+	text_copy(file, sizeof(file), copy.folder);
+	port_tag_profiles_scan();
+	index = port_tag_profiles_find(file);
+	if (!copied)
+	{
+		platform_log("tag injector: the profile %s could not be copied whole: its copy is deleted", folder);
+		if (index >= 0)
+			port_tag_profiles_delete(index);
+		return -1;
+	}
+	platform_log("tag injector: copied the profile %s to %s", folder, file);
 	return index;
 }
 

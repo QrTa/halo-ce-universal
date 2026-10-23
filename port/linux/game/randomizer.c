@@ -2970,6 +2970,19 @@ static int name_has(char const *lower, char const *const *words)
 	return 0;
 }
 
+/* a Tag Injector root's words, which AUTO finds its pools by: its path and
+the name it is shown by (one a player gave a protected map's "weapon 2"),
+in lower case */
+static void custom_words(long root, char const *name, char *words, unsigned int size)
+{
+	char shown[TAG_INJECTOR_CUSTOM_TYPE_LENGTH];
+	char both[256 + TAG_INJECTOR_CUSTOM_TYPE_LENGTH];
+
+	tag_injector_tag_display_name(custom_profile, custom_root_tags[root], shown, sizeof(shown));
+	snprintf(both, sizeof(both), "%s %s", name ? name : "", shown);
+	lower_copy(words, size, both);
+}
+
 /* a Tag Injector actor variant's faction (its setting "faction", else its
 unit's type's): the enemy pool it joins, else POOL_ANY for ANY's alone */
 static int custom_variant_faction(long root, int kind)
@@ -3021,14 +3034,14 @@ static int custom_weapon_covenant(long root, char const *name)
 		"covenant", "plasma", "needle", "carbine", "fuel rod", "sword", "brute", "spike", "elite", "beam", NULL
 	};
 	char const *faction = tag_injector_tag_setting(custom_profile, custom_root_tags[root], "faction");
-	char lower[256];
+	char lower[256 + TAG_INJECTOR_CUSTOM_TYPE_LENGTH];
 	int kind = weapon_kind(name);
 
 	if (faction[0] && _stricmp(faction, "auto"))
 		return !_stricmp(faction, "covenant");
 	if (kind != WEAPON_NONE)
 		return weapon_kinds[kind].covenant;
-	lower_copy(lower, sizeof(lower), name);
+	custom_words(root, name, lower, sizeof(lower));
 
 	return name_has(lower, covenant_words);
 }
@@ -3047,7 +3060,7 @@ static int custom_weapon_classes(long root, char const *name)
 		"assault", "smg", "rifle", "needler", "spiker", "machine", "repeater", "mauler", NULL
 	};
 	char const *setting = tag_injector_tag_setting(custom_profile, custom_root_tags[root], "class");
-	char lower[256];
+	char lower[256 + TAG_INJECTOR_CUSTOM_TYPE_LENGTH];
 	int kind = weapon_kind(name);
 
 	if (setting[0] && _stricmp(setting, "auto"))
@@ -3062,7 +3075,7 @@ static int custom_weapon_classes(long root, char const *name)
 			(weapon_kinds[kind].automatic ? WEAPON_CLASS_AUTOMATIC_BIT : 0) |
 			(weapon_kinds[kind].power ? WEAPON_CLASS_POWER_BIT : 0);
 	}
-	lower_copy(lower, sizeof(lower), name);
+	custom_words(root, name, lower, sizeof(lower));
 	if (name_has(lower, precision_words))
 		return WEAPON_CLASS_PRECISION_BIT;
 	if (name_has(lower, power_words))
@@ -3131,12 +3144,15 @@ static void add_custom_root(long root)
 			tag_get_name(variant->unit_reference.index) : NULL;
 		int kind = classify(unit_name);
 		int allowed;
+		char words[256 + TAG_INJECTOR_CUSTOM_TYPE_LENGTH];
 
 		if (!current.enemies || variant_count >= POOL_MAX)
 			return;
-		/* (a unit of no type the campaign has: the variant's name's) */
+		/* (a unit of no type the campaign has: the variant's words', its
+		name's too) */
+		custom_words(root, name, words, sizeof(words));
 		if (kind == TYPE_NONE)
-			kind = classify(name);
+			kind = classify(words);
 		switch (current.pool)
 		{
 		case POOL_ANY: case POOL_TAG_INJECTOR:
@@ -3144,7 +3160,7 @@ static void add_custom_root(long root)
 			break;
 		case POOL_ONE:
 			allowed = current.custom_type ? custom_type_is(root, current.custom_type_name) :
-				custom_variant_type(root, kind) == current.type && rank_allows(current.type, name);
+				custom_variant_type(root, kind) == current.type && rank_allows(current.type, words);
 			break;
 		default:
 			allowed = custom_variant_faction(root, kind) == current.pool;

@@ -74,6 +74,7 @@ machine's, and a network game's machines must have the same tag table.
 #include "tag_schema.h"
 #include "tag_bundle.h"
 #include "tag_injector.h"
+#include "tag_names.h"
 #include "randomizer.h"
 #include "halo_port_capacity.h"
 
@@ -263,7 +264,8 @@ static struct
 
 /* the menu's: the maps, the map open, and its tags of each category (their
 absolute indices), each one's size (TAG_SIZE_UNKNOWN until asked) and the
-tag that keeps it from being taken out (NONE) */
+tag that keeps it from being taken out (NONE); and of each of its tags,
+whether its name is one made for it (tag_names.c: NULL for none) */
 static struct
 {
 	struct injector_map maps[MAXIMUM_TAG_INJECTOR_MAPS];
@@ -276,6 +278,7 @@ static struct
 	long *sizes[NUMBER_OF_TAG_INJECTOR_CATEGORIES];
 	long *problems[NUMBER_OF_TAG_INJECTOR_CATEGORIES];
 	long tag_counts[NUMBER_OF_TAG_INJECTOR_CATEGORIES];
+	unsigned char *names_made;
 } tag_injector_menu = { { { 0 } }, 0, NONE };
 
 /* the level's: the bundles read (of which profile, and their tags' bytes),
@@ -392,6 +395,27 @@ static long menu_tag(
 		index < 0 || index >= tag_injector_menu.tag_counts[category])
 		return NONE;
 	return tag_injector_menu.tags[category][index];
+}
+
+/* the map open's tags without names of their own (a protected map's) given
+names made for them, as each time it is loaded: the same, which its tags
+are listed, kept in profiles and added to levels by (tag_names.c) */
+static void menu_names_restore(
+	struct injector_map_header *header)
+{
+	unsigned char *made = NULL;
+	long count;
+
+	if (tag_injector_menu.names_made)
+		free(tag_injector_menu.names_made);
+	tag_injector_menu.names_made = NULL;
+	count = tag_names_restore(header, tag_injector_menu.map_name, &made);
+	tag_injector_menu.names_made = made;
+	if (count == NONE)
+		error(_error_silent, "tag injector: no memory to name the tags of %s that have no names", tag_injector_menu.path);
+	else if (count)
+		error(_error_silent, "tag injector: %ld tags of %s have no names of their own (a protected map): they are given "
+			"names made from what they are", count, tag_injector_menu.path);
 }
 
 /* the map's file in the Custom Edition maps folders, into path */
@@ -526,6 +550,41 @@ static boolean bundle_bitmaps_drawable(
 					bundle_tag_name(&bundle->loaded, bundle_index));
 				return FALSE;
 			}
+		}
+	}
+
+	return TRUE;
+}
+
+/* whether a player can hold a weapon: its first-person view is its
+first-person model moved by its first-person animations, which the game
+reads without asking whether it has them (first_person_weapons.c; a debug
+build stops on the tag it does not have). A map's weapon without them is
+one it never let a player hold */
+static boolean weapon_holdable(
+	struct weapon_definition const *weapon)
+{
+	return weapon && weapon->weapon.interface_definition.first_person_model.index != NONE &&
+		weapon->weapon.interface_definition.first_person_animations.index != NONE;
+}
+
+/* whether every weapon a bundle would add can be held (a bundle's
+references name its own tags, or none) */
+static boolean bundle_weapons_holdable(
+	struct injected_bundle *bundle)
+{
+	long bundle_index;
+
+	for (bundle_index = 0; bundle_index < bundle->loaded.tag_count; bundle_index++)
+	{
+		if (bundle_tag_group(&bundle->loaded, bundle_index) != WEAPON_DEFINITION_TAG ||
+			bundle_tag_kept(bundle, WEAPON_DEFINITION_TAG, bundle_tag_name(&bundle->loaded, bundle_index)))
+			continue;
+		if (!weapon_holdable((struct weapon_definition const *)bundle_tag_root(&bundle->loaded, bundle_index)))
+		{
+			error(_error_silent, "tag injector: the weapon '%s' has no first-person model or animations: it cannot be "
+				"held", bundle_tag_name(&bundle->loaded, bundle_index));
+			return FALSE;
 		}
 	}
 
@@ -1102,6 +1161,7 @@ boolean tag_injector_map_open(
 	tag_injector_menu.opened = map;
 	level_name = custom_edition_maps_level_name(tag_injector_menu.maps[map].display_index);
 	snprintf(tag_injector_menu.map_name, sizeof(tag_injector_menu.map_name), "%s", tag_name_strip_path(level_name));
+	menu_names_restore(header);
 	for (category = 0; category < NUMBER_OF_TAG_INJECTOR_CATEGORIES; category++)
 	{
 		long count = 0;
@@ -1143,6 +1203,10 @@ void tag_injector_map_close(
 	menu_tags_free();
 	if (tag_injector_menu.opened != NONE)
 		custom_edition_cache_bundle_close();
+	tag_names_dispose();
+	if (tag_injector_menu.names_made)
+		free(tag_injector_menu.names_made);
+	tag_injector_menu.names_made = NULL;
 	tag_injector_menu.opened = NONE;
 	tag_injector_menu.header = NULL;
 	tag_injector_menu.path[0] = 0;
@@ -1189,6 +1253,15 @@ char const *tag_injector_category_tag(
 	return absolute == NONE ? "" : menu_tag_name(absolute);
 }
 
+boolean tag_injector_tag_name_made(
+	short category,
+	long index)
+{
+	long absolute = menu_tag(category, index);
+
+	return absolute != NONE && tag_injector_menu.names_made && tag_injector_menu.names_made[absolute];
+}
+
 long tag_injector_tag_size(
 	short category,
 	long index,
@@ -1228,6 +1301,13 @@ long tag_injector_tag_size(
 		snprintf(text, sizeof(text), "It names a tag this build cannot take out: %s",
 			menu_tag_name(tag_injector_menu.problems[category][index]));
 		reason_set(reason, reason_size, text);
+	}
+	else if (category == _tag_injector_weapons &&
+		!weapon_holdable(tag_injector_menu.header->instances[absolute].base_address))
+	{
+		reason_set(reason, reason_size, "It has no first-person model or animations: its map never lets a player hold "
+			"it, and it cannot be added.");
+		return NONE;
 	}
 
 	return *size;
@@ -1315,6 +1395,9 @@ boolean tag_injector_tag_add(
 	header = custom_edition_cache_bundle_open(tag_injector_menu.path, sounds, tag_count);
 	free(sounds);
 	tag_injector_menu.header = header;
+	/* (its names made again: the same) */
+	if (header)
+		menu_names_restore(header);
 	if (!header || header->tag_count != tag_count ||
 		(unsigned long)header->instances[absolute].group_tag != tag_injector_categories[category].group_tag ||
 		_stricmp(menu_tag_name(absolute), name))
@@ -1359,6 +1442,12 @@ boolean tag_injector_tag_add(
 		if ((group_tag != WEAPON_DEFINITION_TAG && group_tag != EQUIPMENT_GROUP_TAG) || indices[tag] == absolute ||
 			port_tag_profiles_tag_find(profile, group_tag, carried_name) != NONE)
 			continue;
+		if (group_tag == WEAPON_DEFINITION_TAG && !weapon_holdable(header->instances[indices[tag]].base_address))
+		{
+			error(_error_silent, "tag injector: %s, which %s carries, has no first-person model or animations, and is "
+				"not added", carried_name, name);
+			continue;
+		}
 		tag_bundle_write(&source, indices[tag], bundle_buffer_write, &carried_buffer, &report);
 		if (report.status == _tag_bundle_status_ok && profile_bundle_add(profile, tag_injector_menu.map_name, group_tag,
 			carried_name, carried_buffer.bytes, carried_buffer.size))
@@ -1501,6 +1590,20 @@ char const *tag_injector_tag_setting(
 	return port_tag_profiles_tag_option(profile, tag, key);
 }
 
+void tag_injector_tag_display_name(
+	long profile,
+	long tag,
+	char *name,
+	long name_size)
+{
+	char const *named = port_tag_profiles_tag_option(profile, tag, "name");
+	char const *path = port_tag_profiles_tag_name(profile, tag);
+	char const *leaf = strrchr(path, '\\');
+
+	if (name_size > 0)
+		snprintf(name, (size_t)name_size, "%s", named[0] ? named : leaf ? leaf + 1 : path);
+}
+
 void tag_injector_tag_custom_type(
 	long profile,
 	long tag,
@@ -1508,13 +1611,14 @@ void tag_injector_tag_custom_type(
 	long name_size)
 {
 	char const *custom = port_tag_profiles_tag_option(profile, tag, "custom_type");
-	char const *path = port_tag_profiles_tag_name(profile, tag);
-	char const *leaf = strrchr(path, '\\');
 	long index;
 
 	if (name_size <= 0)
 		return;
-	snprintf(name, (size_t)name_size, "%s", custom[0] ? custom : leaf ? leaf + 1 : path);
+	if (custom[0])
+		snprintf(name, (size_t)name_size, "%s", custom);
+	else
+		tag_injector_tag_display_name(profile, tag, name, name_size);
 	/* (in capitals, as the menus show it, and the randomizer compares it) */
 	for (index = 0; name[index]; index++)
 	{
@@ -1617,7 +1721,7 @@ long tag_injector_tags_read(
 		bundle->profile_tag = index;
 		bundle->replace = port_tag_profiles_tag_option(profile, index, "replace")[0] != 0;
 		bundle->replaced = NONE;
-		if (!bundle_bitmaps_drawable(bundle) || !bundle_models_convert(bundle))
+		if (!bundle_weapons_holdable(bundle) || !bundle_bitmaps_drawable(bundle) || !bundle_models_convert(bundle))
 		{
 			error(_error_silent, "tag injector: %s is left out", port_tag_profiles_tag_name(profile, index));
 			bundle->refused = TRUE;

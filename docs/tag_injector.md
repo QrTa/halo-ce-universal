@@ -39,9 +39,15 @@ MISSING when its bundle is not there. Left or right turns a tag on or off: one o
 is left out where the profile is played, to try the profile without it. A on
 a tag opens its settings:
 
-A weapon or an AI has these; equipment, which joins no pool, has ENABLED,
-REPLACE ORIGINAL and REMOVE TAG alone.
+A weapon or an AI has these; equipment, which joins no pool, has NAME,
+ENABLED, REPLACE ORIGINAL and REMOVE TAG alone.
 
+- **NAME**: the name the menus show it by (its list, its frame, the
+  profile's tags), which A types; nothing typed is the last part of its
+  path. Its path stays its map's, which its bundle has and a level knows it
+  by. Its custom type is its name, unless it has one of its own, and AUTO
+  reads its name's words too: a protected map's `weapon 2` named
+  `Sniper Rifle` is a precision weapon.
 - **ENABLED**: on or off, as left and right on the tag.
 - **FACTION**: the pools of the randomizer it joins. An actor variant's:
   COVENANT, FLOOD, HUMAN, or ANY POOL ONLY; a weapon's: COVENANT or HUMAN.
@@ -51,7 +57,7 @@ REPLACE ORIGINAL and REMOVE TAG alone.
 - **CLASS** (a weapon's): PRECISION, AUTOMATIC, POWER or NONE, the weapon
   pools of those names.
 - **CUSTOM TYPE**: the name the randomizer's ONE TYPE's TAG INJECTOR chooses
-  it by. A types it; nothing typed is the last part of its path. Tags of
+  it by. A types it; nothing typed is its name. Tags of
   the same custom type (BRUTE for a brute minor, a brute major and a brute
   captain) are played together.
 - **HUD** (a weapon's): the HUD it is drawn with, whoever carries it: an AI
@@ -103,10 +109,29 @@ randomizer plays weapons and AI; equipment joins no pool, and is played as
 an AI's, or replacing the original. Vehicles, bipeds and scenery are listed,
 and cannot be added yet.
 
-**NEW PROFILE** asks for a name (letters, digits, spaces, `-` and `_`
-make its folder's name) and chooses it. **DELETE PROFILE**, pressed twice,
-deletes the profile chosen in TAG PROFILES, or the one whose tags are
-listed, and its tags.
+The button bar beside BACK goes by the list shown: nothing in the first
+list; **NEW PROFILE** in TAG PROFILES, which asks for a name (letters,
+digits, spaces, `-` and `_` make its folder's name) and chooses it; in a
+profile's lists **DUPLICATE PROFILE**, which asks for a name and makes a
+copy of the profile (its tags, their settings and its pack), and **DELETE
+PROFILE**, which, pressed twice, deletes it and its tags; and in MAPS'
+lists NEW PROFILE and **VIEW <name> PROFILE**, which shows the profile MAPS
+adds to as A on it in TAG PROFILES does, B from there going back to the list
+it was pressed in (a map's weapons, still open).
+
+A weapon without a first-person model or animations cannot be added: its
+map never let a player hold it, and the game reads them as the player holds
+it (a debug build stops). A profile's bundle that would add one, as an AI's
+weapon, is left out where the profile is played.
+
+A protected map's tags have no paths of their own (they are all
+`<protected>`, nothing, or one path many share), which the menu lists them,
+keeps them in a profile and adds them to a level by. As the map opens, each
+is given a name made from what it is (`docs/custom_edition_caches.md`, "Tag
+bundles"): a weapon its pickup text (`battle rifle`), a biped the stock
+folder of its tags (`elite`), an actor variant its unit's and its weapon's
+(`elite battle rifle`), numbered where two are the same (`battle rifle 2`).
+The frame says so, and NAME renames it once it is in a profile.
 
 Adding a tag loads its map again, with the sounds of the tags it takes
 decoded: a second or two, and longer for an actor variant of many voices
@@ -164,12 +189,13 @@ class = "automatic"
 custom_type = "Carbine"
 hud = "auto"
 replace = true
+name = "Brute Carbine"
 ```
 
 A tag's `enabled`, `faction`, `type` (an actor variant's), `class` (a
-weapon's), `custom_type`, `hud` (a weapon's) and `replace` are its settings
-in the menu; one left out is its default (on, AUTO, the last part of its
-path, OWN, and off). An actor variant's `hud`, which an earlier build gave
+weapon's), `custom_type`, `hud` (a weapon's), `replace` and `name` are its
+settings in the menu; one left out is its default (on, AUTO, its name, OWN,
+off, and the last part of its path). An actor variant's `hud`, which an earlier build gave
 its weapons, is no longer read: its weapons' own tags have theirs. The values are the
 randomizer's names: `faction` `"covenant"`, `"flood"`, `"human"` or
 `"none"`; `type` one of `game.randomizer_type`'s (`"elite"`) or `"none"`;

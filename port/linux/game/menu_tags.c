@@ -402,7 +402,7 @@ static char const *const port_function_names[] =
 	"port mods save",
 	/* (Settings > Gameplay > Tag Injector: menu_functions.c) */
 	"port tags init", "port tags close", "port tags choose", "port tags left", "port tags right", "port tags back",
-	"port tags new profile", "port tags delete profile",
+	"port tags new profile", "port tags profile button",
 	/* (Server Setup's RANDOMIZER and SKULLS rows, a co-op game's: the
 	screens above, whose OK comes back to it) */
 	"ss randomizer", "ss skulls",
