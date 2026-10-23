@@ -51,10 +51,12 @@ int port_tag_profiles_tag_enabled(long profile, long tag);
 int port_tag_profiles_tag_set_enabled(long profile, long tag, int enabled);
 /* a tag's setting, by its key: "faction", "type" (an actor variant's) and
 "class" (a weapon's), the randomizer's names for them, "custom_type", the
-name of its own type it is chosen by, and "hud", the HUD its weapons are
-drawn with (tag_injector.h's stock HUDs); "" when it is not set (the
-randomizer finds it by the tag's name, its custom type its name's last part,
-and its weapons keep their own HUD). set_
+name of its own type it is chosen by, "hud", the HUD a weapon is drawn
+with (tag_injector.h's stock HUDs), and "replace", "true" when the tag
+takes the place of the campaign's of its path (profile.toml's boolean);
+"" when it is not set (the randomizer finds it by the tag's name, its custom
+type its name's last part, a weapon keeps its own HUD, and the campaign's
+tag stays). set_
 keeps the value's letters, digits, spaces, - and _ (lower case but for
 custom_type's), and writes the profile: 0 if it cannot */
 const char *port_tag_profiles_tag_option(long profile, long tag, const char *key);

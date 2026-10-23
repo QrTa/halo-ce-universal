@@ -33,12 +33,24 @@ level's tags, the bundles' with them). A bundle whose models cannot be made,
 or whose bitmaps cannot be drawn, is left out, and the tags of none are
 added when there is no room for them all.
 
-A weapon a tag's "hud" setting gives a stock HUD (the campaign's HUD of one
-of its weapons, which the randomizer copies from the map that has it into a
-level without it) has its first-person interface name that one: its own is
-added as the rest are, and not drawn. The bundles are read first
-(tag_injector_tags_read), before the randomizer copies the tags it wants,
-so that it knows the stock HUDs to copy.
+A weapon added whose tag of the profile (its own, whichever bundle adds it:
+an actor variant's carries its weapons) has a "hud" setting of a stock HUD
+(the campaign's HUD of one of its weapons, which the randomizer copies from
+the map that has it into a level without it) has its first-person interface
+name that one: its own is added as the rest are, and not drawn. The bundles
+are read first (tag_injector_tags_read), before the randomizer copies the
+tags it wants, so that it knows the stock HUDs to copy.
+
+A bundle whose tag has "replace" on takes the place of the level's tag of
+its path (the campaign's: an energy sword, an elite major): the level's tag
+is given the bundle's tag, where it is in the table, so that whatever names
+it (the scenario's palettes, its actor variants, the randomizer's copies)
+has the bundle's now; and the bundle's other tags are added as its own,
+rather than being the level's of their paths, so that the tag is as its map
+had it. Its tags of a path another bundle's replaced are that one.
+
+Adding an actor variant to a profile adds the weapons and equipment it
+names too, each a tag of the profile of its own (its HUD, its replacing).
 
 Only a machine playing alone adds them (randomizer.c): the tags are this
 machine's, and a network game's machines must have the same tag table.
@@ -62,6 +74,7 @@ machine's, and a network game's machines must have the same tag table.
 #include "tag_schema.h"
 #include "tag_bundle.h"
 #include "tag_injector.h"
+#include "randomizer.h"
 #include "halo_port_capacity.h"
 
 #include <stdio.h>
@@ -75,6 +88,8 @@ enum
 	GBXMODEL_GROUP_TAG = 'mod2',
 	MODEL_GROUP_TAG = 'mode',
 	WEAPON_HUD_INTERFACE_GROUP_TAG = 'wphi',
+	EQUIPMENT_GROUP_TAG = 'eqip',
+	ACTOR_VARIANT_GROUP_TAG = 'actv',
 
 	/* the most maps listed, and tags of a category */
 	MAXIMUM_TAG_INJECTOR_MAPS = 512,
@@ -189,8 +204,11 @@ struct injected_bundle
 	long *datums;
 	/* left out (its models could not be made, or its bitmaps drawn) */
 	boolean refused;
-	/* the profile's tag it is */
+	/* the profile's tag it is, whether it replaces the level's tag of its
+	path ("replace"), and the level's tag it has replaced (NONE) */
 	long profile_tag;
+	boolean replace;
+	long replaced;
 };
 
 /* ---------- globals */
@@ -237,7 +255,7 @@ static struct
 {
 	{ "WEAPONS", 'weap', TRUE },
 	{ "AI", 'actv', TRUE },
-	{ "EQUIPMENT", 'eqip', FALSE },
+	{ "EQUIPMENT", 'eqip', TRUE },
 	{ "VEHICLES", 'vehi', FALSE },
 	{ "BIPEDS", 'bipd', FALSE },
 	{ "SCENERY", 'scen', FALSE },
@@ -275,6 +293,7 @@ static struct
 	struct injector_tag_instance *grown_instances;
 	long first_injected;
 	long injected_count;
+	long replaced_count;
 	short *injected_bundle;
 	boolean bitmaps_added;
 } tag_injector_level;
@@ -471,6 +490,16 @@ static boolean group_left_out(
 	return group_tag == 'scnr' || group_tag == 'sbsp' || group_tag == 'matg';
 }
 
+/* whether a bundle's tag will be the level's of its path, as it reads (a
+replacing bundle's tags are its own) */
+static boolean bundle_tag_kept(
+	struct injected_bundle const *bundle,
+	unsigned long group_tag,
+	char const *name)
+{
+	return !bundle->replace && level_tag(group_tag, name) != NONE;
+}
+
 /* whether every bitmap of a bundle's bitmap tags can be drawn from Halo
 PC's pixels */
 static boolean bundle_bitmaps_drawable(
@@ -484,7 +513,7 @@ static boolean bundle_bitmaps_drawable(
 		long bitmap_index;
 
 		if (bundle_tag_group(&bundle->loaded, bundle_index) != BITMAP_GROUP_TAG ||
-			level_tag(BITMAP_GROUP_TAG, bundle_tag_name(&bundle->loaded, bundle_index)) != NONE)
+			bundle_tag_kept(bundle, BITMAP_GROUP_TAG, bundle_tag_name(&bundle->loaded, bundle_index)))
 			continue;
 		group = (struct bitmap_group *)bundle_tag_root(&bundle->loaded, bundle_index);
 		for (bitmap_index = 0; bitmap_index < group->bitmaps.count; bitmap_index++)
@@ -528,7 +557,8 @@ static boolean bundle_models_convert(
 		char const *name = bundle_tag_name(&bundle->loaded, bundle_index);
 		byte *entry = (byte *)bundle->loaded.tags + bundle_index * TAG_BUNDLE_TAG_BYTES;
 
-		if (bundle_tag_group(&bundle->loaded, bundle_index) != GBXMODEL_GROUP_TAG || level_tag(MODEL_GROUP_TAG, name) != NONE)
+		if (bundle_tag_group(&bundle->loaded, bundle_index) != GBXMODEL_GROUP_TAG ||
+			bundle_tag_kept(bundle, MODEL_GROUP_TAG, name))
 			continue;
 		if (!custom_edition_injected_model_convert((struct model *)bundle_tag_root(&bundle->loaded, bundle_index), name,
 			bundle->loaded.file_data_size, bundle_file_read, bundle))
@@ -663,16 +693,20 @@ static short stock_hud_find(
 }
 
 /* the stock HUD a bundle's weapon is drawn with, as the "hud" setting of
-the profile's tag the bundle is says (an actor variant's: of its weapons),
-or NONE for its own. AUTO's is by the words of its path, else a weapon that
-zooms far the sniper rifle's, one that zooms the pistol's, one without a
-magazine (a plasma weapon's battery or heat) the plasma rifle's, and one
+the profile's tag of that weapon says (whichever bundle has it: an actor
+variant's carries its weapons), or NONE for its own (a weapon the profile
+has no tag of keeps it). AUTO's is by the words of its path, else a weapon
+that zooms far the sniper rifle's, one that zooms the pistol's, one without
+a magazine (a plasma weapon's battery or heat) the plasma rifle's, and one
 with the assault rifle's */
 static short weapon_stock_hud(
 	struct injected_bundle const *bundle,
 	long bundle_index)
 {
-	char const *setting = port_tag_profiles_tag_option(tag_injector_level.read_profile, bundle->profile_tag, "hud");
+	long profile = tag_injector_level.read_profile;
+	long weapon_tag = port_tag_profiles_tag_find(profile, WEAPON_DEFINITION_TAG,
+		bundle_tag_name(&bundle->loaded, bundle_index));
+	char const *setting = weapon_tag == NONE ? "" : port_tag_profiles_tag_option(profile, weapon_tag, "hud");
 	struct weapon_definition const *weapon;
 	char path[256];
 	long index;
@@ -776,6 +810,21 @@ static void weapon_hud_swap(
 	reference->name = tag_get_name(datum);
 	reference->name_length = reference->name ? (long)strlen(reference->name) : 0;
 	error(_error_silent, "tag injector: %s is drawn with the HUD %s", name, stock_huds[hud].tag);
+}
+
+/* whether the level's tag has been replaced by a bundle's (tags_load) */
+static boolean tag_replaced(
+	long datum)
+{
+	long index;
+
+	for (index = 0; datum != NONE && index < tag_injector_level.bundle_count; index++)
+	{
+		if (tag_injector_level.bundles[index].replaced == datum)
+			return TRUE;
+	}
+
+	return FALSE;
 }
 
 static void level_bundles_free(
@@ -1118,6 +1167,12 @@ boolean tag_injector_category_addable(
 	return category >= 0 && category < NUMBER_OF_TAG_INJECTOR_CATEGORIES && tag_injector_categories[category].addable;
 }
 
+unsigned long tag_injector_category_group(
+	short category)
+{
+	return category >= 0 && category < NUMBER_OF_TAG_INJECTOR_CATEGORIES ? tag_injector_categories[category].group_tag : 0;
+}
+
 long tag_injector_category_count(
 	short category)
 {
@@ -1178,6 +1233,17 @@ long tag_injector_tag_size(
 	return *size;
 }
 
+boolean tag_injector_tag_stock(
+	long profile,
+	long tag)
+{
+	unsigned long group_tag = port_tag_profiles_tag_group(profile, tag);
+
+	return (group_tag == WEAPON_DEFINITION_TAG || group_tag == ACTOR_VARIANT_GROUP_TAG ||
+		group_tag == EQUIPMENT_GROUP_TAG) &&
+		randomizer_stock_tag_exists((long)group_tag, port_tag_profiles_tag_name(profile, tag));
+}
+
 long tag_injector_tag_in_profile(
 	long profile,
 	short category,
@@ -1193,6 +1259,7 @@ boolean tag_injector_tag_add(
 	long profile,
 	short category,
 	long index,
+	long *carried,
 	char *reason,
 	long reason_size)
 {
@@ -1211,6 +1278,8 @@ boolean tag_injector_tag_add(
 	boolean added;
 
 	reason_set(reason, reason_size, "");
+	if (carried)
+		*carried = 0;
 	if (absolute == NONE || !tag_injector_category_addable(category))
 		return FALSE;
 	if (profile < 0 || profile >= port_tag_profiles_count())
@@ -1243,7 +1312,6 @@ boolean tag_injector_tag_add(
 		if ((unsigned long)tag_injector_menu.header->instances[indices[tag]].group_tag == SOUND_DEFINITION_TAG)
 			sounds[indices[tag]] = TRUE;
 	}
-	free(indices);
 	header = custom_edition_cache_bundle_open(tag_injector_menu.path, sounds, tag_count);
 	free(sounds);
 	tag_injector_menu.header = header;
@@ -1252,6 +1320,7 @@ boolean tag_injector_tag_add(
 		_stricmp(menu_tag_name(absolute), name))
 	{
 		/* (the file changed under the menu: what it lists is gone) */
+		free(indices);
 		reason_set(reason, reason_size, "The map cannot be read again.");
 		tag_injector_map_close();
 		return FALSE;
@@ -1278,6 +1347,37 @@ boolean tag_injector_tag_add(
 	}
 	if (buffer.bytes)
 		free(buffer.bytes);
+
+	/* an actor variant's weapons and equipment (those its bundle holds), each
+	a tag of the profile of its own, unless it has one of that path */
+	for (tag = 0; added && category == _tag_injector_ai && tag < count; tag++)
+	{
+		unsigned long group_tag = (unsigned long)header->instances[indices[tag]].group_tag;
+		char const *carried_name = menu_tag_name(indices[tag]);
+		struct bundle_buffer carried_buffer = { NULL, 0, 0 };
+
+		if ((group_tag != WEAPON_DEFINITION_TAG && group_tag != EQUIPMENT_GROUP_TAG) || indices[tag] == absolute ||
+			port_tag_profiles_tag_find(profile, group_tag, carried_name) != NONE)
+			continue;
+		tag_bundle_write(&source, indices[tag], bundle_buffer_write, &carried_buffer, &report);
+		if (report.status == _tag_bundle_status_ok && profile_bundle_add(profile, tag_injector_menu.map_name, group_tag,
+			carried_name, carried_buffer.bytes, carried_buffer.size))
+		{
+			error(_error_silent, "tag injector: took %s out of %s with %s: %ld tags, %lu bytes", carried_name,
+				tag_injector_menu.map_name, name, report.tag_count, report.size);
+			if (carried)
+				(*carried)++;
+		}
+		else
+		{
+			error(_error_silent, "tag injector: %s, which %s carries, cannot be taken out: %s", carried_name, name,
+				report.status == _tag_bundle_status_ok ? "the profile cannot be written" :
+				tag_bundle_status_describe(report.status));
+		}
+		if (carried_buffer.bytes)
+			free(carried_buffer.bytes);
+	}
+	free(indices);
 
 	return added;
 }
@@ -1510,10 +1610,13 @@ long tag_injector_tags_read(
 		if (!level_bundle_read(profile, index, bundle, &total))
 		{
 			bundle->profile_tag = index;
+			bundle->replaced = NONE;
 			bundle->refused = TRUE;
 			continue;
 		}
 		bundle->profile_tag = index;
+		bundle->replace = port_tag_profiles_tag_option(profile, index, "replace")[0] != 0;
+		bundle->replaced = NONE;
 		if (!bundle_bitmaps_drawable(bundle) || !bundle_models_convert(bundle))
 		{
 			error(_error_silent, "tag injector: %s is left out", port_tag_profiles_tag_name(profile, index));
@@ -1534,7 +1637,7 @@ long tag_injector_tags_read(
 			long known;
 
 			if (bundle_tag_group(&bundle->loaded, tag) != WEAPON_DEFINITION_TAG ||
-				level_tag(WEAPON_DEFINITION_TAG, bundle_tag_name(&bundle->loaded, tag)) != NONE)
+				bundle_tag_kept(bundle, WEAPON_DEFINITION_TAG, bundle_tag_name(&bundle->loaded, tag)))
 				continue;
 			hud = weapon_stock_hud(bundle, tag);
 			if (hud == NONE || tag_loaded(WEAPON_HUD_INTERFACE_GROUP_TAG, stock_huds[hud].tag) != NONE)
@@ -1560,6 +1663,7 @@ long tag_injector_tags_load(
 	long existing = 0;
 	unsigned long total;
 	long added = 0;
+	long replaced = 0;
 	long root_count = 0;
 	long salt = 0;
 	long bundle_index;
@@ -1597,6 +1701,41 @@ long tag_injector_tags_load(
 	tag_injector_level.saved_instances = instances;
 	tag_injector_level.saved_count = existing;
 	tag_injector_level.first_injected = existing;
+
+	/* the level's tags the replacing bundles take the place of, where they
+	are (the first bundle of a path's: the others' are that one) */
+	for (bundle_index = 0; bundle_index < tag_injector_level.bundle_count; bundle_index++)
+	{
+		struct injected_bundle *bundle = &tag_injector_level.bundles[bundle_index];
+		long datum;
+		long other;
+
+		bundle->replaced = NONE;
+		if (bundle->refused || !bundle->replace || bundle->loaded.tag_count <= 0)
+			continue;
+		datum = level_tag(bundle_tag_group(&bundle->loaded, 0), bundle_tag_name(&bundle->loaded, 0));
+		if (datum == NONE)
+		{
+			error(_error_silent, "tag injector: %s replaces nothing: the level has not got it, and it is added",
+				bundle_tag_name(&bundle->loaded, 0));
+			continue;
+		}
+		for (other = 0; other < bundle_index && tag_injector_level.bundles[other].replaced != datum; other++)
+		{
+		}
+		if (other < bundle_index)
+		{
+			error(_error_silent, "tag injector: %s is replaced already, by an earlier tag of the profile",
+				bundle_tag_name(&bundle->loaded, 0));
+			continue;
+		}
+		bundle->replaced = datum;
+		tag_injector_level.grown_instances[DATUM_INDEX_TO_ABSOLUTE_INDEX(datum)].base_address =
+			bundle_tag_root(&bundle->loaded, 0);
+		replaced++;
+		error(_error_silent, "tag injector: %s replaces the level's", bundle_tag_name(&bundle->loaded, 0));
+	}
+
 	for (bundle_index = 0; bundle_index < tag_injector_level.bundle_count; bundle_index++)
 	{
 		struct injected_bundle *bundle = &tag_injector_level.bundles[bundle_index];
@@ -1616,7 +1755,16 @@ long tag_injector_tags_load(
 			long datum = level_tag(group_tag, name);
 			long count = existing + added;
 
-			if (datum != NONE || group_left_out(group_tag))
+			if (tag == 0 && bundle->replaced != NONE)
+			{
+				bundle->datums[tag] = bundle->replaced;
+				continue;
+			}
+			/* (a replacing bundle's are its own, but where a bundle's are:
+			added, or replacing the level's) */
+			if (group_left_out(group_tag) ||
+				(datum != NONE && (!bundle->replace || tag_replaced(datum) ||
+				DATUM_INDEX_TO_ABSOLUTE_INDEX(datum) >= existing)))
 			{
 				bundle->datums[tag] = datum;
 				continue;
@@ -1649,6 +1797,10 @@ long tag_injector_tags_load(
 		}
 	}
 	tag_injector_level.injected_count = added;
+	tag_injector_level.replaced_count = replaced;
+	/* (the table the level plays: the grown one, with the tags replaced,
+	though none was added) */
+	cache_files_set_tag_instances(tag_injector_level.grown_instances, existing + added);
 	tag_injector_level.injected_bundle = malloc((unsigned long)(added + 1) * sizeof(short));
 	if (!tag_injector_level.injected_bundle)
 	{
@@ -1669,10 +1821,15 @@ long tag_injector_tags_load(
 			long absolute = DATUM_INDEX_TO_ABSOLUTE_INDEX(datum);
 			unsigned long group_tag = bundle_tag_group(&bundle->loaded, tag);
 			byte *root = bundle_tag_root(&bundle->loaded, tag);
+			/* (a root replacing the level's has no file data: none is read for
+			it) */
+			boolean replacing = tag == 0 && bundle->replaced != NONE;
 
-			if (datum == NONE || absolute < existing || tag_injector_level.grown_instances[absolute].base_address != root)
+			if (datum == NONE || (!replacing && absolute < existing) ||
+				tag_injector_level.grown_instances[absolute].base_address != root)
 				continue;
-			tag_injector_level.injected_bundle[absolute - existing] = (short)bundle_index;
+			if (!replacing)
+				tag_injector_level.injected_bundle[absolute - existing] = (short)bundle_index;
 			retarget_fields(bundle, root, schema_of(group_tag), 0);
 			if (group_tag == SOUND_DEFINITION_TAG)
 				sound_permutations_retarget((struct sound_definition *)root, datum);
@@ -1705,8 +1862,8 @@ long tag_injector_tags_load(
 	among the level's, as a mod's bitmaps are found: mod_bitmaps.c) */
 	if (tag_injector_level.bitmaps_added && !custom_edition_cache_tags_loaded())
 		custom_edition_loaded_reordered_bitmaps_find();
-	error(_error_silent, "tag injector: %s: %ld tags added from %ld bundles (%lu bytes of tags), %ld weapons and actors",
-		port_tag_profiles_name(profile), added, tag_injector_level.bundle_count, total, root_count);
+	error(_error_silent, "tag injector: %s: %ld tags added and %ld replaced from %ld bundles (%lu bytes of tags), %ld "
+		"roots", port_tag_profiles_name(profile), added, replaced, tag_injector_level.bundle_count, total, root_count);
 	if (bitmaps_downsized)
 	{
 		error(_error_silent, "tag injector: %ld bitmaps drawn at %d pixels at most, %lu bytes fewer "
@@ -1737,6 +1894,7 @@ void tag_injector_tags_unloaded(
 	tag_injector_level.injected_bundle = NULL;
 	tag_injector_level.first_injected = 0;
 	tag_injector_level.injected_count = 0;
+	tag_injector_level.replaced_count = 0;
 	tag_injector_level.bitmaps_added = FALSE;
 	tag_injector_level.bundles_read = FALSE;
 	tag_injector_level.read_profile = NONE;
@@ -1757,7 +1915,7 @@ boolean tag_injector_tag_injected(
 boolean tag_injector_tags_loaded(
 	void)
 {
-	return tag_injector_level.injected_count > 0;
+	return tag_injector_level.injected_count > 0 || tag_injector_level.replaced_count > 0;
 }
 
 int tag_injector_read(

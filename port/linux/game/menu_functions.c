@@ -52,8 +52,9 @@ calls them from PC_MENU_FUNCTION_BASE on):
 - Settings > Gameplay > Tag Injector (tools/port_settings.py), laid out as
   the Mods screen is: "port tags update" shows its rows and the details of
   the one chosen, "port tags choose" (A) goes down a list (the profiles, a
-  profile's tags, a tag's settings; the maps' kinds, folders and maps, a
-  map's kinds of tags, a kind's tags), changes a setting, or adds the tag
+  profile's kinds of tags, a kind's tags, a tag's settings; the maps'
+  kinds, folders and maps, a map's kinds of tags, a kind's tags), changes a
+  setting, or adds the tag
   chosen to the profile or takes it out, "port tags left" and "right" change
   the tag injection, a tag's on or off and its settings, and the profile
   tags are added to, "port tags back" (B) goes up a list or leaves, and
@@ -5279,6 +5280,7 @@ enum
 {
 	_tags_list_top,
 	_tags_list_profiles,
+	_tags_list_profile_categories,
 	_tags_list_profile,
 	_tags_list_tag,
 	_tags_list_kinds,
@@ -5306,8 +5308,8 @@ enum
 	NUMBER_OF_TAGS_KIND_ROWS
 };
 
-/* a tag's settings' rows (tags_setting_rows: an actor variant's and a
-weapon's) */
+/* a tag's settings' rows (tags_setting_rows: an actor variant's, a
+weapon's and equipment's) */
 enum
 {
 	_tags_setting_enabled,
@@ -5316,8 +5318,9 @@ enum
 	_tags_setting_class,
 	_tags_setting_custom_type,
 	_tags_setting_hud,
+	_tags_setting_replace,
 	_tags_setting_remove,
-	MAXIMUM_TAGS_SETTING_ROWS = 6
+	MAXIMUM_TAGS_SETTING_ROWS = 7
 };
 
 /* the name typed: none, a new profile's, or the tag's custom type */
@@ -5361,16 +5364,21 @@ static struct tags_choice const tags_weapon_huds[] =
 	{ "flamethrower", "FLAMETHROWER" }, { "plasma_rifle", "PLASMA RIFLE" }, { "plasma_pistol", "PLASMA PISTOL" },
 	{ "needler", "NEEDLER" },
 };
+static struct tags_choice const tags_replace_choices[] = { { "", "OFF" }, { "true", "ON" } };
 
 static struct
 {
 	/* the list shown; the profile shown (whose tags are listed, and the
-	maps add to) and its tag whose settings are; MAPS' kind (campaign maps or
-	not) and folder; the map and the kind of tags it is of; and each list's
-	first row's place and place chosen (kept to go back up to) */
+	maps add to), the kind of its tags listed and its tag whose settings are;
+	MAPS' kind (campaign maps or not) and folder; the map and the kind of tags
+	it is of; and each list's first row's place and place chosen (kept to go
+	back up to) */
 	short list;
 	long profile;
+	short profile_category;
 	long tag;
+	/* whether the tag shown is of a campaign map's path (REPLACE ORIGINAL) */
+	boolean tag_stock;
 	boolean campaign;
 	char folder[CUSTOM_EDITION_MAP_CATEGORY_LENGTH];
 	short map;
@@ -5390,7 +5398,7 @@ static struct
 	/* what the details and rows show (they are made again when it changes) */
 	char shown[384];
 	char row_shown[TAG_ROWS][128];
-} tags_screen = { 0, NONE, NONE, FALSE, "", NONE, NONE, { 0 }, { 0 }, _tags_naming_none, { 0 }, NONE, NONE };
+} tags_screen = { 0, NONE, NONE, NONE, FALSE, FALSE, "", NONE, NONE, { 0 }, { 0 }, _tags_naming_none, { 0 }, NONE, NONE };
 
 static void tags_message(char const *text)
 {
@@ -5420,17 +5428,25 @@ static struct widget_instance *tag_row(struct widget_instance *widget)
 	return NULL;
 }
 
-/* the settings' rows of the tag shown: how many */
+/* the settings' rows of the tag shown: how many (equipment joins no pool;
+a weapon alone has a HUD, whatever carries it; REPLACE ORIGINAL is a tag's
+of a campaign map's path) */
 static short tags_setting_rows(short *rows)
 {
 	unsigned long group = port_tag_profiles_tag_group(tags_screen.profile, tags_screen.tag);
 	short count = 0;
 
 	rows[count++] = _tags_setting_enabled;
-	rows[count++] = _tags_setting_faction;
-	rows[count++] = group == 'weap' ? _tags_setting_class : _tags_setting_type;
-	rows[count++] = _tags_setting_custom_type;
-	rows[count++] = _tags_setting_hud;
+	if (group == 'weap' || group == 'actv')
+	{
+		rows[count++] = _tags_setting_faction;
+		rows[count++] = group == 'weap' ? _tags_setting_class : _tags_setting_type;
+		rows[count++] = _tags_setting_custom_type;
+	}
+	if (group == 'weap')
+		rows[count++] = _tags_setting_hud;
+	if (tags_screen.tag_stock)
+		rows[count++] = _tags_setting_replace;
 	rows[count++] = _tags_setting_remove;
 	return count;
 }
@@ -5469,6 +5485,10 @@ static struct tags_choice const *tags_setting_choices(short setting, char const 
 		*key = "hud";
 		*count = (short)NUMBEROF(tags_weapon_huds);
 		return tags_weapon_huds;
+	case _tags_setting_replace:
+		*key = "replace";
+		*count = (short)NUMBEROF(tags_replace_choices);
+		return tags_replace_choices;
 	}
 	return NULL;
 }
@@ -5513,6 +5533,35 @@ static char const *tags_browse_folder(void)
 	return tags_screen.list == _tags_list_folder ? tags_screen.folder : "";
 }
 
+/* how many of the profile shown's tags are of a category (as a map's are
+listed) */
+static long tags_profile_category_count(short category)
+{
+	unsigned long group = tag_injector_category_group(category);
+	long count = port_tag_profiles_tag_count(tags_screen.profile);
+	long found = 0;
+	long tag;
+
+	for (tag = 0; group && tag < count; tag++)
+		found += port_tag_profiles_tag_group(tags_screen.profile, tag) == group;
+	return found;
+}
+
+/* the profile shown's tag at `place` of the category listed, or NONE */
+static long tags_profile_tag_of(short place)
+{
+	unsigned long group = tag_injector_category_group(tags_screen.profile_category);
+	long count = port_tag_profiles_tag_count(tags_screen.profile);
+	long tag;
+
+	for (tag = 0; group && place >= 0 && tag < count; tag++)
+	{
+		if (port_tag_profiles_tag_group(tags_screen.profile, tag) == group && !place--)
+			return tag;
+	}
+	return NONE;
+}
+
 /* how many rows the list shown has */
 static short tags_count(void)
 {
@@ -5524,8 +5573,10 @@ static short tags_count(void)
 		return NUMBER_OF_TAGS_TOP_ROWS;
 	case _tags_list_profiles:
 		return (short)port_tag_profiles_count();
+	case _tags_list_profile_categories:
+		return NUMBER_OF_TAG_INJECTOR_CATEGORIES;
 	case _tags_list_profile:
-		return (short)port_tag_profiles_tag_count(tags_screen.profile);
+		return (short)MIN(tags_profile_category_count(tags_screen.profile_category), 0x7FFF);
 	case _tags_list_tag:
 		return tags_setting_rows(rows);
 	case _tags_list_kinds:
@@ -5579,7 +5630,7 @@ static void tags_ascii_copy(char *destination, size_t size, wchar_t const *sourc
 /* the kind of a profile's tag, as the menu names it */
 static char const *tags_group_name(unsigned long group)
 {
-	return group == 'weap' ? "WEAPON" : group == 'actv' ? "AI" : "TAG";
+	return group == 'weap' ? "WEAPON" : group == 'actv' ? "AI" : group == 'eqip' ? "EQUIPMENT" : "TAG";
 }
 
 /* MAPS' row at `place`: a folder (its name), or a map (its index of
@@ -5636,15 +5687,23 @@ static void tags_row_text(short place, char *name, size_t name_size, char *state
 		else
 			snprintf(state, state_size, "EMPTY");
 		break;
+	case _tags_list_profile_categories:
+		snprintf(name, name_size, "%s", tag_injector_category_name(place));
+		snprintf(state, state_size, "%ld", tags_profile_category_count(place));
+		break;
 	case _tags_list_profile:
-		snprintf(name, name_size, "%s", tag_leaf(port_tag_profiles_tag_name(tags_screen.profile, place)));
-		tags_size_text(port_tag_profiles_tag_size(tags_screen.profile, place), size, sizeof(size));
-		if (!port_tag_profiles_tag_size(tags_screen.profile, place))
+	{
+		long tag = tags_profile_tag_of(place);
+
+		snprintf(name, name_size, "%s", tag_leaf(port_tag_profiles_tag_name(tags_screen.profile, tag)));
+		tags_size_text(port_tag_profiles_tag_size(tags_screen.profile, tag), size, sizeof(size));
+		if (!port_tag_profiles_tag_size(tags_screen.profile, tag))
 			snprintf(state, state_size, "MISSING");
 		else
-			snprintf(state, state_size, "%s  %s", port_tag_profiles_tag_enabled(tags_screen.profile, place) ? "ON" : "OFF",
+			snprintf(state, state_size, "%s  %s", port_tag_profiles_tag_enabled(tags_screen.profile, tag) ? "ON" : "OFF",
 				size);
 		break;
+	}
 	case _tags_list_tag:
 		switch (tags_setting_of(place))
 		{
@@ -5669,7 +5728,8 @@ static void tags_row_text(short place, char *name, size_t name_size, char *state
 			struct tags_choice const *choices = tags_setting_choices(setting, &key, &count);
 
 			snprintf(name, name_size, "%s", setting == _tags_setting_faction ? "FACTION" :
-				setting == _tags_setting_type ? "COUNTS AS" : setting == _tags_setting_hud ? "HUD" : "CLASS");
+				setting == _tags_setting_type ? "COUNTS AS" : setting == _tags_setting_hud ? "HUD" :
+				setting == _tags_setting_replace ? "REPLACE ORIGINAL" : "CLASS");
 			snprintf(state, state_size, "%s", choices ? choices[tags_setting_value(setting)].shown : "");
 			break;
 		}
@@ -5783,30 +5843,46 @@ static void tags_details_text(short place, char *title, size_t title_size, char 
 		snprintf(title, title_size, "%s", port_tag_profiles_name(place));
 		tags_profile_details(place, text, text_size, "A lists its tags. DELETE PROFILE, twice, deletes it");
 		break;
+	case _tags_list_profile_categories:
+	{
+		long count = tags_profile_category_count(place);
+
+		snprintf(title, title_size, "%s", profile);
+		snprintf(text, text_size, "%ld %s.\n \n%s", count, tag_injector_category_name(place),
+			count ? "A lists them, to turn them on or off and change their settings." :
+			tag_injector_category_addable(place) ? "None yet: choose a map in MAPS, then these to add here." :
+			"None: the randomizer cannot play these yet.");
+		break;
+	}
 	case _tags_list_profile:
 	{
 		char const *path;
 		unsigned long group;
+		long tag = tags_profile_tag_of(place);
 
-		if (place == NONE)
+		if (tag == NONE)
 		{
 			snprintf(title, title_size, "%s", profile);
-			snprintf(text, text_size, "No tags yet: choose a map in MAPS, then its weapons or AI to add here.");
+			snprintf(text, text_size, "No %s yet: choose a map in MAPS, then its %s to add here.",
+				tag_injector_category_name(tags_screen.profile_category),
+				tag_injector_category_name(tags_screen.profile_category));
 			break;
 		}
-		path = port_tag_profiles_tag_name(tags_screen.profile, place);
-		group = port_tag_profiles_tag_group(tags_screen.profile, place);
+		path = port_tag_profiles_tag_name(tags_screen.profile, tag);
+		group = port_tag_profiles_tag_group(tags_screen.profile, tag);
 		snprintf(title, title_size, "%s", tag_leaf(path));
-		tags_size_text(port_tag_profiles_tag_size(tags_screen.profile, place), size, sizeof(size));
-		if (!port_tag_profiles_tag_size(tags_screen.profile, place))
+		tags_size_text(port_tag_profiles_tag_size(tags_screen.profile, tag), size, sizeof(size));
+		if (!port_tag_profiles_tag_size(tags_screen.profile, tag))
 			snprintf(size, sizeof(size), "missing: it is left out");
-		snprintf(text, text_size, "%s %s\nfrom %s, %s.\n \n%s: the randomizer %s it.\n \nLeft or right turns it %s. A "
-			"opens its settings: its faction, %s, custom type and HUD.", tags_group_name(group), path,
-			port_tag_profiles_tag_map(tags_screen.profile, place), size,
-			port_tag_profiles_tag_enabled(tags_screen.profile, place) ? "On" : "Off",
-			port_tag_profiles_tag_enabled(tags_screen.profile, place) ? "plays" : "leaves out",
-			port_tag_profiles_tag_enabled(tags_screen.profile, place) ? "off" : "on",
-			group == 'weap' ? "class" : "type");
+		snprintf(text, text_size, "%s %s\nfrom %s, %s%s.\n \n%s: the randomizer %s it.\n \nLeft or right turns it %s. A "
+			"opens its settings%s.", tags_group_name(group), path,
+			port_tag_profiles_tag_map(tags_screen.profile, tag), size,
+			port_tag_profiles_tag_option(tags_screen.profile, tag, "replace")[0] ? ", replacing the original" : "",
+			port_tag_profiles_tag_enabled(tags_screen.profile, tag) ? "On" : "Off",
+			port_tag_profiles_tag_enabled(tags_screen.profile, tag) ? "plays" : "leaves out",
+			port_tag_profiles_tag_enabled(tags_screen.profile, tag) ? "off" : "on",
+			group == 'weap' ? ": its faction, class, custom type and HUD" :
+			group == 'actv' ? ": its faction, type and custom type" : "");
 		break;
 	}
 	case _tags_list_tag:
@@ -5846,10 +5922,16 @@ static void tags_details_text(short place, char *title, size_t title_size, char 
 				"A types it. Nothing typed is the last part of its path.", weapon ? "weapons" : "AI", type);
 			break;
 		case _tags_setting_hud:
-			snprintf(text, text_size, "The HUD %s drawn with. OWN: %s map's. STOCK: the campaign's HUD of "
-				"the weapon chosen (its zoom and ammo art; the weapon zooms and fires as it did). AUTO: by its name, "
-				"else by its zoom and magazine.\n \nLeft and right choose another.",
-				weapon ? "it is" : "its weapons are", weapon ? "its" : "their");
+			snprintf(text, text_size, "The HUD it is drawn with, whoever carries it (an AI of the profile too). "
+				"OWN: its map's. STOCK: the campaign's HUD of the weapon chosen (its zoom and ammo art; the weapon "
+				"zooms and fires as it did). AUTO: by its name, else by its zoom and magazine.\n \nLeft and right "
+				"choose another.");
+			break;
+		case _tags_setting_replace:
+			snprintf(text, text_size, "ON: it takes the place of the campaign's tag of its path, with the tags it "
+				"names as its map has them, wherever the level has that tag (its own, or one the randomizer "
+				"copies).\n \nOFF: the level's stays, and this one joins the pools as it is.\n \nA, left or "
+				"right turns it on or off.");
 			break;
 		case _tags_setting_remove:
 			snprintf(text, text_size, "A, twice, takes it out of %s and deletes its bundle. Its map can add it again.\n"
@@ -5934,8 +6016,12 @@ static void tags_details_text(short place, char *title, size_t title_size, char 
 			snprintf(text, text_size, "%s\n \n%ld tags with what it names. Make a profile to add it to.", path,
 				tag_size);
 		else
-			snprintf(text, text_size, "%s\n \n%ld tags with what it names.\n \nA %s the profile %s.", path, tag_size,
-				added ? "takes it out of" : "adds it to", profile);
+			snprintf(text, text_size, "%s\n \n%ld tags with what it names.\n \nA %s the profile %s.%s", path, tag_size,
+				added ? "takes it out of" : "adds it to", profile,
+				added ? "" : tags_screen.category == _tag_injector_ai ?
+				" The weapons and equipment it carries are added too, as tags of their own." :
+				tags_screen.category == _tag_injector_equipment ?
+				" Equipment joins no pool: it is carried by the profile's AI, or replaces the original." : "");
 		break;
 	}
 	}
@@ -5951,6 +6037,7 @@ static boolean tags_screen_reset(boolean opening)
 	tags_screen.list = _tags_list_top;
 	tags_screen.tag = NONE;
 	tags_screen.map = NONE;
+	tags_screen.profile_category = NONE;
 	tags_screen.category = NONE;
 	tags_screen.folder[0] = 0;
 	for (list = 0; list < NUMBER_OF_TAGS_LISTS; list++)
@@ -6122,10 +6209,22 @@ static boolean tags_choose(struct widget_instance *widget)
 	case _tags_list_profiles:
 		tags_profile_choose(place);
 		ui_play_audio_feedback_sound(SOUND_FORWARD);
+		tags_list_open(list, _tags_list_profile_categories, 0);
+		break;
+	case _tags_list_profile_categories:
+		if (!tags_profile_category_count(place))
+		{
+			ui_play_audio_feedback_sound(SOUND_ERROR);
+			break;
+		}
+		tags_screen.profile_category = place;
+		ui_play_audio_feedback_sound(SOUND_FORWARD);
 		tags_list_open(list, _tags_list_profile, 0);
 		break;
 	case _tags_list_profile:
-		tags_screen.tag = place;
+		tags_screen.tag = tags_profile_tag_of(place);
+		/* (the campaign maps are read the first time) */
+		tags_screen.tag_stock = tag_injector_tag_stock(tags_screen.profile, tags_screen.tag);
 		tags_screen.removing = NONE;
 		ui_play_audio_feedback_sound(SOUND_FORWARD);
 		tags_list_open(list, _tags_list_tag, 0);
@@ -6166,8 +6265,12 @@ static boolean tags_choose(struct widget_instance *widget)
 			tags_message(text);
 			ui_play_audio_feedback_sound(SOUND_BACK);
 			tags_screen.tag = NONE;
-			tags_list_open(list, _tags_list_profile,
-				(short)MAX(0, MIN(tags_screen.chosen[_tags_list_profile], port_tag_profiles_tag_count(tags_screen.profile) - 1)));
+			/* (its kind's list, else the kinds with none of it left) */
+			if (!tags_profile_category_count(tags_screen.profile_category))
+				tags_list_show(list, _tags_list_profile_categories);
+			else
+				tags_list_open(list, _tags_list_profile, (short)MAX(0, MIN(tags_screen.chosen[_tags_list_profile],
+					tags_profile_category_count(tags_screen.profile_category) - 1)));
 			break;
 		}
 		default:
@@ -6221,7 +6324,7 @@ static boolean tags_choose(struct widget_instance *widget)
 	default:
 		if (!tag_injector_category_addable(tags_screen.category))
 		{
-			tags_message("The randomizer cannot play these yet: only weapons and AI can be added.");
+			tags_message("The randomizer cannot play these yet: only weapons, AI and equipment can be added.");
 			ui_play_audio_feedback_sound(SOUND_ERROR);
 		}
 		else if (tags_screen.profile == NONE)
@@ -6232,6 +6335,7 @@ static boolean tags_choose(struct widget_instance *widget)
 		else
 		{
 			long tag = tag_injector_tag_in_profile(tags_screen.profile, tags_screen.category, place);
+			long carried = 0;
 			char text[sizeof(tags_screen.message)];
 
 			if (tag != NONE)
@@ -6247,9 +6351,14 @@ static boolean tags_choose(struct widget_instance *widget)
 					ui_play_audio_feedback_sound(SOUND_ERROR);
 				}
 			}
-			else if (tag_injector_tag_add(tags_screen.profile, tags_screen.category, place, reason, sizeof(reason)))
+			else if (tag_injector_tag_add(tags_screen.profile, tags_screen.category, place, &carried, reason,
+				sizeof(reason)))
 			{
-				snprintf(text, sizeof(text), "Added to %s.", port_tag_profiles_name(tags_screen.profile));
+				if (carried)
+					snprintf(text, sizeof(text), "Added to %s, with %ld weapon%s and equipment it carries.",
+						port_tag_profiles_name(tags_screen.profile), carried, carried == 1 ? "" : "s");
+				else
+					snprintf(text, sizeof(text), "Added to %s.", port_tag_profiles_name(tags_screen.profile));
 				ui_play_audio_feedback_sound(SOUND_FORWARD);
 			}
 			else
@@ -6286,10 +6395,14 @@ static boolean tags_step(struct widget_instance *widget, short step)
 		config_write("game.tag_injection", config_boolean("game.tag_injection") ? "false" : "true");
 		break;
 	case _tags_list_profile:
-		if (!port_tag_profiles_tag_set_enabled(tags_screen.profile, place,
-			!port_tag_profiles_tag_enabled(tags_screen.profile, place)))
+	{
+		long tag = tags_profile_tag_of(place);
+
+		if (!port_tag_profiles_tag_set_enabled(tags_screen.profile, tag,
+			!port_tag_profiles_tag_enabled(tags_screen.profile, tag)))
 			tags_message("The profile cannot be written (the log says why).");
 		break;
+	}
 	case _tags_list_tag:
 	{
 		short setting = tags_setting_of(place);
@@ -6323,7 +6436,8 @@ static boolean tags_back(struct widget_instance *widget, boolean *widget_deleted
 	switch (tags_screen.list)
 	{
 	case _tags_list_profiles: up = _tags_list_top; break;
-	case _tags_list_profile: up = _tags_list_profiles; break;
+	case _tags_list_profile_categories: up = _tags_list_profiles; break;
+	case _tags_list_profile: up = _tags_list_profile_categories; break;
 	case _tags_list_tag: up = _tags_list_profile; break;
 	case _tags_list_kinds: up = _tags_list_top; break;
 	case _tags_list_browse: up = _tags_list_kinds; break;
@@ -6362,7 +6476,8 @@ static long tags_delete_target(void)
 
 	if (tags_screen.list == _tags_list_profiles)
 		return place >= 0 && place < port_tag_profiles_count() ? place : NONE;
-	return tags_screen.list == _tags_list_profile || tags_screen.list == _tags_list_tag ? tags_screen.profile : NONE;
+	return tags_screen.list == _tags_list_profile_categories || tags_screen.list == _tags_list_profile ||
+		tags_screen.list == _tags_list_tag ? tags_screen.profile : NONE;
 }
 
 /* "port tags delete profile": once, the question; again, the profile
@@ -6490,10 +6605,13 @@ static void tags_update(struct widget_instance *list)
 	out) */
 	if (tags_screen.profile >= port_tag_profiles_count())
 		tags_profile_choose(0);
-	if ((tags_screen.list == _tags_list_profile || tags_screen.list == _tags_list_tag) && tags_screen.profile == NONE)
+	if ((tags_screen.list == _tags_list_profile_categories || tags_screen.list == _tags_list_profile ||
+		tags_screen.list == _tags_list_tag) && tags_screen.profile == NONE)
 		tags_list_show(list, _tags_list_profiles);
 	if (tags_screen.list == _tags_list_tag && tags_screen.tag >= port_tag_profiles_tag_count(tags_screen.profile))
 		tags_list_show(list, _tags_list_profile);
+	if (tags_screen.list == _tags_list_profile && !tags_profile_category_count(tags_screen.profile_category))
+		tags_list_show(list, _tags_list_profile_categories);
 	first = &tags_screen.first[tags_screen.list];
 	chosen = &tags_screen.chosen[tags_screen.list];
 	count = tags_count();
@@ -6566,8 +6684,9 @@ static void tags_update(struct widget_instance *list)
 		short line = 0;
 
 		/* (made again only when what they show, or its fonts, change) */
-		snprintf(shown, sizeof(shown), "%d %d %d %d %ld %ld %d %s %lu %d %ld %ld %s %ld %d %ld %d", tags_screen.list,
-			*chosen, count, tags_screen.category, tags_screen.profile, tags_screen.tag, tags_screen.campaign,
+		snprintf(shown, sizeof(shown), "%d %d %d %d %d %ld %ld %d %s %lu %d %ld %ld %s %ld %d %ld %d", tags_screen.list,
+			*chosen, count, tags_screen.category, tags_screen.profile_category, tags_screen.profile, tags_screen.tag,
+			tags_screen.campaign,
 			tags_screen.folder, port_tag_profiles_scans(), config_boolean("game.tag_injection"), tags_screen.removing,
 			tags_screen.deleting, tags_screen.message, mods_screen.fonts[_mod_details_name],
 			mods_screen.widths[_mod_details_name], mods_screen.fonts[_mod_details_text],

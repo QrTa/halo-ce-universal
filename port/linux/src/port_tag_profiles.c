@@ -24,6 +24,7 @@ the tag bundles of its tags (port/linux/game/tag_bundle.h), one a file:
 	class = "automatic"
 	custom_type = "Carbine"
 	hud = "auto"
+	replace = true
 
 A tag's enabled, and its settings (port_tag_profiles.h's
 port_tag_profiles_tag_option), may be left out: it is on, and its settings
@@ -91,7 +92,7 @@ through on their way into the Xbox's memory, which the renderer watches
 /* ---------- structures */
 
 /* a tag's settings, by their keys in profile.toml (port_tag_profiles.h) */
-static const char *const tag_option_keys[] = { "faction", "type", "class", "custom_type", "hud" };
+static const char *const tag_option_keys[] = { "faction", "type", "class", "custom_type", "hud", "replace" };
 #define TAG_OPTION_COUNT (sizeof(tag_option_keys) / sizeof(tag_option_keys[0]))
 
 struct tag_profile_tag
@@ -441,7 +442,18 @@ static int profile_read(struct tag_profile *profile, const char *root, const cha
 			tag->enabled = enabled.type != TOML_BOOLEAN || enabled.u.boolean;
 			for (option = 0; option < TAG_OPTION_COUNT; option++)
 			{
-				const char *value = toml_text(entry, tag_option_keys[option], path);
+				const char *value;
+
+				/* (replace a boolean: kept as "true", or "") */
+				if (!strcmp(tag_option_keys[option], "replace"))
+				{
+					toml_datum_t replace = toml_get(entry, "replace");
+
+					text_copy(tag->options[option], sizeof(tag->options[option]),
+						replace.type == TOML_BOOLEAN && replace.u.boolean ? "true" : "");
+					continue;
+				}
+				value = toml_text(entry, tag_option_keys[option], path);
 
 				if (value && !tag_option_clean((int)option, value, tag->options[option]))
 				{
@@ -515,6 +527,11 @@ static int profile_write(const struct tag_profile *profile)
 		{
 			if (!tag->options[option][0])
 				continue;
+			if (!strcmp(tag_option_keys[option], "replace"))
+			{
+				snprintf(text + strlen(text), capacity - strlen(text), "replace = true\n");
+				continue;
+			}
 			snprintf(text + strlen(text), capacity - strlen(text), "%s = \"", tag_option_keys[option]);
 			toml_string_append(text, capacity, tag->options[option]);
 			snprintf(text + strlen(text), capacity - strlen(text), "\"\n");

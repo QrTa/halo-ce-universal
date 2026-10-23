@@ -75,8 +75,10 @@ long verify_tag_reference(
 	match_assert("c:\\halo\\SOURCE\\tag_files\\tag_groups.c", 3055, reference);
 	/* port: a protected Custom Edition map has its tag names replaced and
 	its references' names emptied, so a reference is taken by its index
-	(port/linux/game/custom_edition_cache.c) */
-	if (custom_edition_cache_tags_loaded())
+	(port/linux/game/custom_edition_cache.c); and so is one of a level with a
+	Tag Injector profile's tags, which may add a tag of a path the level has
+	(a replacing tag's own: port/linux/game/tag_injector.c) */
+	if (custom_edition_cache_tags_loaded() || tag_injector_tags_loaded())
 		return tag_index_is_group(reference->index, reference->group_tag) ? reference->index : NONE;
 #if defined(HALO_ANDROID) || defined(HALO_MOVABLE_WINDOW)
 	/* the map data names this string as the window was linked */

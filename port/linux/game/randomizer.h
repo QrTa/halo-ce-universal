@@ -54,6 +54,10 @@ int randomizer_unit_is_hunter(char const *tag_name);
 jackal or a combat form (not a carrier or infection form, a hunter, a
 sentinel or an engineer) */
 int randomizer_unit_can_carry(char const *tag_name);
+/* whether a campaign map has a weapon, actor variant or equipment of this
+group and path (the Tag Injector's REPLACE ORIGINAL). The maps are read the
+first time it is asked */
+int randomizer_stock_tag_exists(long group_tag, char const *name);
 /* the enemies the level's encounters place on this difficulty (and bring
 back) that can carry a skull, by the squads' own actors (the randomizer's
 swaps aside): the skulls' odds (skulls.c) */

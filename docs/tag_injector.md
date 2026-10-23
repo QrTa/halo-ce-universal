@@ -1,11 +1,11 @@
 # The Tag Injector
 
-The Tag Injector takes weapons and AI out of Halo Custom Edition maps and
-puts them in profiles, which the campaign randomizer adds to a level: a
+The Tag Injector takes weapons, AI and equipment out of Halo Custom Edition
+maps and puts them in profiles, which the campaign randomizer adds to a level: a
 Custom Edition map's carbine lying where a plasma rifle was, its brutes in
 the level's encounters. A tag is taken out with every tag it names (its
 model, animations, collision, HUD, projectiles, effects, sounds and bitmaps;
-an actor variant's actor, unit and weapons), as a tag bundle
+an actor variant's actor, unit, weapons and equipment), as a tag bundle
 (`docs/custom_edition_caches.md`, "Tag bundles").
 
 The game's code is `port/linux/game/tag_injector.c` (the menu's maps and
@@ -31,11 +31,16 @@ first leaves. Its first list has:
   its tags share counted once; EMPTY without any).
 - **MAPS**: the Custom Edition maps.
 
-**TAG PROFILES**: A on a profile lists its tags, each with where it came
-from (the frame) and its size, ON or OFF, or MISSING when its bundle is not
-there. Left or right turns a tag on or off: one off stays in the profile and
+**TAG PROFILES**: A on a profile lists its tags' kinds, as a map's are
+(**WEAPONS**, **AI**, **EQUIPMENT**, **VEHICLES**, **BIPEDS** and
+**SCENERY**, each with how many of them it has), and A on one lists them,
+each with where it came from (the frame) and its size, ON or OFF, or
+MISSING when its bundle is not there. Left or right turns a tag on or off: one off stays in the profile and
 is left out where the profile is played, to try the profile without it. A on
 a tag opens its settings:
+
+A weapon or an AI has these; equipment, which joins no pool, has ENABLED,
+REPLACE ORIGINAL and REMOVE TAG alone.
 
 - **ENABLED**: on or off, as left and right on the tag.
 - **FACTION**: the pools of the randomizer it joins. An actor variant's:
@@ -49,8 +54,9 @@ a tag opens its settings:
   it by. A types it; nothing typed is the last part of its path. Tags of
   the same custom type (BRUTE for a brute minor, a brute major and a brute
   captain) are played together.
-- **HUD**: the HUD a weapon is drawn with (an actor variant's: the weapons
-  it carries, once picked up). OWN, the default, is its map's. STOCK: AUTO
+- **HUD** (a weapon's): the HUD it is drawn with, whoever carries it: an AI
+  of the profile that carries it adds it as its own tag (MAPS, below), whose
+  HUD this is. OWN, the default, is its map's. STOCK: AUTO
   and the campaign's weapons (ASSAULT RIFLE, PISTOL, SNIPER RIFLE, ROCKET
   LAUNCHER, SHOTGUN, FLAMETHROWER, PLASMA RIFLE, PLASMA PISTOL, NEEDLER)
   draw it with that weapon's HUD: its crosshairs, ammo meters and zoom
@@ -62,6 +68,11 @@ a tag opens its settings:
   the weapon: one that zooms 4x or more the sniper rifle's, one that zooms
   less the pistol's, one without a magazine (a battery or heat) the plasma
   rifle's, and the rest the assault rifle's.
+- **REPLACE ORIGINAL** (a tag of a path a campaign map has: an energy
+  sword, an elite major): ON, it takes the place of the campaign's tag
+  wherever the level has it, with the tags it names as its map has them
+  ("In a level", below); OFF, the default, the level's stays. The campaign
+  maps are read for their paths the first time a tag's settings open.
 - **REMOVE TAG**: A, twice, takes it out of the profile and deletes its
   bundle.
 
@@ -83,9 +94,14 @@ map loads its tags, as the game would play them, and lists its
 **WEAPONS**, **AI**, **EQUIPMENT**, **VEHICLES**, **BIPEDS** and
 **SCENERY**, each with how many there are. A on one lists them, by the last
 part of their paths (the frame has the whole path, and how many tags it
-takes with it). A on a weapon or an actor variant adds it to the profile
-(ADDED), or takes it out again. The randomizer can play weapons and AI
-alone: the other kinds are listed, and cannot be added yet.
+takes with it). A on a weapon, an actor variant or equipment adds it to the
+profile (ADDED), or takes it out again. An actor variant added adds the
+weapons and equipment it carries too, each a tag of the profile of its own
+(one the profile has of that path is left as it is), so that their HUD and
+replacing are set there; taking the actor variant out leaves them. The
+randomizer plays weapons and AI; equipment joins no pool, and is played as
+an AI's, or replacing the original. Vehicles, bipeds and scenery are listed,
+and cannot be added yet.
 
 **NEW PROFILE** asks for a name (letters, digits, spaces, `-` and `_`
 make its folder's name) and chooses it. **DELETE PROFILE**, pressed twice,
@@ -147,11 +163,14 @@ faction = "covenant"
 class = "automatic"
 custom_type = "Carbine"
 hud = "auto"
+replace = true
 ```
 
 A tag's `enabled`, `faction`, `type` (an actor variant's), `class` (a
-weapon's), `custom_type` and `hud` are its settings in the menu; one left
-out is its default (on, AUTO, the last part of its path, and OWN). The values are the
+weapon's), `custom_type`, `hud` (a weapon's) and `replace` are its settings
+in the menu; one left out is its default (on, AUTO, the last part of its
+path, OWN, and off). An actor variant's `hud`, which an earlier build gave
+its weapons, is no longer read: its weapons' own tags have theirs. The values are the
 randomizer's names: `faction` `"covenant"`, `"flood"`, `"human"` or
 `"none"`; `type` one of `game.randomizer_type`'s (`"elite"`) or `"none"`;
 `class` `"precision"`, `"automatic"`, `"power"` or `"none"`; `hud` `"auto"`,
@@ -202,8 +221,16 @@ for a pool of the profile's alone):
   path) is added to the level's tags, in the profile's order; one the level
   has is the level's own, and so is one an earlier bundle added;
 - each reference and tag index of a tag added names the level's tag;
-- a weapon added whose HUD setting is a stock one names that HUD instead of
-  its own (which is added, and not drawn). A level without that HUD gets it
+- a tag with REPLACE ORIGINAL on whose path the level has (its own, or a
+  tag the randomizer copied) is given to the level where that tag is, in its
+  place: the scenario's palettes, the actor variants that carry it and the
+  randomizer's pools have it now. Its other tags are its own, added though
+  the level has tags of their paths (its projectile, its model, its sounds
+  as its map has them), but for one a bundle before it has replaced, which
+  it shares. Of two tags replacing the same one, the first does; one whose
+  path the level has not got is added as the others are;
+- a weapon added whose HUD setting (its own tag's in the profile, whichever
+  bundle adds it) is a stock one names that HUD instead of its own (which is added, and not drawn). A level without that HUD gets it
   from the first campaign map that has it (the sniper rifle's from a30, the
   rocket launcher's from b30, the shotgun's from c10, the flamethrower's
   from c20, the needler's from a30, the others' from a10), as the

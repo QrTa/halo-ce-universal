@@ -108,3 +108,29 @@ def test_a_tag_s_huds_are_the_injector_s():
     words = injector[injector.index("} const stock_hud_words[] ="):]
     for value in re.findall(r'\{ "[a-z ]+", "([a-z_]+)" \}', words[:words.index("};")]):
         assert value in [row[0] for row in rows], value
+
+
+def test_a_weapon_alone_has_a_hud_and_a_stock_tag_can_replace():
+    """The HUD row is a weapon's (an AI's weapons are tags of their own), and
+    REPLACE ORIGINAL a tag's of a campaign map's path: the "replace" key
+    port_tag_profiles.c keeps (a boolean in profile.toml), which
+    tag_injector.c plays and randomizer.c's campaign maps decide."""
+    functions = (ROOT / "port/linux/game/menu_functions.c").read_text()
+    injector = (ROOT / "port/linux/game/tag_injector.c").read_text()
+    profiles = (ROOT / "port/linux/src/port_tag_profiles.c").read_text()
+    randomizer = (ROOT / "port/linux/game/randomizer.c").read_text()
+    rows = functions[functions.index("static short tags_setting_rows(short *rows)"):]
+    rows = rows[:rows.index("\n}\n")]
+    assert "if (group == 'weap')\n\t\trows[count++] = _tags_setting_hud;" in rows
+    assert "if (tags_screen.tag_stock)\n\t\trows[count++] = _tags_setting_replace;" in rows
+    assert '"replace"' in functions and '"replace"' in profiles and '"replace"' in injector
+    assert "replace = true" in profiles
+    assert "int randomizer_stock_tag_exists(long group_tag, char const *name)" in randomizer
+    assert "randomizer_stock_tag_exists(" in injector
+    # (the weapon's own tag's HUD, whichever bundle adds it)
+    assert "port_tag_profiles_tag_find(profile, WEAPON_DEFINITION_TAG," in injector
+    # (an AI added brings its weapons and equipment)
+    assert "category == _tag_injector_ai" in injector and "EQUIPMENT_GROUP_TAG" in injector
+    # (a level's references taken by index while a profile's tags are in it)
+    assert "custom_edition_cache_tags_loaded() || tag_injector_tags_loaded()" in \
+        (ROOT / "source/tag_files/tag_groups.c").read_text()

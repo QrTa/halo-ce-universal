@@ -3634,6 +3634,85 @@ static void gather_stock_huds(char const *leaf)
 	}
 }
 
+/* the campaign maps' weapons, actor variants and equipment, by group and
+path (randomizer_stock_tag_exists): read once, the first time one is asked
+for */
+#define STOCK_TAG_MAX 1024
+static struct
+{
+	long group;
+	char *name;
+} stock_tags[STOCK_TAG_MAX];
+static long stock_tag_count;
+static int stock_tags_read;
+
+static void stock_tags_gather(void)
+{
+	/* (the pack left as it was: a level in play reads its pixels from it) */
+	int pack_was_open = randomizer_pack.state == 1;
+	int level;
+
+	stock_tags_read = 1;
+	for (level = 0; level < 10; level++)
+	{
+		char const *leaf = tag_name_strip_path(main_get_solo_level_name(level));
+		struct donor donor;
+		long tag;
+
+		if (!open_donor(&donor, leaf, &randomizer_pack))
+		{
+			close_donor_bytes(&donor);
+			continue;
+		}
+		for (tag = 0; tag < donor.count; tag++)
+		{
+			struct randomizer_tag_instance *instance = donor.instances + tag;
+			char const *name;
+			long index;
+
+			if (instance->group_tag != WEAPON_DEFINITION_TAG && instance->group_tag != ACTOR_VARIANT_DEFINITION_TAG &&
+				instance->group_tag != 'eqip')
+				continue;
+			name = instance_name(&donor, instance);
+			if (!name)
+				continue;
+			for (index = 0; index < stock_tag_count &&
+				(stock_tags[index].group != instance->group_tag || _stricmp(stock_tags[index].name, name)); index++)
+			{
+			}
+			if (index < stock_tag_count || stock_tag_count >= STOCK_TAG_MAX)
+				continue;
+			stock_tags[stock_tag_count].name = malloc(strlen(name) + 1);
+			if (!stock_tags[stock_tag_count].name)
+				break;
+			strcpy(stock_tags[stock_tag_count].name, name);
+			stock_tags[stock_tag_count++].group = instance->group_tag;
+		}
+		/* (its file closed with its bytes: it is not kept) */
+		close_donor_bytes(&donor);
+	}
+	if (!pack_was_open)
+		pack_close(&randomizer_pack);
+	error(_error_silent, "randomizer: the campaign maps have %ld weapons, actor variants and equipment", stock_tag_count);
+}
+
+int randomizer_stock_tag_exists(long group_tag, char const *name)
+{
+	long index;
+
+	if (!name || !name[0])
+		return 0;
+	if (!stock_tags_read)
+		stock_tags_gather();
+	for (index = 0; index < stock_tag_count; index++)
+	{
+		if (stock_tags[index].group == group_tag && !_stricmp(stock_tags[index].name, name))
+			return 1;
+	}
+
+	return 0;
+}
+
 void randomizer_tag_table_fingerprint(long *count, unsigned long *hash)
 {
 	long index;

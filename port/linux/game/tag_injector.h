@@ -77,6 +77,9 @@ char const *tag_injector_category_name(
 	short category);
 boolean tag_injector_category_addable(
 	short category);
+/* the group of a category's tags ('weap'), or 0 */
+unsigned long tag_injector_category_group(
+	short category);
 /* the open map's tags of a category: how many, and the path of each (by
 path, alphabetically) */
 long tag_injector_category_count(
@@ -92,6 +95,12 @@ long tag_injector_tag_size(
 	long index,
 	char *reason,
 	long reason_size);
+/* whether a profile's weapon, actor variant or equipment is of a path a
+campaign map has (REPLACE ORIGINAL can replace that one). The campaign maps
+are read the first time it is asked */
+boolean tag_injector_tag_stock(
+	long profile,
+	long tag);
 /* the tag of a profile that is this one of the open map (by its group and
 path), or NONE */
 long tag_injector_tag_in_profile(
@@ -99,11 +108,14 @@ long tag_injector_tag_in_profile(
 	short category,
 	long index);
 /* Takes the open map's tag out, with every tag it names, into the profile;
-FALSE after logging why, and `reason` saying it for the menu. */
+FALSE after logging why, and `reason` saying it for the menu. An actor
+variant's weapons and equipment are added too, each a tag of its own (unless
+the profile has one of its path): how many, in `carried`. */
 boolean tag_injector_tag_add(
 	long profile,
 	short category,
 	long index,
+	long *carried,
 	char *reason,
 	long reason_size);
 
@@ -131,7 +143,8 @@ long tag_injector_profile_playable(
 long tag_injector_profile_enabled_count(
 	long profile,
 	unsigned long group_tag);
-/* a tag's setting the randomizer reads ("faction", "type", "class", "hud":
+/* a tag's setting the randomizer reads ("faction", "type", "class", "hud",
+"replace":
 port_tag_profiles.h's), "" when it is not set */
 char const *tag_injector_tag_setting(
 	long profile,
@@ -152,8 +165,7 @@ long tag_injector_custom_types(
 	char (*names)[TAG_INJECTOR_CUSTOM_TYPE_LENGTH],
 	long capacity);
 
-/* The campaign's weapon HUDs a tag's "hud" setting can draw its weapons
-with: how many, and of each, its setting's value ("sniper_rifle"), its
+/* The campaign's weapon HUDs a weapon's "hud" setting can draw it with: how many, and of each, its setting's value ("sniper_rifle"), its
 weapon HUD interface's path, and the campaign map that has it (the first,
 of the levels' order), which the randomizer copies it from into a level
 without it. */
