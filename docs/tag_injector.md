@@ -27,8 +27,8 @@ first leaves. Its first list has:
 
 - **TAG INJECTION**: ON lets the randomizer add a profile's tags
   (`game.tag_injection`). A, left or right turns it on or off.
-- **TAG PROFILES**: the profiles, each with the size of its tags' bundles
-  (EMPTY without any).
+- **TAG PROFILES**: the profiles, each with the size of its folder (what
+  its tags share counted once; EMPTY without any).
 - **MAPS**: the Custom Edition maps.
 
 **TAG PROFILES**: A on a profile lists its tags, each with where it came
@@ -49,6 +49,19 @@ a tag opens its settings:
   it by. A types it; nothing typed is the last part of its path. Tags of
   the same custom type (BRUTE for a brute minor, a brute major and a brute
   captain) are played together.
+- **HUD**: the HUD a weapon is drawn with (an actor variant's: the weapons
+  it carries, once picked up). OWN, the default, is its map's. STOCK: AUTO
+  and the campaign's weapons (ASSAULT RIFLE, PISTOL, SNIPER RIFLE, ROCKET
+  LAUNCHER, SHOTGUN, FLAMETHROWER, PLASMA RIFLE, PLASMA PISTOL, NEEDLER)
+  draw it with that weapon's HUD: its crosshairs, ammo meters and zoom
+  overlay. The weapon zooms, fires and reloads as it did: a stock HUD only
+  changes what is drawn. AUTO chooses by its path's words (sniper or beam:
+  the sniper rifle's; needle: the needler's; rocket, launcher or fuel rod:
+  the rocket launcher's; shotgun or mauler: the shotgun's; flame: the
+  flamethrower's; plasma pistol, plasma rifle, pistol or magnum), else by
+  the weapon: one that zooms 4x or more the sniper rifle's, one that zooms
+  less the pistol's, one without a magazine (a battery or heat) the plasma
+  rifle's, and the rest the assault rifle's.
 - **REMOVE TAG**: A, twice, takes it out of the profile and deletes its
   bundle.
 
@@ -87,42 +100,70 @@ decoded: a second or two, and longer for an actor variant of many voices
 
 The profiles are in the `tag_injector` folder of the data root (the folder
 with `maps/`; on Android the app's data folder, on the web the browser's
-storage for the site). Each profile is a folder, with a `profile.toml` and
-its tags' bundles beside it:
+storage for the site). Each profile is a folder, with a `profile.toml`, a
+tag file for each of its tags, and its pack:
 
 ```
 tag_injector/
   Brutes/
     profile.toml
-    carbine.weap.tagbundle
-    brute major carbine.actv.tagbundle
+    carbine.weap.tagref
+    brute major carbine.actv.tagref
+    tags.pack
+    tags.index
 ```
+
+A tag's bundle (`docs/custom_edition_caches.md`, "Tag bundles") is kept in
+two parts (`port/linux/src/port_tag_store.c`): its tags in its tag file,
+and its file data, the pixels, samples and vertices they name, in the
+profile's pack, a region at a time (a bitmap's pixels, a sound's samples, a
+model part's vertices), each region once however many of the profile's tags
+have it. The tags of one map share much (their effects, sounds and shaders:
+a weapon's impacts on every material), which a bundle each held a copy of;
+the tags and each region are compressed too (zlib) where that makes them an
+eighth smaller. Five tags of `bleakness-firefight` (a battle rifle, a
+carbine and three brutes), 136 MB of bundles, are 21 MB so. A region no tag
+has any more is let go when a tag is taken out (the pack is written again
+when they are a quarter of it). `tags.index` is where the pack's regions
+are: one lost, or not the pack's, is made again from the pack.
+
+A bundle as it was taken out (`carbine.weap.tagbundle`, as an earlier build
+kept them, or `ce_tags extract` writes) is played as it is. The Tag
+Injector's menu stores such bundles while it is open, one a frame, saying
+how many are left and how much smaller the profiles are; one that cannot be
+is kept as it is (the log says why).
 
 ```toml
 name = "Brutes"
-format = 1
+format = 2
 
 [[tags]]
 map = "firefight-fissurefall"
 group = "weap"
 tag = "cmt\\weapons\\covenant\\carbine\\carbine"
-file = "carbine.weap.tagbundle"
+file = "carbine.weap.tagref"
 enabled = true
 faction = "covenant"
 class = "automatic"
 custom_type = "Carbine"
+hud = "auto"
 ```
 
 A tag's `enabled`, `faction`, `type` (an actor variant's), `class` (a
-weapon's) and `custom_type` are its settings in the menu; one left out is
-its default (on, AUTO, and the last part of its path). The values are the
+weapon's), `custom_type` and `hud` are its settings in the menu; one left
+out is its default (on, AUTO, the last part of its path, and OWN). The values are the
 randomizer's names: `faction` `"covenant"`, `"flood"`, `"human"` or
 `"none"`; `type` one of `game.randomizer_type`'s (`"elite"`) or `"none"`;
-`class` `"precision"`, `"automatic"`, `"power"` or `"none"`.
+`class` `"precision"`, `"automatic"`, `"power"` or `"none"`; `hud` `"auto"`,
+`"assault_rifle"`, `"pistol"`, `"sniper_rifle"`, `"rocket_launcher"`,
+`"shotgun"`, `"flamethrower"`, `"plasma_rifle"`, `"plasma_pistol"` or
+`"needler"`.
 
 A profile holds its bundles, not the maps they came from: it is played
 without them, and can be copied to another machine whole. A folder without
-`profile.toml` is not a profile, nor is one made for a later `format`. A
+`profile.toml` is not a profile, nor is one made for a later `format` (a
+profile with tag files is of format 2, which an earlier build does not
+list; one of bundles alone stays 1). A
 tag whose bundle is missing, or is not one this build reads, is left out
 where the profile is played, and the game's log says why.
 
@@ -161,13 +202,31 @@ for a pool of the profile's alone):
   path) is added to the level's tags, in the profile's order; one the level
   has is the level's own, and so is one an earlier bundle added;
 - each reference and tag index of a tag added names the level's tag;
+- a weapon added whose HUD setting is a stock one names that HUD instead of
+  its own (which is added, and not drawn). A level without that HUD gets it
+  from the first campaign map that has it (the sniper rifle's from a30, the
+  rocket launcher's from b30, the shotgun's from c10, the flamethrower's
+  from c20, the needler's from a30, the others' from a10), as the
+  randomizer copies its weapons; `randomizer.pack` keeps no HUD bitmaps, so
+  their pixels are read from that map as the level loads (16 MB of them at
+  most). The profile's bundles are read before the randomizer copies its
+  tags, so that it knows the HUDs to copy. Without the HUD (its map is not
+  there), the weapon keeps its own, and the log says so;
 - a gbxmodel is made this build's model, as a Custom Edition map's are
   (compressed vertices, in buffers of its own);
 - a bitmap's pixels and a sound's samples are read from the bundle's file as
   the game wants them, the pixels laid out for the texture cache as a Custom
   Edition map's are, with their channels where Halo PC keeps them (HUD
   meters, multipurpose maps). A bundle's tags alone are kept in memory, 64
-  MB of them at most, from 64 bundles at most.
+  MB of them at most, from 64 bundles at most;
+- with `game.tag_injection_textures` `"small"`, or `"auto"` (its default)
+  where the texture cache is the Xbox's 22 MB (the web build's), a bitmap
+  with mipmaps is drawn from those of 256 pixels at most: Custom Edition
+  weapons' bitmaps are often uncompressed 512s (a battle rifle's 16 MB of
+  them), which filled the cache, and what did not fit was drawn as the
+  default texture, bands of green, yellow and red (`YOU GOT STABBED` in the
+  log). `"full"` draws them as they are. A bitmap without mipmaps (a HUD's)
+  is drawn as it is.
 
 A bundle whose model cannot be made, or whose bitmap cannot be drawn, is
 left out; when the tags would not fit in the level's table, none are added.

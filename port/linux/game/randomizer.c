@@ -51,6 +51,7 @@ off. Each map read is a donor of one pack or the other.
 
 #include "cseries.h"
 #include "cseries/errors.h"
+#include "cseries/cseries_windows.h"
 #include "ai/actor_definitions.h"
 #include "ai/actor_placement.h"
 #include "ai/actors.h"
@@ -276,6 +277,14 @@ struct pack_entry
 	long resources_at;
 };
 
+/* a range of a map's pixels the pack has not got, read from the map */
+struct donor_extra
+{
+	long offset;
+	long size;
+	unsigned char *bytes;
+};
+
 struct donor
 {
 	/* CreateFileA, not fopen: the Switch keeps map files in memory, and a
@@ -294,6 +303,13 @@ struct donor
 	int from_pack;
 	struct pack_span *spans;
 	long span_count;
+	/* the pixels of the bitmaps copied from it that the pack has not got
+	(it keeps no bitmap of the ui folder, a HUD's: a stock HUD copied for
+	the Tag Injector's weapons, or the sniper rifle's), read from the map as
+	the level loads (donor_extras_fill) */
+	struct donor_extra *extras;
+	long extra_count;
+	long extra_capacity;
 	long count;
 	struct randomizer_tag_instance *instances;
 	unsigned char *seen;
@@ -437,6 +453,10 @@ static long import_count;
 /* how many copied bitmap and sound ranges the pack does not hold, and what
 the reads during play actually returned. The detail lines stop after a few
 dozen so a level does not fill the log */
+/* the most bytes of pixels a level reads from the maps for the pack
+(donor_extras_fill), all its donors', and how many it has */
+#define DONOR_EXTRA_BYTES_MAX (16L * 1024L * 1024L)
+static long donor_extra_bytes;
 static long resource_checked;
 static long resource_uncovered;
 static long resource_empty;
@@ -475,6 +495,11 @@ static long custom_roots[CUSTOM_ROOT_MAX];
 static long custom_root_tags[CUSTOM_ROOT_MAX];
 static long custom_root_count;
 static long custom_profile = NONE;
+/* the stock HUDs the profile's weapons want that the level has not got
+(tag_injector_tags_read), which gather_stock_huds copies */
+#define STOCK_HUD_MAX 16
+static short stock_huds[STOCK_HUD_MAX];
+static long stock_hud_count;
 static void *map_widget;
 static wchar_t prefixed_title[96];
 
@@ -2083,11 +2108,23 @@ static int open_donor(struct donor *donor, char const *leaf, struct pack *pack)
 
 static void close_donor_bytes(struct donor *donor)
 {
+	long index;
+
 	release_donor_blob(donor);
 	if (donor->spans)
 		free(donor->spans);
 	donor->spans = NULL;
 	donor->span_count = 0;
+	for (index = 0; index < donor->extra_count; index++)
+	{
+		if (donor->extras[index].bytes)
+			free(donor->extras[index].bytes);
+	}
+	if (donor->extras)
+		free(donor->extras);
+	donor->extras = NULL;
+	donor->extra_count = 0;
+	donor->extra_capacity = 0;
 	donor->from_pack = 0;
 	if (donor->datum_of)
 		free(donor->datum_of);
@@ -2123,6 +2160,7 @@ static void donors_close(void)
 		}
 	}
 	donor_count = 0;
+	donor_extra_bytes = 0;
 	pack_close(&randomizer_pack);
 	pack_close(&skulls_pack);
 }
@@ -2432,6 +2470,191 @@ static void import_progress_end(void)
 	import_progress_open = 0;
 }
 
+/* a range of pixels the pack has not got, to be read from the map */
+static void donor_extra_add(struct donor *donor, long offset, long size)
+{
+	long index;
+
+	if (offset < 0x800 || size > DONOR_EXTRA_BYTES_MAX - donor_extra_bytes)
+		return;
+	for (index = 0; index < donor->extra_count; index++)
+	{
+		if (donor->extras[index].offset == offset && donor->extras[index].size >= size)
+			return;
+	}
+	if (donor->extra_count == donor->extra_capacity)
+	{
+		long capacity = donor->extra_capacity ? donor->extra_capacity * 2 : 32;
+		struct donor_extra *grown = realloc(donor->extras, (unsigned long)capacity * sizeof(*grown));
+
+		if (!grown)
+			return;
+		donor->extras = grown;
+		donor->extra_capacity = capacity;
+	}
+	donor->extras[donor->extra_count].offset = offset;
+	donor->extras[donor->extra_count].size = size;
+	donor->extras[donor->extra_count].bytes = NULL;
+	donor->extra_count++;
+	donor_extra_bytes += size;
+}
+
+static int donor_extra_less(void const *left, void const *right)
+{
+	struct donor_extra const *a = left;
+	struct donor_extra const *b = right;
+
+	return a->offset < b->offset ? -1 : a->offset > b->offset;
+}
+
+/* the ranges inflated from a disc map's zlib stream in one pass, each
+copied out as the stream passes it (sorted by offset); whether it reached
+the last */
+static int extras_inflate(HANDLE file, struct donor_extra *extras, long count)
+{
+	z_stream stream;
+	unsigned char input[0x2000];
+	unsigned char output[0x4000];
+	long produced = 0x800;
+	long end = 0;
+	long first = 0;
+	long index;
+	int result = Z_OK;
+	DWORD got;
+
+	for (index = 0; index < count; index++)
+	{
+		if (extras[index].offset + extras[index].size > end)
+			end = extras[index].offset + extras[index].size;
+	}
+	if (!donor_file_at(file, 0x800))
+		return 0;
+	memset(&stream, 0, sizeof(stream));
+	if (inflateInit(&stream) != Z_OK)
+		return 0;
+	while (produced < end && result != Z_STREAM_END)
+	{
+		long filled;
+
+		if (stream.avail_in == 0)
+		{
+			got = 0;
+			if (!ReadFile(file, input, (DWORD)sizeof(input), &got, NULL) || got == 0)
+				break;
+			stream.next_in = (Bytef *)input;
+			stream.avail_in = got;
+		}
+		stream.next_out = (Bytef *)output;
+		stream.avail_out = (unsigned int)sizeof(output);
+		result = inflate(&stream, Z_NO_FLUSH);
+		if (result != Z_OK && result != Z_STREAM_END && result != Z_BUF_ERROR)
+			break;
+		filled = (long)(sizeof(output) - stream.avail_out);
+		if (filled <= 0 && stream.avail_in)
+			break;
+		for (index = first; index < count && extras[index].offset < produced + filled; index++)
+		{
+			struct donor_extra *extra = extras + index;
+			long from = extra->offset > produced ? extra->offset : produced;
+			long to = extra->offset + extra->size < produced + filled ? extra->offset + extra->size : produced + filled;
+
+			if (from < to)
+				memcpy(extra->bytes + (from - extra->offset), output + (from - produced), (unsigned long)(to - from));
+		}
+		produced += filled;
+		while (first < count && extras[first].offset + extras[first].size <= produced)
+			first++;
+		if (result == Z_BUF_ERROR)
+			result = Z_OK;
+	}
+	inflateEnd(&stream);
+
+	return produced >= end;
+}
+
+/* the pixels the pack has not got of the bitmaps copied from a donor,
+read from its map (a few HUD bitmaps: the stream is inflated once, to the
+last of them); none when the map cannot be read, which draws them black */
+static void donor_extras_fill(struct donor *donor)
+{
+	char path[512];
+	HANDLE file;
+	DWORD physical;
+	unsigned long started;
+	long bytes = 0;
+	long index;
+	int read;
+
+	if (!donor->from_pack || donor->extra_count <= 0)
+		return;
+	qsort(donor->extras, (unsigned long)donor->extra_count, sizeof(*donor->extras), donor_extra_less);
+	for (index = 0; index < donor->extra_count; index++)
+	{
+		donor->extras[index].bytes = malloc((unsigned long)donor->extras[index].size);
+		if (!donor->extras[index].bytes)
+			break;
+		bytes += donor->extras[index].size;
+	}
+	snprintf(path, sizeof(path), "%s%s.map", cache_files_map_directory(), donor->leaf);
+	file = index == donor->extra_count ? CreateFileA(path, GENERIC_READ, 0, NULL, OPEN_EXISTING, 0, NULL) :
+		INVALID_HANDLE_VALUE;
+	read = 0;
+	started = system_milliseconds();
+	if (file != INVALID_HANDLE_VALUE)
+	{
+		physical = GetFileSize(file, NULL);
+		if (physical != INVALID_FILE_SIZE && (long)physical >= donor->file_length)
+		{
+			for (read = 1, index = 0; read && index < donor->extra_count; index++)
+			{
+				read = donor_file_at(file, donor->extras[index].offset) &&
+					donor_file_read(file, donor->extras[index].bytes, (unsigned long)donor->extras[index].size);
+			}
+		}
+		else
+			read = extras_inflate(file, donor->extras, donor->extra_count);
+		CloseHandle(file);
+	}
+	if (!read)
+	{
+		error(_error_silent, "randomizer: the %ld ranges the pack has not got of %s cannot be read from %s",
+			donor->extra_count, donor->leaf, path);
+		for (index = 0; index < donor->extra_count; index++)
+		{
+			if (donor->extras[index].bytes)
+				free(donor->extras[index].bytes);
+			donor->extras[index].bytes = NULL;
+		}
+		return;
+	}
+	error(_error_silent, "randomizer: %ld ranges the pack has not got (%ld bytes) read from %s in %lu ms",
+		donor->extra_count, bytes, path, system_milliseconds() - started);
+}
+
+/* bytes at `offset` of a donor's map from the ranges read for the pack
+(donor_extras_fill): how many */
+static long extras_copy(struct donor *donor, long offset, long size, unsigned char *buffer)
+{
+	long index;
+
+	for (index = 0; index < donor->extra_count; index++)
+	{
+		struct donor_extra const *extra = donor->extras + index;
+
+		if (extra->bytes && offset >= extra->offset && offset < extra->offset + extra->size)
+		{
+			long have = extra->offset + extra->size - offset;
+
+			if (have > size)
+				have = size;
+			memcpy(buffer, extra->bytes + (offset - extra->offset), (unsigned long)have);
+			return have;
+		}
+	}
+
+	return 0;
+}
+
 /* a copied bitmap's or sound's file range, checked against the pack before
 the tag bytes are dropped. A miss here is a black texture or an empty sample */
 static void note_range(struct donor *donor, char const *kind, char const *name, long index, long offset, long size)
@@ -2449,6 +2672,8 @@ static void note_range(struct donor *donor, char const *kind, char const *name, 
 	if (cover == 1)
 		return;
 	resource_uncovered++;
+	if (donor->from_pack && size > 0 && !strcmp(kind, "bitm"))
+		donor_extra_add(donor, offset, size);
 	if (resource_logged >= 48)
 		return;
 	resource_logged++;
@@ -2662,7 +2887,10 @@ static void import_wanted(void)
 	error(_error_silent, "randomizer: %ld pixel and sample ranges, %ld not in the pack, %ld empty",
 		resource_checked, resource_uncovered, resource_empty);
 	for (index = 0; index < donor_count; index++)
+	{
 		release_donor_blob(donors + index);
+		donor_extras_fill(donors + index);
+	}
 	if (import_stopped)
 	{
 		/* (out of room part way: tags copied without some they name would
@@ -3337,6 +3565,75 @@ static void gather_skulls(int carried, int outbreak, int scarab)
 		gather_skull_roots(SKULLS_FLOOD_DONOR, roots, count);
 }
 
+/* the Tag Injector's: the stock weapon HUDs its profile's weapons are drawn
+with that the level has not got (tag_injector_tags_read), each from the
+first campaign map that has it, read again when the randomizer read it
+already for its pools */
+static void gather_stock_huds(char const *leaf)
+{
+	long index;
+
+	for (index = 0; index < stock_hud_count; index++)
+	{
+		char const *map = tag_injector_stock_hud_map(stock_huds[index]);
+		char const *name = tag_injector_stock_hud_tag(stock_huds[index]);
+		struct donor *donor;
+		long donor_index;
+		long tag;
+
+		if (tag_loaded('wphi', name) != NONE || !_stricmp(map, leaf))
+			continue;
+		for (donor_index = 0; donor_index < donor_count && _stricmp(donors[donor_index].leaf, map); donor_index++)
+		{
+		}
+		donor = donors + donor_index;
+		if (donor_index < donor_count)
+		{
+			if (!donor_bytes(donor))
+				continue;
+			/* (let go with its bytes: what was wanted of it before is known
+			by name, wanted_find) */
+			if (!donor->seen)
+			{
+				donor->seen = malloc((unsigned long)donor->count);
+				if (!donor->seen)
+					continue;
+				memset(donor->seen, 0, (unsigned long)donor->count);
+			}
+		}
+		else
+		{
+			if (donor_count >= DONOR_COUNT)
+			{
+				error(_error_silent, "randomizer: no room to read %s.map for the HUD %s", map, name);
+				continue;
+			}
+			if (!open_donor(donor, map, &randomizer_pack))
+			{
+				close_donor_bytes(donor);
+				continue;
+			}
+			donor_count++;
+		}
+		for (tag = 0; tag < donor->count; tag++)
+		{
+			struct randomizer_tag_instance *instance = donor->instances + tag;
+			char const *instance_name_text = instance_name(donor, instance);
+
+			if (instance->group_tag == 'wphi' && instance_name_text && !_stricmp(instance_name_text, name))
+			{
+				error(_error_silent, "randomizer: copying the HUD %s from %s.map for the Tag Injector's weapons",
+					name, map);
+				want_root(donor, tag);
+				break;
+			}
+		}
+		if (tag == donor->count)
+			error(_error_silent, "randomizer: %s.map has no %s", map, name);
+		release_donor_blob(donor);
+	}
+}
+
 void randomizer_tag_table_fingerprint(long *count, unsigned long *hash)
 {
 	long index;
@@ -3399,27 +3696,32 @@ void randomizer_tags_loaded(char const *scenario_name)
 	if (randomize && !network_game_distributed_client() && !placement_roll_ready)
 		placement_roll_new(scenario_name);
 	snprintf(map_name_leaf, sizeof(map_name_leaf), "%s", leaf);
-	if (gather_begin())
-	{
-		if (randomize)
-			gather_campaign(leaf);
-		gather_skulls(skull, outbreak, scarab);
-		import_wanted();
-	}
-	/* (the Tag Injector's profile's tags, after those: a level played alone
-	only, as only this machine has them, and never a challenge's, which is
-	the same for everyone) */
+	/* (the Tag Injector's profile: a level played alone only, as only this
+	machine has it, and never a challenge's, which is the same for everyone.
+	Its bundles are read now, for the stock HUDs its weapons want) */
 	custom_root_count = 0;
 	custom_profile = NONE;
+	stock_hud_count = 0;
 	if (randomize && current.custom_tags && !game && !network_game_distributed_client() &&
 		!community_challenge_running())
 	{
 		custom_profile = tag_injector_profile_playable();
 		if (custom_profile != NONE)
-			custom_root_count = tag_injector_tags_load(custom_profile, custom_roots, custom_root_tags, CUSTOM_ROOT_MAX);
+			stock_hud_count = tag_injector_tags_read(custom_profile, stock_huds, STOCK_HUD_MAX);
 		else
 			error(_error_silent, "randomizer: the Tag Injector's profile has no tags on any more");
 	}
+	if (gather_begin())
+	{
+		if (randomize)
+			gather_campaign(leaf);
+		gather_skulls(skull, outbreak, scarab);
+		gather_stock_huds(leaf);
+		import_wanted();
+	}
+	/* (its tags, after those) */
+	if (custom_profile != NONE)
+		custom_root_count = tag_injector_tags_load(custom_profile, custom_roots, custom_root_tags, CUSTOM_ROOT_MAX);
 	if (randomize)
 	{
 		error(_error_silent, "randomizer: gathering actors already in %s", leaf);
@@ -3613,7 +3915,11 @@ int randomizer_donor_read(long tag_index, long offset, long size, void *buffer)
 		if (size > donor->file_length - offset)
 			size = donor->file_length - offset;
 		if (donor->from_pack)
+		{
 			filled = pack_copy(donor, offset, size, buffer);
+			if (filled < size)
+				filled += extras_copy(donor, offset + filled, size - filled, (unsigned char *)buffer + filled);
+		}
 		else if (donor->file && donor->file != INVALID_HANDLE_VALUE)
 		{
 			if (!donor->compressed)

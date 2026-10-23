@@ -23,11 +23,21 @@ the tag bundles of its tags (port/linux/game/tag_bundle.h), one a file:
 	faction = "covenant"
 	class = "automatic"
 	custom_type = "Carbine"
+	hud = "auto"
 
 A tag's enabled, and its settings (port_tag_profiles.h's
 port_tag_profiles_tag_option), may be left out: it is on, and its settings
 "" (the randomizer finds them by its tag's name). A build before them reads
 the profile as it did, without them.
+
+A tag added is kept as port_tag_store.c keeps it: its tags in a tag file
+(carbine.weap.tagref), and its pixels, samples and vertices in the
+profile's pack (tags.pack, tags.index), each once whichever tags have them,
+compressed. A bundle as it was taken out (carbine.weap.tagbundle, as an
+earlier build kept them, or ce_tags extract writes) is read as it is; the
+Tag Injector's menu stores those as it opens (tag_injector_profile_store).
+A profile with a tag file is of format 2, which an earlier build does not
+list.
 
 A profile holds its bundles, rather than naming the maps they come from:
 it is played without those maps, and can be given to another machine
@@ -44,6 +54,7 @@ is listed, and left out where it is played.
 #include "platform.h"
 #include "port_config.h"
 #include "port_tag_profiles.h"
+#include "port_tag_store.h"
 #include "posix.h"
 #include "tomlc17.h"
 
@@ -55,8 +66,10 @@ is listed, and left out where it is played.
 
 /* ---------- constants */
 
-/* the profiles' format this build reads */
-#define TAG_PROFILES_FORMAT 1
+/* the profiles' format this build reads, and writes: 2 has tag files (a
+profile of bundles alone is written 1, which an earlier build reads) */
+#define TAG_PROFILES_FORMAT 2
+#define TAG_PROFILES_BUNDLES_FORMAT 1
 
 #define MAXIMUM_TAG_PROFILES 64
 #define MAXIMUM_PROFILE_TAGS 256
@@ -78,7 +91,7 @@ through on their way into the Xbox's memory, which the renderer watches
 /* ---------- structures */
 
 /* a tag's settings, by their keys in profile.toml (port_tag_profiles.h) */
-static const char *const tag_option_keys[] = { "faction", "type", "class", "custom_type" };
+static const char *const tag_option_keys[] = { "faction", "type", "class", "custom_type", "hud" };
 #define TAG_OPTION_COUNT (sizeof(tag_option_keys) / sizeof(tag_option_keys[0]))
 
 struct tag_profile_tag
@@ -89,8 +102,11 @@ struct tag_profile_tag
 	char file[MAXIMUM_FILE_NAME_LENGTH];
 	int enabled;
 	char options[TAG_OPTION_COUNT][MAXIMUM_OPTION_LENGTH];
-	/* its bundle's bytes, as the scan found it (0: missing) */
+	/* its bundle's bytes, as the scan found it (0: missing), its file's,
+	and whether that is a tag file (port_tag_store.c) */
 	unsigned long size;
+	unsigned long file_size;
+	int stored;
 };
 
 struct tag_profile
@@ -99,6 +115,8 @@ struct tag_profile
 	char name[MAXIMUM_NAME_LENGTH];
 	struct tag_profile_tag *tags;
 	long tag_count;
+	/* its pack's bytes, as the scan found them */
+	unsigned long pack_size;
 };
 
 /* ---------- globals */
@@ -108,8 +126,11 @@ static struct
 	struct tag_profile profiles[MAXIMUM_TAG_PROFILES];
 	long profile_count;
 	unsigned long scans;
-	/* the bundles a level reads from, whatever profiles are found meanwhile */
+	/* the bundles a level reads from, whatever profiles are found meanwhile:
+	a bundle's file, or a tag file's handle (port_tag_store.c), plus one
+	(0: none) */
 	FILE *open_bundles[MAXIMUM_OPEN_BUNDLES];
+	long stored_bundles[MAXIMUM_OPEN_BUNDLES];
 	unsigned char bounce[READ_BOUNCE_SIZE];
 } port_tag_profiles;
 
@@ -307,6 +328,25 @@ static int file_write(const char *path, const void *bytes, unsigned long size)
 	return written;
 }
 
+/* a file put in another's place (port_tag_store.c's pack written again) */
+static int file_replace(const char *from, const char *to)
+{
+#ifdef HALO_GUEST
+	return rename(from, to) == 0;
+#else
+	return SDL_RenamePath(from, to);
+#endif
+}
+
+/* whether a file's name is a tag file's (port_tag_store.c) */
+static int file_is_stored(const char *file)
+{
+	size_t length = strlen(file);
+	size_t extension = strlen(PORT_TAG_STORE_EXTENSION);
+
+	return length > extension && !strcmp(file + length - extension, PORT_TAG_STORE_EXTENSION);
+}
+
 static void profile_dispose(struct tag_profile *profile)
 {
 	free(profile->tags);
@@ -411,12 +451,22 @@ static int profile_read(struct tag_profile *profile, const char *root, const cha
 				}
 			}
 			snprintf(bundle_path, sizeof(bundle_path), "%s/%s/%s", root, folder, tag->file);
+			tag->stored = file_is_stored(tag->file);
 			if (posix_stat(bundle_path, &information) == 0 && !(information.flags & _posix_file_is_directory))
-				tag->size = information.size_high ? 0xFFFFFFFFUL : information.size_low;
+			{
+				tag->file_size = information.size_high ? 0xFFFFFFFFUL : information.size_low;
+				tag->size = tag->stored ? port_tag_store_bundle_size(bundle_path) : tag->file_size;
+			}
 			profile->tag_count++;
 		}
 	}
-	else if (tags.type != TOML_UNKNOWN && tags.type != TOML_ARRAY)
+	{
+		char folder_path[MAXIMUM_PATH_LENGTH];
+
+		snprintf(folder_path, sizeof(folder_path), "%s/%s", root, folder);
+		profile->pack_size = port_tag_store_pack_size(folder_path);
+	}
+	if (tags.type != TOML_UNKNOWN && tags.type != TOML_ARRAY)
 	{
 		platform_log("tag injector: %s line %d: tags is not a list of tags", path, tags.lineno);
 	}
@@ -432,13 +482,19 @@ static int profile_write(const struct tag_profile *profile)
 	char path[MAXIMUM_PATH_LENGTH];
 	char *text = malloc(capacity);
 	long index;
+	int format = TAG_PROFILES_BUNDLES_FORMAT;
 	int written;
 
 	if (!text)
 		return 0;
+	for (index = 0; index < profile->tag_count; index++)
+	{
+		if (profile->tags[index].stored)
+			format = TAG_PROFILES_FORMAT;
+	}
 	snprintf(text, capacity, "# the Tag Injector's profile (Settings > Gameplay > Tag Injector)\nname = \"");
 	toml_string_append(text, capacity, profile->name);
-	snprintf(text + strlen(text), capacity - strlen(text), "\"\nformat = %d\n", TAG_PROFILES_FORMAT);
+	snprintf(text + strlen(text), capacity - strlen(text), "\"\nformat = %d\n", format);
 	for (index = 0; index < profile->tag_count; index++)
 	{
 		const struct tag_profile_tag *tag = &profile->tags[index];
@@ -492,6 +548,16 @@ static int profile_has_file(const struct tag_profile *profile, const char *file)
 
 	profile_path(profile, file, path, sizeof(path));
 	return posix_stat(path, &information) == 0;
+}
+
+/* the bytes of a file of the profile's folder (0: none) */
+static unsigned long profile_file_size(const struct tag_profile *profile, const char *file)
+{
+	char path[MAXIMUM_PATH_LENGTH];
+	struct posix_file_information information;
+
+	profile_path(profile, file, path, sizeof(path));
+	return posix_stat(path, &information) == 0 && !information.size_high ? information.size_low : 0;
 }
 
 /* ---------- public code */
@@ -678,12 +744,27 @@ unsigned long port_tag_profiles_tag_size(long profile, long tag)
 unsigned long port_tag_profiles_size(long profile)
 {
 	struct tag_profile *found = profile_get(profile);
-	unsigned long total = 0;
+	unsigned long total = found ? found->pack_size : 0;
 	long index;
 
 	for (index = 0; found && index < found->tag_count; index++)
-		total += found->tags[index].size;
+		total += found->tags[index].file_size;
 	return total;
+}
+
+int port_tag_profiles_tag_stored(long profile, long tag)
+{
+	return tag_get(profile, tag) ? tag_get(profile, tag)->stored : 0;
+}
+
+int port_tag_profiles_file_write(const char *path, const void *bytes, unsigned long size)
+{
+	return file_write(path, bytes, size);
+}
+
+int port_tag_profiles_file_replace(const char *from, const char *to)
+{
+	return file_replace(from, to);
 }
 
 int port_tag_profiles_tag_enabled(long profile, long tag)
@@ -743,15 +824,38 @@ long port_tag_profiles_tag_find(long profile, unsigned long group, const char *n
 	return -1;
 }
 
+/* lets go of the regions of a profile's pack that none of its tags has any
+more (port_tag_store_collect) */
+static void profile_collect(struct tag_profile *profile)
+{
+	char folder[MAXIMUM_PATH_LENGTH];
+	const char **files = malloc((size_t)(profile->tag_count ? profile->tag_count : 1) * sizeof(*files));
+	long index;
+
+	if (!files)
+		return;
+	for (index = 0; index < profile->tag_count; index++)
+		files[index] = profile->tags[index].file;
+	profile_path(profile, NULL, folder, sizeof(folder));
+	if (!port_tag_store_collect(folder, files, profile->tag_count))
+		platform_log("tag injector: the pack of the profile %s is kept as it was", profile->name);
+	profile->pack_size = port_tag_store_pack_size(folder);
+	free(files);
+}
+
 int port_tag_profiles_tag_add(long profile, const char *map, unsigned long group, const char *name,
-	const void *bundle, unsigned long size)
+	const void *bundle, unsigned long size, unsigned long tags_size, const struct port_tag_store_region *regions,
+	long region_count)
 {
 	struct tag_profile *found = profile_get(profile);
 	struct tag_profile_tag tag;
 	char path[MAXIMUM_PATH_LENGTH];
+	char replaced[MAXIMUM_FILE_NAME_LENGTH];
 	char group_name[5];
 	char base[MAXIMUM_FILE_NAME_LENGTH - 24];
+	const char *extension = regions ? PORT_TAG_STORE_EXTENSION : ".tagbundle";
 	const char *leaf;
+	unsigned long stored = size;
 	long existing;
 	int suffix;
 
@@ -768,8 +872,10 @@ int port_tag_profiles_tag_add(long profile, const char *map, unsigned long group
 	text_copy(tag.name, sizeof(tag.name), name);
 	tag.enabled = 1;
 	tag.size = size;
+	tag.stored = regions != NULL;
+	replaced[0] = 0;
 	/* (its file: the last part of its path and its group, numbered when
-	another tag's has that name: carbine.weap.tagbundle) */
+	another tag's has that name: carbine.weap.tagref) */
 	group_text(group, group_name);
 	file_name_clean(group_name);
 	leaf = strrchr(name, '\\');
@@ -777,30 +883,42 @@ int port_tag_profiles_tag_add(long profile, const char *map, unsigned long group
 	if (!file_name_clean(base))
 		snprintf(base, sizeof(base), "tag");
 	existing = port_tag_profiles_tag_find(profile, group, name);
-	for (suffix = 1; existing < 0 && suffix < 1000; suffix++)
-	{
-		if (suffix == 1)
-			snprintf(tag.file, sizeof(tag.file), "%s.%s.tagbundle", base, group_name);
-		else
-			snprintf(tag.file, sizeof(tag.file), "%s %d.%s.tagbundle", base, suffix, group_name);
-		if (!profile_has_file(found, tag.file))
-			break;
-	}
-	/* (the tag replaced keeps its file, whether it is on, and its settings) */
+	/* (the tag replaced keeps its file, unless it is kept otherwise now,
+	whether it is on, and its settings) */
 	if (existing >= 0)
 	{
 		text_copy(tag.file, sizeof(tag.file), found->tags[existing].file);
 		tag.enabled = found->tags[existing].enabled;
 		memcpy(tag.options, found->tags[existing].options, sizeof(tag.options));
+		if (found->tags[existing].stored != tag.stored)
+			text_copy(replaced, sizeof(replaced), found->tags[existing].file);
 	}
-	else if (suffix == 1000)
+	for (suffix = 1; (existing < 0 || replaced[0]) && suffix < 1000; suffix++)
+	{
+		if (suffix == 1)
+			snprintf(tag.file, sizeof(tag.file), "%s.%s%s", base, group_name, extension);
+		else
+			snprintf(tag.file, sizeof(tag.file), "%s %d.%s%s", base, suffix, group_name, extension);
+		if (!profile_has_file(found, tag.file))
+			break;
+	}
+	if (suffix == 1000)
 		return 0;
 	profile_path(found, tag.file, path, sizeof(path));
-	if (!file_write(path, bundle, size))
+	if (regions)
+	{
+		char folder[MAXIMUM_PATH_LENGTH];
+
+		profile_path(found, NULL, folder, sizeof(folder));
+		if (!port_tag_store_write(folder, tag.file, bundle, size, tags_size, regions, region_count, &stored))
+			return 0;
+	}
+	else if (!file_write(path, bundle, size))
 	{
 		platform_log("tag injector: %s cannot be written", path);
 		return 0;
 	}
+	tag.file_size = profile_file_size(found, tag.file);
 	if (existing >= 0)
 	{
 		found->tags[existing] = tag;
@@ -819,9 +937,25 @@ int port_tag_profiles_tag_add(long profile, const char *map, unsigned long group
 	}
 	if (!profile_write(found))
 		return 0;
+	/* (a bundle the tag file replaced goes; and the regions of the one a tag
+	replaced that no other tag has) */
+	if (replaced[0])
+	{
+		profile_path(found, replaced, path, sizeof(path));
+		remove(path);
+	}
+	if (regions && existing >= 0)
+		profile_collect(found);
+	else if (regions)
+	{
+		char folder[MAXIMUM_PATH_LENGTH];
+
+		profile_path(found, NULL, folder, sizeof(folder));
+		found->pack_size = port_tag_store_pack_size(folder);
+	}
 	port_tag_profiles.scans++;
-	platform_log("tag injector: added %s (%s) of %s to the profile %s, %lu bytes", tag.name, group_name, tag.map,
-		found->name, size);
+	platform_log("tag injector: added %s (%s) of %s to the profile %s, %lu bytes (%lu kept)", tag.name, group_name,
+		tag.map, found->name, size, stored);
 	return 1;
 }
 
@@ -840,6 +974,7 @@ int port_tag_profiles_tag_remove(long profile, long tag)
 	if (!profile_write(found))
 		return 0;
 	remove(path);
+	profile_collect(found);
 	return 1;
 }
 
@@ -857,13 +992,26 @@ long port_tag_profiles_bundle_open(long profile, long tag, unsigned long *size)
 	if (posix_stat(path, &information) != 0 || (information.flags & _posix_file_is_directory) ||
 		information.size_high || information.size_low > 0x7FFFFFFFUL)
 		return -1;
-	for (handle = 0; handle < MAXIMUM_OPEN_BUNDLES && port_tag_profiles.open_bundles[handle]; handle++)
+	for (handle = 0; handle < MAXIMUM_OPEN_BUNDLES &&
+		(port_tag_profiles.open_bundles[handle] || port_tag_profiles.stored_bundles[handle]); handle++)
 	{
 	}
 	if (handle == MAXIMUM_OPEN_BUNDLES)
 	{
 		platform_log("tag injector: more than %d bundles open: %s is left out", MAXIMUM_OPEN_BUNDLES, path);
 		return -1;
+	}
+	if (found->stored)
+	{
+		char folder[MAXIMUM_PATH_LENGTH];
+		long stored;
+
+		profile_path(profile_get(profile), NULL, folder, sizeof(folder));
+		stored = port_tag_store_open(folder, found->file, size);
+		if (stored < 0)
+			return -1;
+		port_tag_profiles.stored_bundles[handle] = stored + 1;
+		return handle;
 	}
 	port_tag_profiles.open_bundles[handle] = fopen(path, "rb");
 	if (!port_tag_profiles.open_bundles[handle])
@@ -877,6 +1025,8 @@ int port_tag_profiles_bundle_read_at(long handle, unsigned long offset, void *bu
 	FILE *file = handle >= 0 && handle < MAXIMUM_OPEN_BUNDLES ? port_tag_profiles.open_bundles[handle] : NULL;
 	unsigned long done = 0;
 
+	if (handle >= 0 && handle < MAXIMUM_OPEN_BUNDLES && port_tag_profiles.stored_bundles[handle])
+		return port_tag_store_read(port_tag_profiles.stored_bundles[handle] - 1, offset, buffer, size);
 	if (!file || offset > 0x7FFFFFFFUL || fseek(file, (long)offset, SEEK_SET) != 0)
 		return 0;
 	/* (the game reads from its main thread alone: one bounce buffer) */
@@ -894,6 +1044,12 @@ int port_tag_profiles_bundle_read_at(long handle, unsigned long offset, void *bu
 
 void port_tag_profiles_bundle_close(long handle)
 {
+	if (handle >= 0 && handle < MAXIMUM_OPEN_BUNDLES && port_tag_profiles.stored_bundles[handle])
+	{
+		port_tag_store_close(port_tag_profiles.stored_bundles[handle] - 1);
+		port_tag_profiles.stored_bundles[handle] = 0;
+		return;
+	}
 	if (handle < 0 || handle >= MAXIMUM_OPEN_BUNDLES || !port_tag_profiles.open_bundles[handle])
 		return;
 	fclose(port_tag_profiles.open_bundles[handle]);

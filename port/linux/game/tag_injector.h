@@ -107,6 +107,18 @@ boolean tag_injector_tag_add(
 	char *reason,
 	long reason_size);
 
+/* How many of the profiles' tags are bundles as they were taken out (an
+earlier build kept them so), which the menu stores as port_tag_store.c keeps
+tags (a tag file each, and what they share once in the profile's pack); and
+stores the next of them: FALSE when none is left, else TRUE, with the
+bytes of its profile before and after (both 0 when it could not be stored:
+it is kept as it was, and not tried again until the game starts again). */
+long tag_injector_profiles_unstored(
+	void);
+boolean tag_injector_profile_store_next(
+	unsigned long *before,
+	unsigned long *after);
+
 /* ---------- the randomizer's (randomizer.c) */
 
 /* The profile the randomizer plays: game.tag_injection's on, and the one
@@ -119,7 +131,7 @@ long tag_injector_profile_playable(
 long tag_injector_profile_enabled_count(
 	long profile,
 	unsigned long group_tag);
-/* a tag's setting the randomizer reads ("faction", "type", "class":
+/* a tag's setting the randomizer reads ("faction", "type", "class", "hud":
 port_tag_profiles.h's), "" when it is not set */
 char const *tag_injector_tag_setting(
 	long profile,
@@ -140,10 +152,36 @@ long tag_injector_custom_types(
 	char (*names)[TAG_INJECTOR_CUSTOM_TYPE_LENGTH],
 	long capacity);
 
+/* The campaign's weapon HUDs a tag's "hud" setting can draw its weapons
+with: how many, and of each, its setting's value ("sniper_rifle"), its
+weapon HUD interface's path, and the campaign map that has it (the first,
+of the levels' order), which the randomizer copies it from into a level
+without it. */
+short tag_injector_stock_hud_count(
+	void);
+char const *tag_injector_stock_hud_value(
+	short hud);
+char const *tag_injector_stock_hud_tag(
+	short hud);
+char const *tag_injector_stock_hud_map(
+	short hud);
+
+/* Reads the bundles of a profile's tags on for the level loading, before
+the randomizer copies the tags it wants (tag_injector_tags_load adds the
+bundles' after those, without reading them again): the stock HUDs their
+weapons are drawn with that the level has not got go into `huds`
+(tag_injector_stock_hud_* indices, `capacity` at most), each once: how
+many. */
+long tag_injector_tags_read(
+	long profile,
+	short *huds,
+	long capacity);
 /* Adds the tags on of a profile to the level loaded, after its own and
 those the randomizer copied: each tag a bundle holds that the level has not
 got (a tag of its group and path), the bundle's models made this build's and
-its bitmaps' channels found. A bundle that cannot be played is left out. The
+its bitmaps' channels found, and the weapons a stock HUD is chosen for
+given it, when the level has it (else they keep their own). A bundle that
+cannot be played is left out. The
 weapons and actor variants of the bundles (the tags they were taken out
 for), the level's own when it has them, go into `roots`, and the profile's
 tag each is into `root_tags` (`root_capacity` at most): how many. */

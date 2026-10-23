@@ -64,6 +64,7 @@ def test_the_settings_are_port_config_s():
     injector = (ROOT / "port/linux/game/tag_injector.c").read_text()
     assert '"game.tag_injection"' in injector and '"game.randomizer_tag_profile"' in injector
     assert '"game.tag_injection_profile"' in (ROOT / "port/linux/game/menu_functions.c").read_text()
+    assert '"game.tag_injection_textures"' in config and '"game.tag_injection_textures"' in injector
     randomizer = (ROOT / "port/linux/game/randomizer.c").read_text()
     for setting in ("game.randomizer_custom_type", "game.randomizer_pickup_custom", "game.randomizer_weapon_custom"):
         assert f'"{setting}"' in randomizer
@@ -85,3 +86,25 @@ def test_a_tag_s_settings_are_the_randomizer_s():
                 assert f'{{ "{value}", TYPE_' in randomizer, value
     for value in ("precision", "automatic", "power"):
         assert f'"{value}"' in randomizer
+
+
+def test_a_tag_s_huds_are_the_injector_s():
+    """The stock HUDs the menu's HUD row chooses are those tag_injector.c
+    gives a weapon (OWN and AUTO aside), and the key port_tag_profiles.c
+    keeps; each is a campaign map's weapon HUD."""
+    functions = (ROOT / "port/linux/game/menu_functions.c").read_text()
+    injector = (ROOT / "port/linux/game/tag_injector.c").read_text()
+    profiles = (ROOT / "port/linux/src/port_tag_profiles.c").read_text()
+    assert '"hud"' in profiles and '"hud"' in functions
+    table = functions[functions.index("tags_weapon_huds[] ="):]
+    shown = re.findall(r'\{ "([a-z_]*)", "', table[:table.index("};")])
+    stock = injector[injector.index("} const stock_huds[] ="):]
+    rows = re.findall(r'\{ "([a-z_]+)", "([^"]+)", "([a-z0-9]+)" \}', stock[:stock.index("};")])
+    assert shown[:2] == ["", "auto"]
+    assert shown[2:] == [value for value, _, _ in rows]
+    for value, tag, level in rows:
+        assert tag.startswith("weapons\\\\"), tag
+        assert level in ("a10", "a30", "a50", "b30", "b40", "c10", "c20", "c40", "d20", "d40"), level
+    words = injector[injector.index("} const stock_hud_words[] ="):]
+    for value in re.findall(r'\{ "[a-z ]+", "([a-z_]+)" \}', words[:words.index("};")]):
+        assert value in [row[0] for row in rows], value

@@ -147,6 +147,14 @@ struct tag_bundle_loaded
 	long problem_tag_index;
 };
 
+/* a region of a bundle's file data: a bitmap's pixels, a sound's samples, a
+gbxmodel part's vertices or strip (offset: in file data) */
+struct tag_bundle_file_region
+{
+	unsigned long offset;
+	unsigned long size;
+};
+
 /* writes size bytes after those written before, returning FALSE unless they
 were all written */
 typedef boolean (*tag_bundle_write_proc)(
@@ -216,5 +224,15 @@ enum tag_bundle_status tag_bundle_load_tags(
 	unsigned long tags_size,
 	unsigned long size,
 	struct tag_bundle_loaded *loaded);
+/* As tag_bundle_load_tags, and the regions of its file data (those of
+more than no bytes), in the order they lie: *regions, which the caller
+frees with free() (NULL when there are none, or it fails), and how many. */
+enum tag_bundle_status tag_bundle_load_tags_regions(
+	byte *bundle,
+	unsigned long tags_size,
+	unsigned long size,
+	struct tag_bundle_loaded *loaded,
+	struct tag_bundle_file_region **regions,
+	long *region_count);
 
 #endif

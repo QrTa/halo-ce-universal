@@ -729,6 +729,14 @@ static const struct config_setting config_settings[] =
 		_platform_all,
 		"The Tag Injector's profile the menu's maps add tags to: its folder's\n"
 		"name in the data root's tag_injector folder. Written by the menu." },
+	{ "game.tag_injection_textures", _config_string, "\"auto\"", "HALO_TAG_INJECTION_TEXTURES", _environment_value,
+		_platform_all,
+		"How large the bitmaps of a profile's tags are drawn in a level: \"full\"\n"
+		"as they are, \"small\" from their mipmaps of 256 pixels at most (a\n"
+		"Custom Edition weapon's are often uncompressed 512s, 16 MB of them),\n"
+		"\"auto\" small where the texture cache is as small as the Xbox's (the\n"
+		"web build's), else full. Bitmaps without mipmaps (a HUD's) are drawn\n"
+		"as they are." },
 	{ "bots.count", _config_integer, "0", "HALO_BOTS", _environment_value, _platform_all,
 		"Computer players (bots) in a local (split screen) Slayer game: 0 to 15\n"
 		"join its lobby with the players, as far as the game has room. Not in\n"

@@ -802,6 +802,12 @@ struct bundle_load
 	is laid out as its writer's walk lays it out, and nothing else is one */
 	unsigned long cursor;
 	unsigned long file_cursor;
+	/* the regions of file data found, when they are listed
+	(tag_bundle_load_tags_regions) */
+	boolean list_regions;
+	struct tag_bundle_file_region *regions;
+	long region_count;
+	long region_capacity;
 
 	short depth;
 	long tag_index;
@@ -849,9 +855,24 @@ static void load_file_region(
 	unsigned long expected = align_up(load->file_cursor);
 
 	if (offset != expected || expected > load->file_data_size || size > load->file_data_size - expected)
+	{
 		load_fail(load);
-	else
-		load->file_cursor = expected + size;
+		return;
+	}
+	load->file_cursor = expected + size;
+	if (load->list_regions && size)
+	{
+		if (!list_grow((void **)&load->regions, &load->region_capacity, load->region_count,
+			sizeof(struct tag_bundle_file_region)))
+		{
+			if (load->status == _tag_bundle_status_ok)
+				load->status = _tag_bundle_status_out_of_memory;
+			return;
+		}
+		load->regions[load->region_count].offset = expected;
+		load->regions[load->region_count].size = size;
+		load->region_count++;
+	}
 
 	return;
 }
@@ -1288,12 +1309,15 @@ enum tag_bundle_status tag_bundle_write(
 
 
 /* tag_bundle_load, of the bundle's first `available` bytes (all of them,
-or all but its file data, which is then not read) of `size` */
+or all but its file data, which is then not read) of `size`; its file
+data's regions listed into *regions when it is not NULL */
 static enum tag_bundle_status bundle_load(
 	byte *bundle,
 	unsigned long available,
 	unsigned long size,
-	struct tag_bundle_loaded *loaded)
+	struct tag_bundle_loaded *loaded,
+	struct tag_bundle_file_region **regions,
+	long *region_count)
 {
 	struct bundle_load load;
 	unsigned long tags_offset, names_offset, data_offset, file_data_offset;
@@ -1301,6 +1325,12 @@ static enum tag_bundle_status bundle_load(
 
 	memset(loaded, 0, sizeof(*loaded));
 	memset(&load, 0, sizeof(load));
+	load.list_regions = regions != NULL;
+	if (regions)
+	{
+		*regions = NULL;
+		*region_count = 0;
+	}
 	load.tag_index = NONE;
 	load.problem_tag_index = NONE;
 	loaded->problem_tag_index = NONE;
@@ -1378,6 +1408,13 @@ static enum tag_bundle_status bundle_load(
 		loaded->file_data = available == size ? bundle + file_data_offset : NULL;
 		loaded->file_data_size = load.file_data_size;
 	}
+	if (regions && load.status == _tag_bundle_status_ok)
+	{
+		*regions = load.regions;
+		*region_count = load.region_count;
+	}
+	else
+		free_some(load.regions);
 
 	return load.status;
 }
@@ -1387,7 +1424,7 @@ enum tag_bundle_status tag_bundle_load(
 	unsigned long size,
 	struct tag_bundle_loaded *loaded)
 {
-	return bundle_load(bundle, size, size, loaded);
+	return bundle_load(bundle, size, size, loaded, NULL, NULL);
 }
 
 unsigned long tag_bundle_file_data_offset(
@@ -1402,5 +1439,16 @@ enum tag_bundle_status tag_bundle_load_tags(
 	unsigned long size,
 	struct tag_bundle_loaded *loaded)
 {
-	return bundle_load(bundle, tags_size, size, loaded);
+	return bundle_load(bundle, tags_size, size, loaded, NULL, NULL);
+}
+
+enum tag_bundle_status tag_bundle_load_tags_regions(
+	byte *bundle,
+	unsigned long tags_size,
+	unsigned long size,
+	struct tag_bundle_loaded *loaded,
+	struct tag_bundle_file_region **regions,
+	long *region_count)
+{
+	return bundle_load(bundle, tags_size, size, loaded, regions, region_count);
 }

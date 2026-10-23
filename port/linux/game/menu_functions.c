@@ -5315,8 +5315,9 @@ enum
 	_tags_setting_type,
 	_tags_setting_class,
 	_tags_setting_custom_type,
+	_tags_setting_hud,
 	_tags_setting_remove,
-	MAXIMUM_TAGS_SETTING_ROWS = 5
+	MAXIMUM_TAGS_SETTING_ROWS = 6
 };
 
 /* the name typed: none, a new profile's, or the tag's custom type */
@@ -5351,6 +5352,14 @@ static struct tags_choice const tags_weapon_classes[] =
 {
 	{ "", "AUTO" }, { "precision", "PRECISION" }, { "automatic", "AUTOMATIC" }, { "power", "POWER" },
 	{ "none", "NONE" },
+};
+/* (the stock ones' values are tag_injector.c's stock HUDs') */
+static struct tags_choice const tags_weapon_huds[] =
+{
+	{ "", "OWN" }, { "auto", "STOCK: AUTO" }, { "assault_rifle", "ASSAULT RIFLE" }, { "pistol", "PISTOL" },
+	{ "sniper_rifle", "SNIPER RIFLE" }, { "rocket_launcher", "ROCKET LAUNCHER" }, { "shotgun", "SHOTGUN" },
+	{ "flamethrower", "FLAMETHROWER" }, { "plasma_rifle", "PLASMA RIFLE" }, { "plasma_pistol", "PLASMA PISTOL" },
+	{ "needler", "NEEDLER" },
 };
 
 static struct
@@ -5421,6 +5430,7 @@ static short tags_setting_rows(short *rows)
 	rows[count++] = _tags_setting_faction;
 	rows[count++] = group == 'weap' ? _tags_setting_class : _tags_setting_type;
 	rows[count++] = _tags_setting_custom_type;
+	rows[count++] = _tags_setting_hud;
 	rows[count++] = _tags_setting_remove;
 	return count;
 }
@@ -5455,6 +5465,10 @@ static struct tags_choice const *tags_setting_choices(short setting, char const 
 		*key = "class";
 		*count = (short)NUMBEROF(tags_weapon_classes);
 		return tags_weapon_classes;
+	case _tags_setting_hud:
+		*key = "hud";
+		*count = (short)NUMBEROF(tags_weapon_huds);
+		return tags_weapon_huds;
 	}
 	return NULL;
 }
@@ -5655,7 +5669,7 @@ static void tags_row_text(short place, char *name, size_t name_size, char *state
 			struct tags_choice const *choices = tags_setting_choices(setting, &key, &count);
 
 			snprintf(name, name_size, "%s", setting == _tags_setting_faction ? "FACTION" :
-				setting == _tags_setting_type ? "COUNTS AS" : "CLASS");
+				setting == _tags_setting_type ? "COUNTS AS" : setting == _tags_setting_hud ? "HUD" : "CLASS");
 			snprintf(state, state_size, "%s", choices ? choices[tags_setting_value(setting)].shown : "");
 			break;
 		}
@@ -5787,7 +5801,7 @@ static void tags_details_text(short place, char *title, size_t title_size, char 
 		if (!port_tag_profiles_tag_size(tags_screen.profile, place))
 			snprintf(size, sizeof(size), "missing: it is left out");
 		snprintf(text, text_size, "%s %s\nfrom %s, %s.\n \n%s: the randomizer %s it.\n \nLeft or right turns it %s. A "
-			"opens its settings: its faction, %s and custom type.", tags_group_name(group), path,
+			"opens its settings: its faction, %s, custom type and HUD.", tags_group_name(group), path,
 			port_tag_profiles_tag_map(tags_screen.profile, place), size,
 			port_tag_profiles_tag_enabled(tags_screen.profile, place) ? "On" : "Off",
 			port_tag_profiles_tag_enabled(tags_screen.profile, place) ? "plays" : "leaves out",
@@ -5830,6 +5844,12 @@ static void tags_details_text(short place, char *title, size_t title_size, char 
 			snprintf(text, text_size, "The randomizer's ONE TYPE has TAG INJECTOR, and its CUSTOM TYPE these: the "
 				"profile's %s of the custom type %s alone. Give tags the same one (BRUTE) to play them together.\n \n"
 				"A types it. Nothing typed is the last part of its path.", weapon ? "weapons" : "AI", type);
+			break;
+		case _tags_setting_hud:
+			snprintf(text, text_size, "The HUD %s drawn with. OWN: %s map's. STOCK: the campaign's HUD of "
+				"the weapon chosen (its zoom and ammo art; the weapon zooms and fires as it did). AUTO: by its name, "
+				"else by its zoom and magazine.\n \nLeft and right choose another.",
+				weapon ? "it is" : "its weapons are", weapon ? "its" : "their");
 			break;
 		case _tags_setting_remove:
 			snprintf(text, text_size, "A, twice, takes it out of %s and deletes its bundle. Its map can add it again.\n"
@@ -6425,6 +6445,32 @@ void tag_injector_profiles_poll(void)
 	tags_message(text);
 }
 
+/* the profiles' tags an earlier build kept as bundles, stored one a frame
+while the screen is open (tag_injector_profile_store_next), its word saying
+how many are left and how much smaller the profiles are */
+static void tags_store_step(void)
+{
+	static unsigned long saved = 0;
+	static long stored = 0;
+	unsigned long before;
+	unsigned long after;
+	char text[sizeof(tags_screen.message)];
+	long left;
+
+	if (!tag_injector_profiles_unstored() || !tag_injector_profile_store_next(&before, &after))
+		return;
+	if (before > after)
+		saved += before - after;
+	stored++;
+	left = tag_injector_profiles_unstored();
+	if (left)
+		snprintf(text, sizeof(text), "Packing the profiles' tags: %ld left, %lu MB smaller so far.", left, saved >> 20);
+	else
+		snprintf(text, sizeof(text), "Packed %ld tags: the profiles are %lu MB smaller.", stored, saved >> 20);
+	tags_message(text);
+	tags_screen.shown[0] = 0;
+}
+
 /* "port tags update": the rows (the list moving on at its ends while there
 are more past them), each one's name (cut short where it is too long) and
 state, and the details of the one chosen, the last thing done's word above
@@ -6439,6 +6485,7 @@ static void tags_update(struct widget_instance *list)
 	short *first = &tags_screen.first[tags_screen.list];
 	short *chosen = &tags_screen.chosen[tags_screen.list];
 
+	tags_store_step();
 	/* (a profile made or deleted elsewhere, or by this screen; a tag taken
 	out) */
 	if (tags_screen.profile >= port_tag_profiles_count())
