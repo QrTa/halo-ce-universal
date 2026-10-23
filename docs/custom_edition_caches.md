@@ -160,8 +160,8 @@ A tag bundle (`.tagbundle`) is a tag of a Custom Edition map and every tag it
 names, and every tag those name, taken out of the map whole: a weapon with its
 model, animations, collision, HUD, projectiles, effects, sounds and bitmaps; an
 actor variant with its actor, unit and weapons. The game takes them out into
-the Tag Injector's profiles and adds them to campaign levels the randomizer's
-Go Crazy plays (`docs/tag_injector.md`). `tools/ce_tags.c` finds and writes
+the Tag Injector's profiles and adds them to campaign levels the randomizer
+plays (`docs/tag_injector.md`). `tools/ce_tags.c` finds and writes
 them too:
 
 ```sh

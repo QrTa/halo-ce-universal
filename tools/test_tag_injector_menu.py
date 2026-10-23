@@ -57,8 +57,31 @@ def test_the_rows_and_texts_are_those_the_code_finds():
 
 def test_the_settings_are_port_config_s():
     config = (ROOT / "port/linux/src/port_config.c").read_text()
-    for setting in ("game.tag_injection", "game.tag_injection_profile", "game.randomizer_crazy_custom_tags"):
+    for setting in ("game.tag_injection", "game.tag_injection_profile", "game.randomizer_tag_profile",
+                    "game.randomizer_custom_type", "game.randomizer_pickup_custom", "game.randomizer_weapon_custom"):
         assert f'"{setting}"' in config
+    assert '"game.randomizer_crazy_custom_tags"' not in config
     injector = (ROOT / "port/linux/game/tag_injector.c").read_text()
-    assert '"game.tag_injection"' in injector and '"game.tag_injection_profile"' in injector
-    assert '"game.randomizer_crazy_custom_tags"' in (ROOT / "port/linux/game/randomizer.c").read_text()
+    assert '"game.tag_injection"' in injector and '"game.randomizer_tag_profile"' in injector
+    assert '"game.tag_injection_profile"' in (ROOT / "port/linux/game/menu_functions.c").read_text()
+    randomizer = (ROOT / "port/linux/game/randomizer.c").read_text()
+    for setting in ("game.randomizer_custom_type", "game.randomizer_pickup_custom", "game.randomizer_weapon_custom"):
+        assert f'"{setting}"' in randomizer
+
+
+def test_a_tag_s_settings_are_the_randomizer_s():
+    """The values the menu gives a tag's faction, type and class are those
+    randomizer.c reads, and the keys port_tag_profiles.c keeps."""
+    functions = (ROOT / "port/linux/game/menu_functions.c").read_text()
+    randomizer = (ROOT / "port/linux/game/randomizer.c").read_text()
+    profiles = (ROOT / "port/linux/src/port_tag_profiles.c").read_text()
+    for key in ("faction", "type", "class", "custom_type"):
+        assert f'"{key}"' in profiles and f'"{key}"' in functions
+    for name in ("tags_actor_types",):
+        table = functions[functions.index(f"{name}[] ="):]
+        values = re.findall(r'\{ "([a-z_]+)", "', table[:table.index("};")])
+        for value in values:
+            if value != "none":
+                assert f'{{ "{value}", TYPE_' in randomizer, value
+    for value in ("precision", "automatic", "power"):
+        assert f'"{value}"' in randomizer

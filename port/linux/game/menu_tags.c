@@ -392,6 +392,7 @@ static char const *const port_function_names[] =
 	"new campaign decision",
 	/* (the campaign randomizer's screen, after a campaign level's difficulty) */
 	"randomizer profile save", "randomizer profile load", "randomizer start", "randomizer profile delete",
+	"randomizer custom left", "randomizer custom right", "randomizer tag profile choose",
 	/* (the skulls screen, after a campaign level's difficulty) */
 	"skull toggle", "skulls toggle all", "skulls start", "skulls up", "skulls down", "skulls left", "skulls right",
 	"skulls unlock all", "skulls unlock play", "skulls unlock pickup", "skulls reset progress",
@@ -442,7 +443,7 @@ static char const *const port_game_data_input_names[] =
 	/* (the main menu's line under the version number: the renderer, and its driver) */
 	"port renderer textbox",
 	/* (the campaign randomizer's saved profiles, and its screen's rows) */
-	"randomizer profiles update", "randomizer screen update",
+	"randomizer profiles update", "randomizer screen update", "randomizer tag profiles update",
 	/* (the skulls screen's ticks and help; Gameplay's ALL SKULLS shown) */
 	"skulls screen update", "gameplay screen update",
 	/* (the main menu's Mods) */

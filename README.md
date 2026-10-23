@@ -268,10 +268,17 @@ Your scores are tied to a key made for this install, kept in
 them.
 
 **Tag Injector** takes weapons and AI out of your Custom Edition maps into
-profiles: pick a map, then its weapons or AI, and add them to a profile
-(**NEW PROFILE** makes one). With **TAG INJECTION** on and GO CRAZY's
-**CUSTOM TAGS** on, the randomizer adds the profile's weapons and enemies to
-a campaign level you play alone, in its pools beside the campaign's. See
+profiles: in **MAPS**, pick singleplayer or multiplayer, a folder of
+`custom_maps`, a map, then its weapons or AI, and add them to a profile
+(**NEW PROFILE** makes one). **TAG PROFILES** lists each profile's tags,
+where they came from and their size; turn one off to keep it but leave it
+out, or open its settings to say which faction, type or weapon class it is
+and give it a custom type (BRUTE). With **TAG INJECTION** on, the randomizer
+adds the profile's weapons and enemies to a campaign level you play alone:
+they join the pools their settings name, a **TAG INJECTOR** pool plays them
+alone, and **ONE TYPE**'s **TAG INJECTOR** plays one custom type, for a
+brute-only campaign. With more than one profile, a screen before the
+randomizer's asks which to play, or none. See
 [docs/tag_injector.md](docs/tag_injector.md).
 
 Every one of these settings is also in `config.toml`; they are listed in

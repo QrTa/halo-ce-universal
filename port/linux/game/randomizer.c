@@ -27,11 +27,12 @@ form in a carrier's harmless burst) (randomizer_tick). Of a squad's infection
 forms to be swapped for other actors, only a share is (one in three, or so
 many tenths with Go Crazy: the squad's first, then evenly); the rest are not
 placed. Go Crazy's parts are each a setting of their own
-(game.randomizer_crazy_weapons, _enemies, _flamethrower, _pods,
-_custom_tags). With game.randomizer_crazy_custom_tags, a level played alone
-(not a network game, nor a challenge) is given the tags of the Tag
-Injector's profile (tag_injector.c), and its weapons and actor variants join
-every pool but those of one type.
+(game.randomizer_crazy_weapons, _enemies, _flamethrower, _pods). A level
+played alone (not a network game, nor a challenge) is given the tags of the
+Tag Injector's profile chosen (tag_injector.c), and its weapons and actor
+variants on join the pools their settings name (a faction, a type, a
+class: by their names when not set), the TAG INJECTOR pools, which are
+theirs alone, and the one type of their custom type.
 
 Off unless game.randomizer is on, and only for the ten campaign levels. A
 multiplayer game that is not co-op is not randomized. A client uses the
@@ -113,6 +114,8 @@ enum
 	POOL_FLOOD,
 	POOL_HUMAN,
 	POOL_ONE,
+	/* the Tag Injector profile's actor variants alone */
+	POOL_TAG_INJECTOR,
 	TYPE_GRUNT = 0,
 	TYPE_ELITE,
 	TYPE_JACKAL,
@@ -167,7 +170,17 @@ enum
 	WEAPON_POOL_AUTOMATIC,
 	WEAPON_POOL_POWER,
 	WEAPON_POOL_ONE,
+	/* the Tag Injector profile's weapons alone */
+	WEAPON_POOL_TAG_INJECTOR,
 	WEAPON_POOL_COUNT
+};
+
+/* a Tag Injector weapon's classes (its setting "class", or by its name) */
+enum
+{
+	WEAPON_CLASS_PRECISION_BIT = 1,
+	WEAPON_CLASS_AUTOMATIC_BIT = 2,
+	WEAPON_CLASS_POWER_BIT = 4,
 };
 
 static struct
@@ -335,7 +348,8 @@ struct setup
 	int odd_enemies;
 	int flamethrower;
 	/* the Tag Injector's profile's tags added, and their weapons and actor
-	variants in the pools (never a network game's) */
+	variants in the pools (a level played alone only: never a network
+	game's, nor a challenge's) */
 	int custom_tags;
 	/* the infection forms swapped, in tenths (the rest are not placed); 0,
 	one in three, without game.randomizer_crazy */
@@ -350,6 +364,14 @@ struct setup
 	int pickup_type;
 	int weapon_pool;
 	int weapon_type;
+	/* the one type a custom type of the profile's (ONE TYPE's TAG INJECTOR),
+	and its name, in capitals (tag_injector_tag_custom_type) */
+	int custom_type;
+	int pickup_custom_type;
+	int weapon_custom_type;
+	char custom_type_name[TAG_INJECTOR_CUSTOM_TYPE_LENGTH];
+	char pickup_custom_type_name[TAG_INJECTOR_CUSTOM_TYPE_LENGTH];
+	char weapon_custom_type_name[TAG_INJECTOR_CUSTOM_TYPE_LENGTH];
 };
 
 extern boolean tag_index_is_group(long tag_index, long group_tag);
@@ -447,9 +469,12 @@ static struct weapon_choice
 static unsigned long placement_roll;
 static int placement_roll_ready;
 /* the weapons and actor variants of the Tag Injector's profile the level was
-given (tag_injector_tags_load), which join the pools */
+given (tag_injector_tags_load), which join the pools, and the profile's tag
+each is (its settings) */
 static long custom_roots[CUSTOM_ROOT_MAX];
+static long custom_root_tags[CUSTOM_ROOT_MAX];
 static long custom_root_count;
+static long custom_profile = NONE;
 static void *map_widget;
 static wchar_t prefixed_title[96];
 
@@ -551,7 +576,7 @@ static int campaign_leaf(char const *name, char *leaf, unsigned int leaf_size)
 
 static int pool_id(char const *text)
 {
-	static char const *const names[] = { "any", "covenant", "flood", "human", "one" };
+	static char const *const names[] = { "any", "covenant", "flood", "human", "one", "tag_injector" };
 	int index;
 
 	if (!text)
@@ -635,7 +660,7 @@ static int rank_id(char const *text)
 static int weapon_pool_id(char const *text)
 {
 	static char const *const names[WEAPON_POOL_COUNT] = {
-		"any", "covenant", "human", "precision", "automatic", "power", "one"
+		"any", "covenant", "human", "precision", "automatic", "power", "one", "tag_injector"
 	};
 
 	return name_index(text, names, WEAPON_POOL_COUNT, WEAPON_POOL_ANY);
@@ -669,6 +694,17 @@ static char const *rank_setting(int type)
 	return NULL;
 }
 
+/* a custom type's name as the setup keeps it: in capitals, as
+tag_injector_tag_custom_type gives a tag's */
+static void custom_type_name_copy(char *name, char const *text)
+{
+	int index;
+
+	for (index = 0; text && text[index] && index < TAG_INJECTOR_CUSTOM_TYPE_LENGTH - 1; index++)
+		name[index] = text[index] >= 'a' && text[index] <= 'z' ? (char)(text[index] - 'a' + 'A') : text[index];
+	name[index] = 0;
+}
+
 static void setup_from_config(struct setup *setup)
 {
 	setup->enemies = config_boolean("game.randomizer_enemies");
@@ -677,7 +713,10 @@ static void setup_from_config(struct setup *setup)
 	setup->any_weapon = setup->crazy && config_boolean("game.randomizer_crazy_weapons");
 	setup->odd_enemies = setup->crazy && config_boolean("game.randomizer_crazy_enemies");
 	setup->flamethrower = setup->crazy && config_boolean("game.randomizer_crazy_flamethrower");
-	setup->custom_tags = setup->crazy && config_boolean("game.randomizer_crazy_custom_tags");
+	/* (the profile's tags, played alone: a network game's machines must all
+	have the same, and a challenge is the same for everyone) */
+	setup->custom_tags = !network_game_get_game() && !network_game_distributed_client() &&
+		!community_challenge_running() && tag_injector_profile_playable() != NONE;
 	/* (a percentage, to the nearest tenth from one to all of them) */
 	setup->pods = setup->crazy ? (int)PIN((config_integer("game.randomizer_crazy_pods") + 5) / 10, 1, 10) : 0;
 	setup->pickups = config_boolean("game.randomizer_pickups");
@@ -700,6 +739,28 @@ static void setup_from_config(struct setup *setup)
 		setup->pickup_type = WEAPON_PISTOL;
 	if (setup->weapon_type == WEAPON_FLAMETHROWER && !setup->flamethrower)
 		setup->weapon_type = WEAPON_PLASMA_RIFLE;
+	/* (ONE TYPE's TAG INJECTOR: a custom type of the profile's) */
+	setup->custom_type = !_stricmp(config_string("game.randomizer_type"), "tag_injector");
+	setup->pickup_custom_type = !_stricmp(config_string("game.randomizer_pickup_type"), "tag_injector");
+	setup->weapon_custom_type = !_stricmp(config_string("game.randomizer_weapon_type"), "tag_injector");
+	custom_type_name_copy(setup->custom_type_name, config_string("game.randomizer_custom_type"));
+	custom_type_name_copy(setup->pickup_custom_type_name, config_string("game.randomizer_pickup_custom"));
+	custom_type_name_copy(setup->weapon_custom_type_name, config_string("game.randomizer_weapon_custom"));
+	/* (the TAG INJECTOR pools and types without the profile's tags: any) */
+	if (!setup->custom_tags)
+	{
+		if (setup->pool == POOL_TAG_INJECTOR || (setup->pool == POOL_ONE && setup->custom_type))
+			setup->pool = POOL_ANY;
+		if (setup->pickup_pool == WEAPON_POOL_TAG_INJECTOR ||
+			(setup->pickup_pool == WEAPON_POOL_ONE && setup->pickup_custom_type))
+			setup->pickup_pool = WEAPON_POOL_ANY;
+		if (setup->weapon_pool == WEAPON_POOL_TAG_INJECTOR ||
+			(setup->weapon_pool == WEAPON_POOL_ONE && setup->weapon_custom_type))
+			setup->weapon_pool = WEAPON_POOL_ANY;
+		setup->custom_type = 0;
+		setup->pickup_custom_type = 0;
+		setup->weapon_custom_type = 0;
+	}
 }
 
 static void setup_from_remote(struct setup *setup)
@@ -712,10 +773,10 @@ static void setup_from_remote(struct setup *setup)
 	setup->pool = remote_setup[1] <= POOL_ONE ? remote_setup[1] : POOL_ANY;
 	setup->type = type_known(remote_setup[2]) ? remote_setup[2] : TYPE_GRUNT;
 	setup->rank = remote_setup[7] < RANK_COUNT ? remote_setup[7] : RANK_ANY;
-	setup->pickup_pool = remote_setup[8] < WEAPON_POOL_COUNT ? remote_setup[8] : WEAPON_POOL_ANY;
+	setup->pickup_pool = remote_setup[8] < WEAPON_POOL_TAG_INJECTOR ? remote_setup[8] : WEAPON_POOL_ANY;
 	setup->pickup_type = remote_setup[9] < WEAPON_KIND_COUNT && !weapon_kinds[remote_setup[9]].actors_only ?
 		remote_setup[9] : WEAPON_PISTOL;
-	setup->weapon_pool = remote_setup[10] < WEAPON_POOL_COUNT ? remote_setup[10] : WEAPON_POOL_ANY;
+	setup->weapon_pool = remote_setup[10] < WEAPON_POOL_TAG_INJECTOR ? remote_setup[10] : WEAPON_POOL_ANY;
 	setup->weapon_type = remote_setup[11] < WEAPON_KIND_COUNT ? remote_setup[11] : WEAPON_PLASMA_RIFLE;
 	/* (Go Crazy's parts; a host built before there were any has all of
 	them, and swaps every infection form) */
@@ -735,6 +796,9 @@ static void setup_from_remote(struct setup *setup)
 	}
 	/* (the host's profile's tags are its own) */
 	setup->custom_tags = 0;
+	setup->custom_type = 0;
+	setup->pickup_custom_type = 0;
+	setup->weapon_custom_type = 0;
 }
 
 static int setup_swaps(struct setup const *setup)
@@ -868,9 +932,23 @@ static int weapon_pool_allows(int pool, int type, int kind, int for_pickups)
 	case WEAPON_POOL_AUTOMATIC: return weapon_kinds[kind].automatic;
 	case WEAPON_POOL_POWER: return weapon_kinds[kind].power;
 	case WEAPON_POOL_ONE: return kind == type;
+	/* (the profile's weapons alone: add_custom_root) */
+	case WEAPON_POOL_TAG_INJECTOR: return 0;
 	}
 
 	return 1;
+}
+
+/* the one weapon type of the pickups' pool, and of the actors' weapons':
+none of the campaign's when it is a custom type of the profile's */
+static int pickup_one_type(void)
+{
+	return current.pickup_custom_type ? WEAPON_NONE : current.pickup_type;
+}
+
+static int weapon_one_type(void)
+{
+	return current.weapon_custom_type ? WEAPON_NONE : current.weapon_type;
 }
 
 /* a weapon to copy from the other maps: one a pool the setup chose names.
@@ -880,9 +958,9 @@ static int weapon_wanted(char const *name)
 	int kind = weapon_kind(name);
 
 	return (current.pickups && current.pickup_pool != WEAPON_POOL_ANY &&
-			weapon_pool_allows(current.pickup_pool, current.pickup_type, kind, 1)) ||
+			weapon_pool_allows(current.pickup_pool, pickup_one_type(), kind, 1)) ||
 		(current.weapons && current.weapon_pool != WEAPON_POOL_ANY &&
-			weapon_pool_allows(current.weapon_pool, current.weapon_type, kind, 0));
+			weapon_pool_allows(current.weapon_pool, weapon_one_type(), kind, 0));
 }
 
 static int pool_allows(int kind);
@@ -899,6 +977,9 @@ static int rank_allows(int kind, char const *variant_name)
 static int pool_allows(int kind)
 {
 	if (kind == TYPE_NONE)
+		return 0;
+	/* (the profile's actor variants alone: add_custom_root) */
+	if (current.pool == POOL_TAG_INJECTOR || (current.pool == POOL_ONE && current.custom_type))
 		return 0;
 	if (current.pool == POOL_ONE)
 		return kind == current.type;
@@ -2620,7 +2701,9 @@ static void add_variant(long datum)
 	struct actor_variant_definition *variant;
 	char const *unit_name;
 
-	if (variant_count >= POOL_MAX || datum == NONE || !tag_index_is_group(datum, ACTOR_VARIANT_DEFINITION_TAG))
+	/* (a profile's join by their settings: add_custom_root) */
+	if (variant_count >= POOL_MAX || datum == NONE || !tag_index_is_group(datum, ACTOR_VARIANT_DEFINITION_TAG) ||
+		tag_injector_tag_injected(datum))
 		return;
 	variant = actor_variant_definition_get(datum);
 	if (!variant)
@@ -2647,39 +2730,230 @@ static void add_weapon(struct weapon_choice *choice, long datum, int pool, int t
 	choice->definitions[choice->count++] = datum;
 }
 
-/* a weapon or an actor variant of the Tag Injector's profile, which no pool
-names by kind: in each pool the setup has, but for one of one type */
-static void add_custom_root(long datum)
+/* whether a name has any of the words */
+static int name_has(char const *lower, char const *const *words)
 {
+	for (; *words; words++)
+	{
+		if (strstr(lower, *words))
+			return 1;
+	}
+
+	return 0;
+}
+
+/* a Tag Injector actor variant's faction (its setting "faction", else its
+unit's type's): the enemy pool it joins, else POOL_ANY for ANY's alone */
+static int custom_variant_faction(long root, int kind)
+{
+	char const *faction = tag_injector_tag_setting(custom_profile, custom_root_tags[root], "faction");
+
+	if (faction[0] && _stricmp(faction, "auto"))
+	{
+		int pool = pool_id(faction);
+
+		return pool == POOL_COVENANT || pool == POOL_FLOOD || pool == POOL_HUMAN ? pool : POOL_ANY;
+	}
+	switch (kind)
+	{
+	case TYPE_GRUNT: case TYPE_ELITE: case TYPE_JACKAL: case TYPE_HUNTER: case TYPE_ENGINEER:
+		return POOL_COVENANT;
+	case TYPE_FLOOD_COMBAT: case TYPE_FLOOD_CARRIER: case TYPE_FLOOD_INFECTION:
+		return POOL_FLOOD;
+	case TYPE_MARINE:
+		return POOL_HUMAN;
+	}
+
+	return POOL_ANY;
+}
+
+/* ... and the campaign's type it counts as for ONE TYPE (its setting
+"type", else its unit's), or TYPE_NONE */
+static int custom_variant_type(long root, int kind)
+{
+	char const *type = tag_injector_tag_setting(custom_profile, custom_root_tags[root], "type");
+	int index;
+
+	if (!type[0] || !_stricmp(type, "auto"))
+		return kind;
+	for (index = 0; index < (int)NUMBEROF(type_names); index++)
+	{
+		if (!_stricmp(type, type_names[index].name))
+			return type_names[index].type;
+	}
+
+	return TYPE_NONE;
+}
+
+/* a Tag Injector weapon's faction (its setting "faction", else the
+campaign's kind's of its name, else its name's words): Covenant's or not */
+static int custom_weapon_covenant(long root, char const *name)
+{
+	static char const *const covenant_words[] = {
+		"covenant", "plasma", "needle", "carbine", "fuel rod", "sword", "brute", "spike", "elite", "beam", NULL
+	};
+	char const *faction = tag_injector_tag_setting(custom_profile, custom_root_tags[root], "faction");
+	char lower[256];
+	int kind = weapon_kind(name);
+
+	if (faction[0] && _stricmp(faction, "auto"))
+		return !_stricmp(faction, "covenant");
+	if (kind != WEAPON_NONE)
+		return weapon_kinds[kind].covenant;
+	lower_copy(lower, sizeof(lower), name);
+
+	return name_has(lower, covenant_words);
+}
+
+/* ... and its classes (WEAPON_CLASS_*_BIT: its setting "class", else the
+campaign's kind's, else its name's words) */
+static int custom_weapon_classes(long root, char const *name)
+{
+	static char const *const precision_words[] = {
+		"sniper", "pistol", "carbine", "battle rifle", "battlerifle", "dmr", "magnum", "beam rifle", NULL
+	};
+	static char const *const power_words[] = {
+		"rocket", "fuel", "sword", "shotgun", "launcher", "cannon", "hammer", "flame", "laser", "grenade", "mortar", NULL
+	};
+	static char const *const automatic_words[] = {
+		"assault", "smg", "rifle", "needler", "spiker", "machine", "repeater", "mauler", NULL
+	};
+	char const *setting = tag_injector_tag_setting(custom_profile, custom_root_tags[root], "class");
+	char lower[256];
+	int kind = weapon_kind(name);
+
+	if (setting[0] && _stricmp(setting, "auto"))
+	{
+		return !_stricmp(setting, "precision") ? WEAPON_CLASS_PRECISION_BIT :
+			!_stricmp(setting, "automatic") ? WEAPON_CLASS_AUTOMATIC_BIT :
+			!_stricmp(setting, "power") ? WEAPON_CLASS_POWER_BIT : 0;
+	}
+	if (kind != WEAPON_NONE)
+	{
+		return (weapon_kinds[kind].precision ? WEAPON_CLASS_PRECISION_BIT : 0) |
+			(weapon_kinds[kind].automatic ? WEAPON_CLASS_AUTOMATIC_BIT : 0) |
+			(weapon_kinds[kind].power ? WEAPON_CLASS_POWER_BIT : 0);
+	}
+	lower_copy(lower, sizeof(lower), name);
+	if (name_has(lower, precision_words))
+		return WEAPON_CLASS_PRECISION_BIT;
+	if (name_has(lower, power_words))
+		return WEAPON_CLASS_POWER_BIT;
+	if (name_has(lower, automatic_words))
+		return WEAPON_CLASS_AUTOMATIC_BIT;
+
+	return 0;
+}
+
+/* whether a Tag Injector root is of the custom type `name` */
+static int custom_type_is(long root, char const *name)
+{
+	char type[TAG_INJECTOR_CUSTOM_TYPE_LENGTH];
+
+	tag_injector_tag_custom_type(custom_profile, custom_root_tags[root], type, sizeof(type));
+
+	return name[0] && !strcmp(type, name);
+}
+
+/* whether a pool of weapons has a Tag Injector weapon */
+static int custom_weapon_pool_allows(long root, char const *name, int pool, int custom_type, char const *custom_name)
+{
+	int classes;
+
+	switch (pool)
+	{
+	case WEAPON_POOL_ANY: case WEAPON_POOL_TAG_INJECTOR: return 1;
+	case WEAPON_POOL_COVENANT: return custom_weapon_covenant(root, name);
+	case WEAPON_POOL_HUMAN: return !custom_weapon_covenant(root, name);
+	case WEAPON_POOL_ONE: return custom_type && custom_type_is(root, custom_name);
+	}
+	classes = custom_weapon_classes(root, name);
+	switch (pool)
+	{
+	case WEAPON_POOL_PRECISION: return (classes & WEAPON_CLASS_PRECISION_BIT) != 0;
+	case WEAPON_POOL_AUTOMATIC: return (classes & WEAPON_CLASS_AUTOMATIC_BIT) != 0;
+	case WEAPON_POOL_POWER: return (classes & WEAPON_CLASS_POWER_BIT) != 0;
+	}
+
+	return 0;
+}
+
+/* a weapon or an actor variant of the Tag Injector's profile (the root
+`root` of custom_roots), in each pool of the setup its settings name: ANY's
+and TAG INJECTOR's, its faction's, its class's, and the one type of its
+type or its custom type */
+static void add_custom_root(long root)
+{
+	long datum = custom_roots[root];
 	struct weapon_choice *choices[2];
+	int pools[2];
+	int custom_types[2];
+	char const *custom_names[2];
 	short choice_count = 0;
 	short choice;
+	char const *name;
 
 	if (datum == NONE)
 		return;
+	name = tag_get_name(datum);
 	if (tag_index_is_group(datum, ACTOR_VARIANT_DEFINITION_TAG))
 	{
-		if (current.enemies && current.pool != POOL_ONE && variant_count < POOL_MAX)
+		struct actor_variant_definition *variant = actor_variant_definition_get(datum);
+		char const *unit_name = variant && variant->unit_reference.index != NONE ?
+			tag_get_name(variant->unit_reference.index) : NULL;
+		int kind = classify(unit_name);
+		int allowed;
+
+		if (!current.enemies || variant_count >= POOL_MAX)
+			return;
+		/* (a unit of no type the campaign has: the variant's name's) */
+		if (kind == TYPE_NONE)
+			kind = classify(name);
+		switch (current.pool)
 		{
-			for (choice = 0; choice < variant_count && variant_pool[choice] != datum; choice++)
-			{
-			}
-			if (choice == variant_count)
-				variant_pool[variant_count++] = datum;
+		case POOL_ANY: case POOL_TAG_INJECTOR:
+			allowed = 1;
+			break;
+		case POOL_ONE:
+			allowed = current.custom_type ? custom_type_is(root, current.custom_type_name) :
+				custom_variant_type(root, kind) == current.type && rank_allows(current.type, name);
+			break;
+		default:
+			allowed = custom_variant_faction(root, kind) == current.pool;
+			break;
 		}
+		if (!allowed)
+			return;
+		for (choice = 0; choice < variant_count && variant_pool[choice] != datum; choice++)
+		{
+		}
+		if (choice == variant_count)
+			variant_pool[variant_count++] = datum;
 		return;
 	}
 	if (!tag_index_is_group(datum, WEAPON_DEFINITION_TAG))
 		return;
-	if (current.pickups && current.pickup_pool != WEAPON_POOL_ONE)
-		choices[choice_count++] = &pickup_choice;
-	if (current.weapons && current.weapon_pool != WEAPON_POOL_ONE)
-		choices[choice_count++] = &actor_weapon_choice;
+	if (current.pickups)
+	{
+		choices[choice_count] = &pickup_choice;
+		pools[choice_count] = current.pickup_pool;
+		custom_types[choice_count] = current.pickup_custom_type;
+		custom_names[choice_count++] = current.pickup_custom_type_name;
+	}
+	if (current.weapons)
+	{
+		choices[choice_count] = &actor_weapon_choice;
+		pools[choice_count] = current.weapon_pool;
+		custom_types[choice_count] = current.weapon_custom_type;
+		custom_names[choice_count++] = current.weapon_custom_type_name;
+	}
 	for (choice = 0; choice < choice_count; choice++)
 	{
 		struct weapon_choice *weapons = choices[choice];
 		long index;
 
+		if (!custom_weapon_pool_allows(root, name, pools[choice], custom_types[choice], custom_names[choice]))
+			continue;
 		for (index = 0; index < weapons->count && weapons->definitions[index] != datum; index++)
 		{
 		}
@@ -2743,12 +3017,12 @@ static void build_pools(void)
 		if (instances[index].group_tag != WEAPON_DEFINITION_TAG)
 			continue;
 		if (current.pickup_pool != WEAPON_POOL_ANY)
-			add_weapon(&pickup_choice, instances[index].tag_index, current.pickup_pool, current.pickup_type, 1);
-		add_weapon(&actor_weapon_choice, instances[index].tag_index, current.weapon_pool, current.weapon_type, 0);
+			add_weapon(&pickup_choice, instances[index].tag_index, current.pickup_pool, pickup_one_type(), 1);
+		add_weapon(&actor_weapon_choice, instances[index].tag_index, current.weapon_pool, weapon_one_type(), 0);
 	}
-	/* the Tag Injector's profile's: every pool but one of one type */
+	/* the Tag Injector's profile's: the pools their settings name */
 	for (index = 0; index < custom_root_count; index++)
-		add_custom_root(custom_roots[index]);
+		add_custom_root(index);
 	/* "any": the level's own lying about, and those its actors carry */
 	if (current.pickup_pool == WEAPON_POOL_ANY)
 	{
@@ -2929,9 +3203,18 @@ static void gather_campaign(char const *leaf)
 {
 	int level;
 
-	/* (a pool of weapons other than the level's needs them copied too) */
-	if (!current.enemies && !(current.pickups && current.pickup_pool != WEAPON_POOL_ANY) &&
-		!(current.weapons && current.weapon_pool != WEAPON_POOL_ANY))
+	/* (a pool of weapons other than the level's needs them copied too; the
+	TAG INJECTOR pools and custom types are the profile's alone) */
+	int enemies = current.enemies && current.pool != POOL_TAG_INJECTOR &&
+		!(current.pool == POOL_ONE && current.custom_type);
+	int pickups = current.pickups && current.pickup_pool != WEAPON_POOL_ANY &&
+		current.pickup_pool != WEAPON_POOL_TAG_INJECTOR &&
+		!(current.pickup_pool == WEAPON_POOL_ONE && current.pickup_custom_type);
+	int weapons = current.weapons && current.weapon_pool != WEAPON_POOL_ANY &&
+		current.weapon_pool != WEAPON_POOL_TAG_INJECTOR &&
+		!(current.weapon_pool == WEAPON_POOL_ONE && current.weapon_custom_type);
+
+	if (!enemies && !pickups && !weapons)
 		return;
 	error(_error_silent, "randomizer: reading actors and weapons from the other campaign maps");
 	for (level = 0; level < 10 && donor_count < DONOR_COUNT; level++)
@@ -3127,15 +3410,15 @@ void randomizer_tags_loaded(char const *scenario_name)
 	only, as only this machine has them, and never a challenge's, which is
 	the same for everyone) */
 	custom_root_count = 0;
+	custom_profile = NONE;
 	if (randomize && current.custom_tags && !game && !network_game_distributed_client() &&
 		!community_challenge_running())
 	{
-		long profile = tag_injector_profile_playable();
-
-		if (profile != NONE)
-			custom_root_count = tag_injector_tags_load(profile, custom_roots, CUSTOM_ROOT_MAX);
+		custom_profile = tag_injector_profile_playable();
+		if (custom_profile != NONE)
+			custom_root_count = tag_injector_tags_load(custom_profile, custom_roots, custom_root_tags, CUSTOM_ROOT_MAX);
 		else
-			error(_error_silent, "randomizer: Go Crazy's custom tags are on, but no profile of tags is chosen");
+			error(_error_silent, "randomizer: the Tag Injector's profile has no tags on any more");
 	}
 	if (randomize)
 	{
@@ -3190,6 +3473,7 @@ void randomizer_tags_unloaded(void)
 		placement_roll_ready = 0;
 	tag_injector_tags_unloaded();
 	custom_root_count = 0;
+	custom_profile = NONE;
 	donors_close();
 	bound_release();
 	held_free();

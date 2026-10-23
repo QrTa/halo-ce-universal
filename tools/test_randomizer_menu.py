@@ -31,11 +31,13 @@ def test_randomizer_menus():
         "game.randomizer_crazy_enemies",
         "game.randomizer_crazy_flamethrower",
         "game.randomizer_crazy_pods",
-        "game.randomizer_crazy_custom_tags",
     ):
         assert f'setting="{setting}"' in settings
         assert f'setting="{setting}"' not in screen
     assert 'values="10|20|30|40|50|60|70|80|90|100"' in settings
+    # (Go Crazy's CUSTOM TAGS is gone: the profile screen before the
+    # randomizer's chooses the Tag Injector's tags)
+    assert "game.randomizer_crazy_custom_tags" not in settings
     for setting in (
         "game.randomizer_enemies",
         "game.randomizer_allies",
@@ -54,8 +56,8 @@ def test_randomizer_menus():
         "game.randomizer_weapon_type",
     ):
         assert f'setting="{setting}"' in screen
-    assert 'values="any|covenant|flood|human|one"' in screen
-    assert 'values="any|covenant|human|precision|automatic|power|one"' in screen
+    assert 'values="any|covenant|flood|human|one|tag_injector"' in screen
+    assert 'values="any|covenant|human|precision|automatic|power|one|tag_injector"' in screen
     assert 'run="randomizer profile save"' in screen
     assert 'run="randomizer profile load" back="true"' in screen
     assert 'open="main_menu/difficulty_select/randomizer/profiles_screen"' in screen
@@ -63,10 +65,36 @@ def test_randomizer_menus():
     assert 'input="randomizer screen update"' in screen
     assert 'input="randomizer profiles update"' in screen
     assert 'run="randomizer profile delete"' in screen
+    # (the Tag Injector profile's custom types: rows the code fills)
+    for key in ("custom_type", "pickup_custom", "weapon_custom"):
+        assert f'name="main_menu/difficulty_select/randomizer/{key}_value"' in screen
+    assert 'run="randomizer custom left"' in screen and 'run="randomizer custom right"' in screen
+    # (the profile screen before it)
+    assert 'name="main_menu/difficulty_select/randomizer/tag_profile_screen"' in screen
+    assert 'input="randomizer tag profiles update"' in screen
+    assert 'run="randomizer tag profile choose"' in screen
     # every spinner's arrows in the same place
     assert len(set(re.findall(r'footer_bounds="([^"]*)"', screen))) == 1
     for index in range(8):
         assert f'name="main_menu/difficulty_select/randomizer/profile_{index}"' in screen
+    for index in range(port_settings.RANDOMIZER_TAG_PROFILE_ROWS):
+        assert f'name="main_menu/difficulty_select/randomizer/tag_profile_{index}"' in screen
+    source = (ROOT / "port/linux/game/menu_functions.c").read_text()
+    assert f"#define RANDOMIZER_TAG_PROFILE_ROWS {port_settings.RANDOMIZER_TAG_PROFILE_ROWS}" in source
+    assert '"tag_profile_"' in source and '"tag_profile_%d"' in source
+
+
+def test_randomizer_functions_are_listed():
+    """Each function and input the randomizer's screens name is one
+    menu_tags.c lists and menu_functions.c runs."""
+    screen = "\n".join(port_settings.settings_files()["main_menu.difficulty_select.randomizer.xml"])
+    tags = (ROOT / "port/linux/game/menu_tags.c").read_text()
+    functions = (ROOT / "port/linux/game/menu_functions.c").read_text()
+    names = set(re.findall(r'(?:run|input)="(randomizer [^"]+)"', screen))
+    assert names
+    for name in names:
+        assert f'"{name}"' in tags, name
+        assert f'"{name}"' in functions, name
 
 
 def test_randomizer_rows_match_the_screen_code():
@@ -75,7 +103,12 @@ def test_randomizer_rows_match_the_screen_code():
     names = [f'"op_{key}"' for key, *_ in port_settings.RANDOMIZER_ROWS]
     places = [source.index(name) for name in names]
     assert places == sorted(places)
-    assert f"#define RANDOMIZER_KEY_COUNT {len(names)}" in source
+    # (a saved setup's fields: the rows', and Go Crazy's, once the last, unread)
+    assert f"#define RANDOMIZER_KEY_COUNT {len(names) + 1}" in source
+    keys = source[source.index("randomizer_keys[RANDOMIZER_KEY_COUNT] ="):]
+    keys = re.findall(r'^\t"([^"]*)",', keys[:keys.index("};")], re.M)
+    assert len(keys) == len(names) + 1 and keys[15] == ""
+    assert sorted(key for key in keys if key) == sorted(setting for _, _, setting, *_ in port_settings.RANDOMIZER_ROWS)
     for key, _, setting, *_ in port_settings.RANDOMIZER_ROWS:
         assert f'"{setting}"' in (ROOT / "port/linux/src/port_config.c").read_text()
 

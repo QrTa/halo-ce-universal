@@ -4,7 +4,7 @@ TAG_INJECTOR.H
 The tag injector (tag_injector.c): tags taken out of Custom Edition maps,
 as tag bundles, into profiles (port/linux/src/port_tag_profiles.c), from
 Settings > Gameplay > Tag Injector, and the tags of a profile added to a
-campaign level the randomizer's Go Crazy plays.
+campaign level the randomizer plays, the profile chosen before its screen.
 */
 
 #ifndef __TAG_INJECTOR_H
@@ -25,6 +25,9 @@ enum tag_injector_category
 
 	NUMBER_OF_TAG_INJECTOR_CATEGORIES
 };
+
+/* the longest custom type's name a tag is chosen by (its terminator too) */
+#define TAG_INJECTOR_CUSTOM_TYPE_LENGTH 32
 
 /* ---------- prototypes/TAG_INJECTOR.C */
 
@@ -49,6 +52,11 @@ wchar_t const *tag_injector_map_name(
 	short map);
 char const *tag_injector_map_folder(
 	short map);
+/* the map of the list that is Custom Edition's campaign map (campaign TRUE)
+or multiplayer map at `index` of custom_edition_maps_count's, or NONE */
+short tag_injector_map_of(
+	boolean campaign,
+	short index);
 /* whether a map is a campaign map */
 boolean tag_injector_map_campaign(
 	short map);
@@ -101,22 +109,48 @@ boolean tag_injector_tag_add(
 
 /* ---------- the randomizer's (randomizer.c) */
 
-/* The profile the randomizer's Go Crazy plays: game.tag_injection's on, and
-game.tag_injection_profile names a profile of a tag or more. Its index, else
+/* The profile the randomizer plays: game.tag_injection's on, and the one
+profile there is, or of more the one game.randomizer_tag_profile names (the
+randomizer's profile screen chooses it), has a tag on. Its index, else
 NONE. */
 long tag_injector_profile_playable(
 	void);
+/* how many tags of a profile are on: of a group, or of all (0) */
+long tag_injector_profile_enabled_count(
+	long profile,
+	unsigned long group_tag);
+/* a tag's setting the randomizer reads ("faction", "type", "class":
+port_tag_profiles.h's), "" when it is not set */
+char const *tag_injector_tag_setting(
+	long profile,
+	long tag,
+	char const *key);
+/* the name of a tag's own type, which the randomizer's one type chooses it
+by: its custom_type, else the last part of its path; in capitals */
+void tag_injector_tag_custom_type(
+	long profile,
+	long tag,
+	char *name,
+	long name_size);
+/* the custom types of a profile's tags on of a group, each once, by name:
+how many (`capacity` at most) */
+long tag_injector_custom_types(
+	long profile,
+	unsigned long group_tag,
+	char (*names)[TAG_INJECTOR_CUSTOM_TYPE_LENGTH],
+	long capacity);
 
-/* Adds the tags of a profile to the level loaded, after its own and those
-the randomizer copied: each tag a bundle holds that the level has not got (a
-tag of its group and path), the bundle's models made this build's and its
-bitmaps' channels found. A bundle that cannot be played is left out. The
+/* Adds the tags on of a profile to the level loaded, after its own and
+those the randomizer copied: each tag a bundle holds that the level has not
+got (a tag of its group and path), the bundle's models made this build's and
+its bitmaps' channels found. A bundle that cannot be played is left out. The
 weapons and actor variants of the bundles (the tags they were taken out
-for), the level's own when it has them, go into `roots` (`root_capacity` at
-most): how many. */
+for), the level's own when it has them, go into `roots`, and the profile's
+tag each is into `root_tags` (`root_capacity` at most): how many. */
 long tag_injector_tags_load(
 	long profile,
 	long *roots,
+	long *root_tags,
 	long root_capacity);
 /* the tags added let go, and the level's table as it was */
 void tag_injector_tags_unloaded(

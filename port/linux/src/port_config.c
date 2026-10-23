@@ -534,11 +534,19 @@ static const struct config_setting config_settings[] =
 		"for another that actor can hold." },
 	{ "game.randomizer_pool", _config_string, "\"any\"", "HALO_RANDOMIZER_POOL", _environment_value, _platform_all,
 		"The randomizer screen. Which actors a squad may become: \"any\",\n"
-		"\"covenant\", \"flood\", \"human\", or \"one\" (game.randomizer_type)." },
+		"\"covenant\", \"flood\", \"human\", \"one\" (game.randomizer_type), or\n"
+		"\"tag_injector\": the Tag Injector profile's actor variants alone (with a\n"
+		"profile played: game.randomizer_tag_profile; else \"any\")." },
 	{ "game.randomizer_type", _config_string, "\"grunt\"", "HALO_RANDOMIZER_TYPE", _environment_value, _platform_all,
 		"The randomizer screen, when the pool is \"one\": \"grunt\", \"elite\",\n"
 		"\"jackal\", \"hunter\", \"flood_combat\", \"flood_carrier\", \"marine\",\n"
-		"\"engineer\" or \"sentinel\"." },
+		"\"engineer\", \"sentinel\", or \"tag_injector\": the Tag Injector profile's\n"
+		"actor variants of the custom type game.randomizer_custom_type." },
+	{ "game.randomizer_custom_type", _config_string, "\"\"", "HALO_RANDOMIZER_CUSTOM_TYPE", _environment_value,
+		_platform_all,
+		"The randomizer screen, when the one type is \"tag_injector\": the custom\n"
+		"type (a tag's custom_type, else the last part of its path, in the Tag\n"
+		"Injector) whose actor variants the pool is." },
 	{ "game.randomizer_grunt_rank", _config_string, "\"any\"", "HALO_RANDOMIZER_GRUNT_RANK", _environment_value, _platform_all,
 		"The randomizer screen, when the one type is \"grunt\": \"any\", \"minor\",\n"
 		"\"major\" or \"specops\"." },
@@ -562,13 +570,19 @@ static const struct config_setting config_settings[] =
 		"rifle, needler), \"power\" (shotgun, sniper rifle, rocket launcher, and\n"
 		"the flamethrower with game.randomizer_crazy_flamethrower) or \"one\"\n"
 		"(game.randomizer_pickup_type). A weapon the level has not got is taken\n"
-		"from another campaign level." },
+		"from another campaign level. \"tag_injector\": the Tag Injector profile's\n"
+		"weapons alone (with a profile played; else \"any\")." },
 	{ "game.randomizer_pickup_type", _config_string, "\"pistol\"", "HALO_RANDOMIZER_PICKUP_TYPE", _environment_value,
 		_platform_all,
 		"The randomizer screen, when the pickup pool is \"one\": \"pistol\",\n"
 		"\"assault_rifle\", \"shotgun\", \"sniper_rifle\", \"rocket_launcher\",\n"
 		"\"flamethrower\" (with game.randomizer_crazy_flamethrower), \"plasma_pistol\",\n"
-		"\"plasma_rifle\" or \"needler\"." },
+		"\"plasma_rifle\", \"needler\", or \"tag_injector\": the Tag Injector\n"
+		"profile's weapons of the custom type game.randomizer_pickup_custom." },
+	{ "game.randomizer_pickup_custom", _config_string, "\"\"", "HALO_RANDOMIZER_PICKUP_CUSTOM", _environment_value,
+		_platform_all,
+		"The randomizer screen, when the pickup type is \"tag_injector\": the\n"
+		"custom type of the Tag Injector profile's weapons a pickup may become." },
 	{ "game.randomizer_weapon_pool", _config_string, "\"any\"", "HALO_RANDOMIZER_WEAPON_POOL", _environment_value, _platform_all,
 		"The randomizer screen, with game.randomizer_enemy_weapons. Which weapons\n"
 		"an actor may be given, among those it has the animations to hold: the\n"
@@ -579,6 +593,11 @@ static const struct config_setting config_settings[] =
 		_platform_all,
 		"The randomizer screen, when the enemy weapon pool is \"one\": a choice\n"
 		"of game.randomizer_pickup_type, \"fuel_rod\" or \"energy_sword\"." },
+	{ "game.randomizer_weapon_custom", _config_string, "\"\"", "HALO_RANDOMIZER_WEAPON_CUSTOM", _environment_value,
+		_platform_all,
+		"The randomizer screen, when the enemy weapon type is \"tag_injector\":\n"
+		"the custom type of the Tag Injector profile's weapons an actor may be\n"
+		"given." },
 	{ "game.randomizer_crazy", _config_boolean, "false", "HALO_RANDOMIZER_CRAZY", _environment_value, _platform_all,
 		"Settings > Gameplay > Randomizer's Go Crazy. true: the parts of it on\n"
 		"(game.randomizer_crazy_weapons, _enemies, _flamethrower), and as many\n"
@@ -608,13 +627,14 @@ static const struct config_setting config_settings[] =
 		"infection forms the enemy pool swaps for other actors, a percentage\n"
 		"(10 to 100, in tens): the squad's first, then evenly; the rest are not\n"
 		"placed. Without Go Crazy, one in three." },
-	{ "game.randomizer_crazy_custom_tags", _config_boolean, "false", "HALO_RANDOMIZER_CRAZY_CUSTOM_TAGS",
-		_environment_value, _platform_all,
-		"Go Crazy's, with game.randomizer_crazy and game.tag_injection. true: a\n"
-		"level played alone (not a network game, nor a challenge) is given the\n"
-		"tags of the Tag Injector's profile (game.tag_injection_profile), and its\n"
-		"weapons and actor variants join every enemy and weapon pool but those\n"
-		"of one type." },
+	{ "game.randomizer_tag_profile", _config_string, "\"\"", "HALO_RANDOMIZER_TAG_PROFILE", _environment_value,
+		_platform_all,
+		"The Tag Injector's profile the randomizer plays, of more than one: its\n"
+		"folder's name, or \"\" for none. Chosen on the screen before the\n"
+		"randomizer's, with game.tag_injection on (one profile alone is played\n"
+		"without it). A level played alone (not a network game, nor a challenge)\n"
+		"is given its tags on, which join the pools their settings name, and the\n"
+		"TAG INJECTOR pools and types." },
 	{ "game.randomizer_profile_1", _config_string, "\"\"", "HALO_RANDOMIZER_PROFILE_1", _environment_value, _platform_all,
 		"The randomizer screen's saved setups (Save, then Load), one a setting:\n"
 		"a name, then the screen's settings, separated by semicolons. Written by\n"
@@ -701,15 +721,14 @@ static const struct config_setting config_settings[] =
 		"as the game's own maps' are before they run; false refuses them\n"
 		"(docs/custom_edition_caches.md)." },
 	{ "game.tag_injection", _config_boolean, "false", "HALO_TAG_INJECTION", _environment_value, _platform_all,
-		"Settings > Gameplay > Tag Injector. true: the randomizer's Go Crazy can\n"
-		"add the tags of a profile (game.tag_injection_profile) to a campaign\n"
-		"level played alone, with game.randomizer_crazy_custom_tags: weapons and\n"
-		"actor variants taken out of Custom Edition maps (docs/tag_injector.md)." },
+		"Settings > Gameplay > Tag Injector. true: the randomizer can add the\n"
+		"tags of a profile (game.randomizer_tag_profile) to a campaign level\n"
+		"played alone: weapons and actor variants taken out of Custom Edition\n"
+		"maps (docs/tag_injector.md)." },
 	{ "game.tag_injection_profile", _config_string, "\"\"", "HALO_TAG_INJECTION_PROFILE", _environment_value,
 		_platform_all,
-		"The Tag Injector's profile Go Crazy plays, and the menu adds tags to:\n"
-		"its folder's name in the data root's tag_injector folder. Written by\n"
-		"the menu." },
+		"The Tag Injector's profile the menu's maps add tags to: its folder's\n"
+		"name in the data root's tag_injector folder. Written by the menu." },
 	{ "bots.count", _config_integer, "0", "HALO_BOTS", _environment_value, _platform_all,
 		"Computer players (bots) in a local (split screen) Slayer game: 0 to 15\n"
 		"join its lobby with the players, as far as the game has room. Not in\n"

@@ -123,7 +123,7 @@
 		<string text="The Master Chief Collection's skulls, and\nhow they are found."/>
 		<string text="The campaign's score, its time and par times,\nand its medals."/>
 		<string text="Online leaderboards, the daily challenge, and\nthe community server."/>
-		<string text="Weapons and AI of Custom Edition maps, in\nprofiles the randomizer's Go Crazy can add."/>
+		<string text="Weapons and AI of Custom Edition maps, in\nprofiles the randomizer can add."/>
 	</strings>
 	<widget name="main_menu/settings_select/player_setup/player_profile_edit/gameplay_profile_item" type="text" left="51" top="313" width="232" height="32" bitmap="bitmaps/list_item_bkd" text="GAMEPLAY" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="5">
 		<on event="a" open="main_menu/settings_select/player_setup/player_profile_edit/gameplay/gameplay_settings_screen"/>

@@ -485,7 +485,7 @@ SCREENS["gameplay"] = {
         ("COMMUNITY", "gameplay/community",
          "Online leaderboards, the daily challenge, and\nthe community server."),
         ("TAG INJECTOR", "gameplay/tag_injector",
-         "Weapons and AI of Custom Edition maps, in\nprofiles the randomizer's Go Crazy can add."),
+         "Weapons and AI of Custom Edition maps, in\nprofiles the randomizer can add."),
     ],
 }
 SCREENS["gameplay/ragdolls"] = {
@@ -568,11 +568,6 @@ SCREENS["gameplay/randomizer"] = {
         ("FLOOD PODS SWAPPED:", "game.randomizer_crazy_pods",
          [(f"{percent}%", str(percent)) for percent in range(10, 101, 10)],
          "How many flood infection pods become other\nenemies. The rest are left out.",
-         None),
-        # (dimmed unless Gameplay > Tag Injector plays a profile of tags:
-        # menu_functions.c's gameplay_screen_update)
-        ("CUSTOM TAGS:", "game.randomizer_crazy_custom_tags", [("OFF", "false"), ("ON", "true")],
-         "The Tag Injector's profile's weapons and AI join\nthe pools. Played alone only.",
          None),
     ],
     "inputs": ["gameplay screen update"],
@@ -1029,25 +1024,35 @@ RANDOMIZER_WEAPONS = [("PISTOL", "pistol"), ("ASSAULT RIFLE", "assault_rifle"), 
                       ("SNIPER RIFLE", "sniper_rifle"), ("ROCKETS", "rocket_launcher"),
                       ("FLAMETHROWER", "flamethrower"), ("PLASMA PISTOL", "plasma_pistol"),
                       ("PLASMA RIFLE", "plasma_rifle"), ("NEEDLER", "needler")]
+# (the choices of the Tag Injector's profile: menu_functions.c's
+# randomizer_screen_update passes over them unless a profile is played, and
+# one of its tags of their kind is on)
+TAG_INJECTOR_CHOICE = ("TAG INJECTOR", "tag_injector")
 RANDOMIZER_WEAPON_POOLS = [("ANY", "any"), ("COVENANT", "covenant"), ("HUMAN", "human"),
                            ("PRECISION", "precision"), ("AUTOMATIC", "automatic"), ("POWER", "power"),
-                           ("ONE TYPE", "one")]
+                           ("ONE TYPE", "one"), TAG_INJECTOR_CHOICE]
 # the randomizer screen's rows, top to bottom. menu_functions.c's
 # randomizer_rows_show shows a row only while what it depends on is chosen
-# (a pool's type with ONE TYPE, a rank with its type) and closes the gaps
+# (a pool's type with ONE TYPE, a rank with its type, a custom type with
+# TAG INJECTOR) and closes the gaps. A row of no choices (None) is a custom
+# type's: the Tag Injector profile's, which menu_functions.c shows and steps
+# through (_randomizer_value_row)
 RANDOMIZER_ROWS = [
     ("enemies", "ENEMIES:", "game.randomizer_enemies", OFF_ON,
      "On: a squad's actors are taken from the pool."),
     ("allies", "ALLIES TOO:", "game.randomizer_allies", OFF_ON,
      "On: the marines beside you are swapped too,\\nonce out of any vehicle. Off: they stay."),
     ("pool", "ENEMY POOL:", "game.randomizer_pool",
-     [("ANY", "any"), ("COVENANT", "covenant"), ("FLOOD", "flood"), ("HUMAN", "human"), ("ONE TYPE", "one")],
-     "Which actors a squad may become."),
+     [("ANY", "any"), ("COVENANT", "covenant"), ("FLOOD", "flood"), ("HUMAN", "human"), ("ONE TYPE", "one"),
+      TAG_INJECTOR_CHOICE],
+     "Which actors a squad may become. Tag Injector:\\nthe profile's AI alone."),
     ("type", "ENEMY TYPE:", "game.randomizer_type",
      [("GRUNT", "grunt"), ("ELITE", "elite"), ("JACKAL", "jackal"), ("HUNTER", "hunter"),
       ("COMBAT FORM", "flood_combat"), ("CARRIER FORM", "flood_carrier"), ("MARINE", "marine"),
-      ("ENGINEER", "engineer"), ("SENTINEL", "sentinel")],
+      ("ENGINEER", "engineer"), ("SENTINEL", "sentinel"), TAG_INJECTOR_CHOICE],
      "The only actor a squad may become."),
+    ("custom_type", "CUSTOM TYPE:", "game.randomizer_custom_type", None,
+     "The Tag Injector profile's AI of this type alone.\\nLeft and right choose another."),
     ("grunt_rank", "RANK:", "game.randomizer_grunt_rank",
      [("ANY", "any"), ("MINOR", "minor"), ("MAJOR", "major"), ("SPEC OPS", "specops")],
      "Which grunts."),
@@ -1065,16 +1070,43 @@ RANDOMIZER_ROWS = [
      "On: a weapon lying in the level is swapped.\\nOne a script names stays."),
     ("pickup_pool", "PICKUP POOL:", "game.randomizer_pickup_pool", RANDOMIZER_WEAPON_POOLS,
      "Which weapons a pickup may become. A weapon\\nthe level lacks comes from another level."),
-    ("pickup_type", "PICKUP TYPE:", "game.randomizer_pickup_type", RANDOMIZER_WEAPONS,
+    ("pickup_type", "PICKUP TYPE:", "game.randomizer_pickup_type", RANDOMIZER_WEAPONS + [TAG_INJECTOR_CHOICE],
      "The only weapon a pickup may become."),
+    ("pickup_custom", "CUSTOM TYPE:", "game.randomizer_pickup_custom", None,
+     "The Tag Injector profile's weapons of this type\\nalone. Left and right choose another."),
     ("enemy_weapons", "ENEMY WEAPONS:", "game.randomizer_enemy_weapons", OFF_ON,
      "On: an actor's weapon is swapped for one it\\ncan hold; one that can hold none keeps its own."),
     ("weapon_pool", "WEAPON POOL:", "game.randomizer_weapon_pool", RANDOMIZER_WEAPON_POOLS,
      "Which weapons an actor may be given. An actor\\nthat can hold none of them keeps its own."),
     ("weapon_type", "WEAPON TYPE:", "game.randomizer_weapon_type",
-     RANDOMIZER_WEAPONS + [("FUEL ROD", "fuel_rod"), ("ENERGY SWORD", "energy_sword")],
+     RANDOMIZER_WEAPONS + [("FUEL ROD", "fuel_rod"), ("ENERGY SWORD", "energy_sword"), TAG_INJECTOR_CHOICE],
      "Only enemies that can hold it get it; others\\nkeep theirs (Go Crazy lends them the hands)."),
+    ("weapon_custom", "CUSTOM TYPE:", "game.randomizer_weapon_custom", None,
+     "The Tag Injector profile's weapons of this type\\nalone, for those that can hold them."),
 ]
+
+
+def _randomizer_value_row(base: str, key: str, index: int) -> list:
+    """a custom type's row of the randomizer screen: its label, and the value
+    menu_functions.c shows (the Tag Injector profile's custom types, which no
+    spinner's choices could be: they are the profile's), where a spinner's
+    is; left, right and A step through them ("randomizer custom left" and
+    "right")"""
+    return _widget(f"{base}/op_{key}", [("width", 512), ("height", 28), ("flags", "pass_unhandled_to_focused_child"),
+                                        ("bitmap", "bitmaps/option_bkds"), ("color", "#FF2896FF")],
+                   ['<on event="left" run="randomizer custom left"/>',
+                    '<on event="right" run="randomizer custom right"/>',
+                    '<on event="a" run="randomizer custom right"/>',
+                    '<on event="left_mouse" run="mouse emit accept event"/>',
+                    f'<child widget="{base}/{key}_label"/>',
+                    f'<child{attributes([("widget", f"{base}/{key}_value"), ("x", 259), ("y", 3)])}/>']) + \
+        _widget(f"{base}/{key}_label",
+                [("type", "text"), ("controller", 1), ("width", 300), ("height", 22),
+                 ("string_list", f"{base}/labels"), ("string_index", index), ("font", "ui\\large_ui"),
+                 ("color", "#FF2896FF"), ("text_x", 13), ("text_y", 4)], []) + \
+        _widget(f"{base}/{key}_value",
+                [("type", "text"), ("controller", 1), ("width", 236), ("height", 20), ("font", "ui\\large_ui"),
+                 ("color", "#FF2896FF"), ("align", "center"), ("text_y", 4), ("text_flags", "no_focus_test")], [])
 
 
 def _randomizer_screen() -> list:
@@ -1100,7 +1132,10 @@ def _randomizer_screen() -> list:
     for index, (key, label, setting, choices, _) in enumerate(RANDOMIZER_ROWS):
         # (each where it is with every row shown; the screen moves them up)
         children.append(f'<child{attributes([("widget", f"{base}/op_{key}"), ("x", 54), ("y", 70 + index * 26)])}/>')
-        extra += _randomizer_spinner(base, key, index, setting, choices)
+        if choices is None:
+            extra += _randomizer_value_row(base, key, index)
+        else:
+            extra += _randomizer_spinner(base, key, index, setting, choices)
         labels.append(label)
     children.append(f'<child{attributes([("widget", f"{base}/button_bar"), ("y", 414)])}/>')
     lines += _widget(f"{base}/options_menu",
@@ -1136,6 +1171,7 @@ def _randomizer_screen() -> list:
                       ["Save keeps this setup under a name.\\nLoad chooses one saved before."] +
                       [help_text for *_, help_text in RANDOMIZER_ROWS])
     lines += _randomizer_profiles_screen(base)
+    lines += _randomizer_tag_profiles_screen(base)
     return lines
 
 
@@ -1345,13 +1381,65 @@ def _randomizer_profiles_screen(base: str) -> list:
     return lines
 
 
+# the screen before the randomizer's (menu_functions.c's difficulty_start),
+# with the Tag Injector on and more than one profile: which profile's tags
+# the randomizer plays, or none (game.randomizer_tag_profile). Its rows a
+# list at a time ("randomizer tag profiles update" moves it on at its ends)
+RANDOMIZER_TAG_PROFILE_ROWS = 9
+
+
+def _randomizer_tag_profiles_screen(base: str) -> list:
+    """the profiles of tags, NONE first: A one to play it, then the
+    randomizer's screen ("randomizer tag profile choose"); B back to the
+    difficulty"""
+    lines = _widget(f"{base}/tag_profile_screen",
+                    [("width", 640), ("height", 480), ("flags", "pass_unhandled_to_focused_child"),
+                     ("bitmap", "bitmaps/gradient")],
+                    ['<on event="b" back="true"/>', '<on event="back" back="true"/>',
+                     f'<child widget="{base}/header_randomizer"/>',
+                     f'<child widget="{base}/tag_profile_title"/>',
+                     f'<child widget="{base}/tag_profile_menu"/>'])
+    lines += _widget(f"{base}/tag_profile_title",
+                     [("type", "text"), ("controller", 1), ("left", 68), ("top", 74), ("width", 504), ("height", 22),
+                      ("text", "TAG INJECTOR PROFILE"), ("font", "ui\\large_ui"), ("color", "#FFFFFFFF")], [])
+    lines += _widget(f"{base}/tag_profile_help",
+                     [("type", "text"), ("controller", 1), ("left", 68), ("top", 388), ("width", 482), ("height", 24),
+                      ("font", "ui\\small_ui"), ("color", "#FFFFFFFF")], [])
+    children = ['<data input="randomizer tag profiles update"/>']
+    extra = []
+    for index in range(RANDOMIZER_TAG_PROFILE_ROWS):
+        children.append(f'<child{attributes([("widget", f"{base}/tag_profile_{index}"), ("x", 54), ("y", 100 + index * 31)])}/>')
+        extra += _widget(f"{base}/tag_profile_{index}",
+                         [("type", "text"), ("width", 512), ("height", 28), ("bitmap", "bitmaps/option_bkds"),
+                          ("font", "ui\\large_ui"), ("color", "#FF2896FF"), ("text_x", 13), ("text_y", 4)],
+                         ['<on event="a" run="randomizer tag profile choose"/>',
+                          '<on event="start" run="randomizer tag profile choose"/>',
+                          '<on event="left_mouse" run="mouse emit accept event"/>'])
+    children.append(f'<child{attributes([("widget", f"{base}/tag_profile_button_bar"), ("y", 414)])}/>')
+    lines += _widget(f"{base}/tag_profile_menu",
+                     [("type", "column_list"), ("width", 640), ("height", 480),
+                      ("flags", "pass_unhandled_to_focused_child up_down_tabs_children"),
+                      ("description", f"{base}/tag_profile_help")], children)
+    lines += _widget(f"{base}/tag_profile_button_bar",
+                     [("type", "column_list"), ("width", 640), ("height", 28),
+                      ("flags", "pass_unhandled_to_focused_child left_right_tabs_items")],
+                     ['<child widget="common_button_cancel" x="510" y="1"/>'])
+    lines += extra
+    return lines
+
+
 # the Tag Injector (port/linux/game/tag_injector.c, docs/tag_injector.md):
 # Gameplay's TAG INJECTOR, a screen laid out as the mods' is (_mods), its rows
-# a list at a time: whether Go Crazy plays a profile's tags, the profile, and
-# the Custom Edition maps; a map's kinds of tags; a kind's tags, each added to
-# the profile or taken out by A. B (and BACK) goes back up a list, NEW
-# PROFILE asks for a name, DELETE PROFILE (twice) deletes the profile shown
-# (menu_functions.c's "port tags" functions)
+# a list at a time. The first: TAG INJECTION (on or off), TAG PROFILES and
+# MAPS. TAG PROFILES lists the profiles, each with its size; A on one lists
+# its tags (where each came from, and its size), left and right turning one
+# on or off, A opening its settings (on, faction, type or class, custom type,
+# taking it out). MAPS: the profile tags are added to, then CUSTOM
+# SINGLEPLAYER and CUSTOM MULTIPLAYER, each its folders of custom_maps (and
+# its loose maps), a folder its maps; a map's kinds of tags; a kind's tags,
+# each added to the profile or taken out by A. B (and BACK) goes back up a
+# list, NEW PROFILE asks for a name, DELETE PROFILE (twice) deletes the
+# profile chosen (menu_functions.c's "port tags" functions)
 TAG_INJECTOR = f"{PE}/gameplay/tag_injector"
 TAG_INJECTOR_ROWS = MOD_ROWS
 # the screens of a category that are no settings screen (_setting_screen),
@@ -1361,9 +1449,10 @@ CUSTOM_SCREENS = {"gameplay/tag_injector": {"screen": "tag_injector_screen"}}
 
 def _tag_injector_screen() -> list:
     """Gameplay's TAG INJECTOR: on the left two thirds the rows of the list
-    shown, a row each with its name and state (ON, the profile, a map's
-    folder, a kind's tags, ADDED); on the right third, in the lobby's frame,
-    the row chosen's details, the word of the last thing done above them"""
+    shown, a row each with its name and state (ON, a profile's size, a tag's,
+    a setting's value, a folder's maps, a kind's tags, ADDED); on the right
+    third, in the lobby's frame, the row chosen's details, the word of the
+    last thing done above them"""
     base = TAG_INJECTOR
     back = ['<on event="b" run="port tags back"/>', '<on event="back" run="port tags back"/>']
     lines = _widget(f"{base}/tag_injector_screen", [("width", 640), ("height", 480),

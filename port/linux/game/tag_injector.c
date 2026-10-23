@@ -5,8 +5,8 @@ The tag injector (tag_injector.h): Settings > Gameplay > Tag Injector lists
 the Custom Edition maps, a map's weapons, AI, equipment, vehicles, bipeds
 and scenery, and takes a weapon or an actor variant out of it, with every
 tag it names, as a tag bundle (tag_bundle.h) into a profile
-(port/linux/src/port_tag_profiles.c), from which the randomizer's Go Crazy
-adds it to a campaign level and its pools (randomizer.c).
+(port/linux/src/port_tag_profiles.c), from which the randomizer adds it to
+a campaign level and its pools (randomizer.c).
 
 A map's tags are taken out as the game would play them: loaded, converted
 and checked by its loader (custom_edition_cache_bundle_open), its sounds
@@ -122,6 +122,8 @@ struct injected_bundle
 	long *datums;
 	/* left out (its models could not be made, or its bitmaps drawn) */
 	boolean refused;
+	/* the profile's tag it is */
+	long profile_tag;
 };
 
 /* ---------- globals */
@@ -145,6 +147,8 @@ char const *port_tag_profiles_tag_map(long profile, long tag);
 unsigned long port_tag_profiles_tag_group(long profile, long tag);
 char const *port_tag_profiles_tag_name(long profile, long tag);
 long port_tag_profiles_tag_find(long profile, unsigned long group, char const *name);
+int port_tag_profiles_tag_enabled(long profile, long tag);
+char const *port_tag_profiles_tag_option(long profile, long tag, char const *key);
 int port_tag_profiles_tag_add(long profile, char const *map, unsigned long group, char const *name,
 	void const *bundle, unsigned long size);
 long port_tag_profiles_bundle_open(long profile, long tag, unsigned long *size);
@@ -727,6 +731,22 @@ char const *tag_injector_map_folder(
 	return "";
 }
 
+short tag_injector_map_of(
+	boolean campaign,
+	short index)
+{
+	short display_index = custom_edition_maps_display_index_of(campaign, index);
+	short map;
+
+	for (map = 0; display_index != NONE && map < tag_injector_menu.map_count; map++)
+	{
+		if (tag_injector_menu.maps[map].display_index == display_index && tag_injector_menu.maps[map].campaign == campaign)
+			return map;
+	}
+
+	return NONE;
+}
+
 boolean tag_injector_map_campaign(
 	short map)
 {
@@ -991,14 +1011,101 @@ long tag_injector_profile_playable(
 	if (!config_boolean("game.tag_injection"))
 		return NONE;
 	port_tag_profiles_scan();
-	profile = port_tag_profiles_find(config_string("game.tag_injection_profile"));
+	/* (one profile is played without being chosen: the randomizer's profile
+	screen is for choosing among more) */
+	if (port_tag_profiles_count() == 1)
+		profile = 0;
+	else
+		profile = port_tag_profiles_find(config_string("game.randomizer_tag_profile"));
 
-	return profile >= 0 && port_tag_profiles_tag_count(profile) > 0 ? profile : NONE;
+	return profile >= 0 && tag_injector_profile_enabled_count(profile, 0) > 0 ? profile : NONE;
+}
+
+long tag_injector_profile_enabled_count(
+	long profile,
+	unsigned long group_tag)
+{
+	long count = port_tag_profiles_tag_count(profile);
+	long enabled = 0;
+	long tag;
+
+	for (tag = 0; tag < count; tag++)
+	{
+		if (port_tag_profiles_tag_enabled(profile, tag) &&
+			(!group_tag || port_tag_profiles_tag_group(profile, tag) == group_tag))
+			enabled++;
+	}
+
+	return enabled;
+}
+
+char const *tag_injector_tag_setting(
+	long profile,
+	long tag,
+	char const *key)
+{
+	return port_tag_profiles_tag_option(profile, tag, key);
+}
+
+void tag_injector_tag_custom_type(
+	long profile,
+	long tag,
+	char *name,
+	long name_size)
+{
+	char const *custom = port_tag_profiles_tag_option(profile, tag, "custom_type");
+	char const *path = port_tag_profiles_tag_name(profile, tag);
+	char const *leaf = strrchr(path, '\\');
+	long index;
+
+	if (name_size <= 0)
+		return;
+	snprintf(name, (size_t)name_size, "%s", custom[0] ? custom : leaf ? leaf + 1 : path);
+	/* (in capitals, as the menus show it, and the randomizer compares it) */
+	for (index = 0; name[index]; index++)
+	{
+		if (name[index] >= 'a' && name[index] <= 'z')
+			name[index] = (char)(name[index] - 'a' + 'A');
+	}
+}
+
+long tag_injector_custom_types(
+	long profile,
+	unsigned long group_tag,
+	char (*names)[TAG_INJECTOR_CUSTOM_TYPE_LENGTH],
+	long capacity)
+{
+	long count = port_tag_profiles_tag_count(profile);
+	long found = 0;
+	long tag;
+
+	for (tag = 0; tag < count && found < capacity; tag++)
+	{
+		char name[TAG_INJECTOR_CUSTOM_TYPE_LENGTH];
+		long index;
+
+		if (!port_tag_profiles_tag_enabled(profile, tag) || port_tag_profiles_tag_group(profile, tag) != group_tag)
+			continue;
+		tag_injector_tag_custom_type(profile, tag, name, sizeof(name));
+		for (index = 0; index < found && strcmp(names[index], name); index++)
+		{
+		}
+		if (index < found)
+			continue;
+		/* (by name, alphabetically) */
+		for (index = found; index > 0 && strcmp(names[index - 1], name) > 0; index--)
+			memcpy(names[index], names[index - 1], sizeof(names[0]));
+		memcpy(names[index], name, sizeof(names[0]));
+		found++;
+	}
+
+	return found;
 }
 
 long tag_injector_tags_load(
 	long profile,
 	long *roots,
+	long *root_tags,
 	long root_capacity)
 {
 	struct injector_tag_instance *instances;
@@ -1022,8 +1129,12 @@ long tag_injector_tags_load(
 	{
 		struct injected_bundle *bundle = &tag_injector_level.bundles[tag_injector_level.bundle_count];
 
+		/* (one turned off stays in the profile, and is not played) */
+		if (!port_tag_profiles_tag_enabled(profile, index))
+			continue;
 		/* (counted, so that what it holds is let go with the rest) */
 		tag_injector_level.bundle_count++;
+		bundle->profile_tag = index;
 		if (!level_bundle_read(profile, index, bundle, &total))
 		{
 			bundle->refused = TRUE;
@@ -1141,7 +1252,10 @@ long tag_injector_tags_load(
 		}
 		/* (the tag it was taken out for: the pools' weapon or actor) */
 		if (!bundle->refused && bundle->loaded.tag_count > 0 && bundle->datums[0] != NONE && root_count < root_capacity)
-			roots[root_count++] = bundle->datums[0];
+		{
+			roots[root_count] = bundle->datums[0];
+			root_tags[root_count++] = bundle->profile_tag;
+		}
 	}
 	/* (the channels of every bitmap Halo PC keeps elsewhere, the bundles'
 	among the level's, as a mod's bitmaps are found: mod_bitmaps.c) */

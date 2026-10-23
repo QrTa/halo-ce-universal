@@ -19,6 +19,15 @@ the tag bundles of its tags (port/linux/game/tag_bundle.h), one a file:
 	group = "weap"
 	tag = "cmt\\weapons\\covenant\\carbine\\carbine"
 	file = "carbine.weap.tagbundle"
+	enabled = true
+	faction = "covenant"
+	class = "automatic"
+	custom_type = "Carbine"
+
+A tag's enabled, and its settings (port_tag_profiles.h's
+port_tag_profiles_tag_option), may be left out: it is on, and its settings
+"" (the randomizer finds them by its tag's name). A build before them reads
+the profile as it did, without them.
 
 A profile holds its bundles, rather than naming the maps they come from:
 it is played without those maps, and can be given to another machine
@@ -57,6 +66,7 @@ is listed, and left out where it is played.
 #define MAXIMUM_MAP_NAME_LENGTH 64
 #define MAXIMUM_FILE_NAME_LENGTH 128
 #define MAXIMUM_PATH_LENGTH 1024
+#define MAXIMUM_OPTION_LENGTH 32
 /* the most a character takes in profile.toml (\u00XX) */
 #define TOML_CHARACTER_LENGTH 6
 /* the most bundles open at once (a level's), and what their reads go
@@ -67,12 +77,20 @@ through on their way into the Xbox's memory, which the renderer watches
 
 /* ---------- structures */
 
+/* a tag's settings, by their keys in profile.toml (port_tag_profiles.h) */
+static const char *const tag_option_keys[] = { "faction", "type", "class", "custom_type" };
+#define TAG_OPTION_COUNT (sizeof(tag_option_keys) / sizeof(tag_option_keys[0]))
+
 struct tag_profile_tag
 {
 	char map[MAXIMUM_MAP_NAME_LENGTH];
 	unsigned long group;
 	char name[MAXIMUM_TAG_NAME_LENGTH];
 	char file[MAXIMUM_FILE_NAME_LENGTH];
+	int enabled;
+	char options[TAG_OPTION_COUNT][MAXIMUM_OPTION_LENGTH];
+	/* its bundle's bytes, as the scan found it (0: missing) */
+	unsigned long size;
 };
 
 struct tag_profile
@@ -218,6 +236,43 @@ static const char *toml_text(toml_datum_t table, const char *key, const char *pa
 	return value.u.s;
 }
 
+/* a tag's setting's index, by its key, or -1 */
+static int tag_option_index(const char *key)
+{
+	size_t index;
+
+	for (index = 0; key && index < TAG_OPTION_COUNT; index++)
+	{
+		if (!strcmp(tag_option_keys[index], key))
+			return (int)index;
+	}
+	return -1;
+}
+
+/* a setting's value as it is kept: its letters, digits, spaces, - and _
+(a custom type's name is typed), lower case but for custom_type's; 0 if it
+is too long */
+static int tag_option_clean(int option, const char *value, char *clean)
+{
+	size_t length = 0;
+
+	for (; value && *value; value++)
+	{
+		char character = *value;
+
+		if (!((character >= 'A' && character <= 'Z') || (character >= 'a' && character <= 'z') ||
+			(character >= '0' && character <= '9') || character == ' ' || character == '_' || character == '-'))
+			continue;
+		if (length + 1 >= MAXIMUM_OPTION_LENGTH)
+			return 0;
+		clean[length++] = strcmp(tag_option_keys[option], "custom_type") ? lower(character) : character;
+	}
+	while (length > 0 && clean[length - 1] == ' ')
+		length--;
+	clean[length] = 0;
+	return 1;
+}
+
 /* writes `size` bytes to the file `path`, whole: to a file beside it first,
 which then takes its place (so that a write cut short leaves the file as it
 was) */
@@ -311,6 +366,10 @@ static int profile_read(struct tag_profile *profile, const char *root, const cha
 			const char *group;
 			const char *name;
 			const char *file;
+			toml_datum_t enabled;
+			char bundle_path[MAXIMUM_PATH_LENGTH];
+			struct posix_file_information information;
+			size_t option;
 
 			if (entry.type != TOML_TABLE)
 			{
@@ -338,6 +397,22 @@ static int profile_read(struct tag_profile *profile, const char *root, const cha
 					entry.lineno, file);
 				continue;
 			}
+			enabled = toml_get(entry, "enabled");
+			tag->enabled = enabled.type != TOML_BOOLEAN || enabled.u.boolean;
+			for (option = 0; option < TAG_OPTION_COUNT; option++)
+			{
+				const char *value = toml_text(entry, tag_option_keys[option], path);
+
+				if (value && !tag_option_clean((int)option, value, tag->options[option]))
+				{
+					platform_log("tag injector: %s line %d: %s is too long: it is left out", path, entry.lineno,
+						tag_option_keys[option]);
+					tag->options[option][0] = 0;
+				}
+			}
+			snprintf(bundle_path, sizeof(bundle_path), "%s/%s/%s", root, folder, tag->file);
+			if (posix_stat(bundle_path, &information) == 0 && !(information.flags & _posix_file_is_directory))
+				tag->size = information.size_high ? 0xFFFFFFFFUL : information.size_low;
 			profile->tag_count++;
 		}
 	}
@@ -352,8 +427,8 @@ static int profile_read(struct tag_profile *profile, const char *root, const cha
 /* writes a profile's profile.toml; 0 if it cannot be */
 static int profile_write(const struct tag_profile *profile)
 {
-	size_t capacity = 256 + (size_t)profile->tag_count * (MAXIMUM_TAG_NAME_LENGTH + MAXIMUM_MAP_NAME_LENGTH +
-		MAXIMUM_FILE_NAME_LENGTH) * TOML_CHARACTER_LENGTH;
+	size_t capacity = 256 + (size_t)profile->tag_count * (256 + (MAXIMUM_TAG_NAME_LENGTH + MAXIMUM_MAP_NAME_LENGTH +
+		MAXIMUM_FILE_NAME_LENGTH + TAG_OPTION_COUNT * MAXIMUM_OPTION_LENGTH) * TOML_CHARACTER_LENGTH);
 	char path[MAXIMUM_PATH_LENGTH];
 	char *text = malloc(capacity);
 	long index;
@@ -368,6 +443,7 @@ static int profile_write(const struct tag_profile *profile)
 	{
 		const struct tag_profile_tag *tag = &profile->tags[index];
 		char group[5];
+		size_t option;
 
 		group_text(tag->group, group);
 		snprintf(text + strlen(text), capacity - strlen(text), "\n[[tags]]\nmap = \"");
@@ -378,7 +454,15 @@ static int profile_write(const struct tag_profile *profile)
 		toml_string_append(text, capacity, tag->name);
 		snprintf(text + strlen(text), capacity - strlen(text), "\"\nfile = \"");
 		toml_string_append(text, capacity, tag->file);
-		snprintf(text + strlen(text), capacity - strlen(text), "\"\n");
+		snprintf(text + strlen(text), capacity - strlen(text), "\"\nenabled = %s\n", tag->enabled ? "true" : "false");
+		for (option = 0; option < TAG_OPTION_COUNT; option++)
+		{
+			if (!tag->options[option][0])
+				continue;
+			snprintf(text + strlen(text), capacity - strlen(text), "%s = \"", tag_option_keys[option]);
+			toml_string_append(text, capacity, tag->options[option]);
+			snprintf(text + strlen(text), capacity - strlen(text), "\"\n");
+		}
 	}
 	profile_path(profile, "profile.toml", path, sizeof(path));
 	written = file_write(path, text, (unsigned long)strlen(text));
@@ -586,6 +670,66 @@ const char *port_tag_profiles_tag_name(long profile, long tag)
 	return tag_get(profile, tag) ? tag_get(profile, tag)->name : "";
 }
 
+unsigned long port_tag_profiles_tag_size(long profile, long tag)
+{
+	return tag_get(profile, tag) ? tag_get(profile, tag)->size : 0;
+}
+
+unsigned long port_tag_profiles_size(long profile)
+{
+	struct tag_profile *found = profile_get(profile);
+	unsigned long total = 0;
+	long index;
+
+	for (index = 0; found && index < found->tag_count; index++)
+		total += found->tags[index].size;
+	return total;
+}
+
+int port_tag_profiles_tag_enabled(long profile, long tag)
+{
+	return tag_get(profile, tag) ? tag_get(profile, tag)->enabled : 0;
+}
+
+int port_tag_profiles_tag_set_enabled(long profile, long tag, int enabled)
+{
+	struct tag_profile_tag *found = tag_get(profile, tag);
+
+	if (!found)
+		return 0;
+	if (found->enabled == (enabled != 0))
+		return 1;
+	found->enabled = enabled != 0;
+	port_tag_profiles.scans++;
+	platform_log("tag injector: %s of the profile %s is %s", found->name, profile_get(profile)->name,
+		found->enabled ? "on" : "off");
+	return profile_write(profile_get(profile));
+}
+
+const char *port_tag_profiles_tag_option(long profile, long tag, const char *key)
+{
+	int option = tag_option_index(key);
+
+	return tag_get(profile, tag) && option >= 0 ? tag_get(profile, tag)->options[option] : "";
+}
+
+int port_tag_profiles_tag_set_option(long profile, long tag, const char *key, const char *value)
+{
+	struct tag_profile_tag *found = tag_get(profile, tag);
+	int option = tag_option_index(key);
+	char clean[MAXIMUM_OPTION_LENGTH];
+
+	if (!found || option < 0 || !tag_option_clean(option, value, clean))
+		return 0;
+	if (!strcmp(found->options[option], clean))
+		return 1;
+	text_copy(found->options[option], sizeof(found->options[option]), clean);
+	port_tag_profiles.scans++;
+	platform_log("tag injector: %s of the profile %s: %s = \"%s\"", found->name, profile_get(profile)->name, key,
+		clean);
+	return profile_write(profile_get(profile));
+}
+
 long port_tag_profiles_tag_find(long profile, unsigned long group, const char *name)
 {
 	struct tag_profile *found = profile_get(profile);
@@ -622,6 +766,8 @@ int port_tag_profiles_tag_add(long profile, const char *map, unsigned long group
 	text_copy(tag.map, sizeof(tag.map), map);
 	tag.group = group;
 	text_copy(tag.name, sizeof(tag.name), name);
+	tag.enabled = 1;
+	tag.size = size;
 	/* (its file: the last part of its path and its group, numbered when
 	another tag's has that name: carbine.weap.tagbundle) */
 	group_text(group, group_name);
@@ -631,7 +777,6 @@ int port_tag_profiles_tag_add(long profile, const char *map, unsigned long group
 	if (!file_name_clean(base))
 		snprintf(base, sizeof(base), "tag");
 	existing = port_tag_profiles_tag_find(profile, group, name);
-	/* (the tag replaced keeps its file) */
 	for (suffix = 1; existing < 0 && suffix < 1000; suffix++)
 	{
 		if (suffix == 1)
@@ -641,8 +786,13 @@ int port_tag_profiles_tag_add(long profile, const char *map, unsigned long group
 		if (!profile_has_file(found, tag.file))
 			break;
 	}
+	/* (the tag replaced keeps its file, whether it is on, and its settings) */
 	if (existing >= 0)
+	{
 		text_copy(tag.file, sizeof(tag.file), found->tags[existing].file);
+		tag.enabled = found->tags[existing].enabled;
+		memcpy(tag.options, found->tags[existing].options, sizeof(tag.options));
+	}
 	else if (suffix == 1000)
 		return 0;
 	profile_path(found, tag.file, path, sizeof(path));
