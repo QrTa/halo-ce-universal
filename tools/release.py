@@ -11,10 +11,12 @@ GitHub release:
     release/halo-android-<flavor>.apk   what ninja android_apk assembled
     release/halo-android-<flavor>.zip   the same APK, for the app's updater
 
-It builds nothing: run ninja switch, windows, web and android_apk first. The
-zips carry what tools/ci_build.py's dist/ folders carry (its OUTPUTS, and the
-licences and brokers.txt of copy_notices), flat, so that a zip unpacks into
-the game's folder. Android's updater downloads the zip, not the APK, and
+It runs ninja switch, windows, web and android_apk first, so that nothing
+older than build.ninja's build number ships (an up-to-date tree builds
+nothing), and refuses a build.ninja without HALO_BUILD_NUMBER, whose builds
+would never update. The zips carry what tools/ci_build.py's dist/ folders
+carry (its OUTPUTS, and the licences and brokers.txt of copy_notices), flat,
+so that a zip unpacks into the game's folder. Android's updater downloads the zip, not the APK, and
 installs the .apk it finds in it (port/android/.../Updater.java). The
 Switch's is stored, not compressed, as its self-updater reads it while it
 downloads (port/switch/host/host_update.c).
@@ -24,6 +26,7 @@ Each file's date is printed, so that a stale build is seen before it ships.
 import argparse
 import re
 import shutil
+import subprocess
 import sys
 import tempfile
 import time
@@ -34,6 +37,7 @@ from ci_build import APKS, OUTPUTS, ROOT, copy_notices
 
 RELEASE = ROOT / "release"
 SITE = ROOT / "build/web/site"
+TARGETS = ["switch", "windows", "web", "android_apk"]
 
 
 def built_flavor() -> str:
@@ -43,6 +47,16 @@ def built_flavor() -> str:
     except OSError:
         match = None
     return match.group(1) if match else "debug"
+
+
+def built_number() -> int:
+    # (configure.py's HALO_BUILD_NUMBER, which the updaters compare with the
+    # latest release's: 0, and they never look for one)
+    try:
+        match = re.search(r"-DHALO_BUILD_NUMBER=(\d+)", (ROOT / "build.ninja").read_text())
+    except OSError:
+        match = None
+    return int(match.group(1)) if match else 0
 
 
 def describe(path: Path) -> str:
@@ -77,6 +91,17 @@ def main() -> int:
     args = parser.parse_args()
     flavor = args.flavor or built_flavor()
 
+    number = built_number()
+    if number <= 0:
+        print("build.ninja has no build number, so the release's builds would never update: "
+              "HALO_BUILD_NUMBER=<n> python3 configure.py ...", file=sys.stderr)
+        return 1
+    # (what is not built for this number yet; ninja -n cannot say, as Android's
+    # commit stamp runs at every build and is only known unchanged after it)
+    if subprocess.run(["ninja", *TARGETS], cwd=ROOT).returncode != 0:
+        print(f"ninja {' '.join(TARGETS)} failed: no release", file=sys.stderr)
+        return 1
+
     apk = ROOT / APKS["debug"]  # (ninja android_apk's, release or not)
     needed = [ROOT / output for platform in ("switch", "windows") for output in OUTPUTS[platform]]
     needed += [SITE / "index.html", apk]
@@ -90,7 +115,7 @@ def main() -> int:
         shutil.rmtree(RELEASE)
     RELEASE.mkdir()
 
-    print(f"{flavor} release into {RELEASE.relative_to(ROOT)}/")
+    print(f"build {number}, {flavor} release into {RELEASE.relative_to(ROOT)}/")
     zip_port("switch", flavor, zipfile.ZIP_STORED)
     zip_port("windows", flavor, zipfile.ZIP_DEFLATED)
 

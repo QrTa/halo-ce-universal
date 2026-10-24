@@ -986,6 +986,11 @@ def generate_android_build(n: Writer, sln: Any) -> None:
     # that runs ninja: tools/macos_toolchain.py)
     gradle_environment = "".join(f"{name}={_quote(path)} " for name, path in
                                  (("JAVA_HOME", java_home()), ("ANDROID_HOME", android_sdk())) if path)
+    # the build number configure.py was given (as the native updaters have
+    # it: updater_defines), not the one of the shell that runs ninja, which
+    # usually has none; a new number changes the command, so Gradle runs again
+    build_number = os.environ.get("HALO_BUILD_NUMBER", "0")
+    gradle_environment += f"HALO_BUILD_NUMBER={build_number if build_number.isdigit() else '0'} "
     n.rule(
         name="android_gradle",
         # Gradle leaves the APK alone when its contents would not change

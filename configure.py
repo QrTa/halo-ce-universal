@@ -287,9 +287,14 @@ n.build(outputs="all", rule="phony", inputs=all_builds)
 n.newline()
 
 n.comment("Reconfigure on change")
+# (with the build number it was given, which the updaters compare: ninja's
+# shell usually has none, and a release rebuilt after a change to a tool would
+# otherwise never look for updates)
+build_number = os.environ.get("HALO_BUILD_NUMBER", "")
+build_number_environment = f"HALO_BUILD_NUMBER={build_number} " if build_number.isdigit() else ""
 n.rule(
     name="configure",
-    command=f"$python {configure_script} $configure_args",
+    command=f"{build_number_environment}$python {configure_script} $configure_args",
     generator=True,
     description=f"RUN {configure_script}",
 )
