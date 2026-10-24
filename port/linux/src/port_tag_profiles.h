@@ -50,7 +50,8 @@ unsigned long port_tag_profiles_tag_size(long profile, long tag);
 unsigned long port_tag_profiles_size(long profile);
 int port_tag_profiles_tag_stored(long profile, long tag);
 /* whether a tag is played (on), or kept in the profile and left out (off);
-set_ writes the profile: 0 if it cannot */
+set_ writes the profile: 0 if it cannot. Turning a tag on clears its
+"failed" setting */
 int port_tag_profiles_tag_enabled(long profile, long tag);
 int port_tag_profiles_tag_set_enabled(long profile, long tag, int enabled);
 /* a tag's setting, by its key: "faction", "type" (an actor variant's) and
@@ -58,8 +59,10 @@ int port_tag_profiles_tag_set_enabled(long profile, long tag, int enabled);
 name of its own type it is chosen by, "hud", the HUD a weapon is drawn
 with (tag_injector.h's stock HUDs), "replace", "true" when the tag
 takes the place of the campaign's of its path (profile.toml's boolean), and
-"name", the name the menus show it by (its path stays its map's); "" when it
-is not set (the randomizer finds it by the tag's name, its custom type is
+"name", the name the menus show it by (its path stays its map's), and
+"failed", why it could not be played in the level last loaded, which turned
+it off (tag_injector.c's tag_injector_failure_describe); "" when it is not
+set (the randomizer finds it by the tag's name, its custom type is
 the name it is shown by, a weapon keeps its own HUD, the campaign's tag
 stays, and it is shown by its path's last part). set_ keeps the value's
 letters, digits, spaces, - and _ (lower case but for custom_type's and

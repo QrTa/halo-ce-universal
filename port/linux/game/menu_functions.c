@@ -5282,8 +5282,10 @@ menus show it by: a protected map's tags have names made for them. */
 /* how long the word of the last thing done stays at the details' top */
 #define TAG_MESSAGE_MILLISECONDS 5000
 /* the details' lines above the preview of a tag's model (tag_preview.c),
-which a map's tags and a profile's have under them */
-#define TAG_PREVIEW_DETAILS_LINES 8
+which a map's tags and a profile's have under them, and the lines under it
+of what the tag needs to work */
+#define TAG_PREVIEW_DETAILS_LINES 6
+#define TAG_NEEDS_LINES 3
 
 /* the lists */
 enum
@@ -5417,6 +5419,8 @@ static struct
 	char shown[384];
 	char row_shown[TAG_ROWS][128];
 	char buttons_shown[64];
+	/* each row's whether it is of what failed to load (tags_row_failed) */
+	boolean row_failed[TAG_ROWS];
 } tags_screen = { 0, NONE, NONE, NONE, FALSE, FALSE, "", NONE, NONE, { 0 }, { 0 }, _tags_naming_none, { 0 }, NONE, NONE,
 	NONE, "", 0, "", { { 0 } }, "" };
 
@@ -5568,6 +5572,27 @@ static long tags_profile_category_count(short category)
 	return found;
 }
 
+/* whether a profile's tag failed to load in the level last loaded (and was
+turned off: its "failed" setting); and whether any of a profile's did, of a
+group (0: of all) */
+static boolean tags_tag_failed(long profile, long tag)
+{
+	return !port_tag_profiles_tag_enabled(profile, tag) && port_tag_profiles_tag_option(profile, tag, "failed")[0];
+}
+
+static boolean tags_profile_failed(long profile, unsigned long group)
+{
+	long count = port_tag_profiles_tag_count(profile);
+	long tag;
+
+	for (tag = 0; tag < count; tag++)
+	{
+		if ((!group || port_tag_profiles_tag_group(profile, tag) == group) && tags_tag_failed(profile, tag))
+			return TRUE;
+	}
+	return FALSE;
+}
+
 /* the profile shown's tag at `place` of the category listed, or NONE */
 static long tags_profile_tag_of(short place)
 {
@@ -5617,6 +5642,37 @@ static short tag_row_place(struct widget_instance *row)
 	short place = row ? (short)(tags_screen.first[tags_screen.list] + atoi(row->name + 7) - 1) : NONE;
 
 	return place >= 0 && place < tags_count() ? place : NONE;
+}
+
+/* whether a row is of what failed to load in the level last loaded: TAG
+PROFILES (any profile's tag), a profile (any of its tags), a profile's kind
+of tags (any of them) or a profile's tag; its name and state are drawn
+yellow (pc_menu_text_color) */
+static boolean tags_row_failed(short place)
+{
+	long profile;
+
+	switch (tags_screen.list)
+	{
+	case _tags_list_top:
+		if (place != _tags_top_profiles)
+			return FALSE;
+		for (profile = 0; profile < port_tag_profiles_count(); profile++)
+		{
+			if (tags_profile_failed(profile, 0))
+				return TRUE;
+		}
+		return FALSE;
+	case _tags_list_profiles:
+		return tags_profile_failed(place, 0);
+	case _tags_list_profile_categories:
+		return tag_injector_category_group(place) && tags_profile_failed(tags_screen.profile,
+			tag_injector_category_group(place));
+	case _tags_list_profile:
+		return tags_profile_tag_of(place) != NONE && tags_tag_failed(tags_screen.profile, tags_profile_tag_of(place));
+	default:
+		return FALSE;
+	}
 }
 
 /* the last part of a tag's path (the name it is listed by) */
@@ -5730,6 +5786,10 @@ static void tags_row_text(short place, char *name, size_t name_size, char *state
 		tags_size_text(port_tag_profiles_tag_size(tags_screen.profile, tag), size, sizeof(size));
 		if (!port_tag_profiles_tag_size(tags_screen.profile, tag))
 			snprintf(state, state_size, "MISSING");
+		/* (it could not be played in the level last loaded, and was turned
+		off) */
+		else if (tags_tag_failed(tags_screen.profile, tag))
+			snprintf(state, state_size, "FAILED  %s", size);
 		else
 			snprintf(state, state_size, "%s  %s", port_tag_profiles_tag_enabled(tags_screen.profile, tag) ? "ON" : "OFF",
 				size);
@@ -5829,6 +5889,24 @@ static void tags_profile_details(long profile, char *text, size_t text_size, cha
 
 /* the details of the row at `place`: its name in the frame, and below it
 what it is and what A does */
+/* what the details of a profile's tag say first when it could not be played
+in the level last loaded (its "failed" setting: tag_injector.c turned it
+off), else nothing */
+static void tags_failure_text(long profile, long tag, char *text, size_t text_size)
+{
+	char const *failed = port_tag_profiles_tag_option(profile, tag, "failed");
+
+	if (failed[0] && !port_tag_profiles_tag_enabled(profile, tag))
+	{
+		snprintf(text, text_size, "It failed to load last time: %s. It was turned off: turn it on to try it "
+			"again.\n \n", tag_injector_failure_describe(failed));
+	}
+	else
+	{
+		text[0] = 0;
+	}
+}
+
 static void tags_details_text(short place, char *title, size_t title_size, char *text, size_t text_size)
 {
 	char profile[96];
@@ -5892,9 +5970,9 @@ static void tags_details_text(short place, char *title, size_t title_size, char 
 	}
 	case _tags_list_profile:
 	{
-		char const *path;
 		unsigned long group;
 		long tag = tags_profile_tag_of(place);
+		char failure[MOD_DETAILS_LENGTH / 2];
 
 		if (tag == NONE)
 		{
@@ -5904,14 +5982,14 @@ static void tags_details_text(short place, char *title, size_t title_size, char 
 				tag_injector_category_name(tags_screen.profile_category));
 			break;
 		}
-		path = port_tag_profiles_tag_name(tags_screen.profile, tag);
 		group = port_tag_profiles_tag_group(tags_screen.profile, tag);
 		snprintf(title, title_size, "%s", tags_tag_shown(tags_screen.profile, tag));
 		tags_size_text(port_tag_profiles_tag_size(tags_screen.profile, tag), size, sizeof(size));
 		if (!port_tag_profiles_tag_size(tags_screen.profile, tag))
 			snprintf(size, sizeof(size), "missing: it is left out");
-		snprintf(text, text_size, "%s %s\nfrom %s, %s%s.\n \n%s: the randomizer %s it.\n \nLeft or right turns it %s. A "
-			"opens its settings%s.", tags_group_name(group), path,
+		tags_failure_text(tags_screen.profile, tag, failure, sizeof(failure));
+		snprintf(text, text_size, "%s%s from %s, %s%s.\n \n%s: the randomizer %s it.\n \nLeft or right turns it %s. A "
+			"opens its settings%s.", failure, tags_group_name(group),
 			port_tag_profiles_tag_map(tags_screen.profile, tag), size,
 			port_tag_profiles_tag_option(tags_screen.profile, tag, "replace")[0] ? ", replacing the original" : "",
 			port_tag_profiles_tag_enabled(tags_screen.profile, tag) ? "On" : "Off",
@@ -5937,9 +6015,14 @@ static void tags_details_text(short place, char *title, size_t title_size, char 
 				port_tag_profiles_tag_name(tags_screen.profile, tags_screen.tag));
 			break;
 		case _tags_setting_enabled:
-			snprintf(text, text_size, "On: the randomizer plays it. Off: it stays in the profile, and is left out.\n \n"
-				"A, left or right turns it on or off.");
+		{
+			char failure[MOD_DETAILS_LENGTH / 2];
+
+			tags_failure_text(tags_screen.profile, tags_screen.tag, failure, sizeof(failure));
+			snprintf(text, text_size, "%sOn: the randomizer plays it. Off: it stays in the profile, and is left out.\n \n"
+				"A, left or right turns it on or off.", failure);
 			break;
+		}
 		case _tags_setting_faction:
 			snprintf(text, text_size, weapon ?
 				"The weapon pools it joins: COVENANT's or HUMAN's.\n \nAUTO: by its name (a plasma, needle or carbine "
@@ -6050,27 +6133,22 @@ static void tags_details_text(short place, char *title, size_t title_size, char 
 		boolean added = tag_injector_tag_in_profile(tags_screen.profile, tags_screen.category, place) != NONE;
 		size_t length;
 
+		/* (its path is the frame's title's, the last part of it, and its
+		size: what it would add is what it needs, under the preview) */
 		snprintf(title, title_size, "%s", tag_leaf(path));
 		if (tag_size == NONE)
-			snprintf(text, text_size, "%s\n \n%s", path, reason);
+			snprintf(text, text_size, "%s", reason);
 		else if (!tag_injector_category_addable(tags_screen.category))
-			snprintf(text, text_size, "%s\n \n%ld tags with what it names. The randomizer cannot play these yet.",
-				path, tag_size);
+			snprintf(text, text_size, "%ld tags required. The randomizer cannot play these yet.", tag_size);
 		else if (tags_screen.profile == NONE)
-			snprintf(text, text_size, "%s\n \n%ld tags with what it names. Make a profile to add it to.", path,
-				tag_size);
+			snprintf(text, text_size, "%ld tags required. Make a profile to add it to.", tag_size);
 		else
-			snprintf(text, text_size, "%s\n \n%ld tags with what it names.\n \nA %s the profile %s.%s", path, tag_size,
-				added ? "takes it out of" : "adds it to", profile,
-				added ? "" : tags_screen.category == _tag_injector_ai ?
-				" The weapons and equipment it carries are added too, as tags of their own." :
-				tags_screen.category == _tag_injector_equipment ?
-				" Equipment joins no pool: it is carried by the profile's AI, or replaces the original." : "");
+			snprintf(text, text_size, "%ld tags required.%s", tag_size, added ? " In the profile." : "");
 		/* (a protected map's: its path is one made for it) */
 		length = strlen(text);
 		if (tag_injector_tag_name_made(tags_screen.category, place))
 			snprintf(text + length, text_size - length, "\n \nIts map hides its tags' names: this one is made from "
-				"what it is. Its profile's NAME can rename it.");
+				"what it is.");
 		break;
 	}
 	}
@@ -6794,6 +6872,31 @@ static void tags_store_step(void)
 	tags_screen.shown[0] = 0;
 }
 
+/* What a tag the preview is of needs to work (tag_preview_needs), for the
+lines under it: what it is missing, else that nothing is; nothing until it
+is read. */
+static void tags_needs_text(short state, struct tag_injector_needs const *needs, char *text, size_t text_size)
+{
+	short index;
+
+	text[0] = 0;
+	if (state == _tag_preview_needs_unreadable)
+	{
+		snprintf(text, text_size, "Its tags cannot be read.");
+		return;
+	}
+	if (state != _tag_preview_needs_read || !needs->count)
+		return;
+	for (index = 0; index < needs->count; index++)
+	{
+		if (needs->needs[index].state != _tag_injector_need_missing)
+			continue;
+		snprintf(text + strlen(text), text_size - strlen(text), "%s%s", text[0] ? ", " : "MISSING: ",
+			needs->needs[index].name);
+	}
+	snprintf(text + strlen(text), text_size - strlen(text), "%s", text[0] ? "." : "No data missing.");
+}
+
 /* a text's blank lines (" " between its parts) taken out */
 static void tags_text_close_up(char *text)
 {
@@ -6873,6 +6976,7 @@ static void tags_update(struct widget_instance *list)
 			continue;
 		}
 		row_index = (short)PIN(atoi(row->name + 7) - 1, 0, TAG_ROWS - 1);
+		tags_screen.row_failed[row_index] = tags_row_failed(place);
 		tags_row_text(place, name, sizeof(name), state, sizeof(state));
 		snprintf(shown, sizeof(shown), "%s|%s|%ld", name, state, mods_screen.fonts[_mod_row_name]);
 		if (strcmp(shown, tags_screen.row_shown[row_index]))
@@ -6911,15 +7015,18 @@ static void tags_update(struct widget_instance *list)
 		wchar_t wide[MOD_DETAILS_LENGTH];
 		short line = 0;
 		short lines = previewed ? TAG_PREVIEW_DETAILS_LINES : MOD_DETAILS_LINES;
+		struct tag_injector_needs needs;
+		short needs_state;
 
 		/* (made again only when what they show, or its fonts, change) */
-		snprintf(shown, sizeof(shown), "%d %d %d %d %d %ld %ld %d %s %lu %d %ld %ld %s %ld %d %ld %d", tags_screen.list,
+		needs_state = previewed ? tag_preview_needs(&needs) : _tag_preview_needs_waiting;
+		snprintf(shown, sizeof(shown), "%d %d %d %d %d %ld %ld %d %s %lu %d %ld %ld %s %ld %d %ld %d %d", tags_screen.list,
 			*chosen, count, tags_screen.category, tags_screen.profile_category, tags_screen.profile, tags_screen.tag,
 			tags_screen.campaign,
 			tags_screen.folder, port_tag_profiles_scans(), config_boolean("game.tag_injection"), tags_screen.removing,
 			tags_screen.deleting, tags_screen.message, mods_screen.fonts[_mod_details_name],
 			mods_screen.widths[_mod_details_name], mods_screen.fonts[_mod_details_text],
-			mods_screen.widths[_mod_details_text]);
+			mods_screen.widths[_mod_details_text], needs_state);
 		if (strcmp(shown, tags_screen.shown))
 		{
 			snprintf(tags_screen.shown, sizeof(tags_screen.shown), "%s", shown);
@@ -6941,6 +7048,13 @@ static void tags_update(struct widget_instance *list)
 			mods_wrap(text, wrapped, sizeof(wrapped), _mod_details_text, lines, line);
 			mods_wide_text(wrapped, wide, NUMBEROF(wide));
 			text_set_length(named(details, "tag_details_text", 0), wide, NUMBEROF(wide));
+			/* (under the preview, what the tag needs to work: the details'
+			measures, their box as wide) */
+			tags_needs_text(needs_state, &needs, text, sizeof(text));
+			wrapped[0] = 0;
+			mods_wrap(text, wrapped, sizeof(wrapped), _mod_details_text, TAG_NEEDS_LINES, 0);
+			mods_wide_text(wrapped, wide, NUMBEROF(wide));
+			text_set_length(named(details, "tag_needs", 0), wide, NUMBEROF(wide));
 		}
 	}
 }
@@ -8432,15 +8546,32 @@ enum
 #define PING_COLOR_GOOD 0x5ED38CFFUL
 #define PING_COLOR_FAIR 0xE8C547FFUL
 #define PING_COLOR_POOR 0xE86A5AFFUL
+/* the Tag Injector's rows of what failed to load (tags_row_failed) */
+#define TAG_FAILED_COLOR 0xE8C547FFUL
 
 /* ui_widget.c: a text's colour in place of its own (FALSE: its own): a
-server browser row's ping by how good it is */
+server browser row's ping by how good it is, and the Tag Injector's rows of
+what failed to load in yellow */
 boolean pc_menu_text_color(struct widget_instance *widget, real_argb_color *color)
 {
 	short row = widget->parent ? browser_row_index(widget->parent) : NONE;
+	struct widget_instance *tag_row_widget = widget->parent && (!strcmp(widget->name, "tag_name") ||
+		!strcmp(widget->name, "tag_state")) ? tag_row(widget->parent) : NULL;
 	short ping;
 	unsigned long rgba;
 
+	if (tag_row_widget)
+	{
+		short tag_row_index = (short)(atoi(tag_row_widget->name + 7) - 1);
+
+		if (tag_row_index < 0 || tag_row_index >= TAG_ROWS || !tags_screen.row_failed[tag_row_index])
+			return FALSE;
+		rgba = TAG_FAILED_COLOR;
+		color->red = (real)((rgba >> 24) & 0xFF) / 255.0f;
+		color->green = (real)((rgba >> 16) & 0xFF) / 255.0f;
+		color->blue = (real)((rgba >> 8) & 0xFF) / 255.0f;
+		return TRUE;
+	}
 	if (row < 0 || row >= BROWSER_ROWS || strcmp(widget->name, "server_item_ping"))
 		return FALSE;
 	ping = browser_row_pings[row];

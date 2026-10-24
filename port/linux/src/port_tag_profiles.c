@@ -95,7 +95,8 @@ through on their way into the Xbox's memory, which the renderer watches
 /* ---------- structures */
 
 /* a tag's settings, by their keys in profile.toml (port_tag_profiles.h) */
-static const char *const tag_option_keys[] = { "faction", "type", "class", "custom_type", "hud", "replace", "name" };
+static const char *const tag_option_keys[] = { "faction", "type", "class", "custom_type", "hud", "replace", "name",
+	"failed" };
 #define TAG_OPTION_COUNT (sizeof(tag_option_keys) / sizeof(tag_option_keys[0]))
 
 struct tag_profile_tag
@@ -912,6 +913,16 @@ int port_tag_profiles_tag_set_enabled(long profile, long tag, int enabled)
 
 	if (!found)
 		return 0;
+	/* (turned on: tried again, whatever it failed by before) */
+	if (enabled && found->options[tag_option_index("failed")][0])
+	{
+		found->options[tag_option_index("failed")][0] = 0;
+		if (found->enabled)
+		{
+			port_tag_profiles.scans++;
+			return profile_write(profile_get(profile));
+		}
+	}
 	if (found->enabled == (enabled != 0))
 		return 1;
 	found->enabled = enabled != 0;

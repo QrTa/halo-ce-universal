@@ -75,6 +75,11 @@ machine's, and a network game's machines must have the same tag table.
 #include "sound/sound_definitions.h"
 #include "tag_files/tag_files.h"
 #include "tag_files/tag_groups.h"
+#include "game/game.h"
+#include "game/players.h"
+#include "memory/data.h"
+#include "cutscene/cinematics.h"
+#include "interface/hud_messaging.h"
 #include "cache_file_formats.h"
 #include "custom_edition_cache.h"
 #include "custom_edition_maps.h"
@@ -98,6 +103,11 @@ enum
 	WEAPON_HUD_INTERFACE_GROUP_TAG = 'wphi',
 	EQUIPMENT_GROUP_TAG = 'eqip',
 	ACTOR_VARIANT_GROUP_TAG = 'actv',
+	VEHICLE_GROUP_TAG = 'vehi',
+	BIPED_GROUP_TAG = 'bipd',
+	SCENERY_GROUP_TAG = 'scen',
+	SHADER_MODEL_GROUP_TAG = 'soso',
+	SHADER_ENVIRONMENT_GROUP_TAG = 'senv',
 
 	/* the most maps listed, and tags of a category */
 	MAXIMUM_TAG_INJECTOR_MAPS = 512,
@@ -137,6 +147,16 @@ enum
 	GBXMODEL_VERTEX_BYTES = 0x44,
 	GBXMODEL_VERTEX_POSITION_OFFSET = 0x00,
 	GBXMODEL_VERTEX_NORMAL_OFFSET = 0x0C,
+	GBXMODEL_VERTEX_TEXCOORD_OFFSET = 0x30,
+	/* a model's shader's map scales and base map, and an environment's
+	base map (tag_schema_render.c's struct shader_model_definition and
+	struct shader_environment_definition) */
+	SHADER_MODEL_MAP_U_SCALE_OFFSET = 0x9C,
+	SHADER_MODEL_MAP_V_SCALE_OFFSET = 0xA0,
+	SHADER_MODEL_BASE_MAP_OFFSET = 0xA4,
+	SHADER_MODEL_CHANGE_COLOR_SOURCE_OFFSET = 0x4C,
+	SHADER_MODEL_MULTIPURPOSE_MAP_OFFSET = 0xBC,
+	SHADER_ENVIRONMENT_BASE_MAP_OFFSET = 0x88,
 	/* a preview's mesh (tag_injector_mesh): the most of it read, as
 	object_mesh.c's, a part's strip at most, the regions read, and the
 	models' detail levels (models.c's NUMBER_OF_DETAIL_LEVELS_PER_MODEL) */
@@ -145,11 +165,66 @@ enum
 	PREVIEW_MAXIMUM_STRIP_TRIANGLES = 0x10000,
 	PREVIEW_MAXIMUM_REGIONS = 32,
 	PREVIEW_DETAIL_LEVELS = 5,
+	/* a preview's model's shaders whose materials are made at most, and a
+	shader's material not made yet; an object's change colors (A to D:
+	objects.h's NUMBER_OF_OBJECT_CHANGE_COLORS); the largest texture read (a
+	mipmap level no larger), and the largest bitmap */
+	PREVIEW_MAXIMUM_SHADERS = 64,
+	PREVIEW_MATERIAL_UNMADE = -2,
+	PREVIEW_CHANGE_COLORS = 4,
+	PREVIEW_TEXTURE_SIZE = 128,
+	PREVIEW_MAXIMUM_BITMAP_SIZE = 4096,
+};
+
+/* (bitmaps.c's bitmap type and formats a preview's textures may be of) */
+enum
+{
+	_preview_bitmap_type_2d = 0,
+
+	_preview_bitmap_format_a8 = 0,
+	_preview_bitmap_format_y8 = 1,
+	_preview_bitmap_format_ay8 = 2,
+	_preview_bitmap_format_a8y8 = 3,
+	_preview_bitmap_format_r5g6b5 = 6,
+	_preview_bitmap_format_a1r5g5b5 = 8,
+	_preview_bitmap_format_a4r4g4b4 = 9,
+	_preview_bitmap_format_x8r8g8b8 = 10,
+	_preview_bitmap_format_a8r8g8b8 = 11,
+	_preview_bitmap_format_dxt1 = 14,
+	_preview_bitmap_format_dxt3 = 15,
+	_preview_bitmap_format_dxt5 = 16,
 };
 
 /* the farthest from its origin a preview's vertex is taken to be (one
 farther is taken to be at it: a vertex that is not a number) */
 #define PREVIEW_MAXIMUM_COORDINATE 1000.0f
+/* the largest map scale read (a larger one, or none, is taken to be 1) */
+#define PREVIEW_MAXIMUM_MAP_SCALE 1000.0f
+
+/* the word of the tags that could not be played in a level: its lines (as
+many as the HUD shows at once), the characters of each (fewer than a HUD
+message's), and the ticks of play it waits for (seconds, at 30 ticks each:
+past a cutscene, with the players in their bodies) */
+#define TAG_INJECTOR_NOTICE_LINES 4
+#define TAG_INJECTOR_NOTICE_WIDTH 58
+#define TAG_INJECTOR_NOTICE_TICKS (2 * 30)
+
+/* the "failed" settings' values, and what the menu says of each */
+static struct
+{
+	char const *value;
+	char const *described;
+} const failures[] =
+{
+	{ "missing", "its bundle is missing from the profile's folder" },
+	{ "unreadable", "its bundle could not be read" },
+	{ "too large", "its tags, with those before it, were more than a level adds" },
+	{ "unplayable", "its bundle is not one this build can play" },
+	{ "no memory", "there was no memory for it" },
+	{ "not holdable", "a weapon it adds has no first-person model or animations" },
+	{ "bitmaps", "a bitmap it adds cannot be drawn by this build" },
+	{ "models", "a model it adds cannot be made this build's" },
+};
 
 /* the campaign's weapon HUDs (tag_injector_stock_hud_*): the "hud"
 setting's value, the HUD's path, and the first campaign map that has it */
@@ -246,8 +321,19 @@ struct preview_model_part
 	byte bytes[GBXMODEL_PART_BYTES];
 };
 
+/* an actor variant's change color (actors.c's struct
+actor_variant_change_colors) */
+struct preview_actor_variant_change_colors
+{
+	real_rgb_color color_lower_bound;
+	real_rgb_color color_upper_bound;
+	unsigned long unused[2];
+};
+
 typedef char verify_preview_model_shader_size[sizeof(struct preview_model_shader) == 0x20 ? 1 : -1];
 typedef char verify_preview_model_geometry_size[sizeof(struct preview_model_geometry) == 0x30 ? 1 : -1];
+typedef char verify_preview_actor_variant_change_colors_size[
+	sizeof(struct preview_actor_variant_change_colors) == 0x20 ? 1 : -1];
 
 typedef char verify_injector_tag_instance_size[sizeof(struct injector_tag_instance) == 0x20 ? 1 : -1];
 typedef char verify_injector_map_header_size[sizeof(struct injector_map_header) == 0x28 ? 1 : -1];
@@ -269,8 +355,10 @@ struct injected_bundle
 	unsigned long size;
 	struct tag_bundle_loaded loaded;
 	long *datums;
-	/* left out (its models could not be made, or its bitmaps drawn) */
+	/* left out (its models could not be made, or its bitmaps drawn), and
+	why: a "failed" setting's value (failures[]) */
 	boolean refused;
+	char const *failure;
 	/* the profile's tag it is, whether it replaces the level's tag of its
 	path ("replace"), and the level's tag it has replaced (NONE) */
 	long profile_tag;
@@ -300,6 +388,8 @@ unsigned long port_tag_profiles_tag_group(long profile, long tag);
 char const *port_tag_profiles_tag_name(long profile, long tag);
 long port_tag_profiles_tag_find(long profile, unsigned long group, char const *name);
 int port_tag_profiles_tag_enabled(long profile, long tag);
+int port_tag_profiles_tag_set_enabled(long profile, long tag, int enabled);
+int port_tag_profiles_tag_set_option(long profile, long tag, char const *key, char const *value);
 char const *port_tag_profiles_tag_option(long profile, long tag, char const *key);
 unsigned long port_tag_profiles_tag_size(long profile, long tag);
 unsigned long port_tag_profiles_size(long profile);
@@ -365,6 +455,11 @@ static struct
 	long replaced_count;
 	short *injected_bundle;
 	boolean bitmaps_added;
+	/* the word of the profile's tags that could not be played, which the
+	HUD shows once the level has played a moment (tag_injector_tick) */
+	char notice[TAG_INJECTOR_NOTICE_LINES][TAG_INJECTOR_NOTICE_WIDTH + 4];
+	short notice_lines;
+	long notice_ticks;
 } tag_injector_level;
 
 /* ---------- private code */
@@ -989,12 +1084,14 @@ static boolean level_bundle_read(
 	if (bundle->handle == NONE)
 	{
 		error(_error_silent, "tag injector: the bundle of %s is missing", name);
+		bundle->failure = "missing";
 		return FALSE;
 	}
 	/* (its tags alone: all but its file data) */
 	if (bundle->size < sizeof(header) || !port_tag_profiles_bundle_read_at(bundle->handle, 0, header, sizeof(header)))
 	{
 		error(_error_silent, "tag injector: the bundle of %s cannot be read", name);
+		bundle->failure = "unreadable";
 		return FALSE;
 	}
 	tags_size = tag_bundle_file_data_offset(header);
@@ -1002,12 +1099,14 @@ static boolean level_bundle_read(
 	{
 		error(_error_silent, "tag injector: %s is not a bundle, or its tags and those before it are past the %d MB "
 			"a level adds", name, MAXIMUM_INJECTED_BYTES >> 20);
+		bundle->failure = tags_size < sizeof(header) || tags_size > bundle->size ? "unreadable" : "too large";
 		return FALSE;
 	}
 	bundle->bytes = malloc(tags_size);
 	if (!bundle->bytes || !port_tag_profiles_bundle_read_at(bundle->handle, 0, bundle->bytes, tags_size))
 	{
 		error(_error_silent, "tag injector: the bundle of %s cannot be read", name);
+		bundle->failure = "unreadable";
 		return FALSE;
 	}
 	status = tag_bundle_load_tags(bundle->bytes, tags_size, bundle->size, &bundle->loaded);
@@ -1015,11 +1114,15 @@ static boolean level_bundle_read(
 	{
 		error(_error_silent, "tag injector: the bundle of %s is not one this build can play: %s (its tag %ld)", name,
 			tag_bundle_status_describe(status), bundle->loaded.problem_tag_index);
+		bundle->failure = "unplayable";
 		return FALSE;
 	}
 	bundle->datums = malloc((unsigned long)bundle->loaded.tag_count * sizeof(long));
 	if (!bundle->datums)
+	{
+		bundle->failure = "no memory";
 		return FALSE;
+	}
 	*total += tags_size;
 
 	return TRUE;
@@ -1540,13 +1643,36 @@ boolean tag_injector_tag_add(
 /* ---------- the preview's (tag_preview.c) */
 
 /* where a preview's tags are: the map open's (its tags by their tag
-indices, its models' vertices and strips in its files), or a profile's
-bundle (its tags by the bundle's indices, its vertices and strips in its
-file data) */
+indices, its models' vertices and strips and its bitmaps' pixels in its
+files), or a profile's bundle (its tags by the bundle's indices, the rest
+in its file data) */
 struct preview_source
 {
 	struct injected_bundle *bundle;
 	struct tag_bundle_source map;
+};
+
+/* a preview's mesh as it is made: its source and model, the change colors
+an object of it is drawn with (colored: of each, whether it has it), the
+material of each shader of its model (PREVIEW_MATERIAL_UNMADE until a part
+names it), and the bitmap tag each texture is of */
+struct preview_build
+{
+	struct preview_source const *source;
+	struct model const *model;
+	boolean colored[PREVIEW_CHANGE_COLORS];
+	float colors[PREVIEW_CHANGE_COLORS][3];
+	short shader_materials[PREVIEW_MAXIMUM_SHADERS];
+	long texture_tags[TAG_INJECTOR_MESH_MAXIMUM_TEXTURES];
+};
+
+/* what of a preview's tags' files is read: a gbxmodel part's vertices or
+strip, or a bitmap's pixels */
+enum
+{
+	_preview_vertices,
+	_preview_strip,
+	_preview_pixels,
 };
 
 /* the root of the tag a reference (or a tag index) names, and its group;
@@ -1577,11 +1703,11 @@ static byte *preview_tag(
 	}
 }
 
-/* reads `size` bytes of a gbxmodel part's vertices (strip FALSE) or strip,
-at its offset of them */
+/* reads `size` bytes of a gbxmodel part's vertices or strip, at its offset
+of them, or of a bitmap's pixels, at its pixels' offset */
 static boolean preview_read(
 	struct preview_source const *source,
-	boolean strip,
+	short kind,
 	unsigned long offset,
 	unsigned long size,
 	void *buffer)
@@ -1594,12 +1720,29 @@ static boolean preview_read(
 		return bundle_file_read(source->bundle, offset, size, buffer);
 	if (!header || !source->map.read)
 		return FALSE;
+	if (kind == _preview_pixels)
+		return source->map.read(source->map.context, offset, size, buffer);
 	/* (the bounds of the vertices and of the strips, as tag_bundle.c's) */
-	start = strip ? header->model_index_data_offset : 0;
-	end = strip ? header->model_data_size : header->model_index_data_offset;
+	start = kind == _preview_strip ? header->model_index_data_offset : 0;
+	end = kind == _preview_strip ? header->model_data_size : header->model_index_data_offset;
 	if (start > end || end > header->model_data_size || offset > end - start || size > end - start - offset)
 		return FALSE;
 	return source->map.read(source->map.context, header->model_data_offset + start + offset, size, buffer);
+}
+
+/* the root of a model's shader, and its group; NULL for none */
+static byte *preview_shader(
+	struct preview_source const *source,
+	struct model const *model,
+	short shader_index,
+	unsigned long *group_tag)
+{
+	struct preview_model_shader const *reference;
+
+	if (shader_index < 0 || shader_index >= model->shaders.count)
+		return NULL;
+	reference = TAG_BLOCK_GET_ELEMENT(&model->shaders, shader_index, struct preview_model_shader);
+	return preview_tag(source, reference->shader.index, group_tag);
 }
 
 /* whether a model's shader is opaque: a model's or an environment's (not
@@ -1609,59 +1752,299 @@ static boolean preview_shader_opaque(
 	struct model const *model,
 	short shader_index)
 {
-	struct preview_model_shader const *reference;
 	unsigned long group_tag = 0;
 
-	if (shader_index < 0 || shader_index >= model->shaders.count)
-		return FALSE;
-	reference = TAG_BLOCK_GET_ELEMENT(&model->shaders, shader_index, struct preview_model_shader);
-	if (!preview_tag(source, reference->shader.index, &group_tag))
-		return FALSE;
-	return group_tag == 'soso' || group_tag == 'senv';
+	return preview_shader(source, model, shader_index, &group_tag) &&
+		(group_tag == SHADER_MODEL_GROUP_TAG || group_tag == SHADER_ENVIRONMENT_GROUP_TAG);
+}
+
+/* the bytes of a mipmap level of a bitmap `width` by `height` of a format,
+or 0 for a format the preview does not draw */
+static unsigned long preview_level_size(
+	short format,
+	long width,
+	long height)
+{
+	long blocks = MAX(1, (width + 3) / 4) * MAX(1, (height + 3) / 4);
+
+	switch (format)
+	{
+	case _preview_bitmap_format_a8:
+	case _preview_bitmap_format_y8:
+	case _preview_bitmap_format_ay8:
+		return (unsigned long)(width * height);
+	case _preview_bitmap_format_a8y8:
+	case _preview_bitmap_format_r5g6b5:
+	case _preview_bitmap_format_a1r5g5b5:
+	case _preview_bitmap_format_a4r4g4b4:
+		return (unsigned long)(width * height * 2);
+	case _preview_bitmap_format_x8r8g8b8:
+	case _preview_bitmap_format_a8r8g8b8:
+		return (unsigned long)(width * height * 4);
+	case _preview_bitmap_format_dxt1:
+		return (unsigned long)(blocks * 8);
+	case _preview_bitmap_format_dxt3:
+	case _preview_bitmap_format_dxt5:
+		return (unsigned long)(blocks * 16);
+	default:
+		return 0;
+	}
+}
+
+/* the change colors of the object of a tag (preview_build's): an actor
+variant's own, the middle of each's bounds (where the game chooses at
+random), and for those it has not, its unit's, the middle of each's first
+permutation's (where the game chooses by the object's place) */
+static void preview_change_colors(
+	struct preview_source const *source,
+	byte *root,
+	unsigned long group_tag,
+	struct preview_build *build)
+{
+	struct actor_variant_definition const *variant = NULL;
+	struct object_definition const *object = (struct object_definition const *)root;
+	short index;
+	short channel;
+
+	if (root && group_tag == ACTOR_VARIANT_GROUP_TAG)
+	{
+		variant = (struct actor_variant_definition const *)root;
+		object = (struct object_definition const *)preview_tag(source, variant->unit_reference.index, &group_tag);
+	}
+	for (index = 0; object && index < MIN(object->object.change_colors.count, PREVIEW_CHANGE_COLORS); index++)
+	{
+		struct object_change_color_definition const *change_color = TAG_BLOCK_GET_ELEMENT(
+			&object->object.change_colors, index, struct object_change_color_definition);
+		struct object_change_color_permutation const *permutation;
+
+		if (change_color->permutations.count <= 0)
+			continue;
+		permutation = TAG_BLOCK_GET_ELEMENT(&change_color->permutations, 0, struct object_change_color_permutation);
+		build->colors[index][0] = (permutation->color_lower_bound.red + permutation->color_upper_bound.red) * 0.5f;
+		build->colors[index][1] = (permutation->color_lower_bound.green + permutation->color_upper_bound.green) * 0.5f;
+		build->colors[index][2] = (permutation->color_lower_bound.blue + permutation->color_upper_bound.blue) * 0.5f;
+		build->colored[index] = TRUE;
+	}
+	for (index = 0; variant && index < MIN(variant->change_colors.count, PREVIEW_CHANGE_COLORS); index++)
+	{
+		struct preview_actor_variant_change_colors const *change_colors = TAG_BLOCK_GET_ELEMENT(
+			&variant->change_colors, index, struct preview_actor_variant_change_colors);
+
+		build->colors[index][0] = (change_colors->color_lower_bound.red + change_colors->color_upper_bound.red) * 0.5f;
+		build->colors[index][1] = (change_colors->color_lower_bound.green + change_colors->color_upper_bound.green) *
+			0.5f;
+		build->colors[index][2] = (change_colors->color_lower_bound.blue + change_colors->color_upper_bound.blue) * 0.5f;
+		build->colored[index] = TRUE;
+	}
+	for (index = 0; index < PREVIEW_CHANGE_COLORS; index++)
+	{
+		/* (a NaN fails every comparison) */
+		for (channel = 0; channel < 3; channel++)
+		{
+			if (!(build->colors[index][channel] >= 0.0f))
+				build->colors[index][channel] = 0.0f;
+			build->colors[index][channel] = MIN(build->colors[index][channel], 1.0f);
+		}
+	}
+}
+
+/* The texture of a bitmap tag a shader names (its index in the mesh's
+textures, read the first time one names it); NONE for none (no bitmap the
+preview draws). */
+static short preview_texture(
+	struct preview_build *build,
+	struct tag_reference const *reference,
+	struct tag_injector_mesh *mesh)
+{
+	unsigned long group_tag = 0;
+	struct bitmap_group const *group;
+	struct bitmap_data const *bitmap;
+	struct tag_injector_mesh_texture *texture;
+	long width;
+	long height;
+	unsigned long offset = 0;
+	unsigned long size;
+	short level;
+	short index;
+
+	if (reference->index == NONE)
+		return NONE;
+	for (index = 0; index < mesh->texture_count; index++)
+	{
+		if (build->texture_tags[index] == reference->index)
+			return index;
+	}
+	group = (struct bitmap_group const *)preview_tag(build->source, reference->index, &group_tag);
+	if (!group || group_tag != BITMAP_GROUP_TAG || group->bitmaps.count <= 0 ||
+		mesh->texture_count >= TAG_INJECTOR_MESH_MAXIMUM_TEXTURES)
+	{
+		return NONE;
+	}
+	bitmap = TAG_BLOCK_GET_ELEMENT(&group->bitmaps, 0, struct bitmap_data);
+	width = bitmap->width;
+	height = bitmap->height;
+	if (bitmap->type != _preview_bitmap_type_2d || width <= 0 || height <= 0 ||
+		width > PREVIEW_MAXIMUM_BITMAP_SIZE || height > PREVIEW_MAXIMUM_BITMAP_SIZE ||
+		!preview_level_size(bitmap->format, width, height))
+	{
+		return NONE;
+	}
+	/* (its largest level no larger than the preview draws: Halo PC's
+	levels one after another, the largest first) */
+	for (level = 0; level < bitmap->mipmap_count && MAX(width, height) > PREVIEW_TEXTURE_SIZE; level++)
+	{
+		offset += preview_level_size(bitmap->format, width, height);
+		width = MAX(1, width >> 1);
+		height = MAX(1, height >> 1);
+	}
+	size = preview_level_size(bitmap->format, width, height);
+	if (bitmap->pixels_size < 0 || offset > (unsigned long)bitmap->pixels_size ||
+		size > (unsigned long)bitmap->pixels_size - offset)
+	{
+		return NONE;
+	}
+	texture = &mesh->textures[mesh->texture_count];
+	texture->pixels = malloc(size);
+	if (!texture->pixels)
+		return NONE;
+	if (!preview_read(build->source, _preview_pixels, (unsigned long)bitmap->pixels_offset + offset, size,
+		texture->pixels))
+	{
+		free(texture->pixels);
+		texture->pixels = NULL;
+		return NONE;
+	}
+	texture->format = bitmap->format;
+	texture->width = (short)width;
+	texture->height = (short)height;
+	texture->size = size;
+	build->texture_tags[mesh->texture_count] = reference->index;
+
+	return mesh->texture_count++;
+}
+
+/* The material of a model's shader (its index in the mesh's materials,
+made the first time a part names the shader), and the shader's map scales
+into `scale`; NONE for none (a shader not a model's or an environment's: its
+parts are drawn grey). A model's shader's base map is tinted by the change
+color it names (its source), where its multipurpose map's color change mask
+(Halo PC's alpha) says. */
+static short preview_material(
+	struct preview_build *build,
+	short shader_index,
+	struct tag_injector_mesh *mesh,
+	float *scale)
+{
+	unsigned long group_tag = 0;
+	byte *shader = preview_shader(build->source, build->model, shader_index, &group_tag);
+	struct tag_injector_mesh_material *material;
+	short source = 0;
+	short index;
+
+	scale[0] = scale[1] = 1.0f;
+	if (!shader || shader_index >= PREVIEW_MAXIMUM_SHADERS ||
+		(group_tag != SHADER_MODEL_GROUP_TAG && group_tag != SHADER_ENVIRONMENT_GROUP_TAG))
+	{
+		return NONE;
+	}
+	if (group_tag == SHADER_MODEL_GROUP_TAG)
+	{
+		float u_scale;
+		float v_scale;
+
+		/* (none: 1) */
+		memcpy(&u_scale, shader + SHADER_MODEL_MAP_U_SCALE_OFFSET, sizeof(u_scale));
+		memcpy(&v_scale, shader + SHADER_MODEL_MAP_V_SCALE_OFFSET, sizeof(v_scale));
+		if (u_scale > 0.0f && u_scale < PREVIEW_MAXIMUM_MAP_SCALE)
+			scale[0] = u_scale;
+		if (v_scale > 0.0f && v_scale < PREVIEW_MAXIMUM_MAP_SCALE)
+			scale[1] = v_scale;
+	}
+	if (build->shader_materials[shader_index] != PREVIEW_MATERIAL_UNMADE)
+		return build->shader_materials[shader_index];
+	build->shader_materials[shader_index] = NONE;
+	if (mesh->material_count >= TAG_INJECTOR_MESH_MAXIMUM_MATERIALS)
+		return NONE;
+	material = &mesh->materials[mesh->material_count];
+	material->mask_texture = NONE;
+	material->tinted = FALSE;
+	if (group_tag == SHADER_MODEL_GROUP_TAG)
+	{
+		material->base_texture = preview_texture(build,
+			(struct tag_reference const *)(shader + SHADER_MODEL_BASE_MAP_OFFSET), mesh);
+		memcpy(&source, shader + SHADER_MODEL_CHANGE_COLOR_SOURCE_OFFSET, sizeof(source));
+		/* (A to D: the object's change colors, of which it has this one) */
+		if (source >= 1 && source <= PREVIEW_CHANGE_COLORS && build->colored[source - 1])
+		{
+			material->mask_texture = preview_texture(build,
+				(struct tag_reference const *)(shader + SHADER_MODEL_MULTIPURPOSE_MAP_OFFSET), mesh);
+			material->tinted = material->mask_texture != NONE;
+			for (index = 0; index < 3; index++)
+				material->tint[index] = build->colors[source - 1][index];
+		}
+	}
+	else
+	{
+		material->base_texture = preview_texture(build,
+			(struct tag_reference const *)(shader + SHADER_ENVIRONMENT_BASE_MAP_OFFSET), mesh);
+	}
+	build->shader_materials[shader_index] = mesh->material_count++;
+
+	return build->shader_materials[shader_index];
 }
 
 /* a gbxmodel part's triangles and vertices onto the mesh (none when it
 cannot be read, or there is no room for them) */
 static void preview_mesh_part(
-	struct preview_source const *source,
-	struct model const *model,
+	struct preview_build *build,
 	byte const *part,
 	boolean opaque_only,
 	struct tag_injector_mesh *mesh)
 {
+	struct model const *model = build->model;
 	short shader_index;
 	long strip_triangle_count = (long)read_unsigned_long(part + GBXMODEL_PART_STRIP_TRIANGLE_COUNT_OFFSET);
 	long vertex_count = (long)read_unsigned_long(part + GBXMODEL_PART_VERTEX_COUNT_OFFSET);
 	long first_vertex = mesh->vertex_count;
 	long index_count = strip_triangle_count + 2;
+	float scale[2];
+	short material;
 	byte *vertices;
 	unsigned short *strip;
 	long index;
 
 	memcpy(&shader_index, part + GBXMODEL_PART_SHADER_INDEX_OFFSET, sizeof(shader_index));
-	if ((opaque_only && !preview_shader_opaque(source, model, shader_index)) ||
+	if ((opaque_only && !preview_shader_opaque(build->source, model, shader_index)) ||
 		vertex_count <= 0 || vertex_count > PREVIEW_MAXIMUM_VERTICES - mesh->vertex_count ||
 		strip_triangle_count <= 0 || strip_triangle_count > PREVIEW_MAXIMUM_STRIP_TRIANGLES)
 	{
 		return;
 	}
+	material = preview_material(build, shader_index, mesh, scale);
+	/* (the model's base map scale, none of it 1) */
+	if (model->base_map_scale.i > 0.0f && model->base_map_scale.i < PREVIEW_MAXIMUM_MAP_SCALE)
+		scale[0] *= model->base_map_scale.i;
+	if (model->base_map_scale.j > 0.0f && model->base_map_scale.j < PREVIEW_MAXIMUM_MAP_SCALE)
+		scale[1] *= model->base_map_scale.j;
 	vertices = malloc((unsigned long)vertex_count * GBXMODEL_VERTEX_BYTES);
 	strip = malloc((unsigned long)index_count * sizeof(unsigned short));
 	if (vertices && strip &&
-		preview_read(source, FALSE, read_unsigned_long(part + GBXMODEL_PART_VERTEX_OFFSET_OFFSET),
+		preview_read(build->source, _preview_vertices, read_unsigned_long(part + GBXMODEL_PART_VERTEX_OFFSET_OFFSET),
 			(unsigned long)vertex_count * GBXMODEL_VERTEX_BYTES, vertices) &&
-		preview_read(source, TRUE, read_unsigned_long(part + GBXMODEL_PART_STRIP_OFFSET_OFFSET),
+		preview_read(build->source, _preview_strip, read_unsigned_long(part + GBXMODEL_PART_STRIP_OFFSET_OFFSET),
 			(unsigned long)index_count * sizeof(unsigned short), strip))
 	{
 		for (index = 0; index < vertex_count; index++)
 		{
+			byte const *vertex = vertices + index * GBXMODEL_VERTEX_BYTES;
 			float *position = mesh->positions[first_vertex + index];
 			float *normal = mesh->normals[first_vertex + index];
+			float *texcoord = mesh->texcoords[first_vertex + index];
 			short axis;
 
-			memcpy(position, vertices + index * GBXMODEL_VERTEX_BYTES + GBXMODEL_VERTEX_POSITION_OFFSET,
-				3 * sizeof(float));
-			memcpy(normal, vertices + index * GBXMODEL_VERTEX_BYTES + GBXMODEL_VERTEX_NORMAL_OFFSET, 3 * sizeof(float));
+			memcpy(position, vertex + GBXMODEL_VERTEX_POSITION_OFFSET, 3 * sizeof(float));
+			memcpy(normal, vertex + GBXMODEL_VERTEX_NORMAL_OFFSET, 3 * sizeof(float));
+			memcpy(texcoord, vertex + GBXMODEL_VERTEX_TEXCOORD_OFFSET, 2 * sizeof(float));
 			/* (a NaN fails every comparison) */
 			for (axis = 0; axis < 3; axis++)
 			{
@@ -1669,6 +2052,12 @@ static void preview_mesh_part(
 					position[axis] = 0.0f;
 				if (!(normal[axis] >= -2.0f && normal[axis] <= 2.0f))
 					normal[axis] = 0.0f;
+			}
+			for (axis = 0; axis < 2; axis++)
+			{
+				texcoord[axis] *= scale[axis];
+				if (!(texcoord[axis] >= -PREVIEW_MAXIMUM_COORDINATE && texcoord[axis] <= PREVIEW_MAXIMUM_COORDINATE))
+					texcoord[axis] = 0.0f;
 			}
 		}
 		mesh->vertex_count += vertex_count;
@@ -1693,6 +2082,7 @@ static void preview_mesh_part(
 			out[0] = (unsigned short)(first_vertex + a);
 			out[1] = (unsigned short)(first_vertex + b);
 			out[2] = (unsigned short)(first_vertex + c);
+			mesh->triangle_materials[mesh->triangle_count] = material;
 			mesh->triangle_count++;
 		}
 	}
@@ -1702,37 +2092,54 @@ static void preview_mesh_part(
 		free(strip);
 }
 
-/* the mesh of a tag of a preview's source (tag_injector_mesh's) */
+/* the mesh of the model of a tag of a preview's source (tag_injector_mesh's),
+as the game draws an object of it: its change colors too (an actor
+variant's, its unit's); FALSE when it has none (the mesh is then let go) */
 static boolean preview_mesh_build(
 	struct preview_source const *source,
 	byte *root,
 	unsigned long group_tag,
 	struct tag_injector_mesh *mesh)
 {
+	struct preview_build build;
 	struct object_definition const *object;
-	struct model const *model;
 	short pass;
+	short index;
 
+	memset(&build, 0, sizeof(build));
+	build.source = source;
+	preview_change_colors(source, root, group_tag, &build);
 	if (root && group_tag == ACTOR_VARIANT_GROUP_TAG)
 		root = preview_tag(source, ((struct actor_variant_definition const *)root)->unit_reference.index, &group_tag);
-	if (!root || (group_tag != WEAPON_DEFINITION_TAG && group_tag != EQUIPMENT_GROUP_TAG && group_tag != 'vehi' &&
-		group_tag != 'bipd' && group_tag != 'scen'))
+	if (!root || (group_tag != WEAPON_DEFINITION_TAG && group_tag != EQUIPMENT_GROUP_TAG && group_tag != VEHICLE_GROUP_TAG &&
+		group_tag != BIPED_GROUP_TAG && group_tag != SCENERY_GROUP_TAG))
 	{
 		return FALSE;
 	}
 	object = (struct object_definition const *)root;
-	model = (struct model const *)preview_tag(source, object->object.model.index, &group_tag);
-	if (!model || group_tag != GBXMODEL_GROUP_TAG || model->regions.count <= 0 || model->geometries.count <= 0)
+	build.model = (struct model const *)preview_tag(source, object->object.model.index, &group_tag);
+	if (!build.model || group_tag != GBXMODEL_GROUP_TAG || build.model->regions.count <= 0 ||
+		build.model->geometries.count <= 0)
+	{
 		return FALSE;
+	}
 	mesh->positions = malloc(PREVIEW_MAXIMUM_VERTICES * sizeof(*mesh->positions));
 	mesh->normals = malloc(PREVIEW_MAXIMUM_VERTICES * sizeof(*mesh->normals));
+	mesh->texcoords = malloc(PREVIEW_MAXIMUM_VERTICES * sizeof(*mesh->texcoords));
 	mesh->triangles = malloc(PREVIEW_MAXIMUM_TRIANGLES * sizeof(*mesh->triangles));
-	if (!mesh->positions || !mesh->normals || !mesh->triangles)
+	mesh->triangle_materials = malloc(PREVIEW_MAXIMUM_TRIANGLES * sizeof(*mesh->triangle_materials));
+	if (!mesh->positions || !mesh->normals || !mesh->texcoords || !mesh->triangles || !mesh->triangle_materials)
+	{
+		tag_injector_mesh_free(mesh);
 		return FALSE;
+	}
+	for (index = 0; index < PREVIEW_MAXIMUM_SHADERS; index++)
+		build.shader_materials[index] = PREVIEW_MATERIAL_UNMADE;
 	/* (its opaque parts, else all of them: an energy sword's are all
 	transparent) */
 	for (pass = 0; pass < 2 && !mesh->triangle_count; pass++)
 	{
+		struct model const *model = build.model;
 		short region_index;
 
 		mesh->vertex_count = 0;
@@ -1775,59 +2182,184 @@ static boolean preview_mesh_build(
 			geometry = TAG_BLOCK_GET_ELEMENT(&model->geometries, geometry_index, struct preview_model_geometry);
 			for (part_index = 0; part_index < geometry->parts.count; part_index++)
 			{
-				preview_mesh_part(source, model,
+				preview_mesh_part(&build,
 					(byte const *)TAG_BLOCK_GET_ELEMENT(&geometry->parts, part_index, struct preview_model_part),
 					pass == 0, mesh);
 			}
 		}
 	}
+	if (!mesh->triangle_count)
+	{
+		tag_injector_mesh_free(mesh);
+		return FALSE;
+	}
 
-	return mesh->triangle_count > 0;
+	return TRUE;
 }
 
-boolean tag_injector_map_tag_mesh(
+/* the state of a tag a reference names that a tag needs (needed: it cannot
+work without one), or might have */
+static short preview_need_state(
+	struct preview_source const *source,
+	struct tag_reference const *reference,
+	boolean needed)
+{
+	unsigned long group_tag;
+
+	if (reference->index == NONE)
+		return needed ? _tag_injector_need_missing : _tag_injector_need_none;
+	return preview_tag(source, reference->index, &group_tag) ? _tag_injector_need_present :
+		_tag_injector_need_missing;
+}
+
+static void preview_need(
+	struct tag_injector_needs *needs,
+	char const *name,
+	short state)
+{
+	if (needs->count < TAG_INJECTOR_MAXIMUM_NEEDS)
+	{
+		needs->needs[needs->count].name = name;
+		needs->needs[needs->count++].state = state;
+	}
+}
+
+/* an object's model, its animations (when it moves by them) and its
+collision (needed: else it may have none) */
+static void preview_object_needs(
+	struct preview_source const *source,
+	struct object_definition const *object,
+	boolean animated,
+	boolean collision_needed,
+	struct tag_injector_needs *needs)
+{
+	preview_need(needs, "model", preview_need_state(source, &object->object.model, TRUE));
+	if (animated)
+		preview_need(needs, "animations", preview_need_state(source, &object->object.animation_graph, TRUE));
+	preview_need(needs, "collision", preview_need_state(source, &object->object.collision_model, collision_needed));
+}
+
+/* what a tag of a preview's source needs to work, by its group
+(tag_injector_needs') */
+static void preview_needs(
+	struct preview_source const *source,
+	byte *root,
+	unsigned long group_tag,
+	struct tag_injector_needs *needs)
+{
+	memset(needs, 0, sizeof(*needs));
+	if (group_tag == WEAPON_DEFINITION_TAG)
+	{
+		struct weapon_definition const *weapon = (struct weapon_definition const *)root;
+		struct weapon_interface_definition const *interface = &weapon->weapon.interface_definition;
+		short projectile = _tag_injector_need_none;
+		long trigger_index;
+
+		preview_object_needs(source, (struct object_definition const *)root, FALSE, TRUE, needs);
+		preview_need(needs, "1st person model", preview_need_state(source, &interface->first_person_model, TRUE));
+		preview_need(needs, "1st person animations",
+			preview_need_state(source, &interface->first_person_animations, TRUE));
+		/* (a trigger's that names one it has not got; none named: a melee
+		weapon's) */
+		for (trigger_index = 0; trigger_index < weapon->weapon.triggers.count; trigger_index++)
+		{
+			struct weapon_trigger_definition const *trigger = TAG_BLOCK_GET_ELEMENT(&weapon->weapon.triggers,
+				trigger_index, struct weapon_trigger_definition);
+			short state = preview_need_state(source, &trigger->projectile, FALSE);
+
+			if (state == _tag_injector_need_missing || (state == _tag_injector_need_present &&
+				projectile == _tag_injector_need_none))
+			{
+				projectile = state;
+			}
+		}
+		preview_need(needs, "projectile", projectile);
+		preview_need(needs, "HUD", preview_need_state(source, &interface->hud_interface, TRUE));
+	}
+	else if (group_tag == ACTOR_VARIANT_GROUP_TAG)
+	{
+		struct actor_variant_definition const *variant = (struct actor_variant_definition const *)root;
+		unsigned long unit_group = 0;
+		byte *unit = variant->unit_reference.index == NONE ? NULL :
+			preview_tag(source, variant->unit_reference.index, &unit_group);
+
+		preview_need(needs, "behaviour", preview_need_state(source, &variant->actor_reference, TRUE));
+		preview_need(needs, "unit", unit ? _tag_injector_need_present : _tag_injector_need_missing);
+		if (unit)
+		{
+			preview_object_needs(source, (struct object_definition const *)unit, TRUE, TRUE, needs);
+		}
+		else
+		{
+			preview_need(needs, "model", _tag_injector_need_missing);
+			preview_need(needs, "animations", _tag_injector_need_missing);
+			preview_need(needs, "collision", _tag_injector_need_missing);
+		}
+		preview_need(needs, "weapon", preview_need_state(source, &variant->ranged_combat.reference, FALSE));
+	}
+	else if (group_tag == EQUIPMENT_GROUP_TAG)
+	{
+		preview_object_needs(source, (struct object_definition const *)root, FALSE, TRUE, needs);
+	}
+	else if (group_tag == VEHICLE_GROUP_TAG || group_tag == BIPED_GROUP_TAG)
+	{
+		preview_object_needs(source, (struct object_definition const *)root, TRUE, TRUE, needs);
+	}
+	else if (group_tag == SCENERY_GROUP_TAG)
+	{
+		preview_object_needs(source, (struct object_definition const *)root, FALSE, FALSE, needs);
+	}
+}
+
+boolean tag_injector_map_tag_preview(
 	short category,
 	long index,
-	struct tag_injector_mesh *mesh)
+	struct tag_injector_mesh *mesh,
+	struct tag_injector_needs *needs)
 {
 	struct preview_source source;
 	long absolute = menu_tag(category, index);
-	boolean built = FALSE;
+	byte *root;
+	unsigned long group_tag;
 
 	memset(mesh, 0, sizeof(*mesh));
+	memset(needs, 0, sizeof(*needs));
 	memset(&source, 0, sizeof(source));
-	if (absolute != NONE)
-	{
-		custom_edition_cache_bundle_source(&source.map);
-		built = preview_mesh_build(&source, tag_injector_menu.header->instances[absolute].base_address,
-			(unsigned long)tag_injector_menu.header->instances[absolute].group_tag, mesh);
-	}
-	if (!built)
-		tag_injector_mesh_free(mesh);
+	if (absolute == NONE)
+		return FALSE;
+	custom_edition_cache_bundle_source(&source.map);
+	root = tag_injector_menu.header->instances[absolute].base_address;
+	group_tag = (unsigned long)tag_injector_menu.header->instances[absolute].group_tag;
+	preview_needs(&source, root, group_tag, needs);
+	preview_mesh_build(&source, root, group_tag, mesh);
 
-	return built;
+	return TRUE;
 }
 
-boolean tag_injector_profile_tag_mesh(
+boolean tag_injector_profile_tag_preview(
 	long profile,
 	long tag,
-	struct tag_injector_mesh *mesh)
+	struct tag_injector_mesh *mesh,
+	struct tag_injector_needs *needs)
 {
 	struct preview_source source;
 	struct injected_bundle bundle;
 	unsigned long total = 0;
-	boolean built = FALSE;
+	boolean read = FALSE;
 
 	memset(mesh, 0, sizeof(*mesh));
+	memset(needs, 0, sizeof(*needs));
 	memset(&source, 0, sizeof(source));
 	if (profile < 0 || profile >= port_tag_profiles_count() || tag < 0 || tag >= port_tag_profiles_tag_count(profile))
 		return FALSE;
-	/* (its tags read, its file data read from its file as it is wanted) */
+	/* (its tags read, its file data read from its file as it is wanted:
+	the first of its tags the one taken out) */
 	if (level_bundle_read(profile, tag, &bundle, &total) && bundle.loaded.tag_count > 0)
 	{
 		source.bundle = &bundle;
-		built = preview_mesh_build(&source, bundle_tag_root(&bundle.loaded, 0), bundle_tag_group(&bundle.loaded, 0),
-			mesh);
+		preview_needs(&source, bundle_tag_root(&bundle.loaded, 0), bundle_tag_group(&bundle.loaded, 0), needs);
+		preview_mesh_build(&source, bundle_tag_root(&bundle.loaded, 0), bundle_tag_group(&bundle.loaded, 0), mesh);
+		read = TRUE;
 	}
 	if (bundle.bytes)
 		free(bundle.bytes);
@@ -1835,22 +2367,31 @@ boolean tag_injector_profile_tag_mesh(
 		free(bundle.datums);
 	if (bundle.handle != NONE)
 		port_tag_profiles_bundle_close(bundle.handle);
-	if (!built)
-		tag_injector_mesh_free(mesh);
 
-	return built;
+	return read;
 }
 
 void tag_injector_mesh_free(
 	struct tag_injector_mesh *mesh)
 {
+	short texture;
+
 	/* (the game's free does not take NULL) */
 	if (mesh->positions)
 		free(mesh->positions);
 	if (mesh->normals)
 		free(mesh->normals);
+	if (mesh->texcoords)
+		free(mesh->texcoords);
 	if (mesh->triangles)
 		free(mesh->triangles);
+	if (mesh->triangle_materials)
+		free(mesh->triangle_materials);
+	for (texture = 0; texture < mesh->texture_count; texture++)
+	{
+		if (mesh->textures[texture].pixels)
+			free(mesh->textures[texture].pixels);
+	}
 	memset(mesh, 0, sizeof(*mesh));
 }
 
@@ -2067,6 +2608,77 @@ char const *tag_injector_stock_hud_map(
 	return hud >= 0 && hud < (short)NUMBEROF(stock_huds) ? stock_huds[hud].map : "";
 }
 
+/* a line of the word of the tags that could not be played, kept */
+static void level_notice_line(
+	char const *text)
+{
+	if (tag_injector_level.notice_lines < TAG_INJECTOR_NOTICE_LINES)
+	{
+		snprintf(tag_injector_level.notice[tag_injector_level.notice_lines++], sizeof(tag_injector_level.notice[0]),
+			"%s", text);
+	}
+}
+
+/* the word of a profile's tags that could not be played (`tags`, `count`
+of them), and of those past the most a level adds: how many, then their
+names, as many as fit in the lines the HUD shows at once ("..." for the
+rest) */
+static void level_notice_failures(
+	long profile,
+	long const *tags,
+	long count,
+	long skipped)
+{
+	char line[TAG_INJECTOR_NOTICE_WIDTH + 4];
+	long index;
+
+	tag_injector_level.notice_lines = 0;
+	if (count)
+	{
+		snprintf(line, sizeof(line), "%ld Tag Injector tag%s failed to load (turned off):", count,
+			count == 1 ? "" : "s");
+		level_notice_line(line);
+		line[0] = 0;
+		for (index = 0; index < count; index++)
+		{
+			char name[TAG_INJECTOR_NOTICE_WIDTH];
+			char piece[TAG_INJECTOR_NOTICE_WIDTH + 2];
+			boolean last_line = tag_injector_level.notice_lines == TAG_INJECTOR_NOTICE_LINES - 1 - (skipped != 0);
+
+			tag_injector_tag_display_name(profile, tags[index], name, sizeof(name));
+			snprintf(piece, sizeof(piece), "%s%s", name, index + 1 < count ? ", " : "");
+			if (strlen(line) + strlen(piece) > TAG_INJECTOR_NOTICE_WIDTH)
+			{
+				/* (the last line there is room for: cut short) */
+				if (last_line)
+				{
+					snprintf(line + strlen(line), sizeof(line) - strlen(line), "...");
+					break;
+				}
+				level_notice_line(line);
+				line[0] = 0;
+			}
+			snprintf(line + strlen(line), sizeof(line) - strlen(line), "%s", piece);
+		}
+		if (line[0])
+			level_notice_line(line);
+	}
+	if (skipped)
+	{
+		snprintf(line, sizeof(line), "%ld Tag Injector tag%s left out: a level adds %d at most", skipped,
+			skipped == 1 ? "" : "s", MAXIMUM_INJECTED_BUNDLES);
+		/* (the last line, whatever came before) */
+		if (tag_injector_level.notice_lines == TAG_INJECTOR_NOTICE_LINES)
+			tag_injector_level.notice_lines--;
+		level_notice_line(line);
+	}
+	if (count || skipped)
+	{
+		error(_error_silent, "tag injector: %ld tags could not be played and %ld were left out: the HUD says so once "
+			"the level is played", count, skipped);
+	}
+}
+
 long tag_injector_tags_read(
 	long profile,
 	short *huds,
@@ -2077,6 +2689,9 @@ long tag_injector_tags_read(
 	long found = 0;
 	long bundle_index;
 	long index;
+	long failed[MAXIMUM_INJECTED_BUNDLES + 1];
+	long failed_count = 0;
+	long skipped = 0;
 
 	tag_injector_tags_unloaded();
 	tag_injector_level.bundles_read = TRUE;
@@ -2084,13 +2699,22 @@ long tag_injector_tags_read(
 
 	/* each bundle read, checked, and its models made (none of the level's
 	tags is touched until all are) */
-	for (index = 0; index < tag_count && tag_injector_level.bundle_count < MAXIMUM_INJECTED_BUNDLES; index++)
+	for (index = 0; index < tag_count; index++)
 	{
 		struct injected_bundle *bundle = &tag_injector_level.bundles[tag_injector_level.bundle_count];
 
 		/* (one turned off stays in the profile, and is not played) */
 		if (!port_tag_profiles_tag_enabled(profile, index))
 			continue;
+		/* (past the most a level adds: left out, and said, but not turned
+		off) */
+		if (tag_injector_level.bundle_count >= MAXIMUM_INJECTED_BUNDLES)
+		{
+			error(_error_silent, "tag injector: %s is left out: a level adds %d tags of a profile at most",
+				port_tag_profiles_tag_name(profile, index), MAXIMUM_INJECTED_BUNDLES);
+			skipped++;
+			continue;
+		}
 		/* (counted, so that what it holds is let go with the rest; the read
 		clears it, and then it is told which tag it is) */
 		tag_injector_level.bundle_count++;
@@ -2104,13 +2728,32 @@ long tag_injector_tags_read(
 		bundle->profile_tag = index;
 		bundle->replace = port_tag_profiles_tag_option(profile, index, "replace")[0] != 0;
 		bundle->replaced = NONE;
-		if (!bundle_weapons_holdable(bundle) || !bundle_bitmaps_drawable(bundle) || !bundle_models_convert(bundle))
+		bundle->failure = !bundle_weapons_holdable(bundle) ? "not holdable" :
+			!bundle_bitmaps_drawable(bundle) ? "bitmaps" :
+			!bundle_models_convert(bundle) ? "models" : NULL;
+		if (bundle->failure)
 		{
 			error(_error_silent, "tag injector: %s is left out", port_tag_profiles_tag_name(profile, index));
 			bundle->refused = TRUE;
 		}
 	}
 	tag_injector_level.read_bytes = total;
+
+	/* the tags that could not be played: each turned off, its "failed"
+	setting saying why (the menu says it, and turning it on again clears
+	it), and said once the level plays */
+	for (bundle_index = 0; bundle_index < tag_injector_level.bundle_count; bundle_index++)
+	{
+		struct injected_bundle const *bundle = &tag_injector_level.bundles[bundle_index];
+
+		if (!bundle->refused)
+			continue;
+		failed[failed_count++] = bundle->profile_tag;
+		port_tag_profiles_tag_set_option(profile, bundle->profile_tag, "failed",
+			bundle->failure ? bundle->failure : "unreadable");
+		port_tag_profiles_tag_set_enabled(profile, bundle->profile_tag, FALSE);
+	}
+	level_notice_failures(profile, failed, failed_count, skipped);
 
 	/* the stock HUDs of the weapons the bundles would add */
 	for (bundle_index = 0; bundle_index < tag_injector_level.bundle_count; bundle_index++)
@@ -2260,6 +2903,7 @@ long tag_injector_tags_load(
 			{
 				error(_error_silent, "tag injector: no room for %s, or no schema of its group: no tags are added", name);
 				tag_injector_tags_unloaded();
+				level_notice_line("No Tag Injector tags were added: no room for them");
 				return 0;
 			}
 			grown = realloc(tag_injector_level.grown_instances, (unsigned long)(count + 1) * sizeof(*grown));
@@ -2386,6 +3030,66 @@ void tag_injector_tags_unloaded(
 	tag_injector_level.bundles_read = FALSE;
 	tag_injector_level.read_profile = NONE;
 	tag_injector_level.read_bytes = 0;
+	tag_injector_level.notice_lines = 0;
+	tag_injector_level.notice_ticks = 0;
+}
+
+void tag_injector_tick(
+	void)
+{
+	short local_player_index;
+	short line;
+
+	if (!tag_injector_level.notice_lines)
+		return;
+	/* (the HUD is not drawn in a cutscene, and its messages go before it
+	ends: counted while the level is played, its players in their bodies) */
+	if (cinematic_in_progress())
+		return;
+	for (local_player_index = 0; local_player_index < local_player_count(); local_player_index++)
+	{
+		long player_index = local_player_get_player_index(local_player_index);
+
+		if (player_index == NONE || player_get(player_index)->unit_index == NONE)
+			return;
+	}
+	if (++tag_injector_level.notice_ticks < TAG_INJECTOR_NOTICE_TICKS)
+		return;
+	for (local_player_index = 0; local_player_index < local_player_count(); local_player_index++)
+	{
+		/* (the newest message is shown on top: the last line first) */
+		for (line = tag_injector_level.notice_lines - 1; line >= 0; line--)
+		{
+			wchar_t text[TAG_INJECTOR_NOTICE_WIDTH + 4];
+			short character;
+
+			for (character = 0; tag_injector_level.notice[line][character] && character < (short)NUMBEROF(text) - 1;
+				character++)
+			{
+				text[character] = (wchar_t)(unsigned char)tag_injector_level.notice[line][character];
+			}
+			text[character] = 0;
+			hud_print_message(local_player_index, text);
+		}
+	}
+	error(_error_silent, "tag injector: the HUD says %d lines of the tags that could not be played",
+		tag_injector_level.notice_lines);
+	tag_injector_level.notice_lines = 0;
+}
+
+char const *tag_injector_failure_describe(
+	char const *failed)
+{
+	short index;
+
+	if (!failed || !failed[0])
+		return "";
+	for (index = 0; index < (short)NUMBEROF(failures); index++)
+	{
+		if (!strcmp(failures[index].value, failed))
+			return failures[index].described;
+	}
+	return "it could not be played";
 }
 
 boolean tag_injector_tag_injected(

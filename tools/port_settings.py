@@ -1445,10 +1445,11 @@ def _randomizer_tag_profiles_screen(base: str) -> list:
 # (menu_functions.c's "port tags" functions)
 TAG_INJECTOR = f"{PE}/gameplay/tag_injector"
 TAG_INJECTOR_ROWS = MOD_ROWS
-# the preview of a tag's model under its details, at the frame's foot
-# (port/linux/game/tag_preview.c, whose picture is of its shape): left, top,
-# width and height
-TAG_PREVIEW_BOUNDS = (412, 310, 200, 88)
+# the preview of a tag's model under its details (port/linux/game/tag_preview.c,
+# whose picture is of its shape), and under it, at the frame's foot, what the
+# tag needs to work: left, top, width and height
+TAG_PREVIEW_BOUNDS = (412, 256, 200, 80)
+TAG_NEEDS_BOUNDS = (412, 338, 200, 64)
 # the screens of a category that are no settings screen (_setting_screen),
 # made by a function of their own
 CUSTOM_SCREENS = {"gameplay/tag_injector": {"screen": "tag_injector_screen"}}
@@ -1495,11 +1496,11 @@ def _tag_injector_screen() -> list:
                       ("color", "#FF2896FF"), ("align", "center"), ("text_y", 6), ("text_flags", "no_focus_test")],
                      [])
     # (in the lobby's frame, sel_list_desc_bkd's: the row chosen's name, the
-    # rest, and under it a map's or a profile's tag's model, turning: blank,
-    # its picture the code's)
+    # rest, and under it a map's or a profile's tag's model, turning (blank,
+    # its picture the code's), and what the tag needs to work)
     lines += _widget(f"{base}/tag_details", [("width", 640), ("height", 480)],
                      [f'<child widget="{base}/tag_details_name"/>', f'<child widget="{base}/tag_details_text"/>',
-                      f'<child widget="{base}/tag_preview"/>'])
+                      f'<child widget="{base}/tag_preview"/>', f'<child widget="{base}/tag_needs"/>'])
     lines += _widget(f"{base}/tag_details_name",
                      [("type", "text"), ("controller", 1), ("left", 412), ("top", 84), ("width", 200), ("height", 44),
                       ("font", "ui\\large_ui"), ("color", "#FFFFFFFF")], [])
@@ -1509,6 +1510,10 @@ def _tag_injector_screen() -> list:
     left, top, width, height = TAG_PREVIEW_BOUNDS
     lines += _widget(f"{base}/tag_preview", [("controller", 1), ("left", left), ("top", top), ("width", width),
                                             ("height", height), ("bitmap", "blank")], [])
+    left, top, width, height = TAG_NEEDS_BOUNDS
+    lines += _widget(f"{base}/tag_needs",
+                     [("type", "text"), ("controller", 1), ("left", left), ("top", top), ("width", width),
+                      ("height", height), ("font", "ui\\small_ui"), ("color", "#FFFFFFFF")], [])
     lines += _widget(f"{base}/button_bar",
                      [("type", "column_list"), ("width", 640), ("height", 28),
                       ("flags", "pass_unhandled_to_focused_child left_right_tabs_items")],

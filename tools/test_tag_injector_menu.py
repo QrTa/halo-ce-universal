@@ -177,7 +177,7 @@ def test_a_profile_s_tag_can_be_renamed():
     rows = functions[functions.index("static short tags_setting_rows(short *rows)"):]
     rows = rows[:rows.index("\n}\n")]
     assert rows.index("_tags_setting_name;") < rows.index("_tags_setting_enabled;")
-    assert '"faction", "type", "class", "custom_type", "hud", "replace", "name" }' in profiles
+    assert '"faction", "type", "class", "custom_type", "hud", "replace", "name",\n\t"failed" }' in profiles
     assert '!strcmp(tag_option_keys[option], "name")' in profiles
     assert 'port_tag_profiles_tag_set_option(tags_screen.profile, tags_screen.tag, "name", name)' in functions
     assert 'port_tag_profiles_tag_option(profile, tag, "name")' in injector
@@ -201,13 +201,78 @@ def test_a_tag_s_model_is_previewed_under_its_details():
     assert f"#define TAG_PREVIEW_WIDTH {width}\n" in header
     assert f"#define TAG_PREVIEW_HEIGHT {height}\n" in header
     assert '!strcmp(widget->name, "tag_preview")' in widgets
-    # (within the frame, below the details' lines above it)
-    assert left == 412 and top + height <= 130 + 272
+    # (within the frame, below the details' lines above it, and above the
+    # lines of what the tag needs)
     lines = int(re.search(r"#define TAG_PREVIEW_DETAILS_LINES (\d+)", functions).group(1))
-    assert 130 + lines * 272 / 13 <= top
+    assert left == 412 and 130 + lines * 272 / 13 <= top
+    needs_left, needs_top, needs_width, needs_height = port_settings.TAG_NEEDS_BOUNDS
+    needs_lines = int(re.search(r"#define TAG_NEEDS_LINES (\d+)", functions).group(1))
+    assert needs_left == left and needs_width == width and top + height <= needs_top
+    assert needs_top + needs_lines * 272 / 13 <= 130 + 272 + 1
+    assert f'name="{port_settings.TAG_INJECTOR}/tag_needs" type="text"' in screen
+    assert f'<child widget="{port_settings.TAG_INJECTOR}/tag_needs"/>' in screen
+    assert 'named(details, "tag_needs", 0)' in functions
     update = functions[functions.index("static void tags_update(struct widget_instance *list)"):]
     update = update[:update.index("\n}\n")]
     assert "tag_preview_map_tag(tags_screen.category, *chosen);" in update
     assert "tag_preview_profile_tag(tags_screen.profile, tags_profile_tag_of(*chosen));" in update
     assert "tag_preview_none();" in update
     assert "tag_injector_map_close();\n\ttag_preview_dispose();" in functions
+
+
+def test_a_tag_that_failed_to_load_is_turned_off_and_said():
+    """A bundle a level could not play is turned off with its "failed"
+    setting saying why (turning it on clears it), the menu says so, and the
+    level's HUD says which, once it has played a moment (game.c's tick)."""
+    injector = (ROOT / "port/linux/game/tag_injector.c").read_text()
+    profiles = (ROOT / "port/linux/src/port_tag_profiles.c").read_text()
+    functions = (ROOT / "port/linux/game/menu_functions.c").read_text()
+    game = (ROOT / "source/game/game.c").read_text()
+    read = injector[injector.index("long tag_injector_tags_read("):]
+    read = read[:read.index("\n}\n")]
+    assert 'port_tag_profiles_tag_set_option(profile, bundle->profile_tag, "failed",' in read
+    assert "port_tag_profiles_tag_set_enabled(profile, bundle->profile_tag, FALSE);" in read
+    assert "level_notice_failures(profile, failed, failed_count, skipped);" in read
+    # (every reason a bundle is refused for is one the menu describes)
+    table = injector[injector.index("} const failures[] ="):]
+    values = set(re.findall(r'\{ "([a-z ]+)", "', table[:table.index("};")]))
+    assigned = re.findall(r'bundle->failure = ([^;]+);', injector)
+    assert len(assigned) >= 7
+    for value in re.findall(r'"([a-z ]+)"', " ".join(assigned)):
+        assert value in values, value
+    assert '"failed",\n\t\t\tbundle->failure ? bundle->failure : "unreadable");' in read
+    assert 'found->options[tag_option_index("failed")][0] = 0;' in profiles
+    assert "tag_injector_failure_describe(failed)" in functions
+    assert '"FAILED  %s"' in functions
+    assert "tag_injector_tick();" in game
+    assert "hud_print_message(local_player_index, text);" in injector
+
+
+def test_the_frame_says_what_a_tag_requires_and_what_is_missing():
+    """A map's tag's details are how many tags it requires (no path, no word
+    of A), a profile's tag's the map it came from (no path); under the
+    preview, what is missing, else that nothing is; what failed is yellow,
+    up to TAG PROFILES; and the preview's model is drawn with the object's
+    change colors (an actor variant's)."""
+    functions = (ROOT / "port/linux/game/menu_functions.c").read_text()
+    injector = (ROOT / "port/linux/game/tag_injector.c").read_text()
+    preview = (ROOT / "port/linux/game/tag_preview.c").read_text()
+    assert "tags with what it names" not in functions
+    assert '"%ld tags required.%s"' in functions
+    assert "A %s the profile %s" not in functions
+    assert '"No data missing."' in functions and '"MISSING: "' in functions
+    assert "Has all it needs" not in functions
+    assert "tags_screen.row_failed[row_index] = tags_row_failed(place);" in functions
+    assert "!tags_screen.row_failed[tag_row_index]" in functions
+    row_failed = functions[functions.index("static boolean tags_row_failed(short place)"):]
+    row_failed = row_failed[:row_failed.index("\n}\n")]
+    for case in ("_tags_list_top", "_tags_list_profiles", "_tags_list_profile_categories", "_tags_list_profile"):
+        assert f"case {case}:" in row_failed, case
+    assert "preview_change_colors(source, root, group_tag, &build);" in injector
+    assert "SHADER_MODEL_CHANGE_COLOR_SOURCE_OFFSET = 0x4C" in injector
+    assert "SHADER_MODEL_MULTIPURPOSE_MAP_OFFSET = 0xBC" in injector
+    assert "base[channel] *= 1.0f - amount + amount * material->tint[channel];" in preview
+    # (the notice waits for the level to be played: past a cutscene)
+    tick = injector[injector.index("void tag_injector_tick("):]
+    tick = tick[:tick.index("\n}\n")]
+    assert "cinematic_in_progress()" in tick and "unit_index == NONE" in tick

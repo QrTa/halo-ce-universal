@@ -124,33 +124,111 @@ boolean tag_injector_tag_add(
 	char *reason,
 	long reason_size);
 
+/* the most textures and materials a preview's mesh has, and the most needs
+a tag has */
+#define TAG_INJECTOR_MESH_MAXIMUM_TEXTURES 32
+#define TAG_INJECTOR_MESH_MAXIMUM_MATERIALS 32
+#define TAG_INJECTOR_MAXIMUM_NEEDS 8
+
+/* A texture of a preview's mesh: a map of a shader of its model (a base
+map, or a multipurpose map), one mipmap level of its first bitmap (the
+largest no larger than the preview draws), its pixels as Halo PC lays them
+out, of a format of bitmaps.c's. */
+struct tag_injector_mesh_texture
+{
+	short format;
+	short width;
+	short height;
+	unsigned long size;
+	unsigned char *pixels;
+};
+
 /* A tag's model, for the menu's preview of it (tag_preview.c): the triangles
 of the most detailed geometry of the first permutation of each of its
 regions, in the model's space (its default pose), opaque parts alone (all
-of them when it has none). A weapon's, equipment's, a vehicle's, a biped's
-or scenery's own model, an actor variant's its unit's. */
+of them when it has none), each vertex's texture coordinates (its model's
+and its shader's map scales applied) and each triangle's material (NONE for
+none). A weapon's, equipment's, a vehicle's, a biped's or scenery's own
+model, an actor variant's its unit's, with the change colors an object of
+it is drawn with (an actor variant's, else its unit's). */
+/* A material of a preview's mesh, a shader of its model's (a model's or an
+environment's): its base map's texture, and for a model's shader that names
+a change color the object has, the color (0 to 1) its multipurpose map's
+texture tints the base map by, where its color change mask (Halo PC's
+alpha) says (textures NONE for none). */
+struct tag_injector_mesh_material
+{
+	short base_texture;
+	short mask_texture;
+	boolean tinted;
+	float tint[3];
+};
+
 struct tag_injector_mesh
 {
 	long vertex_count;
 	long triangle_count;
 	float (*positions)[3];
 	float (*normals)[3];
+	float (*texcoords)[2];
 	unsigned short (*triangles)[3];
+	short *triangle_materials;
+	short texture_count;
+	struct tag_injector_mesh_texture textures[TAG_INJECTOR_MESH_MAXIMUM_TEXTURES];
+	short material_count;
+	struct tag_injector_mesh_material materials[TAG_INJECTOR_MESH_MAXIMUM_MATERIALS];
 };
 
-/* The mesh of the open map's tag of a category, or of a profile's tag (read
-from its bundle); FALSE when it has none this build reads (the mesh is then
-empty). tag_injector_mesh_free lets either go. */
-boolean tag_injector_map_tag_mesh(
+/* whether a tag has a tag it needs to work: it has it, it has not (it
+cannot work without it), or it has none and needs none (a melee weapon's
+projectile, an unarmed actor variant's weapon) */
+enum tag_injector_need_state
+{
+	_tag_injector_need_present,
+	_tag_injector_need_missing,
+	_tag_injector_need_none,
+};
+
+/* the tags a tag needs to work, by its group: a weapon its model, its
+collision (lying on the ground), its first-person model and animations, its
+projectile and its HUD; an actor variant its actor (its behaviour), its
+unit, the unit's model, animations and collision, and its weapon;
+equipment its model and collision; a vehicle or a biped its model,
+animations and collision; scenery its model and collision */
+struct tag_injector_need
+{
+	char const *name;
+	short state;
+};
+
+struct tag_injector_needs
+{
+	short count;
+	struct tag_injector_need needs[TAG_INJECTOR_MAXIMUM_NEEDS];
+};
+
+/* The mesh and the needs of the open map's tag of a category, or of a
+profile's tag (read from its bundle); FALSE when the tag cannot be read
+(both are then empty). The mesh is empty when its model cannot be read.
+tag_injector_mesh_free lets it go. */
+boolean tag_injector_map_tag_preview(
 	short category,
 	long index,
-	struct tag_injector_mesh *mesh);
-boolean tag_injector_profile_tag_mesh(
+	struct tag_injector_mesh *mesh,
+	struct tag_injector_needs *needs);
+boolean tag_injector_profile_tag_preview(
 	long profile,
 	long tag,
-	struct tag_injector_mesh *mesh);
+	struct tag_injector_mesh *mesh,
+	struct tag_injector_needs *needs);
 void tag_injector_mesh_free(
 	struct tag_injector_mesh *mesh);
+
+/* What a profile's tag's "failed" setting says (its bundle could not be
+played in the level last loaded, and it was turned off): a sentence for the
+menu, or "" when it is not set. */
+char const *tag_injector_failure_describe(
+	char const *failed);
 
 /* How many of the profiles' tags are bundles as they were taken out (an
 earlier build kept them so), which the menu stores as port_tag_store.c keeps
@@ -243,6 +321,12 @@ long tag_injector_tags_load(
 	long root_capacity);
 /* the tags added let go, and the level's table as it was */
 void tag_injector_tags_unloaded(
+	void);
+/* Each tick of a level (game.c): once it has played a moment, the word of
+the profile's tags that could not be played in it, on each local player's
+HUD, without stopping it (each was turned off, its "failed" setting saying
+why: tag_injector_tags_read). */
+void tag_injector_tick(
 	void);
 /* whether a tag is one a profile added, and whether the level has any:
 Halo PC's tags, which the engine takes as a Custom Edition map's

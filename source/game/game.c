@@ -411,6 +411,13 @@ void game_tick(
 
 		randomizer_tick();
 	}
+	/* port: the word of the Tag Injector's tags that could not be played in
+	the level (port/linux/game/tag_injector.c) */
+	{
+		extern void tag_injector_tick(void);
+
+		tag_injector_tick();
+	}
 	/* port: the campaign's score's time, counted on through checkpoints
 	(port/linux/game/campaign_score.c) */
 	{

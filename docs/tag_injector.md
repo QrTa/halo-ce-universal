@@ -99,8 +99,8 @@ it has) and the maps beside them, and A on a folder lists its maps. A on a
 map loads its tags, as the game would play them, and lists its
 **WEAPONS**, **AI**, **EQUIPMENT**, **VEHICLES**, **BIPEDS** and
 **SCENERY**, each with how many there are. A on one lists them, by the last
-part of their paths (the frame has the whole path, and how many tags it
-takes with it). A on a weapon, an actor variant or equipment adds it to the
+part of their paths (the frame has how many tags it requires: itself and
+what it names). A on a weapon, an actor variant or equipment adds it to the
 profile (ADDED), or takes it out again. An actor variant added adds the
 weapons and equipment it carries too, each a tag of the profile of its own
 (one the profile has of that path is left as it is), so that their HUD and
@@ -125,11 +125,38 @@ turning (`port/linux/game/tag_preview.c`): a weapon's, equipment's, a
 vehicle's, a biped's or scenery's own, an actor variant's its unit's, in
 its default pose: the most detailed geometry of each region's first
 permutation, its opaque parts alone (all of them when it has none, as an
-energy sword). The game draws it on the processor, in grey lit from above
-with blue edges, into a picture the frame's `tag_preview` widget shows,
-once the row has been chosen for a moment (a profile's tag is read from its
-bundle). The details above it leave out their blank lines and stop at
-eight. A tag whose model cannot be read shows nothing there.
+energy sword), each part with its shader's base map (a model's or an
+environment's shader's; grey without one), tinted by the change color a
+model's shader names where its multipurpose map's color change mask says:
+an actor variant's change colors, else its unit's (the first of each's
+permutations), as the game draws an object of it (the grunt major, minor
+and spec ops of one model, red, orange and black). The game draws it on the
+processor, lit from above with blue edges, into a picture the frame's
+`tag_preview` widget shows, once the row has been chosen for a moment (a
+profile's tag is read from its bundle). Under it, `tag_needs` says what of
+what the tag needs to work is MISSING, else "No data missing": a weapon
+needs its model, its collision
+(lying on the ground), its first-person model and animations, its
+projectile (none: a melee weapon's) and its HUD; an actor variant its
+behaviour (its actor), its unit, the unit's model, animations and
+collision, and its weapon (none: unarmed); equipment its model and
+collision; a vehicle or a biped its model, animations and collision;
+scenery its model (and its collision, which it may have none of). The
+details above them leave out their blank lines and stop at six; a profile's
+tag's say the map it came from, not its path. A tag whose model cannot be read shows nothing
+there.
+
+A profile's tag a level could not play (its bundle missing or unreadable,
+not one this build plays, past the room a level has, or adding a weapon
+without a first-person model, a bitmap this build cannot draw or a model it
+cannot make) is turned off, and its `failed` setting says why: its row says
+FAILED, and its details (and its ENABLED's) say it failed to load last time
+and why. Its row, its kind of tags', its profile's and TAG PROFILES' are
+yellow. Turning it on again clears it, to try it again. Tags past the 64 a
+level adds are left out but not turned off. Two seconds into the level
+played (past its opening cutscene, its players in their bodies), each local
+player's HUD says how many failed and which, by name, without stopping the
+game.
 
 A weapon without a first-person model or animations cannot be added: its
 map never let a player hold it, and the game reads them as the player holds
@@ -206,8 +233,10 @@ name = "Brute Carbine"
 
 A tag's `enabled`, `faction`, `type` (an actor variant's), `class` (a
 weapon's), `custom_type`, `hud` (a weapon's), `replace` and `name` are its
-settings in the menu; one left out is its default (on, AUTO, its name, OWN,
-off, and the last part of its path). An actor variant's `hud`, which an earlier build gave
+settings in the menu, and `failed` why the level last loaded could not play
+it (`"missing"`, `"unreadable"`, `"too large"`, `"unplayable"`,
+`"no memory"`, `"not holdable"`, `"bitmaps"` or `"models"`); one left out is its default (on, AUTO, its name, OWN,
+off, the last part of its path, and not failed). An actor variant's `hud`, which an earlier build gave
 its weapons, is no longer read: its weapons' own tags have theirs. The values are the
 randomizer's names: `faction` `"covenant"`, `"flood"`, `"human"` or
 `"none"`; `type` one of `game.randomizer_type`'s (`"elite"`) or `"none"`;
