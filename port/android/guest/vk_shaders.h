@@ -57,6 +57,19 @@ position the model lighting program lights by */
 cache makes new names for new GLSL */
 #define VK_SHADER_GENERATOR_VERSION 1
 
+/* The pixel key's texture_modes: four 5-bit modes, and above them bits the Xbox leaves 0, as the Switch's renderer has
+them (port/switch/guest/dk_shaders.h). Only a key with one of them makes different GLSL, so a shader whose key has none
+keeps its name and its code (no generator version raised): */
+/* a stage's coordinates clipped (halo_texture_clip, d3d8_vk.c): the shader lets a pixel go first if its u or v (and w,
+with NV2A_PIXEL_KEY_CLIP_3D) is outside the limits in alpha_reference.y and .z; the stage in the bits at
+NV2A_PIXEL_KEY_CLIP_STAGE_SHIFT (0 for the shadows' stage 0) */
+#define NV2A_PIXEL_KEY_CLIP 0x10000000u
+#define NV2A_PIXEL_KEY_CLIP_STAGE_SHIFT 20
+#define NV2A_PIXEL_KEY_CLIP_STAGE_MASK (3u << NV2A_PIXEL_KEY_CLIP_STAGE_SHIFT)
+#define NV2A_PIXEL_KEY_CLIP_3D 0x00400000u
+/* the zoom's blend of its blurred small copy of the screen over the screen (halo_screen_warp_blend, d3d8_vk.c) */
+#define NV2A_PIXEL_KEY_WARP_BLEND 0x40000000u
+
 /* ---------- vertex_constants (binding 0): Direct3D's constant registers c[-96..95] */
 
 #define VK_VERTEX_CONSTANT_COUNT 192
@@ -229,6 +242,9 @@ color for each pixel (the key's per_pixel_lighting). Returns a malloc'd string. 
 struct nv2a_vertex_lighting;
 char *nv2a_vk_vertex_shader_to_glsl(const uint32_t *instructions, unsigned long instruction_count,
 	unsigned long packed_attribute_mask, const struct nv2a_vertex_lighting *lighting);
+/* the fixed-function pipeline's vertex shader (SetVertexShader with 0: the loading screen's immediate-mode draws, whose
+positions d3d8_vk.c's draw_make has put in clip space). Returns a malloc'd string. */
+char *nv2a_vk_fixed_function_glsl(void);
 
 struct nv2a_pixel_shader_key;
 

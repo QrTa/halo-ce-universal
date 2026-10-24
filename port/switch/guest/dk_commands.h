@@ -45,6 +45,7 @@ enum
 	DK_COMMAND_HUD_PREPARE,
 	DK_COMMAND_HUD_IMAGE,
 	DK_COMMAND_HUD_FORGET,
+	DK_COMMAND_BLIT,
 };
 
 /* a surface's kind, as the host makes its image */
@@ -105,6 +106,19 @@ struct dk_command_clear
 	uint32_t stencil;
 	uint32_t rectangle_count;
 	uint32_t rectangles[][4];
+};
+
+/* copies a rectangle of one color target into a rectangle of another,
+scaled with a linear filter: the loading screen's front buffer, the frame
+before, which it blurs into its light's trails (d3d8_dk.c, front_buffer_take).
+Rectangles are x, y, width, height in each one's pixels. */
+struct dk_command_blit
+{
+	struct dk_command_header header;
+	struct dk_surface source;
+	struct dk_surface destination;
+	uint32_t from[4];
+	uint32_t to[4];
 };
 
 /* shows the back buffer, letterboxed to the display. A screenshot is asked
@@ -558,5 +572,12 @@ struct dk_command_draw
 	uint32_t stream_count;
 	uint32_t streams[][2];
 };
+
+/* mod textures' bytes kept in the host's memory, outside the Xbox window
+(port/switch/host/host_texture_cache.c; port/linux/game/mod_bitmaps.c
+declares them too): by a key, 1 and the bytes copied if kept */
+int host_texture_cache_get(uint64_t key, uint32_t buffer, uint32_t size);
+void host_texture_cache_put(uint64_t key, uint32_t buffer, uint32_t size);
+void host_texture_cache_clear(void);
 
 #endif

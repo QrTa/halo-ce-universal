@@ -97,6 +97,10 @@ long platform_run_apcs(void);
 host path below the data root. Components are matched case-insensitively
 against what exists on disk, as the Xbox file system is case-insensitive. */
 void platform_translate_path(const char *xbox_path, char *host_path, unsigned long host_path_size);
+/* a file the game reads from start to end with ReadFileEx (a map unpacked into the cache:
+cache_files_decompress_windows.c) read ahead by a thread of its own, so that the card is read while the
+game works on what it has (xbox_files.c); its other reads, and every other file's, are as before */
+void platform_file_read_ahead(HANDLE file);
 const char *platform_data_root(void);
 /* the Halo Custom Edition install the Xbox drive h:\ is (paths.custom_edition),
 or "" when none is set or it has no maps folder */

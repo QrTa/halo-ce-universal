@@ -7,7 +7,9 @@ for glslang, for the Android build's Vulkan renderer (port/android/VULKAN.md,
 phase 4). Copied from the OpenGL renderer's nv2a_psh.c (port/linux/src), which the
 other platforms keep; what differs is the GLSL dialect, not the translation. Any
 change to what this file writes is a change to the shaders themselves and must
-raise VK_SHADER_GENERATOR_VERSION (vk_shaders.h):
+raise VK_SHADER_GENERATOR_VERSION (vk_shaders.h), but for what only a key with
+one of the port's own bits writes (NV2A_PIXEL_KEY_CLIP, NV2A_PIXEL_KEY_WARP_BLEND:
+the other keys' code and names stay as they were):
 
 - #version 450, and every uniform in a block in set 0 with an explicit binding
   and an explicit offset for every member, every sampler at its binding
@@ -621,6 +623,29 @@ char *nv2a_vk_pixel_shader_to_glsl(const struct nv2a_pixel_shader_key *key)
 		"\tvec4 v1 = xD1;\n"
 		"\tvec4 t0 = vec4(0.0), t1 = vec4(0.0), t2 = vec4(0.0), t3 = vec4(0.0);\n"
 		"\tfloat dot0 = 0.0, dot1 = 0.0, dot2 = 0.0, dot3 = 0.0;\n");
+	/* a stage's coordinates' clip (NV2A_PIXEL_KEY_CLIP, halo_texture_clip in d3d8_vk.c): a pixel whose u or v (and w, for
+	a 3D texture), as the stage samples them, is outside [alpha_reference.y, .z] does nothing - a shadow cast on the level
+	outside its map, a dynamic light's pass outside its reach - and is let go before anything is read or lit, as the
+	Switch's renderer does (port/switch/guest/nv2a_psh_dk.c) */
+	if (key->texture_modes & NV2A_PIXEL_KEY_CLIP)
+	{
+		int clip_stage = (int)((key->texture_modes & NV2A_PIXEL_KEY_CLIP_STAGE_MASK) >> NV2A_PIXEL_KEY_CLIP_STAGE_SHIFT);
+
+		if (key->texture_modes & NV2A_PIXEL_KEY_CLIP_3D)
+			xgpu_text_append(&text,
+				"\t{\n"
+				"\t\tvec3 clip_uvw = xT%d.xyz / (xT%d.w != 0.0 ? xT%d.w : 1.0) * texture_scale[%d].xyz;\n"
+				"\t\tif (any(lessThan(clip_uvw, vec3(alpha_reference.y))) || any(greaterThan(clip_uvw, vec3(alpha_reference.z))))\n"
+				"\t\t\tdiscard;\n"
+				"\t}\n", clip_stage, clip_stage, clip_stage, clip_stage);
+		else
+			xgpu_text_append(&text,
+				"\t{\n"
+				"\t\tvec2 clip_uv = xT%d.xy / (xT%d.w != 0.0 ? xT%d.w : 1.0) * texture_scale[%d].xy;\n"
+				"\t\tif (any(lessThan(clip_uv, vec2(alpha_reference.y))) || any(greaterThan(clip_uv, vec2(alpha_reference.z))))\n"
+				"\t\t\tdiscard;\n"
+				"\t}\n", clip_stage, clip_stage, clip_stage, clip_stage);
+	}
 	if (key->per_pixel_lighting)
 		xgpu_text_append(&text, "\tv0.rgb = model_lighting();\n");
 
@@ -689,6 +714,20 @@ char *nv2a_vk_pixel_shader_to_glsl(const struct nv2a_pixel_shader_key *key)
 		xgpu_text_append(&text, ";\n\tvec4 result = vec4(fA * fB + (1.0 - fA) * fC + fD, fG);\n");
 	}
 
+	/* the zoom's blend (NV2A_PIXEL_KEY_WARP_BLEND, rasterizer_xbox_screen_effect.c), as the Switch's renderer draws it
+	(nv2a_psh_dk.c): t0 the mask, t1 the small copy blurred by the game's passes, and in texture coordinate 3 the pixel's
+	way from the warp's centre, scaled so that its length times the root of the mask's alpha is the blur's spread in the
+	small copy's texels. The screen stays sharp up to a spread of ps_c0[0].r times 4 texels and the blur is drawn wholly
+	from ps_c0[0].g times 4, eased between; drawn with the screen's colour times the alpha added (D3DBLEND_ONE,
+	D3DBLEND_SRCALPHA), and all of it darkened by one less the mask's blue, as the game's last pass is */
+	if (key->texture_modes & NV2A_PIXEL_KEY_WARP_BLEND)
+		xgpu_text_append(&text,
+			"\t{\n"
+			"\t\tfloat warp_spread = length(xT3.xy) * sqrt(t0.a);\n"
+			"\t\tfloat warp_blur = smoothstep(ps_c0[0].r * 4.0, max(ps_c0[0].g * 4.0, ps_c0[0].r * 4.0 + 0.01), warp_spread);\n"
+			"\t\tfloat warp_dark = 1.0 - t0.b;\n"
+			"\t\tresult = vec4(t1.rgb * warp_blur * warp_dark, (1.0 - warp_blur) * warp_dark);\n"
+			"\t}\n");
 	if (key->coverage_alpha)
 		xgpu_text_append(&text, "\tresult.a = mix(1.0, result.a, t0.g);\n");
 	if (key->alpha_test_function)

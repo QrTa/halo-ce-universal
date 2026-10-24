@@ -248,6 +248,15 @@ void host_debug_start_sampler(const char *setting);
 /* config.toml's debug.profile_hz: samples of every guest thread a second, into
 profile.bin in data_root; 0 does nothing */
 void host_debug_start_profiler(int hz, const char *data_root);
+/* a frame shown, `nanoseconds` after the last (the Vulkan renderer's present: host_vk_profile.c), for the profile's
+slow frames; nothing unless the profiler runs */
+void host_debug_profile_frame(uint64_t nanoseconds);
+/* the run's profile folder, for the Vulkan renderer's gpu.txt (host_vk_profile.c); empty when no profile is
+recorded (debug.profile_run: host_main.c) */
+extern char host_vk_profile_folder[512];
+extern int host_vk_profile_split;
+/* debug.original_multisample: images of samples rather than VK_EXT_multisampled_render_to_single_sampled */
+extern int host_vk_original_multisample;
 
 /* ---------- the Vulkan probe (host_vk_probe.c; port/android/VULKAN.md, phase 0) */
 
@@ -290,6 +299,9 @@ shader's module, or 0 and writes a VK_SHADER_STATUS_* to the guest address statu
 address, copied during the call) for the compile thread. A 64-bit hash travels in one register */
 uint32_t host_vk_shader_find(uint32_t stage, uint64_t hash, uint32_t status_out);
 void host_vk_shader_compile(uint32_t stage, uint64_t hash, uint32_t glsl, uint32_t glsl_size);
+/* a queued shader compiled now, by the draw that needs it, or one a compile thread is making waited for, while the frame
+has spent less than a frame's time on it: its handle, or 0 (the draw is left out until the threads make it) */
+uint32_t host_vk_shader_make(uint32_t stage, uint64_t hash);
 /* whether the device reads a Vulkan format as a vertex attribute (host_vk_render.c), asked once for each by the guest */
 uint32_t host_vk_format_supported(uint32_t format);
 /* whether BC1 to BC3 images can be sampled with linear filtering and written by a copy (the guest sends them as they are if so,

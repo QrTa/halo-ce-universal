@@ -21,6 +21,9 @@ struct xgpu_capabilities
 	BOOL border_clamp;
 	BOOL anisotropy;
 	BOOL s3tc;
+	/* KHR_texture_compression_astc_ldr: DXT1 as ASTC where there is no S3TC
+	(display.dxt1_astc) */
+	BOOL astc;
 	/* ES 3.2, or the EXT/OES_draw_elements_base_vertex extension: glDrawElementsBaseVertex */
 	BOOL base_vertex;
 	/* ES 3.1 with fragment atomic counters: exact visibility test counts */
@@ -168,6 +171,12 @@ struct nv2a_pixel_shader_key
 	blend of a constant color factor with a constant alpha one, as the
 	meters' (shader_transparent_meter) */
 	unsigned char source_blend;
+	/* A CE meter draw sampling a sheet also used as ordinary artwork. (Here,
+	past the 256 bytes the Switch's shader cards keep of a key and hash,
+	port/switch/guest/dk_shaders.c: deko3d never sets it; padded to whole
+	words, which the OpenGL and Vulkan renderers hash the key by) */
+	unsigned char ce_meter_channels;
+	unsigned char ce_meter_padding[3];
 };
 
 char *nv2a_pixel_shader_to_glsl(const struct nv2a_pixel_shader_key *key);
@@ -214,6 +223,7 @@ struct xgpu_texture_description
 	BOOL hires;         /* a high-res HUD texture drawn in the texture's place (hud_hires.h) */
 	BOOL hires_coverage; /* ... whose green is its coverage (a meter's) */
 	BOOL hires_point_threshold; /* ... whose red holds discrete segment data */
+	BOOL ce_meter_channels;
 };
 
 void xgpu_texture_describe(DWORD format_word, DWORD size_word, struct xgpu_texture_description *description);

@@ -31,6 +31,13 @@ void host_logf(int priority, const char *format, ...) __attribute__((format(prin
 #define HOST_LOG_FATAL 7
 /* guest services also used inside the host (host_main.c) */
 void host_exit(int code) __attribute__((noreturn));
+/* the memory the process and the application pool have and use, for the log (host_mman.c) */
+void host_memory_report(const char *when);
+/* mod textures' bytes kept in the host's memory (host_texture_cache.c): by a key, 1 and the bytes copied if kept */
+int host_texture_cache_get(uint64_t key, uint32_t buffer, uint32_t size);
+void host_texture_cache_put(uint64_t key, uint32_t buffer, uint32_t size);
+void host_texture_cache_clear(void);
+void host_texture_cache_report(void);
 /* puts back the clocks host_sdl2.c raised for the game */
 void host_restore_clocks(void);
 int host_errno(void);
@@ -41,6 +48,9 @@ int host_errno(void);
  * the same lock rather than a second one - a second lock would still let a
  * guest read meet the logger's fsync inside the driver. Nothing that holds
  * this lock may log. */
+/* the end of a frame on the thread that presents: the datagrams it held to
+send together are sent (host_net.c) */
+void host_net_frame_end(void);
 void host_sd_lock(void);
 void host_sd_unlock(void);
 /* write the SD card's journal, so a file closed by the guest is still there
@@ -313,9 +323,20 @@ uint32_t host_dk_shader_known(uint32_t stage, uint64_t hash);
 /* how many shaders are queued or being compiled (the guest tells the player
 while there are many: dk_shaders.c) */
 uint32_t host_dk_shader_pending(void);
+/* how many of them are at priority or more urgent (lower): the map's, while
+its load waits for them under the loading screen (dk_shaders.c) */
+uint32_t host_dk_shader_pending_urgent(uint32_t priority);
+/* every queued shader at priority from goes to priority to: the map played
+before's, left uncompiled, when another map's load raises its own */
+void host_dk_shader_priority_lower(uint32_t from, uint32_t to);
 /* how many shaders on the card are queued for, or being read by, the loader
 thread (the guest's preload and its wait under the loading screen) */
 uint32_t host_dk_shader_loading(void);
+/* a shader on the card a draw is waiting for (the first seconds of a map:
+dk_shaders.c's stall_wait), to the front of the loader thread's queue, or
+put there if it is not queued: read next, not after a map's thousand. 1 if it
+is at the front now */
+uint32_t host_dk_shader_load_first(uint32_t stage, uint64_t hash);
 /* the guest's preload has asked for every shader it knows: what is left in
 the cache's folder (from before the pack) is removed, a little at a time */
 void host_dk_shader_preload_done(void);
@@ -380,6 +401,9 @@ followed if follow_redirects, and the last Location seen is copied to location
 either way. Returns the last status, or -1 with error said. */
 int host_https_get(const char *url, int follow_redirects, host_https_body body, void *context, char *location,
 	size_t location_size, char *error, size_t error_size);
+/* how many seconds the clock of the servers asked is ahead of this
+console's (behind if negative), from the last answer; 0 if none has come */
+int host_https_clock_offset(long long *seconds);
 
 /* ---------- the updater (host_update.c) */
 
@@ -389,6 +413,9 @@ const char *host_executable_root(void);
 maps are there, and the deko3d renderer's shader cache under it
 (host_dk_shaders.c) */
 const char *host_data_root(void);
+/* the save root, save/ in the data folder by default: the game's z: drive,
+where the shared shader keys go (host_update.c), is under it */
+const char *host_save_root(void);
 
 /* before the game, with the screens up (host_ui_open): offers a newer release
 of the port if there is one, and installs it if the player agrees, for the

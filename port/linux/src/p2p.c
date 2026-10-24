@@ -2840,6 +2840,19 @@ static void update_answering(void)
 	}
 }
 
+/* whether any of the game's other players is being reached */
+static int reaching_players(void)
+{
+	int index;
+
+	for (index = 0; index < P2P_MAXIMUM_PLAYER_JOINS; index++)
+	{
+		if (p2p.reaching[index].used)
+			return 1;
+	}
+	return 0;
+}
+
 /* the other players of the game joined that are asked for: until reached,
 or PLAYER_REACH_TIMEOUT */
 static void update_reaching(void)
@@ -3648,6 +3661,16 @@ static void *p2p_thread(void *unused)
 					atexit(lobby_quit);
 				}
 			}
+		}
+		/* the server browser closed: the brokers' connections it opened
+		closed too (its probes ended above), unless a game is hosted,
+		joined or answered for. They hold the console's socket buffers,
+		and with them open a LAN game hosted next could not take its own
+		client's connection (host_net.c) */
+		if (p2p_lobby_browse_ended() && !p2p.hosting && !p2p.joining && !p2p.join_requested &&
+			!p2p.answering_players && !reaching_players() && p2p_signal_stop_if_idle())
+		{
+			platform_log("Internet play: the server browser closed; its brokers' connections are closed");
 		}
 		update_joining();
 		update_answering();

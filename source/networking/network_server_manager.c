@@ -445,6 +445,7 @@ symbols in this file:
 /* ---------- headers */
 
 #include "cseries.h"
+#include "game_modes.h" /* port: port/linux/game/game_modes.c */
 #include "bungie_net/common/message_header.h"
 #include "bungie_net/network/transport.h"
 #include "bungie_net/network/transport_address_constants.h"
@@ -480,8 +481,8 @@ symbols in this file:
 /* port: internet play's Discord presence (port/linux/src/p2p.c), and the
 server browser's listing of a public game (p2p_lobby.c) */
 void p2p_set_game_player_counts(int count, int maximum);
-void p2p_set_game_listing(const char *name, const char *map, const char *gametype, int engine_type, int open,
-	int in_progress, int has_teams, int randomized, int modded);
+void p2p_set_game_listing(const char *name, const char *map, const char *gametype, int engine_type, int kind,
+	int open, int in_progress, int has_teams, int randomized, int modded);
 
 /* ---------- constants */
 
@@ -1528,12 +1529,14 @@ static void network_game_server_list(
 		snprintf(gametype + length, sizeof(gametype) - length, " %s", difficulty_names[game->difficulty]);
 	}
 	/* (the scenario's name, not its path: the listing has 32 characters) */
+	/* port: (and its OpenCE gametype's kind: port/linux/game/game_modes.c) */
 	{
 		extern int randomizer_show_prefix(void);
 
 		/* (a modded game, listed only to builds with the mod: p2p_lobby.c) */
-		p2p_set_game_listing(name, tag_name_strip_path(game->map.name), gametype, game->variant.game_engine_index, open,
-			in_progress, game->variant.universal_variant.teams, randomizer_show_prefix(),
+		p2p_set_game_listing(name, tag_name_strip_path(game->map.name), gametype, game->variant.game_engine_index,
+			game_modes_kind(&game->variant, &game->variant_options), open, in_progress,
+			game->variant.universal_variant.teams, randomizer_show_prefix(),
 			randomizer_show_prefix() || skulls_hosted());
 	}
 }
@@ -4630,6 +4633,18 @@ void network_game_server_port_set_cooperative_player_collisions(
 	SET_FLAG(server->game.cooperative_flags, _network_game_cooperative_no_player_collisions_bit, !player_collisions);
 	if (server->state == _network_game_server_state_pregame && !network_game_server_send_game_data_pregame(server))
 		network_event("network_game_server_port_set_cooperative_player_collisions() failed to send updated game settings to clients");
+}
+
+void network_game_server_port_set_cooperative_ally_friendly_fire(
+	boolean ally_friendly_fire)
+{
+	struct network_game_server *server = global_network_game_server_get();
+
+	if (!server)
+		return;
+	SET_FLAG(server->game.cooperative_flags, _network_game_cooperative_no_ally_friendly_fire_bit, !ally_friendly_fire);
+	if (server->state == _network_game_server_state_pregame && !network_game_server_send_game_data_pregame(server))
+		network_event("network_game_server_port_set_cooperative_ally_friendly_fire() failed to send updated game settings to clients");
 }
 
 /* port: a game a host runs afresh. A machine that asked to join as the last

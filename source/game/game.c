@@ -120,6 +120,7 @@ struct game_options;
 
 #include "cseries/cseries.h"
 #include "game/game.h"
+#include "game_modes.h" /* port: port/linux/game/game_modes.c */
 #include "ai/ai.h"
 #include "bink/bink_playback.h"
 #include "bungie_net/network/transport.h"
@@ -518,7 +519,11 @@ void game_set_game_variant_options(
 	struct game_variant_options const *options)
 {
 	if (options)
+	{
 		game_variant_options_global = *options;
+		/* port: OpenCE's options in range (another machine's: game_modes.c) */
+		game_modes_options_sanitize(&game_variant_options_global);
+	}
 	else
 		game_variant_options_default(&game_variant_global, &game_variant_options_global);
 
@@ -656,9 +661,16 @@ boolean game_load(
 
 	random_seed_debug_log(TRUE);
 	csmemcpy(&game_globals->options, options, sizeof(*options));
-	if (scenario_load(options->map_name))
 	{
-		game_globals->map_loaded = TRUE;
+		/* port: how long the map's load takes once it is in the cache, in the port's log */
+		extern void platform_log(char const *format, ...);
+		unsigned long started = GetTickCount();
+
+		if (scenario_load(options->map_name))
+		{
+			game_globals->map_loaded = TRUE;
+		}
+		platform_log("map load: %s: scenario_load %lu ms", options->map_name, GetTickCount() - started);
 	}
 
 	return game_globals->map_loaded;
@@ -864,6 +876,11 @@ void game_dispose(
 	return;
 }
 
+#ifdef HALO_SWITCH
+extern int d3d8_gl_map_waiting(void);
+extern float d3d8_gl_map_progress(void);
+#endif
+
 void game_precache_new_map(
 	char *map_name,
 	boolean blocking)
@@ -907,6 +924,8 @@ void game_precache_new_map(
 		if (blocking)
 		{
 			struct game_runtime_globals_prefix *globals = game_globals;
+			/* port: (for the loading screen's time, below) */
+			unsigned long loading_started = GetTickCount();
 
 			globals->map_load_in_progress = TRUE;
 			globals->loading_progress = 0.0f;
@@ -917,17 +936,57 @@ void game_precache_new_map(
 					cache_files_precache_is_copying_map(map_name));
 			ui_widget_load_progress_widget();
 			progress_bar_begin(global_scenario_index != NONE);
+#ifdef HALO_SWITCH
+			/* port: the map's shaders are compiled under the loading screen,
+			which stays up for them once the map is read, for ten seconds at
+			most from here (port/switch/guest/dk_shaders.c) */
+			{
+				extern void d3d8_gl_map_loading(const char *name);
+
+				d3d8_gl_map_loading(map_name);
+			}
+#endif
 			do
 			{
 				map_status = cache_files_precache_map_status(
 					&game_globals->loading_progress);
+#ifdef HALO_SWITCH
+				/* port: the loading screen's progress is half the map's copy and half its shaders
+				(port/switch/guest/dk_shaders.c), never going back, so that its light sweeps across the whole
+				time it is up and not across the copy alone, then dark through the shaders' wait */
+				{
+					static real shown;
+					real shaders = (real)d3d8_gl_map_progress();
+					real progress = shaders < 0.0f ? game_globals->loading_progress :
+						game_globals->loading_progress*0.5f + shaders*0.5f;
+
+					if (game_globals->loading_progress <= 0.0f)
+						shown = 0.0f;
+					if (progress < shown)
+						progress = shown;
+					if (progress > 1.0f)
+						progress = 1.0f;
+					shown = progress;
+					game_globals->loading_progress = progress;
+				}
+#endif
 				main_pregame_render();
 				main_rasterizer_throttle();
 				main_present_frame();
 			}
+#ifdef HALO_SWITCH
+			while (!map_status || (map_status == _cached_map_file_success && d3d8_gl_map_waiting()));
+#else
 			while (!map_status);
+#endif
 
 			progress_bar_end();
+			{
+				/* port: the loading screen's time (the copy, and on the Switch the map's shaders), in the port's log */
+				extern void platform_log(char const *format, ...);
+
+				platform_log("map load: %s: the loading screen %lu ms", map_name, GetTickCount() - loading_started);
+			}
 			ui_widgets_close_all();
 			if (map_status == _cached_map_file_failed)
 				display_error_damaged_media();

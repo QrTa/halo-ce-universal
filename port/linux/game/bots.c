@@ -303,9 +303,16 @@ static struct
 
 /* ---------- settings */
 
+static long bots_count_override = -1;
+
+void bots_set_count_override(long count)
+{
+	bots_count_override = count;
+}
+
 long bots_wanted_count(void)
 {
-	long count = config_integer("bots.count");
+	long count = bots_count_override >= 0 ? bots_count_override : config_integer("bots.count");
 
 	return count < 0 ? 0 : count > BOTS_MAXIMUM ? BOTS_MAXIMUM : count;
 }
@@ -335,14 +342,20 @@ int bots_machine_is_bot(long machine_index)
 
 void bots_network_player(long bot_index, struct network_player *player)
 {
-	/* (the Marines of Halo's campaign; eleven characters at most) */
-	static char const *const names[BOTS_MAXIMUM] =
+	/* (the Marines of Halo's campaign; eleven characters at most: past the fifteenth, each again with a number,
+	"Johnson 2") */
+	static char const *const names[] =
 	{
 		"Johnson", "Jenkins", "Mendoza", "Bisenti", "Stacker", "Polaski", "Chips", "Kojo",
 		"Rawley", "Riley", "Wellsley", "Hall", "Fitzgerald", "Locklear", "Mitchell",
 	};
-	char const *name = names[bot_index % BOTS_MAXIMUM];
+	char name[16];
 	long index;
+
+	if (bot_index < (long)NUMBEROF(names))
+		snprintf(name, sizeof(name), "%s", names[bot_index]);
+	else
+		snprintf(name, sizeof(name), "%.8s %ld", names[bot_index % NUMBEROF(names)], bot_index / NUMBEROF(names) + 1);
 
 	csmemset(player, 0, sizeof(*player));
 	for (index = 0; index < (long)NUMBEROF(player->name) - 1 && name[index]; index++)

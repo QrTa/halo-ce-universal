@@ -673,8 +673,8 @@ def generate_switch_build(n: Writer, sln: Any) -> None:
     ])
     # The Android host's own files, with this port's replacements (the
     # three in port/switch/host take the place of port/android/host's) and
-    # posix_net.c and posix_upnp.c left out: host_net.c has the socket calls
-    # over libnx, and answers the desktop-only and UPnP ones itself.
+    # posix_net.c left out: host_net.c has the socket calls over libnx, and
+    # answers the desktop-only ones itself.
     host_sources = list(sorted((PORT_DIR / "host").glob("*.c")))
     # the stack switch into the guest, which has to be assembly: it moves the
     # stack pointer, which C cannot express
@@ -696,6 +696,17 @@ def generate_switch_build(n: Writer, sln: Any) -> None:
     # PNGs, which the host decodes as a map loads (host_dk_hud.c)
     zlib_sources = [ZLIB_DIR / name for name in ZLIB_SOURCES]
     host_sources += zlib_sources
+    # internet play's UPnP: posix_upnp.c with the port's miniupnpc, as the
+    # desktop's and the PS5's (the library's own warnings are not ours)
+    upnp_sources = [LINUX_DIR / "src" / "posix_upnp.c", *miniupnpc_sources()]
+    host_sources += upnp_sources
+    upnp_cflags = " ".join([host_cflags, f"-I{MINIUPNPC_DIR / 'include'}", f"-I{MINIUPNPC_DIR / 'src'}",
+                            *MINIUPNPC_DEFINES,
+                            # (libnx has not these two: host_net.c's, which
+                            # answer as the IPv4 network has no scopes)
+                            "-Dif_nametoindex=switch_upnp_if_nametoindex",
+                            "-Dif_indextoname=switch_upnp_if_indextoname",
+                            f"-include {PORT_DIR / 'host' / 'host_upnp_names.h'}"])
     # the disc image reader, so a retail .iso on the card can be unpacked into
     # the maps folder by the port itself rather than copied there by hand. It is
     # the same source the desktop port and the guest use, built here without
@@ -717,6 +728,8 @@ def generate_switch_build(n: Writer, sln: Any) -> None:
             cflags = f'{host_cflags} -DHOST_DK_UAM_COMMIT=\\"{UAM_COMMIT[:12]}\\"'
         if source in zlib_sources:
             cflags = " ".join([host_cflags, f"-I{ZLIB_DIR}", *ZLIB_DEFINES])
+        if source in upnp_sources:
+            cflags = upnp_cflags + (" -w" if source.name != "posix_upnp.c" else "")
         if source.name == "host_dk_hud.c":
             cflags = f"{host_cflags} -I{ZLIB_DIR}"
         n.build(outputs=obj, rule="switch_host_cc", inputs=source, variables={"cflags": cflags},
@@ -770,6 +783,18 @@ def generate_switch_build(n: Writer, sln: Any) -> None:
         nm_bin = host_cc.parent / "aarch64-none-elf-nm"
         objcopy_bin = host_cc.parent / "aarch64-none-elf-objcopy"
         ld_bin = host_cc.parent / "aarch64-none-elf-ld"
+        # UAM's allocations go to the host's allocator for it
+        # (port/switch/host/host_uam_alloc.c), each thread's own: newlib's
+        # malloc has one lock for the process, and two compile threads on it
+        # were slower than one (DEKO3D.md, phase 5, step 4). Every call of
+        # the C library's and C++'s, renamed with the rest.
+        uam_allocations = [("malloc", "host_uam_malloc"), ("calloc", "host_uam_calloc"),
+                           ("realloc", "host_uam_realloc"), ("free", "host_uam_free"),
+                           ("strdup", "host_uam_strdup"), ("strndup", "host_uam_strndup"),
+                           ("_Znwm", "host_uam_new"), ("_Znam", "host_uam_new_array"),
+                           ("_ZdlPv", "host_uam_delete"), ("_ZdaPv", "host_uam_delete_array")]
+        allocation_lines = " ".join(f"'{old} {new}'" for old, new in uam_allocations)
+        allocation_globals = " ".join(f"--keep-global-symbol={new}" for _, new in uam_allocations)
         n.rule(
             name="switch_uam_combine",
             command=(
@@ -777,8 +802,9 @@ def generate_switch_build(n: Writer, sln: Any) -> None:
                 f"{nm_bin} --defined-only {combined} | awk '{{print $$3}}' | "
                 f"grep -v -e '^host_dk_compile_glsl$$' -e '^\\$$' | sort -u | "
                 f"awk '{{print $$1\" uam_\"$$1}}' > {symbols} && "
+                f"printf '%s\\n' {allocation_lines} >> {symbols} && "
                 f"{objcopy_bin} --redefine-syms={symbols} --keep-global-symbol=host_dk_compile_glsl "
-                f"{combined} $out"
+                f"{allocation_globals} {combined} $out"
             ),
             description="SWITCH UAM COMBINE $out",
         )

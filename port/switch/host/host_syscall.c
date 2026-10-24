@@ -507,15 +507,26 @@ int unlinkat(int directory, const char *path, int flags)
 	}
 }
 
-/* (map sharing names a map file for its hash: port/linux/game/map_share.c) */
+/* (map sharing names a map file for its hash: port/linux/game/map_share.c)
+The console's rename will not replace a file, where POSIX's does: a file
+written beside another and renamed over it (the mods' load_order.toml,
+port_mods.c) was written the first time and never again. So a file in the
+way is deleted first, as host_dk_shaders.c does for its own. */
 static int guest_renameat(int old_directory, const char *old_path, int new_directory, const char *new_path)
 {
+	struct stat old_information, new_information;
 	int result;
 
 	if (old_directory >= 0 || new_directory >= 0)
 		return -EBADF;
 	host_sd_lock();
 	result = rename(old_path, new_path);
+	if (result != 0 && stat(old_path, &old_information) == 0 && S_ISREG(old_information.st_mode) &&
+		stat(new_path, &new_information) == 0 && S_ISREG(new_information.st_mode) &&
+		unlink(new_path) == 0)
+	{
+		result = rename(old_path, new_path);
+	}
 	host_sd_unlock();
 	return result;
 }
@@ -945,10 +956,23 @@ asked of: one run left two host files grown to 0x11600000, a guest heap
 address, and this says whether the guest asked for it. */
 #define LARGE_FILE_OFFSET (64LL * 1024 * 1024)
 
+/* Only the first few: a Custom Edition map can be larger than this, and a
+load of one (Lumoria A's, 275 MB) seeked past it 6,111 times. Each line is a
+write to the card under the lock the guest's reads wait on (host_sd_lock):
+with the mremap lines below, that load spent 26 of its 78 s waiting for the
+log. */
+#define LARGE_FILE_OFFSET_LINES 16
+
 static void note_large_offset(const char *call, long long guest_fd, long long offset)
 {
-	if (offset >= LARGE_FILE_OFFSET)
-		host_logf(HOST_LOG_WARN, "guest %s on descriptor %lld at %#llx", call, guest_fd, offset);
+	static int lines;
+
+	if (offset >= LARGE_FILE_OFFSET && lines < LARGE_FILE_OFFSET_LINES)
+	{
+		lines++;
+		host_logf(HOST_LOG_WARN, "guest %s on descriptor %lld at %#llx%s", call, guest_fd, offset,
+			lines == LARGE_FILE_OFFSET_LINES ? " (and no more of these)" : "");
+	}
 }
 
 /* ---------- the platform layer's descriptor helpers
@@ -1463,8 +1487,19 @@ static long long host_syscall_inner(long long number, long long a, long long b, 
 		 * seeing: it is logged rather than returned quietly, because a
 		 * guest allocator that cannot extend is what "cannot grow emulated
 		 * TLS" turns out to be. */
-		host_logf(HOST_LOG_INFO, "the guest asked to move %llu bytes to %llx",
-			(unsigned long long)b, (unsigned long long)d);
+		/* (said once: musl's realloc asks it of every large block it
+		 * grows, and a Custom Edition map's sounds, decoded as it loads,
+		 * asked it some fourteen hundred times, a line each to the card) */
+		{
+			static int said;
+
+			if (!said)
+			{
+				said = 1;
+				host_logf(HOST_LOG_INFO, "the guest asked to move %llu bytes to %llx (refused, as every mremap "
+					"is: musl maps and copies instead; not said again)", (unsigned long long)b, (unsigned long long)d);
+			}
+		}
 		return -ENOMEM;
 	case SYS_brk:
 		host_logf(HOST_LOG_INFO, "the guest asked brk for %llx", (unsigned long long)a);
@@ -2043,6 +2078,9 @@ long long host_syscall(long long number, long long a, long long b, long long c,
 		return result;
 	/* refused by the console, and said once already (host_mman.c) */
 	if (number == SYS_mprotect && result == -ENOTSUP)
+		return result;
+	/* refused on purpose, and said once (SYS_mremap above) */
+	if (number == SYS_mremap && result == -ENOMEM)
 		return result;
 	if (result < 0 && result > -4096)
 	{

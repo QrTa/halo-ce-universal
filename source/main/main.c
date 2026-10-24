@@ -384,6 +384,7 @@ symbols in this file:
 #include "network_voice.h" /* port: port/linux/game/network_voice.c */
 #include "network_chat.h" /* port: port/linux/game/network_chat.c */
 #include "network_aim_assist.h" /* port: port/linux/game/network_aim_assist.c */
+#include "network_shield_effects.h" /* port: port/linux/game/network_shield_effects.c */
 #include "map_share.h" /* port: port/linux/game/map_share.c */
 #include "profile_sections.h" /* port: port/linux/include/profile_sections.h */
 #ifdef HALO_PROFILE
@@ -683,6 +684,9 @@ typedef char screenshot_and_framerate_globals_size_assert[
 	sizeof(struct _screenshot_and_framerate_globals) == 0x38B ? 1 : -1];
 
 void network_test_update(boolean main_menu_loaded, real seconds);
+void benchmark_update(boolean main_menu_loaded);
+/* port: commands from an overlay, through a file (port/linux/game/overlay_commands.c) */
+void overlay_commands_update(void);
 
 /* ---------- prototypes */
 
@@ -3366,6 +3370,7 @@ void main_loop_of_death(
 		shell_idle();
 		event_manager_update();
 		telnet_console_process();
+		overlay_commands_update();
 		process_ui_widgets();
 		main_pregame_render();
 		main_rasterizer_throttle();
@@ -3639,6 +3644,7 @@ static boolean main_loop_iteration(
 		shell_idle();
 		event_manager_update();
 		telnet_console_process();
+		overlay_commands_update();
 		profile_scope_exit(main_platform_events_section)
 
 		if (!shell_application_is_paused())
@@ -3647,10 +3653,14 @@ static boolean main_loop_iteration(
 
 			/* automated system link tests (port/linux/game/network_test.c) */
 			network_test_update(main_globals.main_menu_scenario_loaded, main_globals.seconds_elapsed);
+			/* port: the benchmark run (port/linux/game/benchmark.c) */
+			benchmark_update(main_globals.main_menu_scenario_loaded);
 			/* port: voice chat, in the lobby and in game (port/linux/game/network_voice.c) */
 			network_voice_update();
 			/* port: apply and replicate the host's mouse aim-assist policy. */
 			network_aim_assist_update();
+			/* port: the host's shield effects, for every machine (port/linux/game/network_shield_effects.c) */
+			network_shield_effects_update();
 			/* port: map sharing, in the lobby and in game (port/linux/game/map_share.c) */
 			map_share_update();
 			/* port: the campaign randomizer's profile being named, and its

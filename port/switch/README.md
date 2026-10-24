@@ -122,6 +122,15 @@ folders is read. A map you do not have is downloaded from the other players
 while you wait in the lobby. Refer to the root
 [README.md](../../README.md#custom-edition-maps).
 
+The maps and Custom Edition maps can be in other folders: set
+`game.maps.path` and `game.custom_maps.path` under `[game]` in
+`config.toml` (`maps.path = "sdmc:/halo/maps"`; a relative path is in
+`sdmc:/switch/halo/`). The game reads them once, at the start. A disc image
+is only unpacked into `sdmc:/switch/halo/maps/`, so a maps folder named
+there must already hold the maps: if it is missing or has no `ui.map`, the
+game says so and quits. A custom maps folder that is missing gets a warning,
+and the game goes on without Custom Edition maps.
+
 ## Gyro aiming
 
 The stick aims as it does anywhere else. Open a profile, choose Gamepads, and

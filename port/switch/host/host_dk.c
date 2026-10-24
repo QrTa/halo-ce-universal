@@ -3357,6 +3357,57 @@ static struct composite *composite_sampled(uint32_t data, uint32_t levels)
 	return composite;
 }
 
+/* ---------- copies between targets (DK_COMMAND_BLIT) */
+
+/* the 2D engine's copy of a rectangle of one target into another (made if
+it never was), as the composites' copies are made: the source's draws done
+and the destination's samplers done first, the copy done before anything
+samples the destination or draws again */
+static void blit(const struct dk_command_blit *command)
+{
+	struct target *source = target_get(&command->source);
+	struct target *destination = target_get(&command->destination);
+	struct trace_event *event = trace_add(DK_COMMAND_BLIT);
+	DkImageView from_view, to_view;
+	DkImageRect from = { command->from[0], command->from[1], 0, command->from[2], command->from[3], 1 };
+	DkImageRect to = { command->to[0], command->to[1], 0, command->to[2], command->to[3], 1 };
+
+	event->a[0] = command->source.data;
+	event->a[1] = command->from[0];
+	event->a[2] = command->from[1];
+	event->a[3] = command->from[2];
+	event->a[4] = command->from[3];
+	event->a[5] = command->destination.data;
+	event->a[6] = command->to[0];
+	event->a[7] = command->to[1];
+	event->a[8] = command->to[2] | command->to[3] << 16;
+	if (!source || !destination || source == destination || command->source.kind != DK_SURFACE_COLOR ||
+		command->destination.kind != DK_SURFACE_COLOR || !from.width || !from.height || !to.width || !to.height)
+		return;
+	if ((uint64_t)from.x + from.width > SURFACE_PIXEL_WIDTH(&source->surface) ||
+		(uint64_t)from.y + from.height > SURFACE_PIXEL_HEIGHT(&source->surface) ||
+		(uint64_t)to.x + to.width > SURFACE_PIXEL_WIDTH(&destination->surface) ||
+		(uint64_t)to.y + to.height > SURFACE_PIXEL_HEIGHT(&destination->surface))
+	{
+		trace_check("a blit of %08x %u,%u %ux%u into %08x %u,%u %ux%u is outside a target", (unsigned)command->source.data,
+			(unsigned)from.x, (unsigned)from.y, (unsigned)from.width, (unsigned)from.height,
+			(unsigned)command->destination.data, (unsigned)to.x, (unsigned)to.y, (unsigned)to.width, (unsigned)to.height);
+		return;
+	}
+	event->a[9] = 1;
+	dkImageViewDefaults(&from_view, &source->image);
+	dkImageViewDefaults(&to_view, &destination->image);
+	barrier(DkBarrier_Fragments, 0);
+	dkCmdBufBlitImage(dk.commands, &from_view, &from, &to_view, &to, DkBlitFlag_FilterLinear, 0);
+	barrier(DkBarrier_Full, DkInvalidateFlags_Image);
+	targets_sampled_forget();
+	tex.stages_dirty = 1;
+	/* (the latest image at its data, which a stage samples: target_sampled) */
+	destination->bound = ++dk.target_clock;
+	destination->drawn = 0;
+	command_done(event);
+}
+
 /* ---------- visibility tests (DK_COMMAND_VISIBILITY_*) */
 
 static DkMemBlock visibility_memory;
@@ -4192,6 +4243,13 @@ static void submit_run(const unsigned char *at, uint32_t size)
 		case DK_COMMAND_HUD_FORGET:
 			host_dk_hud_forget();
 			break;
+		case DK_COMMAND_BLIT:
+			if (header->size >= sizeof(struct dk_command_blit))
+			{
+				blit((const struct dk_command_blit *)header);
+				dk.recorded = 1;
+			}
+			break;
 		default:
 			host_logf(HOST_LOG_ERROR, "deko3d: unknown command %u", (unsigned)header->type);
 			break;
@@ -4574,6 +4632,7 @@ static const char *trace_kind_name(uint32_t kind)
 	case DK_COMMAND_TEXTURES: return "stages";
 	case DK_COMMAND_TEXTURE_ROWS: return "texture rows";
 	case DK_COMMAND_COMPOSITE: return "composite";
+	case DK_COMMAND_BLIT: return "blit";
 	case DK_COMMAND_VISIBILITY_END: return "visibility";
 	case DK_COMMAND_MARKER: return "pass";
 	case TRACE_SUBMIT: return "SUBMISSION";
@@ -4676,6 +4735,11 @@ static void trace_event_describe(const struct trace_event *event, char *text, si
 	case DK_COMMAND_COMPOSITE:
 		snprintf(text, size, "%08x %ux%u %u levels, slot %u", (unsigned)a[0], (unsigned)a[1], (unsigned)a[2],
 			(unsigned)a[3], (unsigned)a[4]);
+		break;
+	case DK_COMMAND_BLIT:
+		snprintf(text, size, "%08x %u,%u %ux%u into %08x %u,%u %ux%u%s", (unsigned)a[0], (unsigned)a[1], (unsigned)a[2],
+			(unsigned)a[3], (unsigned)a[4], (unsigned)a[5], (unsigned)a[6], (unsigned)a[7], (unsigned)(a[8] & 0xffff),
+			(unsigned)(a[8] >> 16), a[9] ? "" : " (SKIPPED)");
 		break;
 	case TRACE_COMPOSITE_COPY:
 		snprintf(text, size, "%08x, %u of %u levels drawn, slot %u", (unsigned)a[0], (unsigned)a[1], (unsigned)a[2],

@@ -234,6 +234,19 @@ static const struct config_setting config_settings[] =
 		"theirs, and the rest fade out as the crowd moves. 0 for no limit, as on\n"
 		"the Xbox (each shadow redraws the level under it: a crowd of them is\n"
 		"the most of a busy frame). Changes at once." },
+	{ "display.dynamic_light_limit", _config_integer, "8", "HALO_DYNAMIC_LIGHT_LIMIT", _environment_value, _platform_all,
+		"The most dynamic lights (muzzle flashes, plasma, explosions) that light\n"
+		"the level at once: the biggest on the screen keep their light on the\n"
+		"walls and floor, the rest light only the objects near them. 0 for no\n"
+		"limit, as on the Xbox (each redraws the level it reaches twice: a\n"
+		"firefight of many is the most of a busy frame's GPU time). Changes at\n"
+		"once." },
+	{ "display.specular_light_limit", _config_integer, "2", "HALO_SPECULAR_LIGHT_LIMIT", _environment_value, _platform_all,
+		"Of those, the most that add their specular highlights (the shine on\n"
+		"metal and wet floors): the biggest on the screen, the first-person\n"
+		"weapon's first. The others still light the level, without the shine.\n"
+		"0 for no limit, as on the Xbox (a near light's highlights cover most\n"
+		"of the screen: the costliest pass of a firefight). Changes at once." },
 	{ "display.menus", _config_string, "\"pc\"", "HALO_MENUS", _environment_value, _platform_all,
 		"The menus: \"pc\" for the PC version's main menu (port/assets/menus,\n"
 		"and a menus folder here for your own), \"xbox\" for the Xbox's." },
@@ -272,6 +285,10 @@ static const struct config_setting config_settings[] =
 		"Sharpen textures seen at a grazing angle (floors, walls, terrain), which\n"
 		"the Xbox did not: 2, 4, 8 or 16 times; 0 filters as the Xbox did. 4 keeps\n"
 		"most of 16's sharpness at less cost on slower GPUs." },
+	{ "display.dxt1_astc", _config_boolean, "true", "HALO_DXT1_ASTC", _environment_value, _platform_android,
+		"On a GPU without DXT textures (Mali), give it the DXT1 textures as ASTC,\n"
+		"which holds them nearly as they are in a quarter of the memory of the\n"
+		"32-bit texels they are otherwise decoded to; false decodes them." },
 	{ "display.latency_meter", _config_boolean, "false", "HALO_LATENCY_METER", _environment_value, _platform_all,
 		"In a network game, your round trip to the host in milliseconds at the\n"
 		"screen's top right, with bars (the host: its slowest player's), and\n"
@@ -380,6 +397,13 @@ static const struct config_setting config_settings[] =
 		"Moving the mouse forward looks down." },
 	{ "network.block_mouse_aim_assist", _config_boolean, "false", "HALO_NET_BLOCK_MOUSE_AIM_ASSIST", _environment_value,
 		_platform_all, "Host: disable optional mouse magnetism for mouse/keyboard players. Controllers and touch keep their own assist." },
+	{ "network.shield_effects", _config_string, "\"stock\"", "HALO_NET_SHIELD_EFFECTS", _environment_value, _platform_all,
+		"Host: the shield effects every player of a network game sees, whatever\n"
+		"their own: \"stock\", \"glow\", \"light_show\", \"overshield\",\n"
+		"\"glow_overshield\" or \"light_show_overshield\" (display.shield_glow,\n"
+		"its light_show intensity, display.overshield_effect); \"players\": not\n"
+		"synced, each player sees their own settings'. SHIELD EFFECTS in Server\n"
+		"Setup > Player Options writes its choice here." },
 	{ "input.mouse_aim_assist", _config_boolean, "false", "HALO_MOUSE_AIM_ASSIST", _environment_value, _platform_desktop,
 		"Magnetism while aiming with the mouse, as with a controller: the view\n"
 		"slowed and dragged along by a target. The last of the mouse and the\n"
@@ -447,6 +471,14 @@ static const struct config_setting config_settings[] =
 	{ "controls.team_chat", _config_string, "\"Y\"", "HALO_KEY_TEAM_CHAT", _environment_value, _platform_all,
 		"Network games' text chat: type a line to your team." },
 
+#ifdef HALO_SWITCH
+	{ "game.overlay_commands", _config_boolean, "true", "HALO_OVERLAY_COMMANDS", _environment_value, _platform_all,
+		"Take commands from overlay/command.txt in the data folder, once a\n"
+		"second: a console command (cheat_deathless_player true, map_name a10)\n"
+		"or config <setting> <value>, run and the file deleted; overlay/\n"
+		"result.txt says what came of it. For an Ultrahand overlay to control\n"
+		"the game. Changes at once." },
+#endif
 	{ "game.console_log", _config_string, "\"important\"", "HALO_CONSOLE_LOG", _environment_value, _platform_all,
 		"What the game's console shows on screen of what it logs: \"important\"\n"
 		"(bans, players dropped for cheating, what refuses a command, and the\n"
@@ -694,7 +726,7 @@ static const struct config_setting config_settings[] =
 		"as the game's own maps' are before they run; false refuses them\n"
 		"(docs/custom_edition_caches.md)." },
 	{ "bots.count", _config_integer, "0", "HALO_BOTS", _environment_value, _platform_all,
-		"Computer players (bots) in a local (split screen) Slayer game: 0 to 15\n"
+		"Computer players (bots) in a local (split screen) Slayer game: 0 to 63\n"
 		"join its lobby with the players, as far as the game has room. Not in\n"
 		"system link or internet games. 0: none, as in the stock game." },
 	{ "bots.skill", _config_string, "\"normal\"", "HALO_BOT_SKILL", _environment_value, _platform_all,
@@ -714,13 +746,19 @@ static const struct config_setting config_settings[] =
 		"it charges (2 seconds, 3 from a shield that was down) and staying lit,\n"
 		"its energy slower, in its own color (the powerup's), on the first-person\n"
 		"arms too with viewmodel_shield; a hit on it plays what the projectile\n"
-		"plays on an Elite's shield. Only what is drawn and heard changes." },
+		"plays on an Elite's shield. Only what is drawn and heard changes.\n"
+		"In a network game, the host's network.shield_effects decides, unless\n"
+		"it is \"players\" (each player's own)." },
 	{ "display.shield_glow", _config_boolean, "false", "HALO_SHIELD_GLOW", _environment_value, _platform_all,
 		"Energy shields light what is around them as they flare, as plasma\n"
-		"does, in the shield's own color." },
+		"does, in the shield's own color. In a network game, the host's\n"
+		"network.shield_effects decides, unless it is \"players\" (each\n"
+		"player's own)." },
 	{ "display.shield_glow_intensity", _config_string, "\"default\"", "HALO_SHIELD_GLOW_INTENSITY", _environment_value, _platform_all,
 		"How far the shield glow reaches: \"default\" or \"light_show\" (three\n"
-		"times as far, and at full strength from a third of the flare)." },
+		"times as far, and at full strength from a third of the flare).\n"
+		"In a network game, the host's network.shield_effects decides, unless\n"
+		"it is \"players\" (each player's own)." },
 	{ "display.shield_color", _config_string, "\"default\"", "HALO_SHIELD_COLOR", _environment_value, _platform_all,
 		"Your energy shield's color, as this machine draws it: \"default\" (the\n"
 		"shield's own) or a multiplayer armor color: white, black, red, blue,\n"
@@ -740,6 +778,16 @@ static const struct config_setting config_settings[] =
 		"every map. A downloaded map's scripts may not change the player's\n"
 		"settings or other players' games (debug.txt names what they were\n"
 		"refused)." },
+
+	{ "game.maps.path", _config_string, "\"\"", "HALO_MAPS_PATH", _environment_value, _platform_all,
+		"The folder the game's maps are read from; empty for the maps folder in\n"
+		"the data folder. A relative path is under the data folder. Read once,\n"
+		"at the start. The disc's maps are only ever unpacked into the data\n"
+		"folder's maps, so a folder named here must hold them already." },
+	{ "game.custom_maps.path", _config_string, "\"\"", "HALO_CUSTOM_MAPS_PATH", _environment_value, _platform_all,
+		"The folder Custom Edition maps are read from (and map sharing's\n"
+		"downloads go to); empty for the custom_maps folder in the data folder.\n"
+		"A relative path is under the data folder. Read once, at the start." },
 
 	{ "paths.data", _config_string, "\"\"", "HALO_DATA_ROOT", _environment_value, _platform_desktop,
 		"The folder holding the game data's maps folder; empty looks in the\n"
@@ -851,7 +899,14 @@ static const struct config_setting config_settings[] =
 		"Whether the players of an online co-op game hurt each other: \"off\",\n"
 		"\"on\", \"shields_only\" or \"explosives_only\" (FRIENDLY FIRE in\n"
 		"co-op's Server Setup > Co-op Options writes its choice here). Their AI\n"
-		"allies they always can, as in the campaign." },
+		"allies they hurt as network.coop_ally_friendly_fire says." },
+	{ "network.coop_ally_friendly_fire", _config_boolean, "true", "HALO_NET_COOP_ALLY_FRIENDLY_FIRE",
+		_environment_value, _platform_all,
+		"Whether the players of an online co-op game hurt their AI allies (the\n"
+		"Marines, Captain Keyes, the Sentinels while they are allies), as in the\n"
+		"campaign; false, the players' weapons, grenades and vehicles do them\n"
+		"no harm. ALLY FRIENDLY FIRE in co-op's Server Setup > Co-op Options\n"
+		"writes its choice here." },
 	{ "network.coop_own_friendly_fire", _config_boolean, "true", "HALO_NET_COOP_OWN_FRIENDLY_FIRE",
 		_environment_value, _platform_all,
 		"Whether this machine's players hurt, and are hurt by, the other players\n"
@@ -966,6 +1021,36 @@ static const struct config_setting config_settings[] =
 		"Sentry project (port/windows/src/win32_crash.c): \"yes\" sends them, \"no\"\n"
 		"never does, \"ask\" asks at the next crash and writes the answer here." },
 
+#ifdef HALO_SWITCH
+	{ "display.particle_limit", _config_integer, "2048", "HALO_PARTICLE_LIMIT", _environment_value, _platform_all,
+#else
+	{ "display.particle_limit", _config_integer, "4096", "HALO_PARTICLE_LIMIT", _environment_value, _platform_all,
+#endif
+		"The most particles (sparks, smoke, casings, debris) alive at once; past\n"
+		"it the oldest goes to make room for each new one. The Xbox's limit was\n"
+		"1024. 0 for the port's own 8192 (a 64-player firefight fills them, and\n"
+		"every one costs the processor and the GPU: 2048 on the Switch, 4096\n"
+		"elsewhere). Changes at once." },
+	{ "debug.original_particles", _config_boolean, "false", "HALO_ORIGINAL_PARTICLES", _environment_value, _platform_all,
+		"Move the particles that are not attached to an object (sparks, casings,\n"
+		"debris) at every frame drawn, as before, rather than once a 30 Hz tick\n"
+		"as on the Xbox and drawn between their ticks (which spares the CPU two\n"
+		"in three of their collision tests at 60 frames a second, more at 120).\n"
+		"Takes effect at the next map." },
+	{ "debug.benchmark", _config_string, "\"\"", "HALO_BENCHMARK", _environment_value, _platform_all,
+		"A benchmark run, the same each time (port/linux/game/benchmark.c):\n"
+		"\"standard\" plays a10, a30, b30, c10 and c40 30 seconds each and Blood\n"
+		"Gulch, Damnation, Sidewinder and Chill Out 15 seconds each with 63\n"
+		"bots, the view turning, and\n"
+		"writes the frame rates to benchmark.txt (in the data folder, or the\n"
+		"run's profile folder: debug.profile_run); or a list of map:seconds\n"
+		"(\"a30:30,bloodgulch:15\"). Empty: none, the game as it is." },
+	{ "debug.benchmark_bots", _config_integer, "63", "HALO_BENCHMARK_BOTS", _environment_value, _platform_all,
+		"The computer players in the benchmark's multiplayer games: 63, with the\n"
+		"player 64 in all; 0 to 63." },
+	{ "debug.benchmark_quit", _config_boolean, "true", "HALO_BENCHMARK_QUIT", _environment_value, _platform_all,
+		"Quit the game once the benchmark is done; false goes back to the main\n"
+		"menu." },
 	{ "debug.network_test", _config_string, "\"\"", "HALO_NETWORK_TEST", _environment_value, _platform_all,
 		"Automated system link sessions for testing (port/linux/game/network_test.c):\n"
 		"\"host:<map>\" hosts a game on that map, \"local:<map>\" plays a local (split\n"
@@ -1185,6 +1270,63 @@ static const struct config_setting config_settings[] =
 		"(the screen's own), \"2160\", \"1440\", \"1080\", \"720\" or \"480\" (the game's\n"
 		"own), in the screen's shape. More lines are sharper and work the GPU\n"
 		"harder. Changes at once." },
+	{ "debug.original_sun_glow", _config_boolean, "false", "HALO_ORIGINAL_SUN_GLOW", _environment_value, _platform_android,
+		"Make the sun's glow from a copy of the screen in the middle of each frame,\n"
+		"as the game does, rather than at the frame's end for the next frame\n"
+		"(which spares the GPU storing the screen and loading it back; the\n"
+		"glow follows what is in front of the sun a frame later). Takes effect\n"
+		"the next start." },
+	{ "debug.original_water", _config_boolean, "false", "HALO_ORIGINAL_WATER", _environment_value, _platform_android,
+		"Make the water's ripples in the middle of each frame, as the game does,\n"
+		"rather than at the frame's end for the next frame (which spares the\n"
+		"GPU storing the screen and loading it back; the ripples move a frame\n"
+		"later). Takes effect the next start." },
+	{ "debug.original_multisample", _config_boolean, "false", "HALO_ORIGINAL_MULTISAMPLE", _environment_value, _platform_android,
+		"Under Vulkan with display.anti_aliasing's multisampling: draw the colour\n"
+		"into images of the samples beside the screen's, resolved as each\n"
+		"rendering ends, rather than keeping its samples in the GPU's tile memory\n"
+		"only (where the phone's driver can,\n"
+		"VK_EXT_multisampled_render_to_single_sampled), which spares storing and\n"
+		"loading them at every break of the frame. Takes effect the next start." },
+	{ "debug.gpu_split_parts", _config_boolean, "false", "HALO_GPU_SPLIT_PARTS", _environment_value, _platform_android,
+		"With debug.profile_run under Vulkan: end the GPU's rendering at each part\n"
+		"of the frame the game names (the sky, the objects, the particles...), so\n"
+		"that gpu.txt times each part on its own. The stores and loads it adds\n"
+		"make every frame slower: for ranking the parts, in a run of its own.\n"
+		"Takes effect the next start." },
+	{ "debug.profile_run", _config_boolean, "false", "HALO_PROFILE_RUN", _environment_set_is_true, _platform_android,
+		"Profile each run, to send to the developers: a folder of its own in the\n"
+		"phone's Download/halo_profiles (named for the day and time it started:\n"
+		"DDMMYYYY_HHMMSS) gets where the game's threads spend their time\n"
+		"(profile.bin, sampled debug.profile_hz times a second, 500 if that is\n"
+		"0), the GPU's time by part of the frame (gpu.txt, under Vulkan), the\n"
+		"log and the phone's details (run.txt). Android 9 and 10 ask for storage\n"
+		"once. Costs a little speed. Takes effect the next start." },
+#endif
+#if (defined(HALO_ANDROID) || defined(HALO_PS5)) && !defined(HALO_SWITCH)
+	/* the Vulkan renderer's (port/android/guest/d3d8_vk.c), Android's and the PS5's: the GPU's savings the Switch's
+	renderer made first, which the Switch's own rows below name for it. Declared only there, these were not settings
+	here, and the draw scissor, false when a setting is not one, was off */
+	{ "debug.gpu_draw_scissor", _config_boolean, "true", "HALO_GPU_DRAW_SCISSOR", _environment_value,
+		PLATFORM_VULKAN,
+		"Rasterize an object's shadow and a dynamic light's pass only inside the\n"
+		"rectangle of the screen they can change; false rasterizes their whole\n"
+		"triangles, to compare. Takes effect the next start." },
+	{ "debug.gpu_texture_clip", _config_string, "\"on\"", "HALO_GPU_TEXTURE_CLIP", _environment_value,
+		PLATFORM_VULKAN,
+		"Shadows cast on the level drawn only over their map: \"on\", \"off\", or\n"
+		"\"wide\" (clipped by limits nothing reaches, to tell the clip's own effect).\n"
+		"Takes effect the next start." },
+	{ "debug.original_zoom", _config_boolean, "false", "HALO_ORIGINAL_ZOOM", _environment_value,
+		PLATFORM_VULKAN,
+		"Draw the zoom's blur as the game does, in passes over the whole screen,\n"
+		"rather than on a small copy blended over it once. Takes effect the next\n"
+		"start." },
+	{ "debug.original_blur", _config_boolean, "false", "HALO_ORIGINAL_BLUR", _environment_value,
+		PLATFORM_VULKAN,
+		"Draw a blur screen effect (the cryo bay's waking up, cutscenes) as the\n"
+		"game does, in passes over the whole screen, rather than its passes on\n"
+		"smaller copies of it. Takes effect the next start." },
 #endif
 #ifdef HALO_SWITCH
 	/* (720 by default: a handheld console's own lines, 1280x720) */
@@ -1960,11 +2102,28 @@ static void config_report_unknown_keys(toml_datum_t table)
 		}
 		for (key_index = 0; key_index < section.u.tab.size; key_index++)
 		{
+			toml_datum_t value = section.u.tab.value[key_index];
 			char name[128];
 
 			snprintf(name, sizeof(name), "%s.%s", table.u.tab.key[section_index], section.u.tab.key[key_index]);
+			/* (a dotted key, game.maps.path's maps.path: the table it makes,
+			each of its keys a setting's or not) */
+			if (value.type == TOML_TABLE)
+			{
+				int inner_index;
+
+				for (inner_index = 0; inner_index < value.u.tab.size; inner_index++)
+				{
+					char inner[192];
+
+					snprintf(inner, sizeof(inner), "%s.%s", name, value.u.tab.key[inner_index]);
+					if (config_setting_index(inner) < 0)
+						config_report_unknown_key(value.u.tab.value[inner_index].lineno, inner);
+				}
+				continue;
+			}
 			if (config_setting_index(name) < 0)
-				config_report_unknown_key(section.u.tab.value[key_index].lineno, name);
+				config_report_unknown_key(value.lineno, name);
 		}
 	}
 }
@@ -2110,6 +2269,8 @@ static const struct
 	{ "network.voice_mode", { "off", "team_proximity", "team_enemy_proximity", "team_global",
 		"team_global_enemy_proximity", NULL }, NULL },
 	{ "network.coop_friendly_fire", { "off", "on", "shields_only", "explosives_only", NULL }, NULL },
+	{ "network.shield_effects", { "stock", "glow", "light_show", "overshield", "glow_overshield",
+		"light_show_overshield", "players", NULL }, NULL },
 	{ "network.coop_enemies_mode", { "none", "per_player", "multiplier", NULL }, NULL },
 	{ "network.coop_score_type", { "cooperative", "competitive", NULL }, NULL },
 	{ "streamer.slurs", { "off", "severe", "strong", "mild", NULL }, NULL },
@@ -2733,6 +2894,71 @@ int config_write_boolean(const char *name, int value)
 	long index = config_setting_index(name);
 
 	return index >= 0 && config_settings[index].type == _config_boolean && config_write(name, value ? "true" : "false");
+}
+
+/* sets a setting as config_write does, from its value as config.toml writes it ("true", "4096", "1.5", "\"900\"": a
+string in double quotes, or bare); 0, with why in error, for no such setting or a value not of its type (the overlay's
+commands: port/linux/game/overlay_commands.c) */
+int config_set_text(const char *name, const char *value, char *error, size_t error_size)
+{
+	long index = config_setting_index(name);
+	char text[260];
+	size_t length = strlen(value);
+	char *end = NULL;
+
+	if (index < 0)
+	{
+		snprintf(error, error_size, "no such setting: %s", name);
+		return 0;
+	}
+	if (length >= sizeof(text))
+	{
+		snprintf(error, error_size, "the value is too long");
+		return 0;
+	}
+	/* (a TOML string's quotes taken off; the escapes it may have are not written by the game's own file) */
+	if (length >= 2 && value[0] == '"' && value[length - 1] == '"')
+		snprintf(text, sizeof(text), "%.*s", (int)(length - 2), value + 1);
+	else
+		snprintf(text, sizeof(text), "%s", value);
+	switch (config_settings[index].type)
+	{
+	case _config_boolean:
+		if (!strcmp(text, "on") || !strcmp(text, "1"))
+			snprintf(text, sizeof(text), "true");
+		else if (!strcmp(text, "off") || !strcmp(text, "0"))
+			snprintf(text, sizeof(text), "false");
+		if (strcmp(text, "true") && strcmp(text, "false"))
+		{
+			snprintf(error, error_size, "%s is true or false, not %s", name, value);
+			return 0;
+		}
+		break;
+	case _config_integer:
+		(void)strtol(text, &end, 10);
+		if (!*text || *end)
+		{
+			snprintf(error, error_size, "%s is a whole number, not %s", name, value);
+			return 0;
+		}
+		break;
+	case _config_real:
+		(void)strtod(text, &end);
+		if (!*text || *end)
+		{
+			snprintf(error, error_size, "%s is a number, not %s", name, value);
+			return 0;
+		}
+		break;
+	case _config_string:
+		break;
+	}
+	if (!config_write(name, text))
+	{
+		snprintf(error, error_size, "%s could not be saved to config.toml", name);
+		return 0;
+	}
+	return 1;
 }
 
 /* a setting's value as text ("true", "60", "1.5", "all"): 0 if there is no

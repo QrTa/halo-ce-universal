@@ -16,7 +16,8 @@ is the model.
   the console's own "PS5 Remote Control", which SDL2 lists beside the pad
   as a controller of unknown type. Axes are the same numbers in both
   versions, and so are buttons 0 to 20 (the touch pad is 20 in both);
-  types are mapped.
+  types are mapped. The pad's mapping has no back button (phase 0 B):
+  the touch pad's click is the game's Back.
 - Events: a controller added or removed, and quit. Button and axis events
   are dropped (the game reads the pad's state each frame) but counted, and
   every minute in which the pad was used a line says what was pressed.
@@ -375,13 +376,17 @@ static SDL_JoystickID start_pad = -1;
 static uint64_t start_until;
 
 /* (the pad's mapping on the console has no back, guide or misc button
-(phase 0 B): they read 0) */
+(phase 0 B): they read 0, but for back, which is the touch pad's click -
+the game reads Back, and never the touch pad) */
 int host_sdl_gamepad_button(uint32_t gamepad, int button)
 {
 	SDL_GameController *object = host_sdl_handle_get(gamepad, _handle_gamepad);
 
 	if (!object || button < 0 || button > PS5_SDL3_GAMEPAD_BUTTON_TOUCHPAD)
 		return 0;
+	if (button == SDL_CONTROLLER_BUTTON_BACK)
+		return SDL_GameControllerGetButton(object, SDL_CONTROLLER_BUTTON_BACK) ||
+			SDL_GameControllerGetButton(object, SDL_CONTROLLER_BUTTON_TOUCHPAD);
 	if (button == START_BUTTON && start_pad >= 0 && ps5_now_ns() < __atomic_load_n(&start_until, __ATOMIC_ACQUIRE) &&
 		SDL_JoystickInstanceID(SDL_GameControllerGetJoystick(object)) == start_pad)
 		return 1;

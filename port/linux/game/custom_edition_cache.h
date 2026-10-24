@@ -57,6 +57,9 @@ Custom Edition map is loaded. */
 boolean custom_edition_cache_stock_tag(
 	long tag_index);
 
+/* Borrowed until map unload; reads remain bounds checked by the source. */
+struct resource_map const *custom_edition_cache_bitmap_resources(void);
+
 /* When `header` (CACHE_FILE_HEADER_BYTES bytes, with `build` its build
 string field) is a Custom Edition cache header that reached the Xbox loader,
 logs why the file at `path` cannot run and returns TRUE: the map is refused,
@@ -138,13 +141,12 @@ boolean custom_edition_cache_present(
 	char *message,
 	long message_size);
 
-/* Whether the file `file_name` (custom_maps\<file_name>.map) is a Custom
-Edition cache of a campaign map (a solo scenario, played alone or as
-network co-op), or of a multiplayer map (custom_edition_maps.c). */
-boolean custom_edition_cache_campaign(
-	char const *file_name);
-boolean custom_edition_cache_multiplayer(
-	char const *file_name);
+/* The scenario type of the Custom Edition cache at `path`: a campaign map's
+(_scenario_type_solo, played alone or as network co-op) or a multiplayer
+map's, or another; NONE if it is no Custom Edition cache. `path` is the
+file a folder's listing found (custom_edition_maps.c), opened once. */
+short custom_edition_cache_file_scenario_type(
+	char const *path);
 
 /* Loads the Custom Edition map `map_name` names into its tag cache and
 converts its tags for this build, copying its cache header to `header`
@@ -221,7 +223,8 @@ FALSE after logging why it cannot. custom_edition_bitmaps_dispose forgets
 them either way. */
 boolean custom_edition_reordered_bitmaps_find(
 	byte *tag_cache,
-	unsigned long loaded_bytes);
+	unsigned long loaded_bytes,
+	unsigned long behaviours);
 /* As custom_edition_reordered_bitmaps_find, in the loaded map's tags, which
 the validator has checked: for the bitmaps of mods (mod_bitmaps.c), Halo
 PC's on any map. FALSE after logging why it cannot. */

@@ -545,6 +545,16 @@ static void frame_statistics(void)
 		host_logf(HOST_LOG_INFO, "frame times: %u under 15 ms, %u 15-18, %u 18-22, %u 22-28, %u 28-35, %u over 35",
 			frame_buckets[0], frame_buckets[1], frame_buckets[2], frame_buckets[3], frame_buckets[4], frame_buckets[5]);
 		memset(frame_buckets, 0, sizeof(frame_buckets));
+		/* (and every sixth time, 30 s, the memory: host_memory_report) */
+		{
+			static unsigned reports;
+
+			if (++reports % 6 == 0)
+			{
+				host_memory_report("in play");
+				host_texture_cache_report();
+			}
+		}
 		{
 			u64 busy = thread_ticks();
 			u64 wall = armGetSystemTick();
@@ -566,6 +576,8 @@ int host_sdl_gl_swap_window(uint32_t window)
 {
 	SDL_Window *object = handle_get(window, _handle_window);
 
+	/* (the datagrams the game held this frame go: host_net.c) */
+	host_net_frame_end();
 	if (!object)
 		return 0;
 	if ((void *)object == (void *)&standin_window)

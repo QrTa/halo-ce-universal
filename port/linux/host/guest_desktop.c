@@ -417,6 +417,13 @@ bool SDL_HideCursor(void)
 	return true;
 }
 
+/* (no cursor is shown: sdl_platform.c's menu cursor asks, to hide it while
+a controller is used) */
+bool SDL_CursorVisible(void)
+{
+	return false;
+}
+
 /* (sdl_platform.c's look for Wayland's EGL: no library a guest can load) */
 void *dlopen(const char *path, int flags)
 {

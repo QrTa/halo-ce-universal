@@ -615,8 +615,11 @@ void host_vk_command_draw(const struct vk_command_draw *draw, uint32_t size)
 				/* the target being drawn into cannot be sampled in the same rendering */
 				if (target && target != B.color)
 				{
+					target->sampled = 1;
 					if (target->layout != VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL)
 					{
+						if (B.rendering)
+							B.counts.sample_splits++;
 						host_vk_rendering_end();
 						host_vk_target_transition(host_vk_frame_command(), target, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 					}
@@ -697,12 +700,15 @@ void host_vk_command_draw(const struct vk_command_draw *draw, uint32_t size)
 	viewport.minDepth = depth_min;
 	viewport.maxDepth = depth_max;
 	vkCmdSetViewport(command, 0, 1, &viewport);
-	/* the scissor follows the viewport, within the render area; one with no area is as GL has it, off */
+	/* the scissor follows the viewport, within the render area; one with no area is as GL has it, off, and one -1 wide
+	is empty: a draw narrowed to a rectangle with nothing of it on the screen (halo_draw_scissor, d3d8_vk.c) */
 	x0 = draw->scissor[0];
 	y0 = draw->scissor[1];
 	x1 = x0 + draw->scissor[2];
 	y1 = y0 + draw->scissor[3];
-	if (draw->scissor[2] <= 0 || draw->scissor[3] <= 0)
+	if (draw->scissor[2] < 0 || draw->scissor[3] < 0)
+		x1 = x0, y1 = y0;
+	else if (draw->scissor[2] == 0 || draw->scissor[3] == 0)
 	{
 		x0 = y0 = 0;
 		x1 = B.area_width;

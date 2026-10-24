@@ -177,3 +177,28 @@ def test_release_licenses_are_named_once():
 def test_license_excerpt_is_the_head_comment():
     text = "/*\n * Licence line one\n *\n * line two\n */\nint code;\n/* not this */\n"
     assert ps5_build.license_excerpt(text) == "Licence line one\n\nline two\n"
+
+
+def test_content_version_is_the_build_number():
+    assert ps5_build.content_version(110) == "01.000.110"
+    assert ps5_build.content_version(1001) == "01.001.001"
+
+
+def test_a_numbered_build_wants_its_content_version(tmp_path):
+    param = tmp_path / "param.json"
+    param.write_text('{"titleId": "PPSA99500", "contentVersion": "01.000.111"}')
+    ps5_build.check_content_version(param, "111")
+    ps5_build.check_content_version(param, "0")
+    ps5_build.check_content_version(param, "")
+    with pytest.raises(RuntimeError, match="01.000.112"):
+        ps5_build.check_content_version(param, "112")
+
+
+def test_the_committed_param_json_is_well_formed():
+    import json
+    import re
+
+    param = json.loads((ps5_build.PORT_DIR / "sce_sys" / "param.json").read_text())
+    assert param["titleId"] == "PPSA99500"
+    assert re.fullmatch(r"\d{2}\.\d{3}\.\d{3}", param["contentVersion"])
+

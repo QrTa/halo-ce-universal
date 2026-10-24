@@ -808,8 +808,9 @@ static unsigned long network_game_client_link_down_time;
 static unsigned long network_game_client_link_checked_time;
 static boolean network_game_client_link_down;
 
-/* each advertised game's host's network version and netcode, by its place
-in the client's available_games (HALO_PORT_NETWORK_VERSION) */
+/* each advertised game's host's network version and netcode, and the game's
+kind (game_modes_kind), by its place in the client's available_games
+(HALO_PORT_NETWORK_VERSION) */
 static struct
 {
 	word version;
@@ -825,6 +826,7 @@ static struct
 	/* port: a modded game's host's own version (the version is then
 	HALO_PORT_ADVERTISED_MODDED_VERSION's: halo_port_limits.h) */
 	word base_version;
+	byte kind;
 } network_game_client_advertised_versions[MAXIMUM_NETWORK_ADVERTISED_GAMES];
 /* the advertised game this machine is joining, so a later advertisement
 can replace the setup it was given */
@@ -2621,6 +2623,8 @@ static boolean add_advertised_game(
 					network_game_client_advertised_versions[game_index].flags,
 					network_game_client_advertised_versions[game_index].skulls);
 			}
+			network_game_client_advertised_versions[game_index].kind =
+				advertisement->__unknown5A[HALO_PORT_ADVERTISED_KIND_OFFSET];
 		}
 
 		if (advertisement->game_name[0] != L'\0')
@@ -3386,6 +3390,20 @@ int network_game_client_advertised_randomizer(
 
 	return game_index >= 0 && game_index < MAXIMUM_NETWORK_ADVERTISED_GAMES &&
 		(network_game_client_advertised_versions[game_index].flags & HALO_PORT_ADVERTISED_RANDOMIZER_FLAG) != 0;
+}
+
+/* port: the advertised game's kind (an OpenCE gametype's mode, and Hardcore:
+port/linux/game/game_modes.h), for the server browser's name of it */
+byte network_game_client_advertised_game_kind(
+	struct network_game_client *client,
+	struct network_advertised_game const *game)
+{
+	long game_index = client ? game - client->available_games : NONE;
+
+	/* (a randomized campaign's setup is in its byte: it has none) */
+	return game_index >= 0 && game_index < MAXIMUM_NETWORK_ADVERTISED_GAMES &&
+		!(network_game_client_advertised_versions[game_index].flags & HALO_PORT_ADVERTISED_RANDOMIZER_FLAG) ?
+		network_game_client_advertised_versions[game_index].kind : 0;
 }
 
 boolean network_game_client_join_first_available_game(

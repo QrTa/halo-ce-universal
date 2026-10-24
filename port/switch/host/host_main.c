@@ -415,6 +415,129 @@ const char *host_data_root(void)
 	return data_root;
 }
 
+/* the data and save roots, from HALO_DATA_ROOT and HALO_SAVE_ROOT or beside
+the program; once, by the first to want them (the updater, before the game
+thread) */
+static void roots_resolve(void)
+{
+	const char *setting;
+
+	if (save_root[0])
+		return;
+	setting = getenv("HALO_DATA_ROOT");
+	snprintf(data_root, sizeof(data_root), "%s", setting && *setting ? setting : executable_root);
+	setting = getenv("HALO_SAVE_ROOT");
+	if (setting && *setting)
+		snprintf(save_root, sizeof(save_root), "%s", setting);
+	else
+		snprintf(save_root, sizeof(save_root), "%s/save", data_root);
+	mkdir(save_root, 0755);
+}
+
+const char *host_save_root(void)
+{
+	roots_resolve();
+	return save_root;
+}
+
+/* config.toml's game.maps.path and game.custom_maps.path (the game's own
+reading of them: port/linux/src/xbox_files.c), read once: the folder each
+names, a relative one under the data root, or empty */
+static char maps_folder[PATH_MAX], custom_maps_folder[PATH_MAX];
+
+static void configured_folders(void)
+{
+	static int read;
+	char path[PATH_MAX + 32];
+	toml_result_t result;
+	int which;
+
+	if (read)
+		return;
+	read = 1;
+	roots_resolve();
+	snprintf(path, sizeof(path), "%s/config.toml", data_root);
+	result = toml_parse_file_ex(path);
+	if (!result.ok)
+		return;
+	for (which = 0; which < 2; which++)
+	{
+		toml_datum_t setting = toml_seek(result.toptab, which ? "game.custom_maps.path" : "game.maps.path");
+		char *folder = which ? custom_maps_folder : maps_folder;
+		size_t length;
+
+		if (setting.type != TOML_STRING || !setting.u.s[0])
+			continue;
+		if (setting.u.s[0] == '/' || strstr(setting.u.s, ":/"))
+			snprintf(folder, PATH_MAX, "%s", setting.u.s);
+		else
+			snprintf(folder, PATH_MAX, "%s/%s", data_root, setting.u.s);
+		length = strlen(folder);
+		while (length > 1 && folder[length - 1] == '/')
+			folder[--length] = 0;
+		host_logf(HOST_LOG_INFO, "%s: %s", which ? "game.custom_maps.path" : "game.maps.path", folder);
+	}
+	toml_free(result);
+}
+
+/* a folder the settings name, checked: on the screens (host_ui_open), a
+maps folder without maps stops the game, a custom_maps folder that is not
+there is said and the game goes on */
+static void configured_folders_check(PadState *pad)
+{
+	char path[PATH_MAX + 32];
+	char message[PATH_MAX + 512];
+	struct stat information;
+
+	configured_folders();
+	if (maps_folder[0])
+	{
+		snprintf(path, sizeof(path), "%s/ui.map", maps_folder);
+		if (stat(maps_folder, &information) != 0 || !S_ISDIR(information.st_mode) || stat(path, &information) != 0)
+		{
+			int missing = stat(maps_folder, &information) != 0;
+
+			host_logf(HOST_LOG_ERROR, "game.maps.path: %s %s", maps_folder,
+				missing ? "is not there" : "has no maps (no ui.map)");
+			snprintf(message, sizeof(message), "config.toml's game.maps.path is %s, which %s. The game's maps are "
+				"only unpacked into %s/maps: put the maps in that folder, or empty game.maps.path.", maps_folder,
+				missing ? "is not there" : "has no maps in it (no ui.map)", data_root);
+			host_ui_message("THE MAPS FOLDER IS MISSING", message, (const char *const[]){ "A", "Quit", NULL });
+			for (;;)
+			{
+				if (!appletMainLoop())
+					break;
+				padUpdate(pad);
+				if (padGetButtonsDown(pad) & HidNpadButton_A)
+					break;
+				svcSleepThread(16666667);
+			}
+			host_ui_close();
+			host_exit(0);
+		}
+	}
+	if (custom_maps_folder[0] &&
+		(stat(custom_maps_folder, &information) != 0 || !S_ISDIR(information.st_mode)))
+	{
+		host_logf(HOST_LOG_WARN, "game.custom_maps.path: %s is not there", custom_maps_folder);
+		snprintf(message, sizeof(message), "config.toml's game.custom_maps.path is %s, which is not there, so no "
+			"Custom Edition maps are found. Make that folder, or empty game.custom_maps.path.", custom_maps_folder);
+		host_ui_message("THE CUSTOM MAPS FOLDER IS MISSING", message, (const char *const[]){ "A", "Continue", NULL });
+		for (;;)
+		{
+			if (!appletMainLoop())
+			{
+				host_ui_close();
+				host_exit(0);
+			}
+			padUpdate(pad);
+			if (padGetButtonsDown(pad) & HidNpadButton_A)
+				break;
+			svcSleepThread(16666667);
+		}
+	}
+}
+
 static struct timespec extraction_started;
 
 static int directory_has_maps(const char *root)
@@ -502,6 +625,7 @@ static void offer_an_update(void)
 		return;
 	}
 	host_update_offer(&pad);
+	configured_folders_check(&pad);
 	/* the window goes back to SDL, for the game */
 	host_ui_close();
 }
@@ -564,8 +688,24 @@ static void ensure_game_data(const char *root)
 	char error[512];
 	const char *name;
 
-	if (directory_has_maps(root))
+	/* (maps a setting moved are used where they are, never unpacked:
+	configured_folders_check found them) */
+	configured_folders();
+	if (maps_folder[0])
 		return;
+	if (directory_has_maps(root))
+	{
+		/* (maps extracted before the extraction wrote the loading screen's picture: it from the image, if it is
+		still beside the port) */
+		name = find_disc_image(root);
+		if (name)
+		{
+			snprintf(image, sizeof(image), "%s/%s", root, name);
+			if (xiso_write_missing_loading_picture(image, root))
+				host_logf(HOST_LOG_INFO, "the loading screen's picture taken from %s (the maps folder had none)", name);
+		}
+		return;
+	}
 	name = find_disc_image(root);
 	if (!name)
 		host_fatal("The Halo game data was not found: %s/maps/ui.map is missing, and no disc image is "
@@ -945,14 +1085,7 @@ static void *game_main(void *unused)
 
 	(void)unused;
 	log_marker("marker: game thread running");
-	setting = getenv("HALO_DATA_ROOT");
-	snprintf(data_root, sizeof(data_root), "%s", setting && *setting ? setting : executable_root);
-	setting = getenv("HALO_SAVE_ROOT");
-	if (setting && *setting)
-		snprintf(save_root, sizeof(save_root), "%s", setting);
-	else
-		snprintf(save_root, sizeof(save_root), "%s/save", data_root);
-	mkdir(save_root, 0755);
+	roots_resolve();
 	log_marker("marker: data paths resolved");
 	ensure_game_data(data_root);
 
@@ -969,6 +1102,18 @@ static void *game_main(void *unused)
 	host_logf(HOST_LOG_INFO, "rendering %sx480", width);
 	time_zone(zone, sizeof(zone));
 	environment_set(&environment, "TZ", zone);
+	/* how far the console's clock is behind GitHub's, if the updater learned
+	it (host_update.c): the server browser's (p2p_lobby.c) */
+	{
+		long long offset;
+		char text[32];
+
+		if (host_https_clock_offset(&offset))
+		{
+			snprintf(text, sizeof(text), "%lld", offset);
+			environment_set(&environment, "HALO_CLOCK_OFFSET", text);
+		}
+	}
 
 	setting = getenv("HALO_GUEST_IMAGE");
 	if (setting && *setting)
@@ -1185,19 +1330,37 @@ int main(int argc, char *argv[])
 	 * the program perfectly and then captured nothing at all - the port ran,
 	 * nxlink attached, and every line went somewhere the host side never
 	 * saw. That is the whole of why the previous attempts produced no output
-	 * despite deploying correctly. */
-	/* (and with twice libnx's buffer budget, sb_efficiency 8 rather than 4:
-	about 4.6 MB from the heap rather than 2.2. Hosting holds the server's
-	sockets, its own client's and each joiner's connection at once, and
-	internet play's tunnel and brokers on top: the default ran out at the
-	console's own client, the game's join of its own server, with
-	WSAENOBUFS. Each socket is held to SOCKET_BUFFER_LIMIT, host_net.c) */
+	 * despite deploying correctly.
+	 *
+	 * With four times libnx's socket buffer budget: sb_efficiency 8 (the
+	 * most) and TCP buffers up to 512 KB, about 8.8 MB rather than 2.2.
+	 * Every socket's buffers come out of it, and the console refuses a
+	 * connection it has no room for with a reset (WSAECONNRESET). Measured
+	 * with stand-in machines (tools/system_link_bots.py) joining a LAN game
+	 * the console hosted: libnx's default took 3 of them (hosting an
+	 * internet game failed outright, its own client reset connecting to
+	 * 127.0.0.1:5150, with the signalling brokers' connections open),
+	 * sb_efficiency 8 alone 22, and this 48 and more. The game's own
+	 * buffers stay held to 256 KB (host_net.c), so the larger maximum only
+	 * makes the budget larger.
+	 *
+	 * And with 8 sessions of the bsd service, not 3: a call holds one for as
+	 * long as it takes, and the signalling thread's poll and the other
+	 * threads' waiting calls held them all, so that the game thread's two
+	 * receives a frame waited for one - about 0.5 ms each, 4 to 9% of its
+	 * time in a 64-player game. */
 	{
-		SocketInitConfig config = *socketGetDefaultInitConfig();
+		SocketInitConfig sockets = *socketGetDefaultInitConfig();
 
-		config.sb_efficiency = 8;
-		if (R_FAILED(socketInitialize(&config)))
+		sockets.num_bsd_sessions = 8;
+		sockets.sb_efficiency = 8;
+		sockets.tcp_tx_buf_max_size = 0x80000;
+		sockets.tcp_rx_buf_max_size = 0x80000;
+		if (R_FAILED(socketInitialize(&sockets)))
+		{
+			host_logf(HOST_LOG_WARN, "sockets: the larger buffer budget was refused; using libnx's default");
 			socketInitializeDefault();
+		}
 	}
 	if (nxlinkConnectToHost(false, true) >= 0)
 		host_logf(HOST_LOG_INFO, "output is going to a nxlink host as well as here");

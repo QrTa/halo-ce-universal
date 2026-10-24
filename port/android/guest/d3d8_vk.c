@@ -405,6 +405,8 @@ struct vertex_shader_object
 	struct nv2a_vertex_lighting lighting;
 	/* a shader lit for each pixel failed to compile: lit as the vertex shader lights it from then on */
 	BOOL lighting_failed;
+	/* the fixed-function pipeline's (fixed_function_program): its GLSL is nv2a_vk_fixed_function_glsl's */
+	BOOL fixed_function;
 };
 
 /* ---------- the device */
@@ -413,6 +415,11 @@ struct vk_device
 {
 	D3DPRESENT_PARAMETERS presentation;
 	D3DSurface back_buffer;
+	/* the frame shown last, as the loading screen reads it (GetBackBuffer with -1: front_buffer_ready); the frame it was
+	last asked for in, and the frame its picture was last taken in (front_buffer_take), each + 1 */
+	D3DSurface front_buffer;
+	unsigned long front_buffer_asked;
+	unsigned long front_buffer_taken;
 	D3DSurface depth_buffer;
 	D3DSurface *render_target;
 	D3DSurface *depth_stencil;
@@ -423,6 +430,8 @@ struct vk_device
 	D3DSHADERCONSTANTMODE shader_constant_mode;
 
 	struct vertex_shader_object *vertex_shader;
+	/* SetVertexShader chose the fixed-function pipeline (with 0): the loading screen's draws (fixed_function_program) */
+	BOOL fixed_function;
 	struct vertex_shader_object *program_slots[VERTEX_PROGRAM_SLOTS];
 	unsigned long program_address;
 	float constants[XGPU_VERTEX_CONSTANT_COUNT][4];
@@ -560,9 +569,14 @@ void WINAPI D3DDevice_SetVerticalBlankCallback(D3DCALLBACK callback)
 	vertical_blank_start();
 }
 
+static void front_buffer_take(void);
+
 void WINAPI D3DDevice_BlockUntilVerticalBlank(void)
 {
 	unsigned long count;
+
+	/* (the loading screen's last call: its frame, for the next frame's trails) */
+	front_buffer_take();
 
 	vertical_blank_start();
 	pthread_mutex_lock(&vertical_blank_lock);
@@ -601,6 +615,7 @@ unsigned int host_vk_retired(void);
 /* the shader service (host_vk_shaders.c; the imports pass a 64-bit hash in one register) */
 void host_vk_shader_compile(uint32_t stage, uint64_t hash, uint32_t glsl, uint32_t glsl_size);
 uint32_t host_vk_shader_find(uint32_t stage, uint64_t hash, uint32_t status_out);
+uint32_t host_vk_shader_make(uint32_t stage, uint64_t hash);
 
 #define STREAM_SIZE (4 * 1024 * 1024)
 
@@ -843,53 +858,179 @@ static BOOL targets_bind(BOOL *has_depth)
 	return TRUE;
 }
 
-/* the part of a frame being drawn: only the Switch's renderer keeps it
-(port/switch/guest/d3d8_dk.c) */
-void halo_render_marker(char const *name)
+/* the part of a frame being drawn, for the GPU's time by part (host_vk_profile.c): told the host only while a profile
+is recorded (debug.profile_run, Android's), as the Switch's renderer keeps it (port/switch/guest/d3d8_dk.c) */
+int halo_render_defer_sun_glow(void)
 {
-	(void)name;
+#if defined(HALO_ANDROID) && !defined(HALO_SWITCH)
+	static int deferred = -1;
+
+	if (deferred < 0)
+	{
+		deferred = !config_boolean("debug.original_sun_glow");
+		if (!deferred)
+			platform_log("sun glow: made in the middle of the frame, as the game does (debug.original_sun_glow)");
+	}
+	return deferred;
+#else
+	return 0;
+#endif
 }
 
-/* (only the Switch's renderer clips: d3d8_dk.c) */
-void halo_texture_clip(unsigned char clip, float low, float high)
+int halo_render_defer_water(void)
 {
-	(void)clip;
-	(void)low;
-	(void)high;
+#if defined(HALO_ANDROID) && !defined(HALO_SWITCH)
+	static int deferred = -1;
+
+	if (deferred < 0)
+	{
+		deferred = !config_boolean("debug.original_water");
+		if (!deferred)
+			platform_log("water: its ripples made in the middle of the frame, as the game does (debug.original_water)");
+	}
+	return deferred;
+#else
+	return 0;
+#endif
 }
+
+void halo_render_marker(char const *name)
+{
+#if defined(HALO_ANDROID) && !defined(HALO_SWITCH)
+	static int profiling = -1;
+	struct vk_command_marker *command;
+	size_t length = 0;
+
+	if (profiling < 0)
+		profiling = config_boolean("debug.profile_run") ? 1 : 0;
+	if (!profiling)
+		return;
+	command = stream_command(VK_COMMAND_MARKER, sizeof(*command));
+	while (name[length] && length < sizeof(command->name) - 1)
+	{
+		command->name[length] = name[length];
+		length++;
+	}
+	while (length < sizeof(command->name))
+		command->name[length++] = 0;
+#else
+	(void)name;
+#endif
+}
+
+/* ---------- the GPU's savings the Switch's renderer made first (port/switch/guest/d3d8_dk.c)
+
+A shadow cast on the level and a dynamic light's pass draw the level's triangles again, much bigger than what they
+change: they are rasterized only inside the rectangle of the screen they can change (halo_draw_scissor), and the
+pixels left whose coordinates are outside the shadow's map or the light's box let go before the shader reads anything
+(halo_texture_clip, NV2A_PIXEL_KEY_CLIP in nv2a_psh_vk.c). The zoom's blur and a cutscene's blur are drawn on small
+copies of the screen (rasterizer_xbox_screen_effect.c), the zoom's blended over it by its own shader
+(NV2A_PIXEL_KEY_WARP_BLEND). The debug settings the Switch has turn each off: debug.gpu_draw_scissor,
+debug.gpu_texture_clip, debug.original_zoom and debug.original_blur. */
+
+/* the clip of the draws that follow: the lowest and highest coordinate as the stage samples it (0 to 1 across the
+texture), and whether to clip (the pixel parameters' alpha_reference.y to .w); the stage, and in three coordinates */
+static float texture_clip[3];
+static int texture_clip_stage;
+static int texture_clip_3d;
 
 void halo_texture_clip_stage(short stage, unsigned char three_dimensional, float low, float high)
 {
-	(void)stage;
-	(void)three_dimensional;
-	(void)low;
-	(void)high;
+	unsigned char clip = stage >= 0 && stage < 4;
+	/* debug.gpu_texture_clip: "on", "off" (never clipped), "wide" (clipped by limits nothing reaches: the clip's own
+	cost, apart from where), or "<low>,<high>": the limits to clip by, whatever the caller asks */
+	static int mode = -1;
+	static float set_low, set_high;
+
+	if (mode < 0)
+	{
+		const char *setting = config_string("debug.gpu_texture_clip");
+
+		mode = !strcmp(setting, "off") ? 0 : !strcmp(setting, "wide") ? 2 : 1;
+		if (mode == 1 && sscanf(setting, "%f,%f", &set_low, &set_high) == 2)
+			mode = 3;
+		if (mode != 1)
+			platform_log("texture clip: %s (debug.gpu_texture_clip)", setting);
+	}
+	if (mode == 0)
+		clip = FALSE;
+	else if (mode == 2)
+	{
+		low = -1000.0f;
+		high = 1000.0f;
+	}
+	else if (mode == 3)
+	{
+		low = set_low;
+		high = set_high;
+	}
+	texture_clip[0] = clip ? low : 0.0f;
+	texture_clip[1] = clip ? high : 0.0f;
+	texture_clip[2] = clip ? 1.0f : 0.0f;
+	texture_clip_stage = clip ? stage : 0;
+	texture_clip_3d = clip && three_dimensional;
 }
 
-/* (only the Switch's renderer narrows its scissor: d3d8_dk.c) */
+void halo_texture_clip(unsigned char clip, float low, float high)
+{
+	halo_texture_clip_stage(clip ? 0 : -1, FALSE, low, high);
+}
+
+/* the rectangle the draws that follow are rasterized in, if on (in the target's game pixels), as well as the
+viewport */
+static unsigned char draw_scissor_on;
+static float draw_scissor[4];
+
 void halo_draw_scissor(unsigned char on, float x0, float y0, float x1, float y1)
 {
-	(void)on;
-	(void)x0;
-	(void)y0;
-	(void)x1;
-	(void)y1;
+	static int enabled = -1;
+
+	if (enabled < 0)
+	{
+		enabled = config_boolean("debug.gpu_draw_scissor") != 0;
+		if (!enabled)
+			platform_log("draw scissor: off (debug.gpu_draw_scissor)");
+	}
+	draw_scissor_on = on && enabled;
+	draw_scissor[0] = x0;
+	draw_scissor[1] = y0;
+	draw_scissor[2] = x1;
+	draw_scissor[3] = y1;
 }
 
-/* (only the Switch's renderer draws the zoom's blur small: d3d8_dk.c) */
+/* the zoom's blend of its blur over the screen, for the draws that follow: the pixel key has
+NV2A_PIXEL_KEY_WARP_BLEND while it is on */
+static unsigned char warp_blend;
+
 unsigned char halo_screen_fast_warp(void)
 {
-	return 0;
+	static int on = -1;
+
+	if (on < 0)
+	{
+		on = !config_boolean("debug.original_zoom");
+		if (!on)
+			platform_log("zoom: as the game draws it (debug.original_zoom)");
+	}
+	return (unsigned char)on;
 }
 
 void halo_screen_warp_blend(unsigned char on)
 {
-	(void)on;
+	warp_blend = on;
 }
 
 unsigned char halo_screen_fast_blur(void)
 {
-	return 0;
+	static int on = -1;
+
+	if (on < 0)
+	{
+		on = !config_boolean("debug.original_blur");
+		if (!on)
+			platform_log("screen blur: as the game draws it (debug.original_blur)");
+	}
+	return (unsigned char)on;
 }
 
 /* display.anti_aliasing's FXAA over a window's 3D view (render.c calls this before the HUD and menus are drawn over it):
@@ -1374,10 +1515,118 @@ void WINAPI D3DDevice_GetDeviceCaps(D3DCAPS8 *caps)
 	caps->MaxPixelShaderValue = 1.0f;
 }
 
+/* ---------- the front buffer
+
+The Xbox's front buffer is the frame on the screen, which the loading screen reads back (GetBackBuffer with -1,
+progress_bar.c) and draws again blurred, a little larger and fainter, under each new frame: the trails of its light. As in
+d3d8_gl.c, it is a render target of the menus' 640x480, which takes the 640 columns in the middle of the frame (where the
+loading screen draws, as the menus do on a wide screen) once the loading screen has drawn it, while the screen asks for it:
+at its BlockUntilVerticalBlank, its last call. The host copies it (VK_COMMAND_BLIT); a texture at its data samples the
+host's image, as any render target's does (rendered_find). */
+
+enum
+{
+	FRONT_BUFFER_WIDTH = 640,
+	FRONT_BUFFER_HEIGHT = 480,
+};
+
+/* the front buffer, made the first time it is asked for, and black when the frame before did not take its picture (a
+loading screen's first frame) */
+static BOOL front_buffer_ready(void)
+{
+	/* (its memory could not be had: not asked for again each frame) */
+	static BOOL failed;
+
+	if (failed || !device.video_ready)
+		return FALSE;
+	if (!device.front_buffer.Data)
+	{
+		d3d8_surface_initialize(&device.front_buffer, D3DFMT_LIN_A8R8G8B8, FRONT_BUFFER_WIDTH, FRONT_BUFFER_HEIGHT);
+		if (!device.front_buffer.Data)
+		{
+			failed = TRUE;
+			return FALSE;
+		}
+	}
+	if (device.front_buffer_taken != device.frame)
+	{
+		/* cleared as the bound target, which the next draw binds back (the targets the host was told differ from the
+		device's again) */
+		D3DSurface *color = device.render_target, *depth = device.depth_stencil;
+		struct vk_command_clear *command;
+		struct vk_surface front;
+		float scale[2];
+		BOOL has_depth;
+
+		device.render_target = &device.front_buffer;
+		device.depth_stencil = NULL;
+		if (targets_bind(&has_depth))
+		{
+			surface_describe(&device.front_buffer, FALSE, &front, scale);
+			command = stream_command(VK_COMMAND_CLEAR, sizeof(*command) + 4 * sizeof(uint32_t));
+			command->flags = VK_CLEAR_RED | VK_CLEAR_GREEN | VK_CLEAR_BLUE | VK_CLEAR_ALPHA;
+			command->color[0] = command->color[1] = command->color[2] = 0.0f;
+			command->color[3] = 1.0f;
+			command->depth = 1.0f;
+			command->stencil = 0;
+			command->rectangle_count = 1;
+			command->rectangles[0][0] = 0;
+			command->rectangles[0][1] = 0;
+			command->rectangles[0][2] = front.pixel_width;
+			command->rectangles[0][3] = front.pixel_height;
+		}
+		device.render_target = color;
+		device.depth_stencil = depth;
+	}
+	device.front_buffer_asked = device.frame + 1;
+	return TRUE;
+}
+
+/* the frame as the loading screen has drawn it, copied into the front buffer, when this frame asked for it
+(D3DDevice_BlockUntilVerticalBlank) */
+static void front_buffer_take(void)
+{
+	struct vk_command_blit *command;
+	struct vk_surface back_buffer, front;
+	float back_scale[2], front_scale[2];
+	uint32_t width, left;
+
+	if (!device.video_ready || !device.front_buffer.Data || device.front_buffer_asked != device.frame + 1)
+		return;
+	surface_describe(&device.back_buffer, FALSE, &back_buffer, back_scale);
+	surface_describe(&device.front_buffer, FALSE, &front, front_scale);
+	if (back_buffer.kind != VK_SURFACE_COLOR || front.kind != VK_SURFACE_COLOR)
+		return;
+	width = (uint32_t)(FRONT_BUFFER_WIDTH * back_scale[0] + 0.5f);
+	if (width > back_buffer.pixel_width)
+		width = back_buffer.pixel_width;
+	left = (back_buffer.pixel_width - width) / 2;
+	command = stream_command(VK_COMMAND_BLIT, sizeof(*command));
+	command->source = back_buffer;
+	command->destination = front;
+	command->from[0] = left;
+	command->from[1] = 0;
+	command->from[2] = width;
+	command->from[3] = back_buffer.pixel_height;
+	command->to[0] = 0;
+	command->to[1] = 0;
+	command->to[2] = front.pixel_width;
+	command->to[3] = front.pixel_height;
+	rendered_note(&device.front_buffer);
+	device.front_buffer_taken = device.frame + 1;
+}
+
 void WINAPI D3DDevice_GetBackBuffer(INT back_buffer, D3DBACKBUFFER_TYPE type, D3DSurface **result)
 {
-	(void)back_buffer;
 	(void)type;
+	/* -1: the front buffer, the frame shown last, which the loading screen blurs into its light's trails
+	(progress_bar.c) */
+	if (back_buffer == -1 && front_buffer_ready())
+	{
+		device.front_buffer.Common++;
+		*result = &device.front_buffer;
+		return;
+	}
 	/* like Direct3D, the caller gets a reference it must release */
 	device.back_buffer.Common++;
 	*result = &device.back_buffer;
@@ -1867,7 +2116,12 @@ void WINAPI D3DDevice_SetVertexShader(DWORD handle)
 		device.vertex_shader = object;
 		device.program_address = 0;
 		device.program_slots[0] = object;
+		device.fixed_function = FALSE;
 	}
+	/* 0: the fixed-function pipeline, which only the loading screen uses (progress_bar.c). Another handle that is no shader
+	changes nothing, as before */
+	else if (!handle)
+		device.fixed_function = TRUE;
 }
 
 void WINAPI D3DDevice_LoadVertexShader(DWORD handle, DWORD address)
@@ -1880,6 +2134,8 @@ void WINAPI D3DDevice_SelectVertexShader(DWORD handle, DWORD address)
 {
 	struct vertex_shader_object *object = vertex_shader_from_handle(handle);
 
+	/* (a program, loaded or packed at the address: never the fixed-function pipeline, which SetVertexShader with 0 sets) */
+	device.fixed_function = FALSE;
 	if (object)
 		device.vertex_shader = object;
 	if (address < VERTEX_PROGRAM_SLOTS)
@@ -1911,6 +2167,48 @@ static struct vertex_shader_object *current_program(void)
 	struct vertex_shader_object *program = device.program_slots[device.program_address];
 
 	return program ? program : device.vertex_shader;
+}
+
+/* the fixed-function pipeline as a program (SetVertexShader with 0, d3d8_gl.c's fixed_function_program): its immediate-mode
+draws only, whose positions draw_make transforms by the world, view and projection matrices. Draws from vertex buffers have
+no declaration to read them by, and are not drawn (no game draw makes one). */
+static struct vertex_shader_object *fixed_function_program(void)
+{
+	static struct vertex_shader_object program;
+	static DWORD no_instructions[4];
+
+	if (!program.instructions)
+	{
+		static const char name[] = "fixed-function";
+
+		program.signature = VERTEX_SHADER_SIGNATURE;
+		program.instructions = no_instructions;
+		/* (no program's words hash to it: the shader cache's name for it) */
+		program.program_hash = vk_hash_mix(vk_hash_init(), name, sizeof(name));
+		program.fixed_function = TRUE;
+	}
+	return &program;
+}
+
+/* a position in immediate mode by the fixed-function pipeline's transforms (d3d8_gl.c's fixed_function_transform):
+Direct3D's row vectors, times world, view, then projection */
+static void fixed_function_transform(float *position)
+{
+	static const D3DTRANSFORMSTATETYPE order[3] = { D3DTS_WORLD, D3DTS_VIEW, D3DTS_PROJECTION };
+	int which, column;
+
+	for (which = 0; which < 3; which++)
+	{
+		const D3DMATRIX *matrix = &device.transforms[order[which]];
+		float in[4];
+
+		memcpy(in, position, sizeof(in));
+		for (column = 0; column < 4; column++)
+		{
+			position[column] = in[0] * matrix->m[0][column] + in[1] * matrix->m[1][column] +
+				in[2] * matrix->m[2][column] + in[3] * matrix->m[3][column];
+		}
+	}
 }
 /* ---------- the shaders a draw would use (phase 4)
 
@@ -2031,6 +2329,11 @@ static void pixel_key_make(struct nv2a_pixel_shader_key *key)
 	key->combiner_state[D3DRS_PSFINALCOMBINERCONSTANT0] = 0;
 	key->combiner_state[D3DRS_PSFINALCOMBINERCONSTANT1] = 0;
 	key->texture_modes = D3D__RenderState[D3DRS_PSTEXTUREMODES];
+	if (texture_clip[2] != 0.0f)
+		key->texture_modes |= NV2A_PIXEL_KEY_CLIP | ((unsigned long)texture_clip_stage << NV2A_PIXEL_KEY_CLIP_STAGE_SHIFT) |
+			(texture_clip_3d ? NV2A_PIXEL_KEY_CLIP_3D : 0);
+	if (warp_blend)
+		key->texture_modes |= NV2A_PIXEL_KEY_WARP_BLEND;
 	key_textures(key);
 	for (stage = 0; stage < D3DTSS_MAXSTAGES; stage++)
 	{
@@ -2305,7 +2608,8 @@ static uint32_t shader_handle(uint32_t stage, uint64_t hash, const struct vertex
 	}
 	if (status == VK_SHADER_STATUS_UNKNOWN && entry->sent < 3)
 	{
-		char *glsl = stage == VK_SHADER_STAGE_VERTEX ?
+		char *glsl = stage == VK_SHADER_STAGE_VERTEX && program->fixed_function ? nv2a_vk_fixed_function_glsl() :
+			stage == VK_SHADER_STAGE_VERTEX ?
 			nv2a_vk_vertex_shader_to_glsl((const uint32_t *)program->instructions, program->instruction_count, mask,
 				lit ? &program->lighting : NULL) :
 			nv2a_vk_pixel_shader_to_glsl(key);
@@ -2315,6 +2619,17 @@ static uint32_t shader_handle(uint32_t stage, uint64_t hash, const struct vertex
 			host_vk_shader_compile(stage, hash, (uint32_t)(uintptr_t)glsl, (uint32_t)strlen(glsl));
 			free(glsl);
 			entry->sent++;
+		}
+	}
+	/* queued or compiling: made now, for this draw, while the frame has time for it (the host's host_vk_shader_make);
+	else the draw is left out until a compile thread has made it */
+	if (status != VK_SHADER_STATUS_FAILED && status != VK_SHADER_STATUS_NOT_READY)
+	{
+		handle = host_vk_shader_make(stage, hash);
+		if (handle)
+		{
+			entry->handle = handle;
+			return handle;
 		}
 	}
 	return 0;
@@ -2353,19 +2668,21 @@ shader is queued or compiling (the draw is skipped). The key is made without bin
 static BOOL draw_shaders(BOOL immediate, struct nv2a_pixel_shader_key *key, unsigned long *mask_out, uint32_t *vertex,
 	uint32_t *pixel)
 {
-	struct vertex_shader_object *program = current_program();
+	struct vertex_shader_object *program = device.fixed_function ? fixed_function_program() : current_program();
 	const char *folder = dump_folder();
 	unsigned long mask;
 
 	*vertex = *pixel = 0;
-	if (!program || !device.vertex_shader || !program->instructions)
+	/* (the fixed-function pipeline's draws: immediate mode's only) */
+	if (device.fixed_function ? !immediate : !program || !device.vertex_shader || !program->instructions)
 		return FALSE;
 	pixel_key_make(key);
 	mask = immediate ? 0 : device.vertex_shader->packed_mask;
 	*mask_out = mask;
 	if (folder)
 	{
-		dump_vertex_shader(folder, program, mask);
+		if (!program->fixed_function)
+			dump_vertex_shader(folder, program, mask);
 		dump_pixel_shader(folder, key);
 	}
 	if (!device.video_ready)
@@ -2551,6 +2868,22 @@ static void raster_state_make(struct vk_command_draw *draw, BOOL has_color, BOOL
 	draw->scissor[1] = (int32_t)y0;
 	draw->scissor[2] = (int32_t)(x1 - x0);
 	draw->scissor[3] = (int32_t)(y1 - y0);
+	/* (narrowed to the rectangle a draw changes anything in, if one is set: halo_draw_scissor; one with nothing left of
+	it on the screen is -1 wide, which the host draws nothing in, where 0 would be the GL's no scissor) */
+	if (draw_scissor_on)
+	{
+		long left = target_pixel(draw_scissor[0], 0), top = target_pixel(draw_scissor[1], 1);
+		long right = target_pixel(draw_scissor[2], 0), bottom = target_pixel(draw_scissor[3], 1);
+
+		left = left > x0 ? left : x0;
+		top = top > y0 ? top : y0;
+		right = right < x1 ? right : x1;
+		bottom = bottom < y1 ? bottom : y1;
+		draw->scissor[0] = (int32_t)left;
+		draw->scissor[1] = (int32_t)top;
+		draw->scissor[2] = right > left && bottom > top ? (int32_t)(right - left) : -1;
+		draw->scissor[3] = right > left && bottom > top ? (int32_t)(bottom - top) : -1;
+	}
 
 	state->color_format = has_color ? 1 : 0;
 	state->depth_format = has_depth ? 1 : 0;
@@ -2653,6 +2986,11 @@ static void pixel_parameters_make(struct vk_pixel_parameters *p, const float tex
 	p->fog_parameters[1] = dword_to_float(D3D__RenderState[D3DRS_FOGEND]);
 	p->fog_parameters[2] = dword_to_float(D3D__RenderState[D3DRS_FOGDENSITY]);
 	p->alpha_reference[0] = (float)(D3D__RenderState[D3DRS_ALPHAREF] & 0xff);
+	/* (the clip, which the pixel shader makes before anything else: its limits in the units the stage is sampled in,
+	0 to 1) */
+	p->alpha_reference[1] = texture_clip[0];
+	p->alpha_reference[2] = texture_clip[1];
+	p->alpha_reference[3] = texture_clip[2];
 	for (stage = 0; stage < D3DTSS_MAXSTAGES; stage++)
 	{
 		DWORD *state = D3D__TextureState[stage];
@@ -3237,6 +3575,14 @@ static void draw_make(D3DPRIMITIVETYPE type, unsigned long count, BOOL immediate
 	}
 	if (immediate)
 	{
+		/* (the fixed-function pipeline's: positions into clip space) */
+		if (device.fixed_function)
+		{
+			unsigned long vertex;
+
+			for (vertex = 0; vertex < count; vertex++)
+				fixed_function_transform(device.immediate_vertices + vertex * XGPU_VERTEX_ATTRIBUTE_COUNT * 4);
+		}
 		record.vertex_buffers[0] = data_ref(vk_data_put(device.immediate_vertices,
 			count * XGPU_VERTEX_ATTRIBUTE_COUNT * 4 * sizeof(float)));
 		record.state.binding_count = 1;
@@ -3493,6 +3839,17 @@ void WINAPI D3DDevice_Present(CONST RECT *source_rectangle, CONST RECT *destinat
 	}
 	else
 	{
+		/* (port: the vertical blanks that retire the flips counted, started
+		here if the game has not yet: the boot's loading screen presents
+		before it sets its callback or waits for one, and with
+		display.interpolation off its third frame waited for ever, a black
+		screen) */
+		if (!vertical_blank_thread_started)
+		{
+			pthread_mutex_unlock(&vertical_blank_lock);
+			vertical_blank_start();
+			pthread_mutex_lock(&vertical_blank_lock);
+		}
 		while (pending_flips >= 2)
 			pthread_cond_wait(&vertical_blank_condition, &vertical_blank_lock);
 		pending_flips++;

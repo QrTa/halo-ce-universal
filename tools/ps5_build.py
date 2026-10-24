@@ -52,6 +52,7 @@ from typing import Any, Dict, List, Optional
 
 from .android_build import GLSLANG_DIR as ANDROID_GLSLANG_DIR
 from .android_build import GLSLANG_TAG, GLSLANG_URL, MUSL_URL, MUSL_VERSION, fetch_third_party, generate_guest_image
+from .android_build import ZLIB_DEFINES, ZLIB_DIR, ZLIB_SOURCES
 from .guest_arch import X32
 from .linux_build import MBEDTLS_DIR, MINIUPNPC_DEFINES, MINIUPNPC_DIR, miniupnpc_sources, updater_defines
 from .ninja_syntax import Writer, escape
@@ -100,7 +101,8 @@ SHARED_HOST_FILES = ("host_arch.c", "host_common.c", "host_https.c", "host_loade
 # host_vk_driver.c (port/ps5/host/host_vk_driver_ps5.c is the console's) and
 # the probe, host_vk_probe.c
 SHARED_RENDERER_FILES = ("host_vk.c", "host_vk_data.c", "host_vk_draw.c", "host_vk_post.c", "host_vk_present.c",
-                         "host_vk_render.c", "host_vk_shaders.c", "host_vk_texture.c", "host_vk_visibility.c")
+                         "host_vk_hud.c", "host_vk_profile.c", "host_vk_render.c", "host_vk_shaders.c", "host_vk_texture.c",
+                         "host_vk_visibility.c")
 # posix.h's helpers (port/linux/src) the game imports, as the Linux host
 # compiles them (port/ps5/PS5.md, phases 2 and 5), and the Linux updater's
 # HTTPS download, which the title's updater fetches with (phase 8:
@@ -183,6 +185,32 @@ def generate_ps5_build(n: Writer, sln: Any) -> None:
         _unavailable(n, str(error))
         return
     n.output.write(output.getvalue())
+
+
+# ---------- the title's version
+
+def content_version(build: int) -> str:
+    """The contentVersion of build N, in the PlayStation's NN.NNN.NNN: 01.000.110 for Build 110."""
+    return f"01.{build // 1000:03d}.{build % 1000:03d}"
+
+
+def check_content_version(param_path: Path, build_number: str) -> None:
+    """A numbered build's title must carry its build's contentVersion in the committed param.json: consoles (and the
+    PS5 homebrew catalog, which reads port/ps5/sce_sys/param.json at the release's tag, beside the icon) tell an
+    installed copy is outdated by it, and a release that did not raise it is no update to them. The Build N commit
+    raises it; a release built without it fails here, before anything is published. Unnumbered builds are not
+    checked."""
+    try:
+        number = int(build_number or "0")
+    except ValueError:
+        number = 0
+    if number <= 0:
+        return
+    wanted = content_version(number)
+    found = json.loads(param_path.read_text()).get("contentVersion")
+    if found != wanted:
+        raise RuntimeError(f"{param_path} has contentVersion {found}, and build {number} wants {wanted}: raise it in "
+                           f"the Build {number} commit")
 
 
 # ---------- the checkouts and their pins
@@ -638,6 +666,8 @@ def _generate(n: Writer, sln: Any, config_path: Path) -> None:
         # calls in the shared files bind to SDL2's of the same names)
         f"-isystem {mesa / 'include'}", *sdl2_flags, f"-isystem {root / THIRD_PARTY / 'SDL3' / 'include'}",
         f"-I{glslang_source}",
+        # (the port's zlib, its names z_: the high-res HUD's sheets, host_vk_hud.c)
+        f"-I{root / ZLIB_DIR}",
     ])
     miniupnpc_cflags = " ".join([f"-I{root / MINIUPNPC_DIR / 'include'}", f"-I{root / MINIUPNPC_DIR / 'src'}",
                                  *MINIUPNPC_DEFINES, "-DNO_GETADDRINFO", "-Dgethostbyname=ps5_upnp_gethostbyname",
@@ -707,6 +737,12 @@ def _generate(n: Writer, sln: Any, config_path: Path) -> None:
     # if_nametoindex, if_indextoname, getnameinfo and gai_strerror, which no
     # module a title loads exports, answered by host_net_ps5.c; Mbed TLS with the PS5's configuration added
     # (mbedtls_config_ps5.h: the console's random numbers)
+    # the port's zlib, for the high-res HUD's sheets the renderer's host half decodes (host_vk_hud.c), as Android's host
+    for name in ZLIB_SOURCES:
+        obj = obj_dir / "zlib" / (name + ".o")
+        n.build(outputs=obj, rule="ps5_host_cc", inputs=root / ZLIB_DIR / name,
+                variables={"cflags": " ".join([host_cflags, *ZLIB_DEFINES, "-w"])})
+        objects.append(obj)
     for source in miniupnpc_sources():
         obj = obj_dir / "miniupnpc" / (source.name + ".o")
         n.build(outputs=obj, rule="ps5_host_cc", inputs=root / source,
@@ -763,6 +799,7 @@ def _generate(n: Writer, sln: Any, config_path: Path) -> None:
     # Switch's icon.jpg is:
     #   python3 -c "from PIL import Image; Image.open('port/assets/icon/opence-icon.png').convert('RGBA')
     #       .resize((512, 512), Image.LANCZOS).save('port/ps5/sce_sys/icon0.png', optimize=True)"
+    check_content_version(PORT_DIR / "sce_sys" / "param.json", os.environ.get("HALO_BUILD_NUMBER", "0"))
     n.build(outputs=param, rule="ps5_copy", inputs=root / PORT_DIR / "sce_sys" / "param.json")
     n.build(outputs=icon, rule="ps5_copy", inputs=root / PORT_DIR / "sce_sys" / "icon0.png")
     # PS5_Vulkan's libc.prx shim, after its checksum (and rebuilt by its

@@ -380,6 +380,8 @@ static char const *const port_function_names[] =
 	"mp profile init indicator opts", "mp profile set ctf rules", "mp profile set koth rules",
 	"mp profile set slayer rules", "mp profile set oddball rules", "mp profile set racing rules",
 	"mp profile set player options", "mp profile set item options", "mp profile set indicator opts",
+	/* (the gametype editor's OPENCE OPTIONS: OpenCE's gametypes, game_modes.c) */
+	"mp profile init opence options", "mp profile set opence options",
 	/* (Settings' OK: the Xbox's fails when the profile has no changes, the
 	settings' screens having written theirs to config.toml) */
 	"player profile save changes",
@@ -450,6 +452,8 @@ static char const *const port_game_data_input_names[] =
 	"port leaderboard update",
 	/* (the main menu's DAILY CHALLENGE: the day's challenge, and the past days' rows) */
 	"port daily update", "port history update", "port daily connection update", "port daily settings update",
+	/* (the gametype editor's description, with OPENCE OPTIONS' row) */
+	"port playlist edit desc",
 };
 
 static struct

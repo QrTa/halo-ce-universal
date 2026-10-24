@@ -768,4 +768,63 @@ done:
 	return succeeded;
 }
 
+int xiso_write_missing_loading_picture(const char *image_path, const char *destination)
+{
+	struct xiso_image image;
+	struct xiso_entry *entries = NULL;
+	struct xiso_entry xbe;
+	unsigned char *table = NULL;
+	char *maps_path = NULL, *file_path = NULL;
+	unsigned long root_sector, root_size;
+	posix_ulong size_low, size_high;
+	struct posix_file_information information;
+	int count, index, out_of_memory, written = 0;
+
+	memset(&image, 0, sizeof(image));
+	memset(&xbe, 0, sizeof(xbe));
+	maps_path = malloc(XISO_MAXIMUM_PATH);
+	file_path = malloc(XISO_MAXIMUM_PATH);
+	if (!maps_path || !file_path ||
+		snprintf(maps_path, XISO_MAXIMUM_PATH, "%s/maps", destination) >= XISO_MAXIMUM_PATH ||
+		snprintf(file_path, XISO_MAXIMUM_PATH, "%s/loading.tga", maps_path) >= XISO_MAXIMUM_PATH ||
+		posix_stat(file_path, &information) == 0)
+	{
+		free(file_path);
+		free(maps_path);
+		return 0;
+	}
+	image.descriptor = open(image_path, O_RDONLY | O_LARGEFILE | O_CLOEXEC);
+	if (image.descriptor < 0)
+	{
+		free(file_path);
+		free(maps_path);
+		return 0;
+	}
+	image.size = ~0ULL;
+	if (posix_seek(image.descriptor, 0, 0, SEEK_END, &size_low, &size_high) == 0)
+		image.size = (unsigned long long)size_high << 32 | size_low;
+	entries = malloc(sizeof(*entries) * XISO_MAXIMUM_ENTRIES);
+	if (entries && xiso_find_volume(&image, &root_sector, &root_size) &&
+		(table = xiso_read_table(&image, root_sector, root_size, &out_of_memory)) != NULL)
+	{
+		count = xiso_walk_table(table, root_size, 0, entries);
+		for (index = 0; index < count; index++)
+		{
+			if (xiso_name_is(entries[index].name, (int)strlen(entries[index].name), "default.xbe"))
+				xbe = entries[index];
+		}
+		if (xbe.size)
+		{
+			xiso_write_loading_picture(&image, &xbe, maps_path, file_path, XISO_MAXIMUM_PATH);
+			written = posix_stat(file_path, &information) == 0;
+		}
+	}
+	free(table);
+	free(entries);
+	free(file_path);
+	free(maps_path);
+	close(image.descriptor);
+	return written;
+}
+
 #endif

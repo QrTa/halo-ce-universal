@@ -123,6 +123,8 @@ extern const unsigned long platform_menu_cursor_size;
 #endif
 
 #if !defined(HALO_ANDROID) && !defined(HALO_WEB)
+static BOOL data_find_image(const char *directory, char *path, int size);
+
 /* the maps folder checked to hold the Xbox maps (platform_maps_folder_check).
 When it holds Halo PC's instead, or no ui.map, the player is told where each
 kind goes and the game quits, rather than failing to load Halo PC's ui.map
@@ -144,6 +146,14 @@ static void data_check_maps(void)
 	switch (maps.state)
 	{
 	case _maps_folder_xbox:
+		/* (maps extracted before the extraction wrote the loading screen's picture: it from the disc image, if
+		one is still beside the maps folder) */
+		{
+			char image[1024];
+
+			if (data_find_image(maps.root, image, sizeof(image)) && xiso_write_missing_loading_picture(image, maps.root))
+				platform_log("the loading screen's picture taken from %s (the maps folder had none)", image);
+		}
 		if (!maps.stray_pc_maps)
 			return;
 		snprintf(message, sizeof(message),

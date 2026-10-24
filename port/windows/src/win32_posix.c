@@ -122,9 +122,25 @@ int pthread_create(pthread_t *thread, const pthread_attr_t *attributes, void *(*
 		free(parameter);
 		return EAGAIN;
 	}
-	/* nothing joins threads: the handle is not needed */
+	/* (pthread_join opens the thread again by its identifier) */
 	CloseHandle(handle);
 	*thread = identifier;
+	return 0;
+}
+
+/* (a thread that has already ended cannot be opened: there is nothing to
+wait for) */
+int pthread_join(pthread_t thread, void **result)
+{
+	HANDLE handle = OpenThread(SYNCHRONIZE, FALSE, thread);
+
+	if (handle)
+	{
+		WaitForSingleObject(handle, INFINITE);
+		CloseHandle(handle);
+	}
+	if (result)
+		*result = NULL;
 	return 0;
 }
 

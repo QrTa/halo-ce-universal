@@ -1,5 +1,114 @@
 # Changelog
 
+## Build 119
+
+- Switch: with a mod of high-resolution textures (Uncompressed Textures, say), textures the game lets go of are kept in the console's memory outside the game's own, 512 MB of them, and read back from there instead of the SD card: most of the hitches in busy matches with the mod. Blood Gulch and Battle Creek with 63 bots went from 53.9 and 48.6 to 59.3 and 53.8 frames a second. (thelinkin3000)
+- Switch: Custom Edition maps' textures are kept there too. (thelinkin3000)
+- Switch: Custom Edition maps load faster: Lumoria A from 79 to 50 seconds. (thelinkin3000)
+- Mods' files stay open between reads and are no longer checked for changes at each read, so their textures load without hitching. (thelinkin3000)
+- The sound mixer lets the game in between voices, rather than holding it off for a whole mix, which removed stutters in busy fights: Chill Out stays at 60 frames a second on the Switch. (thelinkin3000)
+- Switch: no more "Restart to get a 512 MB memory window" message at startup: the texture memory above makes up for the smaller window. (thelinkin3000)
+- Switch: an Ultrahand overlay can control the game: a console command or a "config <setting> <value>" line written to switch/halo/overlay/command.txt is run within a second (game.overlay_commands, on by default). (thelinkin3000)
+
+### From OpenCE
+
+- Network version 38: this build plays online only with other builds of this version or newer. (MrBruh)
+- The server browser names OpenCE gametypes (SWAT, HC CTF), for LAN and internet games. (MrBruh)
+- A host can leave the shield effects to each player's own setting (SHIELD EFFECTS: PLAYERS' OWN); they stay the host's by default. (MrBruh)
+
+## Build 118
+
+- The game no longer stays on a black screen at startup with interpolation turned off (Video Setup, or display.interpolation in config.toml): its loading screen waited for a vertical blank that had not started yet. Seen on the Switch; the fix is in every renderer. (thelinkin3000)
+
+## Build 117
+
+- Switch: 64-player matches run much faster: Damnation from 44 to about 60 frames a second, Chill Out from 38 to about 59, Blood Gulch from 51 to 60, with far fewer stutters (Chill Out's frames over 33 ms from 90 to 5 in a 45-second fight). (thelinkin3000)
+- Android: busy matches are faster too: Chill Out with 64 players from 92 to 109 frames a second on a Galaxy Z Fold. (thelinkin3000)
+- Particles that are not attached to anything (sparks, casings, debris) move 30 times a second, as on the Xbox, drawn smoothly between their steps, and those off the screen less often: their collision tests were the largest cost of a big firefight on every platform. debug.original_particles moves them every frame. (thelinkin3000)
+- At most 4096 particles are alive at once (2048 on the Switch), the oldest making way for the new ones, so fresh impacts always have their sparks; the Xbox's limit was 1024. display.particle_limit sets it, 0 for the full 8192. (thelinkin3000)
+- The 8 biggest dynamic lights on the screen (muzzle flashes, plasma, explosions) light the level, and the 2 biggest add their shine to it, the first-person weapon's first; every light still lights the players and objects near it. display.dynamic_light_limit and display.specular_light_limit set them, 0 for every light as on the Xbox. (thelinkin3000)
+- Switch: online and local games ask the console's network service far less often: the game no longer waits on it once or twice a frame to learn there is nothing to read. (thelinkin3000)
+- The game no longer waits for the sound mixer every frame, nor for long when a sound starts or stops, which made busy fights hitch. (thelinkin3000)
+- A bullet's mark on a wall no longer costs a check of every mark in the game, which only debug builds now make. (thelinkin3000)
+- Player names over heads test their line of sight once a tick, and only for players in range and on the screen. (thelinkin3000)
+- Switch: Custom Edition maps no longer fail to load now and then at startup ("Custom Edition's tag cache range is taken"). (thelinkin3000)
+
+## Build 116
+
+- Android: anti-aliasing (MSAA) costs much less on phones whose driver can keep the samples in the GPU's own tile memory (Adreno, Mali): with MSAA 4x, busy multiplayer maps run about 15% faster (Damnation 85 → 97 frames a second, Chill Out 64 → 73, with 64 players on a Galaxy Z Fold). debug.original_multisample turns it off. (thelinkin3000)
+- Android and PS5: lens flares and the sun's glow no longer stall the GPU under Vulkan: the opening of The Pillar of Autumn, which ran at about 10 frames a second on a Galaxy Z Fold, now runs at 120. (thelinkin3000)
+- Android: the frame breaks off less often under Vulkan, each break costing a phone's GPU about a millisecond: the sun's glow and the water's ripples are made at the end of the frame, screen clears come free with the next drawing, and a shadow map is made readable as soon as it is drawn. (thelinkin3000)
+- Android and PS5: the GPU savings of Build 114 (shadows and lights drawn only where they change the screen) now fully take effect; a missing setting had left part of them off. (thelinkin3000)
+- Android: the high-res HUD is prepared while a map loads, as on the Switch, instead of during play. (thelinkin3000)
+- The steam from the cryo tube at the start of the campaign, and other blurs drawn on a small copy of the screen, are smooth again instead of blocky. (thelinkin3000)
+- Up to 63 bots in a local game. (thelinkin3000)
+- A built-in benchmark on every platform: debug.benchmark = "standard" in config.toml plays five campaign levels and four multiplayer maps with 63 bots, and writes the frame rates to benchmark.txt. (thelinkin3000)
+- Android: debug.profile_run = true records a profile of each run (CPU, GPU time, logs, benchmark) into its own folder in Download/halo_profiles, ready to send with a report. (thelinkin3000)
+
+### From OpenCE
+
+- Network version 36: this build plays online only with other builds of this version or newer. (bnunu)
+- New gametypes: SWAT, Infection, Gun Game and Hardcore, in Select Gametype's OPENCE bank, and an OPENCE OPTIONS screen in the gametype editor. (MrBruh)
+- In network games, the shield effects are the host's choice. (bnunu)
+- Co-op: the host can make the players' AI allies immune to their fire. (Guven)
+- Co-op: clients break, and see broken, the map's scenery shields as the host does, and their tripmine hits and explosions count on the host. (Guven)
+- Co-op: a client taken by a teleport lands with their feet on the floor. (Jonas Volman)
+- Custom Edition HUDs: replacements, ammo counters, meters and prompts are drawn right, with or without the high-res HUD (OpenGL renderers). (chestahh)
+- Android, OpenGL ES: no more stretched or missing geometry on affected phones, and Custom Edition maps keep their textures. (chestahh)
+- Android, OpenGL ES: phones without DXT1 texture support get those textures as ASTC. (Jonas Volman)
+- The PC vehicle set shows its name and help instead of <missing string>. (bnunu)
+
+## Build 115
+
+- Switch: a console whose clock is wrong is told so at the start and in the server browser, with how far off it is: the server browser shows no internet games while the clock is more than an hour off, which homebrew consoles that never reach Nintendo often are. (thelinkin3000)
+- The server browser says how many games it hears but does not show, and why: on a newer or test version, or with a wrong clock. (thelinkin3000)
+- The maps and Custom Edition maps can be read from other folders: game.maps.path and game.custom_maps.path in config.toml. On the Switch, a maps folder named there without the maps stops the game at the start with an error. (thelinkin3000)
+- The map lists open much faster with many Custom Edition maps, and opened again, they only look at the maps that are new or changed. (thelinkin3000)
+- Switch: a start that cleans up a large shader cache takes a fraction of a second instead of half a minute. (thelinkin3000)
+
+## Build 114
+
+- Switch: shaders compile on two threads, about three times as fast: a new console compiles the shared shaders in the background in a fraction of the time, and the menus stay at 60 frames a second meanwhile. (thelinkin3000)
+- Switch: a new console's first start waits about 3 seconds, not 30, before the menus. (thelinkin3000)
+- Switch: a level's first 10 seconds wait for its shaders instead of drawing the world a piece at a time; the first frames may hitch briefly, but every frame is whole. (thelinkin3000)
+- Switch: a faster start: the console's own shader list no longer holds the shaders the shared list has, so fewer are loaded before the menus. (thelinkin3000)
+- Switch: new shared shader keys, the campaign's and the stock multiplayer maps', so a new console compiles only what those maps need from its first start. (puginatux)
+- Android and PS5: shadows, dynamic lights, the sniper and pistol zoom's blur and cutscene blurs cost the GPU much less under Vulkan, as they already did on the Switch: shadows and lights are drawn only where they change the screen, and the blurs on a small copy of it. (thelinkin3000)
+- PS5: clicking the touch pad is Back, which the pad had none of (the scores in a match, Back in the menus). (thelinkin3000)
+
+### From OpenCE
+
+- Co-op: the Pillar of Autumn no longer softlocks. (eltanschauung)
+- Co-op: the gravity lift on The Silent Cartographer takes every player, not only the first two. (eltanschauung)
+- A little less work per frame: the high-res HUD setting is read once per change instead of at every texture. (bnunu)
+
+## Build 113
+
+- Switch: hosting an internet game works: the console ran out of room for network connections and refused its own player's. (thelinkin3000)
+- Switch: UPnP port forwarding for internet play, as on the other platforms: a router with UPnP on forwards the console's port, so players behind strict networks can reach a game it hosts. (thelinkin3000)
+- Switch: hosts up to 48 players. A LAN game held 48 players at a steady 60 frames a second (it took 22 before, and stuttered with many players): the console's network work is now done in batches and off the game's thread. Server Setup's MAX PLAYERS goes up to 48 on the Switch. (thelinkin3000)
+- The gametype list in Create Game and in Settings > Gametypes no longer reads the gametypes' names from the card every frame, which held it under 20 frames a second on the Switch. (thelinkin3000)
+
+## Build 112
+
+- Switch: creating a LAN game after opening the server browser works again: leaving the browser now closes its connections to the internet play servers, which had used up the console's room for network connections. (thelinkin3000)
+- Switch: the Mods menu keeps which mods are on and off after the game restarts. Every save after the first had failed, because the console would not replace the old file (profile saves were affected the same way). (thelinkin3000)
+- The gametype list in Create Game and in Settings > Gametypes no longer reads the chosen gametype from the card every frame, which kept the Switch busy for as long as the screen was open. (thelinkin3000)
+
+## Build 111
+
+- Switch and PS5: the main menu has no QUIT: the console's own Home or PS button leaves the game. (thelinkin3000)
+- PS5: each build has its own version number on the console, so stores and the console can tell that a newer build is an update. (thelinkin3000)
+
+## Build 110
+
+- Switch and Android: Halo's loading screen draws, the light sweeping over the Xbox's picture with its glowing trail; maps extracted by earlier builds get the picture from the disc image at the next start (on every platform). (thelinkin3000)
+- Switch: the first seconds after starting no longer freeze or cut the music, and the menus appear whole once their shaders are ready, behind the loading screen. (thelinkin3000)
+- Switch: when it looks for an update, the Switch also downloads the shaders of the campaign and of every multiplayer map (the shared shader keys), so a console compiles them in the background from its first start instead of as each map is first played. (thelinkin3000)
+- Switch: a map's load waits for its shaders under the loading screen, ten seconds at most, so a level's first moments are drawn whole; the loading screen's light now sweeps across the whole wait. Going back to the menus after a level no longer waits four seconds. (thelinkin3000)
+- Switch, Android and PS5: maps load sooner: the map is read from the card while it is unpacked (a campaign level about two seconds sooner on the Switch). (thelinkin3000)
+- Android and PS5: no more objects missing for the first frames of a map or a new effect: shaders compile on all the cores but two, and a draw whose shader is not ready compiles it itself, for up to a frame's time each frame. (thelinkin3000)
+
 ## Build 109
 
 - Switch: fixes a freeze in The Library's opening cutscene, and pauses of a few seconds while loading: a part of a frame the game waited for was never sent to the GPU. (thelinkin3000)

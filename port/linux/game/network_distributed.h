@@ -137,6 +137,9 @@ enum
 	/* the host's mouse aim assist policy (network_aim_assist.c), to every
 	client, reliably, when it is ready and when the policy changes */
 	_distributed_message_aim_assist_policy = 90,
+	/* the host's shield effects (network_shield_effects.c), to every client,
+	reliably, when it is ready and when they change */
+	_distributed_message_shield_effects = 91,
 
 	/* a modded co-op game's skulls to be found (port/linux/game/skulls.c):
 	the host's skulls dropped, taken, unlocked and lost, to every client,

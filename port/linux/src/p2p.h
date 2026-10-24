@@ -111,8 +111,8 @@ void p2p_set_hosting_password(const char *password);
 /* the hosted game's details as listed (printable ASCII is kept; NULL leaves
 one as it was): the game's server calls it as they change (calling it with
 the same again costs little) */
-void p2p_set_game_listing(const char *name, const char *map, const char *gametype, int engine_type, int open,
-	int in_progress, int has_teams, int randomized, int modded);
+void p2p_set_game_listing(const char *name, const char *map, const char *gametype, int engine_type, int kind,
+	int open, int in_progress, int has_teams, int randomized, int modded);
 /* the server browser: while on, the public games are gathered (asked for
 when turned on, and by p2p_lobby_refresh) */
 void p2p_lobby_browse(int on);
@@ -142,6 +142,9 @@ struct p2p_listing
 	char map[P2P_LISTING_MAP_SIZE + 1];
 	char gametype[P2P_LISTING_GAMETYPE_SIZE + 1];
 	unsigned char player_count, maximum_player_count, engine_type;
+	/* the game's kind: an OpenCE gametype's mode, and Hardcore
+	(port/linux/game/game_modes.h's game_modes_kind) */
+	unsigned char kind;
 	unsigned char open, in_progress, has_teams;
 	/* joining it failed this run (p2p_lobby_mark_failed) */
 	unsigned char failed;
@@ -169,9 +172,14 @@ int p2p_joined_listed_host(void);
 /* a copy of the public games found, in the order shown (the most players
 first; then those not failed, the open ones, by name); returns their count */
 int p2p_lobby_games(struct p2p_listing *games, int maximum_count);
-/* how many hosts list a game of a newer network version, which is not
-shown (an old build sees none of the games) */
-int p2p_lobby_newer_games(void);
+/* how many hosts list a game that is not shown: of a newer network version
+(an old build sees none of the games), or at a time far from this
+machine's clock (a wrong clock sees none of them); returns both together */
+int p2p_lobby_hidden_games(int *newer, int *wrong_clock);
+/* how many seconds this machine's clock is behind the right time (ahead if
+negative), if the platform learned it (the Switch: GitHub's, before the
+game starts); 0 if it did not */
+int p2p_lobby_clock_offset(long *seconds);
 /* a game the browser could not join: kept, marked failed, for this run */
 void p2p_lobby_mark_failed(const unsigned char *identifier);
 /* a locked game's invite (into its invite), if the password is its own:

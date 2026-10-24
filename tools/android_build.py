@@ -858,7 +858,7 @@ def generate_android_build(n: Writer, sln: Any) -> None:
     host_cflags = " ".join([
         "-O2", "-g", "-fPIC", "-Wall", "-Wno-unused-function", "-D_GNU_SOURCE",
         f"-I{PORT_DIR}/include", f"-I{PORT_DIR}/host", f"-I{SDL_DIR}/include", f"-I{LINUX_DIR}/src",
-        f"-I{TOML_DIR}", f"-I{GLSLANG_DIR}", f"-I{BUILD / 'host'}",
+        f"-I{TOML_DIR}", f"-I{GLSLANG_DIR}", f"-I{BUILD / 'host'}", f"-I{ZLIB_DIR}",
         # the folder of the SPIR-V cache is named for the compiler (host_vk_shaders.c)
         f"-DHOST_VK_GLSLANG_TAG='\"{GLSLANG_TAG}\"'",
     ])
@@ -905,6 +905,13 @@ def generate_android_build(n: Writer, sln: Any) -> None:
                               else source.name + ".o")
         n.build(outputs=obj, rule="android_host_cc", inputs=source,
                 variables={"cflags": mbedtls_cflags + (" -w" if source.name not in own_tls_sources else "")})
+        host_objects.append(obj)
+    # the port's zlib, its names z_ (zlib_prefixed.h), for the Vulkan renderer's high-res HUD sheets the host decodes
+    # (host_vk_hud.c), as the guest has its own
+    for name in ZLIB_SOURCES:
+        obj = host_obj_dir / ("zlib_" + name + ".o")
+        n.build(outputs=obj, rule="android_host_cc", inputs=ZLIB_DIR / name,
+                variables={"cflags": " ".join([host_cflags, *ZLIB_DEFINES, "-w"])})
         host_objects.append(obj)
     table_obj = host_obj_dir / "host_import_table.c.o"
     n.build(outputs=table_obj, rule="android_host_cc", inputs=host_table_c, variables={"cflags": host_cflags})

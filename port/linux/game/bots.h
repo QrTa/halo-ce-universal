@@ -13,8 +13,9 @@ drawn for them. */
 struct player_action;
 struct network_player;
 
-/* the most bots in one game (with one player, the Xbox's 16) */
-#define BOTS_MAXIMUM 15
+/* the most bots in one game: with one player, 64 (the benchmark's games: benchmark.c), the last bot's machine the
+last a network_player's char machine index holds (127) */
+#define BOTS_MAXIMUM 63
 /* the first bot's machine index (the last machine indices of the session) */
 #define BOTS_FIRST_MACHINE (HALO_PORT_MAXIMUM_NETWORK_MACHINES - BOTS_MAXIMUM)
 
@@ -28,6 +29,8 @@ enum
 
 /* the settings (bots.count, bots.skill, bots.teams) */
 long bots_wanted_count(void);
+/* the count wanted in place of bots.count's (the benchmark's games: benchmark.c), or bots.count's again (-1) */
+void bots_set_count_override(long count);
 short bots_skill(void);
 short bots_teams(void);
 

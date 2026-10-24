@@ -38,6 +38,15 @@ It is not an emulator. The game's own code, decompiled from the Xbox build
 Its Direct3D 8 rendering is translated to **Vulkan** on Android and the PS5
 and to **deko3d**, the Switch's own GPU interface, on the Switch.
 
+> [!TIP]
+> **New on the Switch: cheats and settings from an overlay.** With
+> [OpenCE-Ultrahand](https://github.com/hardran3/OpenCE-Ultrahand), an
+> [Ultrahand Overlay](https://github.com/ppkantorski/Ultrahand-Overlay)
+> package by **hardran3**, you can turn on cheats (god mode, infinite ammo,
+> super jump and more), revert to the last checkpoint, and change VSync,
+> interpolation and the frame-rate display without leaving the game. It
+> needs Build 119 or later, and Ultrahand 2.5.3 or later.
+
 > [!IMPORTANT]
 > **No game data is included.** You need your own **Xbox** disc image of
 > Halo: Combat Evolved (`.iso` or `.xiso`, any region). The game unpacks
@@ -92,9 +101,6 @@ and to **deko3d**, the Switch's own GPU interface, on the Switch.
   ARM CPU.
 - **Android, Vulkan:** the first time a scene shows, a few parts can be
   missing for a moment while the phone compiles their shaders.
-- **Switch:** Custom Edition maps need a 512 MB memory window. Now and then
-  the console hands out only 256 MB; the main menu then says so, and
-  restarting the game usually fixes it.
 
 The current list is in the [issues](https://github.com/thelinkin3000/halo-ce-universal/issues).
 

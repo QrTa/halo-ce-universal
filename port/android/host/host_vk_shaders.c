@@ -20,9 +20,11 @@ On the device (the app's internal storage, which Android loads libraries from an
 Every file is written as .tmp and renamed when complete, so that a write cut short leaves no half file. A file that
 does not check (its header, its size, a CRC of its contents) is said, deleted and made again.
 
-Threads. The game thread (the guest's) calls the imports and runs the commands; one compile thread takes the queue
-(shaders first, then pipelines), compiles with glslang (one at a time, whoever calls it), writes the cache file and
-makes the shader module or the pipeline. VkDevice's creation functions may be called from any thread; the one
+Threads. The game thread (the guest's) calls the imports and runs the commands; compile threads (compile_threads) take
+the queue (shaders first, then pipelines), each compiling with glslang (which compiles on several threads at once: its
+memory pools are per thread, and its one lock is around its built-in symbol tables, set up once), writing the cache file
+and making the shader module or the pipeline. A draw whose shader is queued compiles it itself, or waits for the thread
+compiling it, for up to a frame's time a frame (host_vk_shader_make); past that its draws are left out until it is made. VkDevice's creation functions may be called from any thread; the one
 VkPipelineCache is internally synchronised (Vulkan, "Threading Behavior"), so the thread makes pipelines in it while
 the game thread saves it. The tables are guarded by one mutex, never held across glslang or a driver call that makes
 a pipeline (a module made from a file by find is, briefly: it takes fractions of a millisecond).
@@ -172,12 +174,14 @@ int host_vk_glslang_compile(const char *source, int fragment, uint32_t **words, 
 	*words = NULL;
 	*count = 0;
 	message[0] = 0;
+	/* (the lock is the loading's, once: glslang compiles on several threads at once) */
 	pthread_mutex_lock(&G.lock);
 	if (!glslang_load(message, message_size))
 	{
 		pthread_mutex_unlock(&G.lock);
 		return 0;
 	}
+	pthread_mutex_unlock(&G.lock);
 	memset(&input, 0, sizeof(input));
 	input.language = GLSLANG_SOURCE_GLSL;
 	input.stage = stage;
@@ -195,7 +199,6 @@ int host_vk_glslang_compile(const char *source, int fragment, uint32_t **words, 
 	{
 		snprintf(message, message_size, "glslang: %s", G.shader_info_log(shader));
 		G.shader_delete(shader);
-		pthread_mutex_unlock(&G.lock);
 		return 0;
 	}
 	program = G.program_create();
@@ -224,7 +227,6 @@ int host_vk_glslang_compile(const char *source, int fragment, uint32_t **words, 
 	}
 	G.program_delete(program);
 	G.shader_delete(shader);
-	pthread_mutex_unlock(&G.lock);
 	return ok;
 }
 
@@ -392,12 +394,33 @@ struct pipeline
 #define BUCKETS 4096
 #define HANDLE_LIMIT 65536
 
+/* the compile threads: the cores less two (the game's thread and the rest of the work), and three at least (phones have
+four cores at least, the game's work mostly on one of them), on a phone and on the PS5 alike; three where the count is
+not known. glslang's SPIR-V on 3, 6 and 14 threads at once was the same, byte for byte, as on one, for 17,040 of the
+game's shaders */
+#define COMPILE_THREADS_MINIMUM 3
+
+static int compile_threads(void)
+{
+	long cores = sysconf(_SC_NPROCESSORS_CONF);
+
+	return cores - 2 > COMPILE_THREADS_MINIMUM ? (int)(cores - 2) : COMPILE_THREADS_MINIMUM;
+}
+
+/* the time a frame may spend compiling its draws' shaders (host_vk_shader_make): a frame's, at the frame rate the
+presents come at (an average of their intervals, from a 60 Hz frame, each interval taken within these bounds) */
+#define FRAME_INITIAL_NS 16666667ull
+#define FRAME_MINIMUM_NS 4000000ull
+#define FRAME_MAXIMUM_NS 100000000ull
+
 static struct
 {
 	pthread_mutex_t lock;
 	pthread_cond_t wake;
 	/* signalled as each pipeline is made or fails: a draw waiting for one the thread is making (host_vk_pipeline_find) */
 	pthread_cond_t pipeline_done;
+	/* and as each shader is: a draw waiting for one a thread is compiling (host_vk_shader_make) */
+	pthread_cond_t shader_done;
 	int started, thread_started;
 	char root[640], spirv_folder[768], pipelines_folder[768], failed_folder[768], cache_file[900];
 	struct shader *buckets[BUCKETS];
@@ -420,7 +443,13 @@ static struct
 	int first_find_logged, first_compile_logged;
 	/* pipelines a draw made itself rather than wait for the thread, since the start */
 	unsigned pipelines_made_at_draw;
-} S = { .lock = PTHREAD_MUTEX_INITIALIZER, .wake = PTHREAD_COND_INITIALIZER, .pipeline_done = PTHREAD_COND_INITIALIZER };
+	/* shaders a draw compiled itself, or waited for a thread to finish, and draws that found the frame's time spent,
+	since the start; the frame's time so far, its length (FRAME_*), and when the last present was */
+	unsigned shaders_made_at_draw, shaders_waited_at_draw, shaders_over_frame;
+	uint64_t frame_waited_ns, frame_ns, last_present_ns;
+	double draw_wait_ms;
+} S = { .lock = PTHREAD_MUTEX_INITIALIZER, .wake = PTHREAD_COND_INITIALIZER, .pipeline_done = PTHREAD_COND_INITIALIZER,
+	.shader_done = PTHREAD_COND_INITIALIZER, .frame_ns = FRAME_INITIAL_NS };
 
 static unsigned bucket_of(uint32_t stage, uint64_t hash)
 {
@@ -694,6 +723,99 @@ void host_vk_shader_compile(uint32_t stage, uint64_t hash, uint32_t glsl_address
 	S.shader_tail = shader;
 	S.shaders_queued++;
 	pthread_cond_signal(&S.wake);
+	pthread_mutex_unlock(&S.lock);
+}
+
+static void compile_shader_item(struct shader *shader);
+
+/* the shader taken out of the threads' queue (S.lock is held) */
+static void shader_unqueue(struct shader *shader)
+{
+	struct shader *previous = NULL, *at;
+
+	for (at = S.shader_head; at && at != shader; at = at->next_queued)
+		previous = at;
+	if (!at)
+		return;
+	if (previous)
+		previous->next_queued = shader->next_queued;
+	else
+		S.shader_head = shader->next_queued;
+	if (S.shader_tail == shader)
+		S.shader_tail = previous;
+	shader->next_queued = NULL;
+}
+
+/* A draw's shader that is queued, compiled now by the draw (the game thread), or one a thread is compiling waited for,
+rather than the draw left out: a game-sized shader is 2 to 4 ms of glslang on a phone, where leaving its draws out
+showed as objects missing for the first frames of a map and of each new effect. A frame spends a frame's time on it at
+most (host_vk_shaders_present); past that, 0, and the draw is left out until a thread has made it. */
+uint32_t host_vk_shader_make(uint32_t stage, uint64_t hash)
+{
+	struct shader *shader;
+	uint32_t handle = 0;
+	uint64_t start;
+
+	if (stage > VK_SHADER_STAGE_PIXEL || !S.started || B.dead)
+		return 0;
+	pthread_mutex_lock(&S.lock);
+	shader = shader_lookup(stage, hash);
+	if (!shader || (shader->state != STATE_QUEUED && shader->state != STATE_COMPILING && shader->state != STATE_MADE))
+	{
+		pthread_mutex_unlock(&S.lock);
+		return 0;
+	}
+	if (shader->state == STATE_MADE)
+	{
+		handle = shader->handle;
+		pthread_mutex_unlock(&S.lock);
+		return handle;
+	}
+	if (S.frame_waited_ns >= S.frame_ns)
+	{
+		S.shaders_over_frame++;
+		pthread_mutex_unlock(&S.lock);
+		return 0;
+	}
+	start = now_ns();
+	if (shader->state == STATE_QUEUED)
+	{
+		shader_unqueue(shader);
+		compile_shader_item(shader);
+		S.shaders_made_at_draw++;
+	}
+	else
+	{
+		while (shader->state == STATE_COMPILING)
+			pthread_cond_wait(&S.shader_done, &S.lock);
+		S.shaders_waited_at_draw++;
+	}
+	S.frame_waited_ns += now_ns() - start;
+	S.draw_wait_ms += (double)(now_ns() - start) / 1e6;
+	if (shader->state == STATE_MADE)
+		handle = shader->handle;
+	pthread_mutex_unlock(&S.lock);
+	return handle;
+}
+
+/* at each present (host_vk_render.c): the next frame's time to compile in starts, a frame's at the presents' rate */
+void host_vk_shaders_present(void)
+{
+	uint64_t now = now_ns();
+
+	pthread_mutex_lock(&S.lock);
+	if (S.last_present_ns)
+	{
+		uint64_t interval = now - S.last_present_ns;
+
+		if (interval < FRAME_MINIMUM_NS)
+			interval = FRAME_MINIMUM_NS;
+		if (interval > FRAME_MAXIMUM_NS)
+			interval = FRAME_MAXIMUM_NS;
+		S.frame_ns = (S.frame_ns * 7 + interval) / 8;
+	}
+	S.last_present_ns = now;
+	S.frame_waited_ns = 0;
 	pthread_mutex_unlock(&S.lock);
 }
 
@@ -1047,6 +1169,7 @@ static void compile_shader_item(struct shader *shader)
 	}
 	free(shader->glsl);
 	shader->glsl = NULL;
+	pthread_cond_broadcast(&S.shader_done);
 }
 
 static void compile_pipeline_item(struct pipeline *pipeline)
@@ -1365,9 +1488,11 @@ void host_vk_services_statistics(char *text, size_t size)
 		queued_shaders++;
 	for (pipeline = S.pipeline_head; pipeline; pipeline = pipeline->next_queued)
 		queued_pipelines++;
-	snprintf(text, size, "shaders %u from the cache, %u compiled, %u failed, %u queued; pipelines %u made (%u at their draw), "
+	snprintf(text, size, "shaders %u from the cache, %u compiled (%u at their draw, %u waited for there, %.1f ms in all; "
+		"%u past a frame's %.1f ms), %u failed, %u queued; pipelines %u made (%u at their draw), "
 		"%u failed, %u queued; draws: %u ready, %u would be skipped for a shader, %u for a pipeline; pipeline cache %lu KB",
-		S.from_disk, S.compiled, S.failed, queued_shaders, S.pipelines_made, S.pipelines_made_at_draw, S.pipelines_failed,
+		S.from_disk, S.compiled, S.shaders_made_at_draw, S.shaders_waited_at_draw, S.draw_wait_ms, S.shaders_over_frame,
+		(double)S.frame_ns / 1e6, S.failed, queued_shaders, S.pipelines_made, S.pipelines_made_at_draw, S.pipelines_failed,
 		queued_pipelines,
 		B.counts.draws_ready, B.counts.draws_skipped_shader, B.counts.draws_skipped_pipeline, S.pipeline_cache_size / 1024);
 	pthread_mutex_unlock(&S.lock);
@@ -1487,13 +1612,19 @@ void host_vk_services_start(void)
 	pthread_attr_init(&attributes);
 	pthread_attr_setstacksize(&attributes, 2 * 1024 * 1024);
 	pthread_attr_setdetachstate(&attributes, PTHREAD_CREATE_DETACHED);
-	if (pthread_create(&thread, &attributes, compile_thread, NULL) != 0)
 	{
-		host_logf(HOST_LOG_ERROR, "vk: the compile thread could not be started; shaders and pipelines are not made");
+		int index, made = 0, wanted = compile_threads();
+
+		for (index = 0; index < wanted; index++)
+			made += pthread_create(&thread, &attributes, compile_thread, NULL) == 0;
 		pthread_attr_destroy(&attributes);
-		return;
+		if (!made)
+		{
+			host_logf(HOST_LOG_ERROR, "vk: no compile thread could be started; shaders and pipelines are not made");
+			return;
+		}
+		host_logf(HOST_LOG_INFO, "vk: %d compile threads (%ld cores)", made, sysconf(_SC_NPROCESSORS_CONF));
 	}
-	pthread_attr_destroy(&attributes);
 	S.started = 1;
 #ifndef HALO_PS5
 	SDL_AddEventWatch(lifecycle_watch, NULL);

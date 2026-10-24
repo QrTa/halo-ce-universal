@@ -27,6 +27,18 @@ names. A change to what the host compiles (UAM's commit) is the cache
 folder's name, not this. */
 #define DK_SHADER_GENERATOR_VERSION 6
 
+/* the program hash a vertex key of the fixed-function pipeline has
+(nv2a_dk_fixed_function_glsl), in place of a program's (FNV-1a 64 of its
+words, which no program's comes out at) */
+#define DK_FIXED_FUNCTION_PROGRAM_HASH 0x66697865642d6675ULL /* "fixed-fu" */
+
+/* the key files (dk_shaders.c), which the host's updater checks too before
+it puts a downloaded keys.dkk in place (host_update.c): three words - the
+magic, the format and a record's size - then the records */
+#define DK_KEY_MAGIC 0x314b4b44UL /* "DKK1" */
+#define DK_KEY_FORMAT 1
+#define DK_KEY_RECORD_SIZE 264
+
 /* The pixel key's texture_modes: four 5-bit modes, and above them this bit
 when texture coordinate 0 is clipped (halo_texture_clip, d3d8_dk.c): the
 shader lets a pixel go first if its u or v is outside the limits in its
@@ -112,9 +124,19 @@ void dk_shader_start(void);
 /* the startup pass, a few keys a frame: asks the host for each in turn and
 queues the ones it does not have, in the background */
 void dk_shader_frame(void);
-/* the map the game finished loading (d3d8_gl_map_loaded), as d3d8_gl.c's
-program_record_map_hash has it: that map's keys are sent again with the
-map's priority, which raises them in the queue */
+/* the map whose loading screen is up (d3d8_gl_map_loading), hashed as
+d3d8_gl.c's program_record_map_hash has it: its keys are sent again with the
+map's priority, which raises them in the queue, and its wait begins */
+void dk_shader_map_loading(uint32_t map_hash);
+/* whether the loading screen stays up a frame more for the map's keys to be
+compiled (d3d8_gl_map_waiting): DK_MAP_WAIT_MS at most, from the loading */
+int dk_shader_map_waiting(void);
+/* how far the shaders' part of the loading screen has come, 0 to 1, or below 0 when there is nothing to wait for
+(d3d8_gl_map_progress) */
+float dk_shader_map_progress(void);
+/* the map the game finished loading (d3d8_gl_map_loaded): raised as above if
+the loading screen did not, and waited for, from the card, for what is left
+of the map's wait */
 void dk_shader_map_loaded(uint32_t map_hash);
 /* for phase 6: the handle of the shader a draw needs (0: not ready, skip
 the draw), and, for a key nobody has met, the GLSL generated and queued at
@@ -198,6 +220,10 @@ fed as NORMPACKED3 32-bit integers and unpacked in the shader. Returns a
 malloc'd string. */
 char *nv2a_dk_vertex_shader_to_glsl(const uint32_t *instructions, unsigned long instruction_count,
 	unsigned long packed_attribute_mask);
+/* the fixed-function pipeline's vertex shader (SetVertexShader with 0: the
+loading screen's immediate-mode draws, whose positions d3d8_dk.c's
+D3DDevice_End has put in clip space). Returns a malloc'd string. */
+char *nv2a_dk_fixed_function_glsl(void);
 
 struct nv2a_pixel_shader_key;
 
