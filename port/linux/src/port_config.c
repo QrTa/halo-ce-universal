@@ -535,6 +535,37 @@ static const struct config_setting config_settings[] =
 		"Wheelman, ...), each worth points\n"
 		"(port/linux/game/campaign_score_values.json), and shows the last few\n"
 		"above the score; this only hides the popups." },
+	{ "game.multiplayer_scoring", _config_boolean, "false", "HALO_MULTIPLAYER_SCORING", _environment_value,
+		_platform_all,
+		"Settings > Gameplay > Scoring's MULTIPLAYER: the campaign's medals and a\n"
+		"score panel in multiplayer games, as game.multiplayer_medals and\n"
+		"game.multiplayer_score_hud choose. Only this machine's players' are\n"
+		"shown, and nothing is sent: a client has them whatever the host's." },
+	{ "game.multiplayer_medals", _config_boolean, "true", "HALO_MULTIPLAYER_MEDALS", _environment_value,
+		_platform_all,
+		"Settings > Gameplay > Scoring's MEDALS, with MULTIPLAYER on: a kill of\n"
+		"another player wins the campaign's medals (multi-kills, sprees,\n"
+		"headshots, Revenge, ...), shown at the center left as they are won and\n"
+		"the last few at the bottom right." },
+	{ "game.multiplayer_score_hud", _config_boolean, "true", "HALO_MULTIPLAYER_SCORE_HUD", _environment_value,
+		_platform_all,
+		"Settings > Gameplay > Scoring's SCORE HUD, with MULTIPLAYER on: a panel\n"
+		"at the bottom right of the player's name and place, kills and deaths,\n"
+		"the game's kind and its score (captures, time on the hill, kills), a\n"
+		"team game's standing (winning, losing, tied) and the game's time." },
+	{ "game.score_hud_color", _config_string, "\"default\"", "HALO_SCORE_HUD_COLOR", _environment_value,
+		_platform_all,
+		"Settings > Gameplay > Scoring's HUD COLOR: the score panel's color at\n"
+		"the bottom right (campaign and multiplayer): \"default\" (the Master\n"
+		"Chief Collection's blue), \"spartan\" (your Spartan's: a team game's\n"
+		"team color, a free for all's armor color, the campaign Spartan's own)\n"
+		"or \"custom\" (game.score_hud_custom_color, whatever the Spartan's)." },
+	{ "game.score_hud_custom_color", _config_string, "\"blue\"", "HALO_SCORE_HUD_CUSTOM_COLOR", _environment_value,
+		_platform_all,
+		"Settings > Gameplay > Scoring's CUSTOM COLOR, with game.score_hud_color\n"
+		"\"custom\": a multiplayer armor color: white, black, red, blue, gray,\n"
+		"yellow, green, pink, purple, cyan, cobalt, orange, teal, sage, brown,\n"
+		"tan, maroon or salmon (black is drawn grey)." },
 	{ "game.campaign_progression", _config_string, "\"default\"", "HALO_CAMPAIGN_PROGRESSION", _environment_value,
 		_platform_all,
 		"Settings > Gameplay's CAMPAIGN PROGRESSION. \"default\": the campaign's\n"
@@ -2308,6 +2339,9 @@ static const struct
 	{ "display.chat_style", { "colors", "white", NULL }, NULL },
 	{ "display.shield_glow_intensity", { "default", "light_show", NULL }, NULL },
 	{ "display.shield_color", { "default", "white", "black", "red", "blue", "gray", "yellow", "green", "pink",
+		"purple", "cyan", "cobalt", "orange", "teal", "sage", "brown", "tan", "maroon", "salmon", NULL }, NULL },
+	{ "game.score_hud_color", { "default", "spartan", "custom", NULL }, NULL },
+	{ "game.score_hud_custom_color", { "white", "black", "red", "blue", "gray", "yellow", "green", "pink",
 		"purple", "cyan", "cobalt", "orange", "teal", "sage", "brown", "tan", "maroon", "salmon", NULL }, NULL },
 	{ "audio.resampler", { "sinc", "linear", NULL }, NULL },
 	{ "audio.voice_chat", { "push_to_talk", "open_mic", "off", NULL }, NULL },

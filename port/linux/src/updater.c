@@ -63,7 +63,7 @@ worker) */
 #define HALO_BUILD_FLAVOR "release"
 #endif
 
-#define UPDATE_REPOSITORY "thelinkin3000/halo-ce-universal"
+#define UPDATE_REPOSITORY "Watanoge/open-ce-ultimate-campaign"
 #ifdef _WIN32
 #define PATH_SEPARATOR "\\"
 #else

@@ -68,8 +68,10 @@ struct campaign_medal_description
 extern struct campaign_medal_description const campaign_medal_descriptions[NUMBER_OF_CAMPAIGN_MEDALS];
 
 /* medals are given, as the score is kept (game.campaign_score: the host's,
-in co-op); game.campaign_medals, whether this machine shows those just won
-at the center left (the history above the score is always shown) */
+in co-op), or in a multiplayer game with game.multiplayer_medals (each
+machine its own players'); game.campaign_medals, whether this machine shows
+those just won at the center left in the campaign (the history above the
+score is always shown; a multiplayer game's medals always show both) */
 boolean campaign_medals_enabled(void);
 boolean campaign_medals_popups_shown(void);
 
@@ -88,10 +90,24 @@ void campaign_medals_enemy_killed(
 	boolean melee,
 	boolean backsmack);
 
-/* (campaign_score.c) a player died, killed by the object (NONE: none): the
-sprees end, and the killer is remembered for Revenge and Avenger */
+/* (campaign_score.c) a multiplayer game's player killed by another (datum
+indices), with the unit that did it (NONE for none), by the damage effect,
+and how; on every machine, for its own players' medals */
+void campaign_medals_player_killed_player(
+	long killer_player_index,
+	long killer_object_index,
+	long victim_player_index,
+	long damage_definition_index,
+	boolean headshot,
+	boolean melee,
+	boolean backsmack);
+
+/* (campaign_score.c) a player died, killed by the object (NONE: none), and
+in a multiplayer game by the player (NONE: none): the sprees end, and the
+killer is remembered for Revenge and Avenger */
 void campaign_medals_player_died(
 	long player_index,
+	long killer_player_index,
 	long killer_object_index);
 
 /* (campaign_score.c) the level is won: Perfection */

@@ -468,6 +468,32 @@ void get_postgame_hilite_colors(
 	union real_argb_color *normal_color,
 	union real_argb_color *hilite_color);
 
+/* port: what the multiplayer score's HUD panel shows of the player
+(port/linux/game/campaign_score.c): the game's kind, their score as its game
+type has it, their place (1 for the first; a tie marked), their team's
+standing in a team game, and the game's time (left, with a time limit) */
+enum
+{
+	_game_engine_hud_no_team = 0,
+	_game_engine_hud_winning,
+	_game_engine_hud_losing,
+	_game_engine_hud_tied,
+};
+
+struct game_engine_hud_score
+{
+	wchar_t kind[48];
+	wchar_t score[64];
+	long place;
+	boolean place_tied;
+	short team_standing;
+	boolean time_left;
+	wchar_t time[32];
+};
+
+boolean game_engine_hud_score_get(
+	long player_index,
+	struct game_engine_hud_score *hud_score);
 boolean game_engine_running(
 	void);
 boolean game_engine_showing_postgame(

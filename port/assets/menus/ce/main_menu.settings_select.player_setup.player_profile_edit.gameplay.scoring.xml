@@ -13,9 +13,15 @@
 	</widget>
 	<widget name="main_menu/settings_select/player_setup/player_profile_edit/gameplay/scoring/options_menu" type="column_list" width="640" height="480" flags="pass_unhandled_to_focused_child up_down_tabs_children" description="main_menu/settings_select/player_setup/player_profile_edit/gameplay/scoring/help">
 		<data input="port settings help"/>
+		<data input="gameplay screen update"/>
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/gameplay/scoring/op_campaign_score" x="54" y="73"/>
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/gameplay/scoring/op_coop_score_type" x="54" y="103"/>
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/gameplay/scoring/op_campaign_medals" x="54" y="133"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/gameplay/scoring/op_score_hud_color" x="54" y="163"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/gameplay/scoring/op_score_hud_custom_color" x="54" y="193"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/gameplay/scoring/op_multiplayer_scoring" x="54" y="223"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/gameplay/scoring/op_multiplayer_medals" x="54" y="253"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/gameplay/scoring/op_multiplayer_score_hud" x="54" y="283"/>
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/gameplay/scoring/button_bar" y="414"/>
 	</widget>
 	<widget name="main_menu/settings_select/player_setup/player_profile_edit/gameplay/scoring/button_bar" type="column_list" width="640" height="28" flags="pass_unhandled_to_focused_child left_right_tabs_items">
@@ -50,6 +56,51 @@
 	<widget name="main_menu/settings_select/player_setup/player_profile_edit/gameplay/scoring/campaign_medals_spinner" type="spinner" left="3" top="2" width="147" height="20" flags="pass_unhandled_to_focused_child left_right_tabs_items" strings="ON|OFF" setting="game.campaign_medals" values="true|false" font="ui\large_ui" color="#FF2896FF" align="center" text_y="1" header_bitmap="bitmaps/arrow_sm_left" footer_bitmap="bitmaps/arrow_sm_right" header_bounds="7 -6 19 0" footer_bounds="7 150 19 156">
 		<on event="created" run="port setting load"/>
 	</widget>
+	<widget name="main_menu/settings_select/player_setup/player_profile_edit/gameplay/scoring/op_score_hud_color" width="512" height="28" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/option_bkds" color="#FF2896FF">
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/gameplay/scoring/score_hud_color_label"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/gameplay/scoring/score_hud_color_spinner" x="320" y="1"/>
+	</widget>
+	<widget name="main_menu/settings_select/player_setup/player_profile_edit/gameplay/scoring/score_hud_color_label" type="text" controller="1" width="300" height="22" string_list="main_menu/settings_select/player_setup/player_profile_edit/gameplay/scoring/labels" string_index="3" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
+	</widget>
+	<widget name="main_menu/settings_select/player_setup/player_profile_edit/gameplay/scoring/score_hud_color_spinner" type="spinner" left="3" top="2" width="147" height="20" flags="pass_unhandled_to_focused_child left_right_tabs_items" strings="DEFAULT|SPARTAN|CUSTOM" setting="game.score_hud_color" values="default|spartan|custom" font="ui\large_ui" color="#FF2896FF" align="center" text_y="1" header_bitmap="bitmaps/arrow_sm_left" footer_bitmap="bitmaps/arrow_sm_right" header_bounds="7 -6 19 0" footer_bounds="7 150 19 156">
+		<on event="created" run="port setting load"/>
+	</widget>
+	<widget name="main_menu/settings_select/player_setup/player_profile_edit/gameplay/scoring/op_score_hud_custom_color" width="512" height="28" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/option_bkds" color="#FF2896FF">
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/gameplay/scoring/score_hud_custom_color_label"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/gameplay/scoring/score_hud_custom_color_spinner" x="320" y="1"/>
+	</widget>
+	<widget name="main_menu/settings_select/player_setup/player_profile_edit/gameplay/scoring/score_hud_custom_color_label" type="text" controller="1" width="300" height="22" string_list="main_menu/settings_select/player_setup/player_profile_edit/gameplay/scoring/labels" string_index="4" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
+	</widget>
+	<widget name="main_menu/settings_select/player_setup/player_profile_edit/gameplay/scoring/score_hud_custom_color_spinner" type="spinner" left="3" top="2" width="147" height="20" flags="pass_unhandled_to_focused_child left_right_tabs_items" strings="WHITE|BLACK|RED|BLUE|GRAY|YELLOW|GREEN|PINK|PURPLE|CYAN|COBALT|ORANGE|TEAL|SAGE|BROWN|TAN|MAROON|SALMON" setting="game.score_hud_custom_color" values="white|black|red|blue|gray|yellow|green|pink|purple|cyan|cobalt|orange|teal|sage|brown|tan|maroon|salmon" font="ui\large_ui" color="#FF2896FF" align="center" text_y="1" header_bitmap="bitmaps/arrow_sm_left" footer_bitmap="bitmaps/arrow_sm_right" header_bounds="7 -6 19 0" footer_bounds="7 150 19 156">
+		<on event="created" run="port setting load"/>
+	</widget>
+	<widget name="main_menu/settings_select/player_setup/player_profile_edit/gameplay/scoring/op_multiplayer_scoring" width="512" height="28" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/option_bkds" color="#FF2896FF">
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/gameplay/scoring/multiplayer_scoring_label"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/gameplay/scoring/multiplayer_scoring_spinner" x="320" y="1"/>
+	</widget>
+	<widget name="main_menu/settings_select/player_setup/player_profile_edit/gameplay/scoring/multiplayer_scoring_label" type="text" controller="1" width="300" height="22" string_list="main_menu/settings_select/player_setup/player_profile_edit/gameplay/scoring/labels" string_index="5" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
+	</widget>
+	<widget name="main_menu/settings_select/player_setup/player_profile_edit/gameplay/scoring/multiplayer_scoring_spinner" type="spinner" left="3" top="2" width="147" height="20" flags="pass_unhandled_to_focused_child left_right_tabs_items" strings="ON|OFF" setting="game.multiplayer_scoring" values="true|false" font="ui\large_ui" color="#FF2896FF" align="center" text_y="1" header_bitmap="bitmaps/arrow_sm_left" footer_bitmap="bitmaps/arrow_sm_right" header_bounds="7 -6 19 0" footer_bounds="7 150 19 156">
+		<on event="created" run="port setting load"/>
+	</widget>
+	<widget name="main_menu/settings_select/player_setup/player_profile_edit/gameplay/scoring/op_multiplayer_medals" width="512" height="28" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/option_bkds" color="#FF2896FF">
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/gameplay/scoring/multiplayer_medals_label"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/gameplay/scoring/multiplayer_medals_spinner" x="320" y="1"/>
+	</widget>
+	<widget name="main_menu/settings_select/player_setup/player_profile_edit/gameplay/scoring/multiplayer_medals_label" type="text" controller="1" width="300" height="22" string_list="main_menu/settings_select/player_setup/player_profile_edit/gameplay/scoring/labels" string_index="6" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
+	</widget>
+	<widget name="main_menu/settings_select/player_setup/player_profile_edit/gameplay/scoring/multiplayer_medals_spinner" type="spinner" left="3" top="2" width="147" height="20" flags="pass_unhandled_to_focused_child left_right_tabs_items" strings="ON|OFF" setting="game.multiplayer_medals" values="true|false" font="ui\large_ui" color="#FF2896FF" align="center" text_y="1" header_bitmap="bitmaps/arrow_sm_left" footer_bitmap="bitmaps/arrow_sm_right" header_bounds="7 -6 19 0" footer_bounds="7 150 19 156">
+		<on event="created" run="port setting load"/>
+	</widget>
+	<widget name="main_menu/settings_select/player_setup/player_profile_edit/gameplay/scoring/op_multiplayer_score_hud" width="512" height="28" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/option_bkds" color="#FF2896FF">
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/gameplay/scoring/multiplayer_score_hud_label"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/gameplay/scoring/multiplayer_score_hud_spinner" x="320" y="1"/>
+	</widget>
+	<widget name="main_menu/settings_select/player_setup/player_profile_edit/gameplay/scoring/multiplayer_score_hud_label" type="text" controller="1" width="300" height="22" string_list="main_menu/settings_select/player_setup/player_profile_edit/gameplay/scoring/labels" string_index="7" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
+	</widget>
+	<widget name="main_menu/settings_select/player_setup/player_profile_edit/gameplay/scoring/multiplayer_score_hud_spinner" type="spinner" left="3" top="2" width="147" height="20" flags="pass_unhandled_to_focused_child left_right_tabs_items" strings="ON|OFF" setting="game.multiplayer_score_hud" values="true|false" font="ui\large_ui" color="#FF2896FF" align="center" text_y="1" header_bitmap="bitmaps/arrow_sm_left" footer_bitmap="bitmaps/arrow_sm_right" header_bounds="7 -6 19 0" footer_bounds="7 150 19 156">
+		<on event="created" run="port setting load"/>
+	</widget>
 	<widget name="main_menu/settings_select/player_setup/player_profile_edit/gameplay/scoring/button_defaults" type="text" width="128" height="24" bitmap="bitmaps/text_button_background" string_list="strings/common_button_captions" string_index="3" font="ui\small_ui" color="#FFFFFFFF" align="center" text_y="2">
 		<on event="a" run="port settings defaults"/>
 		<on event="start" run="port settings defaults"/>
@@ -64,11 +115,21 @@
 		<string text="SCORING:"/>
 		<string text="CO-OP SCORING:"/>
 		<string text="MEDAL POPUPS:"/>
+		<string text="HUD COLOR:"/>
+		<string text="CUSTOM COLOR:"/>
+		<string text="MULTIPLAYER:"/>
+		<string text="MEDALS:"/>
+		<string text="SCORE HUD:"/>
 	</strings>
 	<strings name="main_menu/settings_select/player_setup/player_profile_edit/gameplay/scoring/help_strings">
 		<string text=""/>
 		<string text="Score each kill in the campaign: your score and\ntime at the bottom right, everyone's on tab."/>
 		<string text="Co-op, split screen or online: each player's own\nscore, or the team's together. The host's counts."/>
 		<string text="Show the medals you win at the center left as\nyou win them. Medals always count with scoring."/>
+		<string text="The score panel's color: its own blue, your\nSpartan's (or team's), or one you choose."/>
+		<string text="The score panel's color with HUD COLOR's\nCUSTOM, whatever your Spartan's is."/>
+		<string text="Medals and a score panel in multiplayer games,\nyours alone. Nothing is sent to other players."/>
+		<string text="Multiplayer: the campaign's medals for your\nkills, as you win them and the last few."/>
+		<string text="Multiplayer: your kills and deaths, and the\ngame's score, at the bottom right."/>
 	</strings>
 </menus>

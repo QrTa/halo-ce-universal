@@ -3557,6 +3557,8 @@ static boolean multiplayer_message_internal(
 }
 
 
+static long game_engine_message_unmedalled(long message);
+
 static void multiplayer_message(
 	long player_index,
 	long message,
@@ -3568,12 +3570,27 @@ static void multiplayer_message(
 	{
 		wchar_t buffer[1024];
 
-		if (multiplayer_message_internal(
+		boolean shown = multiplayer_message_internal(
 			player_index,
 			message,
 			message_data,
 			buffer,
-			NUMBEROF(buffer)))
+			NUMBEROF(buffer));
+
+		/* port: with the multiplayer medals (port/linux/game/campaign_score.c),
+		a multi-kill's or a spree's announcement is theirs: its narrator
+		(played as it was formatted, above) is kept, and the kill's own
+		line is shown in place of its text */
+		if (shown && campaign_score_multiplayer_medals() && game_engine_message_unmedalled(message) != NONE)
+		{
+			shown = multiplayer_message_internal(
+				player_index,
+				game_engine_message_unmedalled(message),
+				message_data,
+				buffer,
+				NUMBEROF(buffer));
+		}
+		if (shown)
 		{
 			buffer[NUMBEROF(buffer) - 1] = 0;
 			hud_print_message(player->local_player_index, buffer);
@@ -5308,6 +5325,24 @@ enum game_engine_message
 	NUMBER_OF_GAME_ENGINE_MESSAGES,
 };
 
+/* port: a multi-kill's or a spree's message, the kill's own message in its
+place (multiplayer_message); NONE for another */
+static long game_engine_message_unmedalled(
+	long message)
+{
+	switch (message)
+	{
+	case _game_engine_message_double_kill:
+	case _game_engine_message_triple_kill:
+	case _game_engine_message_multi_kill:
+	case _game_engine_message_five_kills_in_row:
+	case _game_engine_message_ten_kills_in_a_row:
+		return _game_engine_message_killed_enemy;
+	default:
+		return NONE;
+	}
+}
+
 enum
 {
 	_equipment_created_at_rest_bit = 0,
@@ -5352,6 +5387,9 @@ void game_engine_player_killed(
 		dead_player->quit_out_of_game = TRUE;
 	}
 	dead_player->death_time = game_time_get();
+	/* port: the multiplayer medals of this machine's players, with the
+	killing blow's style (port/linux/game/campaign_score.c) */
+	campaign_score_player_killed(killing_player_index, killing_object_index, dead_player_index, friendly_fire);
 	if (game_engine->player_killed_player)
 	{
 		game_engine->player_killed_player(
@@ -9946,6 +9984,72 @@ long game_engine_network_player_score(
 	if (!game_engine || !game_engine->get_player_score)
 		return 0;
 	return game_engine->get_player_score(player_index, TRUE);
+}
+
+/* port: the multiplayer score's HUD panel (port/linux/game/campaign_score.c):
+the game's kind ("KING OF THE HILL", OpenCE's "INFECTION"), the player's
+score as the game type has it ("1:05" on the hill), their place, their
+team's standing and the game's time; FALSE with no game engine */
+boolean game_engine_hud_score_get(
+	long player_index,
+	struct game_engine_hud_score *hud_score)
+{
+	struct player_datum *player = player_try_and_get(player_index);
+	struct statistic_buffer entry;
+	wchar_t score_string[256];
+	wchar_t const *name;
+	long ticks;
+
+	csmemset(hud_score, 0, sizeof(*hud_score));
+	if (!game_engine || !player)
+		return FALSE;
+	name = game_modes_variant_kind_name(game_engine_get_variant(), game_variant_options_get());
+	if (!name)
+	{
+		switch (game_engine_get_type())
+		{
+		case game_engine_ctf: name = L"CAPTURE THE FLAG"; break;
+		case game_engine_slayer: name = L"SLAYER"; break;
+		case game_engine_oddball: name = L"ODDBALL"; break;
+		case game_engine_king: name = L"KING OF THE HILL"; break;
+		case game_engine_race: name = L"RACE"; break;
+		default: name = L""; break;
+		}
+	}
+	ustrncpy_terminated(hud_score->kind, name, NUMBEROF(hud_score->kind));
+	score_string[0] = 0;
+	if (game_engine->format_player_score)
+		game_engine->format_player_score(player_index, score_string);
+	score_string[NUMBEROF(score_string) - 1] = 0;
+	ustrncpy_terminated(hud_score->score, score_string, NUMBEROF(hud_score->score));
+	/* (the scoreboard's ranking: 1st, a tie marked) */
+	entry = game_engine_get_player_place(player_index);
+	hud_score->place = place_get_position(&entry) + 1;
+	hud_score->place_tied = is_place_tied(&entry);
+	/* (a team game's: the player's team's score against the other's) */
+	hud_score->team_standing = _game_engine_hud_no_team;
+	if (game_engine_has_teams() && VALID_INDEX(player->team_index, 2))
+	{
+		long own = game_engine_get_team_score(player->team_index);
+		long other = game_engine_get_team_score(1 - player->team_index);
+
+		hud_score->team_standing = own > other ? _game_engine_hud_winning :
+			own < other ? _game_engine_hud_losing : _game_engine_hud_tied;
+	}
+	/* (the time limit's time left, as the title's; else the game's time) */
+	hud_score->time_left = game_variant_options_get()->time_limit > 0;
+	if (hud_score->time_left)
+	{
+		ticks = infection_enabled() ? infection_remaining_ticks() :
+			game_variant_options_get()->time_limit * 60L * TICKS_PER_SECOND - game_time_get();
+	}
+	else
+	{
+		ticks = game_time_get();
+	}
+	ticks_to_unicode_time_string(MAX(ticks, 0), NUMBEROF(hud_score->time), hud_score->time);
+	hud_score->time[NUMBEROF(hud_score->time) - 1] = 0;
+	return TRUE;
 }
 
 /* the distributed netcode (port/linux/game/network_distributed.c): the

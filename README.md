@@ -81,7 +81,7 @@ and to **deko3d**, the Switch's own GPU interface, on the Switch.
 | | |
 | --- | --- |
 | 🎮 **Campaign** | The whole campaign, with checkpoints, saves and cinematics. Xbox maps of every region; PAL maps are made to play as NTSC ones. |
-| 🎲 **Campaign upgrades** | An enemy and weapon randomizer (with weapons and enemies from Custom Edition maps through the Tag Injector), 40 skulls, Halo 3-style scoring and medals, online leaderboards and a daily challenge. All optional. See [Campaign upgrades](#campaign-upgrades). |
+| 🎲 **Campaign upgrades** | An enemy and weapon randomizer (with weapons and enemies from Custom Edition maps through the Tag Injector), 40 skulls, Halo 3-style scoring and medals (in multiplayer too), online leaderboards and a daily challenge. All optional. See [Campaign upgrades](#campaign-upgrades). |
 | 🖼️ **Vulkan on Android** | The default renderer. On Qualcomm Adreno GPUs the app can download and use **Turnip**, Mesa's open-source driver, in place of the phone's own. OpenGL ES 3 is still there as a fallback. |
 | 🟥 **deko3d on the Switch** | A renderer written for the console's GPU, docked at 1080p or handheld at 720p, switching on its own when you dock. |
 | 🟦 **The PS5** | A homebrew title for a jailbroken console: up to native 4K at 120 frames a second, aiming with the DualSense's gyroscope, voice chat through the pad's microphone. |
@@ -361,6 +361,31 @@ In co-op each player can score separately, or as a team.
 All the point values are in
 [campaign_score_values.json](port/linux/game/campaign_score_values.json).
 
+#### In multiplayer
+
+The medals and the score panel work in multiplayer games too, with
+**MULTIPLAYER** on in the scoring settings. They're yours alone: each
+machine works out its own players' medals, nothing is sent to the other
+players, and the host doesn't need this port's scoring to show them.
+
+<img width="640" alt="A free for all game with a green Spartan, the score panel forced to white and a few medals on screen" src="https://github.com/user-attachments/assets/44de32dd-9e46-4fcd-9c3c-e27fa9f09d59" />
+
+The panel at the bottom right has two parts:
+
+- **Medal history** (with **MEDALS** on): your last 12 medals.
+- **Score** (with **SCORE HUD** on): whether you're winning, tied or losing
+  and the match time, then your name, your place and your kills / deaths,
+  then the game mode and its score.
+
+<img width="640" alt="A team CTF game with the score panel in the Spartan's color: the red team's" src="https://github.com/user-attachments/assets/00f05b2a-af6f-42ca-a32c-4f110704fc81" />
+
+**HUD COLOR** sets the panel's color, in the campaign and in multiplayer:
+**DEFAULT** is the blue of the rest of the interface, **SPARTAN** matches
+your Spartan (your armor color, or your team's in a team game), and
+**CUSTOM** always uses the color you pick. Above, a green Spartan with
+the panel forced to white in a free for all, and the same Spartan with
+**SPARTAN** in a team CTF game, where both turn red.
+
 ### Multiplayer and co-op
 
 <img width="640" alt="The co-op map list with the daily challenges" src="https://github.com/user-attachments/assets/a7633055-687e-47de-a3cc-6154918e9301" />
@@ -404,10 +429,13 @@ earned: all unlocked, unlocked as soon as they're picked up, or only by
 finishing the level, whether they are lost on death, how many drop per
 level and how often. **RESET SKULL PROGRESS** starts over.
 
-<img width="640" alt="Scoring settings" src="https://github.com/user-attachments/assets/83c7bf5d-08ce-4c09-a4fa-095cc0cc8626" />
+<img width="640" alt="Scoring settings, with HUD color and multiplayer" src="https://github.com/user-attachments/assets/a3bc2b5b-7e23-45bb-ab69-3787f44e4037" />
 
-**Scoring** turns the campaign score on or off and shows or hides the
-medal popups.
+**Scoring** turns the campaign score on or off, shows or hides the medal
+popups, sets the score panel's color (**HUD COLOR**, and **CUSTOM COLOR**
+with **CUSTOM**), and turns on the medals and score panel in multiplayer
+(**MULTIPLAYER**, then **MEDALS** and **SCORE HUD**). See
+[Scoring and medals](#scoring-and-medals).
 
 <img width="640" alt="Community settings" src="https://github.com/user-attachments/assets/a194434c-e622-45bf-89b4-d338e2db9642" />
 
@@ -539,6 +567,8 @@ can stutter while its shaders are made; the second is smooth.
   jack, or the DualSense's microphone.
 - **Split screen** for up to four players on one device.
 - **Custom maps** are sent by the host to players who don't have them.
+- **Medals and a score panel**, shown only to you, with nothing needed from
+  the host. See [In multiplayer](#in-multiplayer).
 
 ### Custom Edition maps
 

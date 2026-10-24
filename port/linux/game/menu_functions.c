@@ -3166,11 +3166,12 @@ static void skulls_reset_progress(struct widget_instance *widget)
 	ui_play_audio_feedback_sound(SOUND_BACK);
 }
 
-/* "gameplay screen update" (Settings > Gameplay > Skulls, and >
-Randomizer): ALL SKULLS only with the skulls on and the skulls screen's
+/* "gameplay screen update" (Settings > Gameplay > Skulls, > Randomizer and
+> Scoring): ALL SKULLS only with the skulls on and the skulls screen's
 question answered, INSTANT UNLOCK, SKULLS PER LEVEL and DROP CHANCE only
 with ALL SKULLS off too, Go Crazy's
-parts only with it on; a hidden row takes no focus. And RESET SKULL
+parts only with it on, MULTIPLAYER's (MEDALS, SCORE HUD) only with it on,
+CUSTOM COLOR only with HUD COLOR's CUSTOM; a hidden row takes no focus. And RESET SKULL
 PROGRESS's question or done in the help line, while it has the focus (its
 help's next strings: tools/port_settings.py) */
 static void gameplay_screen_update(struct widget_instance *list)
@@ -3179,6 +3180,7 @@ static void gameplay_screen_update(struct widget_instance *list)
 		"op_randomizer_crazy_weapons", "op_randomizer_crazy_enemies", "op_randomizer_crazy_flame",
 		"op_randomizer_crazy_pods"
 	};
+	static char const *const multiplayer_rows[] = { "op_multiplayer_medals", "op_multiplayer_score_hud" };
 	struct widget_instance *all_row = named(list, "op_skulls_all_unlocked", 0);
 	struct widget_instance *instant_row = named(list, "op_skulls_instant_unlock", 0);
 	struct widget_instance *death_row = named(list, "op_skulls_lose_on_death", 0);
@@ -3191,6 +3193,10 @@ static void gameplay_screen_update(struct widget_instance *list)
 	boolean answered = randomizer_spinner_is(list, "skulls_spinner", "true") &&
 		skulls_unlock_mode() != _skulls_unlock_unset;
 	boolean crazy = randomizer_spinner_is(list, "randomizer_crazy_spinner", "true");
+	boolean multiplayer = randomizer_spinner_is(list, "multiplayer_scoring_spinner", "true");
+	struct widget_instance *hud_color_row = named(list, "op_score_hud_color", 0);
+	struct widget_instance *custom_color_row = named(list, "op_score_hud_custom_color", 0);
+	boolean custom_color = randomizer_spinner_is(list, "score_hud_color_spinner", "custom");
 	short row;
 
 	for (row = 0; row < (short)NUMBEROF(crazy_rows); row++)
@@ -3199,6 +3205,13 @@ static void gameplay_screen_update(struct widget_instance *list)
 
 		if (crazy_row)
 			crazy_row->visible = crazy;
+	}
+	for (row = 0; row < (short)NUMBEROF(multiplayer_rows); row++)
+	{
+		struct widget_instance *multiplayer_row = named(list, multiplayer_rows[row], 0);
+
+		if (multiplayer_row)
+			multiplayer_row->visible = multiplayer;
 	}
 	if (all_row)
 		all_row->visible = answered;
@@ -3215,6 +3228,24 @@ static void gameplay_screen_update(struct widget_instance *list)
 		count_row->visible = answered && !randomizer_spinner_is(list, "skulls_all_unlocked_spinner", "true");
 	if (chance_row)
 		chance_row->visible = answered && !randomizer_spinner_is(list, "skulls_all_unlocked_spinner", "true");
+	/* (Scoring's CUSTOM COLOR with HUD COLOR's CUSTOM, the rows below it
+	closing its gap, as Graphics' button style's) */
+	if (custom_color_row && custom_color_row->visible != custom_color)
+	{
+		struct widget_instance *child;
+
+		for (child = custom_color_row->next; child; child = child->next)
+			if (!strncmp(child->name, "op_", 3))
+				child->vertical_offset += custom_color ? 30 : -30;
+		custom_color_row->visible = custom_color;
+		if (!custom_color && list->focused_child == custom_color_row && hud_color_row)
+		{
+			for (row = 0, child = list->child; child && child != hud_color_row; child = child->next)
+				row++;
+			list->focused_child = hud_color_row;
+			list->parameters.list.selected_index = row;
+		}
+	}
 	if (!reset_row || list->focused_child != reset_row)
 	{
 		skulls_reset_state = _skulls_reset_none;

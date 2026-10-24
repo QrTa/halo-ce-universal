@@ -71,7 +71,7 @@ it.
 #define HALO_BUILD_FLAVOR "release"
 #endif
 
-#define UPDATE_REPOSITORY "thelinkin3000/halo-ce-universal"
+#define UPDATE_REPOSITORY "Watanoge/open-ce-ultimate-campaign"
 #define UPDATE_ASSET "halo-ps5-" HALO_BUILD_FLAVOR ".zip"
 #define UPDATE_LATEST "https://api.github.com/repos/" UPDATE_REPOSITORY "/releases/latest"
 /* the archive's folder that is the title's */

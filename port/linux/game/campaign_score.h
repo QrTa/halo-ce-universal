@@ -34,6 +34,31 @@ void campaign_score_unit_damaged(
 	long damage_definition_index,
 	long killer_object_index);
 
+/* the multiplayer score (game.multiplayer_scoring, a game engine's game):
+its medals (game.multiplayer_medals) and its HUD panel
+(game.multiplayer_score_hud), on each machine for its own players only */
+boolean campaign_score_multiplayer_medals(void);
+boolean campaign_score_multiplayer_hud(void);
+
+/* (damage.c's object_damage_aftermath) a unit's killing blow, before the
+kill is announced (game_engine_player_killed): to the body part, by melee or
+not, going `direction` (a real_vector3d), of the damage effect */
+void campaign_score_killing_blow(
+	long unit_index,
+	short body_part,
+	boolean melee,
+	void const *direction,
+	long damage_definition_index);
+
+/* (game_engine.c's game_engine_player_killed, on every machine: a client's
+with the host's killer) a player killed in a multiplayer game: the medals
+of the kill, with its killing blow's style, for this machine's players */
+void campaign_score_player_killed(
+	long killing_player_index,
+	long killing_object_index,
+	long dead_player_index,
+	boolean friendly_fire);
+
 /* (campaign_medals.c) a medal won by the player (its datum index), worth
 its points: logged, and sent to a co-op game's clients */
 void campaign_score_award_medal(
@@ -57,7 +82,8 @@ boolean campaign_score_postgame_wait(void);
 void campaign_score_draw(void);
 
 /* (hud.c's hud_draw_screen) the score and the level's time, a panel at the
-bottom right of the view being drawn, before the skulls' icons */
+bottom right of the view being drawn, before the skulls' icons; in a
+multiplayer game the player's kills and deaths, and the game type's score */
 void campaign_score_draw_view(long player_index);
 
 /* (skulls.c's skulls_hud_draw) how far, in the HUD's 480 lines, the panel

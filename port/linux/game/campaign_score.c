@@ -37,6 +37,14 @@ Master Chief Collection's (campaign_score_draw_view); the skulls' icons are draw
 above it (skulls.c, campaign_score_hud_height). The scoreboard (hold BACK, or
 tab: game_engine.c) lists every player's score.
 
+In a multiplayer game (game.multiplayer_scoring, Settings > Gameplay >
+Scoring's MULTIPLAYER) nothing is scored: each machine gives its own
+players the campaign's medals (game.multiplayer_medals:
+campaign_score_player_killed, campaign_medals.c), logged as entries here
+for their history and popups, and draws its own players' panel
+(game.multiplayer_score_hud): their kills and deaths, and the game type's
+score (captures, time on the hill). No other machine is told of either.
+
 When a level is won (main_won_map) its totals, its time against its par,
 each player's score and the best variants are written to the log, and shown
 over the level until A or B is pressed, before the main menu (or the co-op
@@ -75,6 +83,7 @@ lobby) loads.
 #include "networking/network_game_globals.h"
 #include "networking/network_game_manager.h"
 #include "halo_skulls.h"
+#include "halo_port_limits.h"
 #include "interface/ui_widget.h"
 #include "bitmaps/bitmap_group.h"
 #include "bitmaps/bitmap_group_lookup.h"
@@ -92,8 +101,9 @@ enum
 {
 	/* the kills one level logs (a level places a few hundred enemies) */
 	CAMPAIGN_SCORE_MAXIMUM_KILLS = 8192,
-	/* the players a score is kept for (by absolute index) */
-	CAMPAIGN_SCORE_MAXIMUM_PLAYERS = 16,
+	/* the players a score is kept for (by absolute index: a multiplayer
+	game's every player's medals) */
+	CAMPAIGN_SCORE_MAXIMUM_PLAYERS = HALO_PORT_MAXIMUM_NETWORK_PLAYERS,
 	/* the kinds of variant the summary tells apart */
 	CAMPAIGN_SCORE_MAXIMUM_VARIANTS = 64,
 	/* the lines of the summary, and their length */
@@ -138,11 +148,14 @@ enum
 	CAMPAIGN_SCORE_HISTORY_MAXIMUM = 16,
 };
 
-/* the panel's colours, the Master Chief Collection's blue (ARGB) */
-#define CAMPAIGN_SCORE_PANEL_FILL 0xA00A2246
+/* the panel's colours, the Master Chief Collection's blue (ARGB): the
+summary's cards' edge; the HUD's panel is in the player's own colour
+(campaign_score_palette) */
 #define CAMPAIGN_SCORE_PANEL_EDGE 0xE04F9BE0
-#define CAMPAIGN_SCORE_STRIP_FILL 0xC06EB4F0
-#define CAMPAIGN_SCORE_STRIP_UNLIT 0x406EB4F0
+#define CAMPAIGN_SCORE_PANEL_FILL campaign_score_palette.fill
+#define CAMPAIGN_SCORE_HUD_EDGE campaign_score_palette.edge
+#define CAMPAIGN_SCORE_STRIP_FILL campaign_score_palette.strip
+#define CAMPAIGN_SCORE_STRIP_UNLIT campaign_score_palette.unlit
 /* the subline's text, smaller than the row's */
 #define CAMPAIGN_SCORE_SUBLINE_SIZE 0.72f
 
@@ -305,6 +318,28 @@ static boolean campaign_score_postgame = FALSE;
 /* whether each player keeps a score of their own in co-op (network.coop_score_type
 "competitive"): the host's choice, which a client is told with the kills */
 static boolean campaign_score_competitive = FALSE;
+/* the HUD panel's colours, the player's of the view being drawn
+(campaign_score_palette_set): the Master Chief Collection's blue until one
+is known */
+struct campaign_score_palette
+{
+	pixel32 fill;
+	pixel32 edge;
+	pixel32 strip;
+	pixel32 unlit;
+	real_rgb_color subline;
+};
+
+static struct campaign_score_palette const campaign_score_palette_blue =
+	{ 0xA00A2246, 0xE04F9BE0, 0xC06EB4F0, 0x406EB4F0, { { 0.62f, 0.80f, 1.0f } } };
+static struct campaign_score_palette campaign_score_palette =
+	{ 0xA00A2246, 0xE04F9BE0, 0xC06EB4F0, 0x406EB4F0, { { 0.62f, 0.80f, 1.0f } } };
+
+/* each local player's colour last seen (a campaign player with no unit, dead
+or not yet spawned, keeps theirs) */
+static real_rgb_color campaign_score_player_colors[MAXIMUM_NUMBER_OF_LOCAL_PLAYERS];
+static boolean campaign_score_player_color_known[MAXIMUM_NUMBER_OF_LOCAL_PLAYERS];
+
 /* the height the panel took in the view drawn last, for the skulls' icons
 above it (campaign_score_hud_height), in the HUD's 480 lines */
 static short campaign_score_drawn_height = 0;
@@ -312,6 +347,17 @@ static short campaign_score_drawn_height = 0;
 reverted to): a kill of one not among them is one shot, one kill. A set of
 their indices (salted: a unit made later in a freed slot is another) */
 static long campaign_score_hurt[CAMPAIGN_SCORE_HURT_SLOTS];
+/* the last killing blow to a unit (campaign_score_killing_blow), for the
+multiplayer kill it is announced as in the same tick: NONE for none */
+static struct
+{
+	long unit_index;
+	long game_time;
+	long damage_definition_index;
+	boolean headshot;
+	boolean melee;
+	boolean backsmack;
+} campaign_score_blow = { NONE, NONE, NONE, FALSE, FALSE, FALSE };
 
 static char const *const campaign_score_difficulty_names[NUMBER_OF_GAME_DIFFICULTY_LEVELS] =
 	{ "EASY", "NORMAL", "HEROIC", "LEGENDARY" };
@@ -327,6 +373,22 @@ static boolean campaign_score_level(
 		return FALSE;
 	scenario = global_scenario_try_and_get();
 	return scenario != NULL && scenario->type == _scenario_type_solo;
+}
+
+/* a multiplayer game (a game engine's) being played, with
+game.multiplayer_scoring on */
+static boolean campaign_score_multiplayer(
+	void)
+{
+	static unsigned long changes = (unsigned long)-1;
+	static boolean enabled = FALSE;
+
+	if (changes != config_changes())
+	{
+		changes = config_changes();
+		enabled = config_boolean("game.multiplayer_scoring") != 0;
+	}
+	return enabled && game_in_progress() && game_engine_running();
 }
 
 /* the difficulty, as an index of the tables */
@@ -926,6 +988,34 @@ boolean campaign_score_enabled(
 	return enabled && campaign_score_level();
 }
 
+boolean campaign_score_multiplayer_medals(
+	void)
+{
+	static unsigned long changes = (unsigned long)-1;
+	static boolean enabled = TRUE;
+
+	if (changes != config_changes())
+	{
+		changes = config_changes();
+		enabled = config_boolean("game.multiplayer_medals") != 0;
+	}
+	return enabled && campaign_score_multiplayer();
+}
+
+boolean campaign_score_multiplayer_hud(
+	void)
+{
+	static unsigned long changes = (unsigned long)-1;
+	static boolean enabled = TRUE;
+
+	if (changes != config_changes())
+	{
+		changes = config_changes();
+		enabled = config_boolean("game.multiplayer_score_hud") != 0;
+	}
+	return enabled && campaign_score_multiplayer();
+}
+
 void campaign_score_new_map(
 	void)
 {
@@ -936,6 +1026,7 @@ void campaign_score_new_map(
 	campaign_score_ticks = 0;
 	campaign_score_drawn_height = 0;
 	campaign_score_hurt_reset();
+	campaign_score_blow.unit_index = NONE;
 	campaign_medals_new_map();
 	/* (a level just won, shown now; else nothing) */
 	csmemcpy(campaign_score_summary, campaign_score_pending, sizeof(campaign_score_summary));
@@ -980,7 +1071,7 @@ static boolean campaign_score_append(
 	/* (a medal shown to its player, if this machine's) */
 	if (kind == _campaign_score_entry_medal)
 		campaign_medals_awarded(player_index, (short)variant_index);
-	if (campaign_score_enabled())
+	if (campaign_score_enabled() || campaign_score_multiplayer_medals())
 	{
 		switch (kind)
 		{
@@ -1067,7 +1158,7 @@ void campaign_score_unit_damaged(
 		if (values->penalty_betrayal && killing_player_index != NONE && killing_player_index != unit->unit.player_index)
 			campaign_score_note(_campaign_score_entry_betrayal, NONE, killing_player_index, values->penalty_betrayal, 0);
 		/* (its sprees end; its killer is remembered: campaign_medals.c) */
-		campaign_medals_player_died(unit->unit.player_index, killer_object_index);
+		campaign_medals_player_died(unit->unit.player_index, NONE, killer_object_index);
 		return;
 	}
 
@@ -1154,6 +1245,15 @@ void campaign_score_award_medal(
 
 	if (medal < 0 || medal >= NUMBER_OF_CAMPAIGN_MEDALS)
 		return;
+	/* (a multiplayer game's: this machine's players' alone, worth nothing) */
+	if (campaign_score_multiplayer())
+	{
+		struct player_datum const *player = player_try_and_get(player_index);
+
+		if (player && player->local_player_index != NONE)
+			campaign_score_note(_campaign_score_entry_medal, medal, player_index, 0, 0);
+		return;
+	}
 	for (index = 0; index < values->medal_count; index++)
 	{
 		if (!strcmp(values->medals[index].medal, campaign_medal_descriptions[medal].key))
@@ -1166,6 +1266,87 @@ void campaign_score_award_medal(
 	if (values->medal_scaled)
 		points *= values->difficulty[campaign_score_difficulty()] * campaign_score_skulls_multiplier();
 	campaign_score_note(_campaign_score_entry_medal, medal, player_index, (long)(points + 0.5f), 0);
+
+	return;
+}
+
+void campaign_score_killing_blow(
+	long unit_index,
+	short body_part,
+	boolean melee,
+	void const *direction,
+	long damage_definition_index)
+{
+	struct unit_datum *unit;
+
+	if (!campaign_score_multiplayer_medals())
+		return;
+	unit = (struct unit_datum *)object_try_and_get_and_verify_type(unit_index, _object_mask_unit);
+	if (!unit)
+		return;
+	campaign_score_blow.unit_index = unit_index;
+	campaign_score_blow.game_time = game_time_get();
+	campaign_score_blow.damage_definition_index = damage_definition_index;
+	campaign_score_blow.headshot = body_part == CAMPAIGN_SCORE_HEAD_BODY_PART;
+	campaign_score_blow.melee = FALSE;
+	campaign_score_blow.backsmack = FALSE;
+	/* (a melee hit from behind: the blow going the way the body faces, as
+	campaign_score_unit_damaged's) */
+	if (melee)
+	{
+		real_vector3d blow = { 0.0f, 0.0f, 0.0f };
+
+		if (direction)
+			blow = *(real_vector3d const *)direction;
+		if (direction && normalize3d(&blow) > 0.0f &&
+			dot_product3d(&blow, &unit->object.forward) > CAMPAIGN_SCORE_BACKSMACK_DOT)
+		{
+			campaign_score_blow.backsmack = TRUE;
+		}
+		else
+		{
+			campaign_score_blow.melee = TRUE;
+		}
+	}
+
+	return;
+}
+
+void campaign_score_player_killed(
+	long killing_player_index,
+	long killing_object_index,
+	long dead_player_index,
+	boolean friendly_fire)
+{
+	struct player_datum *dead_player = player_try_and_get(dead_player_index);
+	long damage_definition_index = NONE;
+	boolean headshot = FALSE;
+	boolean melee = FALSE;
+	boolean backsmack = FALSE;
+
+	if (!campaign_score_multiplayer_medals() || !dead_player)
+		return;
+	campaign_score_update();
+	/* (its killing blow, if this tick's was to the player's unit: else it
+	died with none, as a client's body the host's blow never came for) */
+	if (campaign_score_blow.unit_index != NONE && campaign_score_blow.unit_index == dead_player->unit_index &&
+		campaign_score_blow.game_time == game_time_get())
+	{
+		damage_definition_index = campaign_score_blow.damage_definition_index;
+		headshot = campaign_score_blow.headshot;
+		melee = campaign_score_blow.melee;
+		backsmack = campaign_score_blow.backsmack;
+	}
+	campaign_score_blow.unit_index = NONE;
+	/* (an enemy's kill: not a suicide, a betrayal, nor the map's) */
+	if (killing_player_index != NONE && killing_player_index != dead_player_index && !friendly_fire)
+	{
+		campaign_medals_player_killed_player(killing_player_index, killing_object_index, dead_player_index,
+			damage_definition_index, headshot, melee, backsmack);
+	}
+	/* (and the dead player's sprees end; their killer is remembered) */
+	campaign_medals_player_died(dead_player_index,
+		killing_player_index != NONE && !friendly_fire ? killing_player_index : NONE, NONE);
 
 	return;
 }
@@ -1642,7 +1823,7 @@ long campaign_score_team_points(
 long campaign_score_level_ticks(
 	void)
 {
-	if (campaign_score_level())
+	if (campaign_score_level() || campaign_score_multiplayer())
 		campaign_score_update();
 	return campaign_score_ticks;
 }
@@ -1946,12 +2127,11 @@ static void campaign_score_panel_text(
 	return;
 }
 
-/* a row: the name and its value on top, the subline and its
-value beneath; its top at y, `row_height` high */
-static void campaign_score_panel_row(
+/* a row's text: the name and its value on top, the subline and its
+value beneath; the name's top at y (the row's padding below the row's) */
+static void campaign_score_panel_row_text(
 	struct campaign_score_panel const *panel,
 	real y,
-	real row_height,
 	char const *name,
 	wchar_t const *unicode_name,
 	char const *value,
@@ -1964,16 +2144,12 @@ static void campaign_score_panel_row(
 	real text_right = CAMPAIGN_SCORE_PANEL_WIDTH - CAMPAIGN_SCORE_ROW_PADDING * 2;
 	real subline_top = y + CAMPAIGN_SCORE_ROW_PADDING + panel->line_height * 0.92f;
 
-	/* (the row's panel and edge) */
-	campaign_score_panel_quad(panel, 0.0f, y, CAMPAIGN_SCORE_PANEL_WIDTH, y + row_height, CAMPAIGN_SCORE_PANEL_FILL);
-	campaign_score_panel_frame(panel, 0.0f, y, CAMPAIGN_SCORE_PANEL_WIDTH, y + row_height, CAMPAIGN_SCORE_PANEL_EDGE);
-
 	text_color.alpha = 1.0f;
 	text_color.red = text_color.green = text_color.blue = 0.95f;
 	subline_color.alpha = 1.0f;
-	subline_color.red = 0.62f;
-	subline_color.green = 0.80f;
-	subline_color.blue = 1.0f;
+	subline_color.red = campaign_score_palette.subline.red;
+	subline_color.green = campaign_score_palette.subline.green;
+	subline_color.blue = campaign_score_palette.subline.blue;
 	campaign_score_panel_text(panel, name, unicode_name, text_left, text_right, y + CAMPAIGN_SCORE_ROW_PADDING, 1.0f,
 		_campaign_score_text_left, &text_color);
 	campaign_score_panel_text(panel, value, NULL, text_left, text_right, y + CAMPAIGN_SCORE_ROW_PADDING, 1.0f,
@@ -1992,16 +2168,398 @@ static void campaign_score_panel_row(
 	return;
 }
 
+/* a row: its panel and edge, and its text (campaign_score_panel_row_text);
+its top at y, `row_height` high */
+static void campaign_score_panel_row(
+	struct campaign_score_panel const *panel,
+	real y,
+	real row_height,
+	char const *name,
+	wchar_t const *unicode_name,
+	char const *value,
+	char const *subline,
+	char const *subline_value)
+{
+	campaign_score_panel_quad(panel, 0.0f, y, CAMPAIGN_SCORE_PANEL_WIDTH, y + row_height, CAMPAIGN_SCORE_PANEL_FILL);
+	campaign_score_panel_frame(panel, 0.0f, y, CAMPAIGN_SCORE_PANEL_WIDTH, y + row_height, CAMPAIGN_SCORE_HUD_EDGE);
+	campaign_score_panel_row_text(panel, y, name, unicode_name, value, subline, subline_value);
+
+	return;
+}
+
 /* the score and the level's time, as the Master Chief Collection's panel at
 the bottom right of one player's view (hud.c's hud_draw_screen, before the
 skulls' icons, which it lifts above itself): a strip of segments, then the
 player's own row (the team's in a cooperative co-op game); the other
 players' scores are the scoreboard's (hold BACK, or tab) */
+/* the panel's font and scale, in the view being drawn: FALSE for none */
+static boolean campaign_score_panel_begin(
+	struct campaign_score_panel *panel,
+	short *width,
+	short *view_height)
+{
+	struct font_header *font;
+
+	panel->font_index = hud_get_font_index();
+	if (panel->font_index == NONE)
+		return FALSE;
+	font = font_definition_get(panel->font_index);
+	panel->line_height = (short)(font->ascending_height + font->descending_height);
+	if (panel->line_height <= 0)
+		return FALSE;
+	*width = (short)(render.camera.viewport_bounds.x1 - render.camera.viewport_bounds.x0);
+	*view_height = (short)(render.camera.viewport_bounds.y1 - render.camera.viewport_bounds.y0);
+	panel->scale = (real)*view_height / 480.0f;
+	return panel->scale > 0.0f;
+}
+
+/* an ARGB pixel of a colour, its channels scaled */
+static pixel32 campaign_score_pixel(
+	byte alpha,
+	real_rgb_color const *color,
+	real scale)
+{
+	long red = (long)(PIN(color->red * scale, 0.0f, 1.0f) * 255.0f + 0.5f);
+	long green = (long)(PIN(color->green * scale, 0.0f, 1.0f) * 255.0f + 0.5f);
+	long blue = (long)(PIN(color->blue * scale, 0.0f, 1.0f) * 255.0f + 0.5f);
+
+	return ((pixel32)alpha << 24) | ((pixel32)red << 16) | ((pixel32)green << 8) | (pixel32)blue;
+}
+
+/* game.score_hud_color: the panel's own blue, the player's Spartan's
+colour, or game.score_hud_custom_color's armor colour */
+enum
+{
+	_campaign_score_hud_color_default = 0,
+	_campaign_score_hud_color_spartan,
+	_campaign_score_hud_color_custom,
+};
+
+/* the multiplayer armor colors, in the profile's order (player_profile.c) */
+static char const *const campaign_score_hud_color_names[] =
+{
+	"white", "black", "red", "blue", "gray", "yellow", "green", "pink", "purple",
+	"cyan", "cobalt", "orange", "teal", "sage", "brown", "tan", "maroon", "salmon",
+};
+
+static short campaign_score_hud_color(
+	short *custom_index)
+{
+	static unsigned long changes = (unsigned long)-1;
+	static short mode = _campaign_score_hud_color_default;
+	static short custom = 3;
+
+	if (changes != config_changes())
+	{
+		char const *value = config_string("game.score_hud_color");
+		short index;
+
+		changes = config_changes();
+		mode = _campaign_score_hud_color_default;
+		if (value && !strcmp(value, "spartan"))
+			mode = _campaign_score_hud_color_spartan;
+		else if (value && !strcmp(value, "custom"))
+			mode = _campaign_score_hud_color_custom;
+		value = config_string("game.score_hud_custom_color");
+		custom = 3;
+		for (index = 0; value && index < (short)NUMBEROF(campaign_score_hud_color_names); index++)
+		{
+			if (!strcmp(value, campaign_score_hud_color_names[index]))
+				custom = index;
+		}
+	}
+	*custom_index = custom;
+	return mode;
+}
+
+/* the panel's colours for one player's view, as game.score_hud_color
+chooses: the blue, a fixed armor colour, or their Spartan's, as the others
+see it: a team game's team colour (red or blue), a free for all's armor
+colour (game_engine_player_get_change_color); in the campaign, their unit's
+own (the campaign Spartan's fixed green alone, a network co-op player's
+profile colour: players.c's players_coop_color_unit) */
+static void campaign_score_palette_set(
+	long player_index)
+{
+	struct player_datum *player = player_try_and_get(player_index);
+	short local_player_index = player ? player->local_player_index : NONE;
+	real_rgb_color color;
+	real_rgb_color hue;
+	real peak;
+	boolean known = FALSE;
+	short custom_index;
+	short mode = campaign_score_hud_color(&custom_index);
+
+	campaign_score_palette = campaign_score_palette_blue;
+	if (mode == _campaign_score_hud_color_default)
+		return;
+	if (mode == _campaign_score_hud_color_custom)
+	{
+		color = player_profile_get_rgb_color(custom_index);
+		known = TRUE;
+	}
+	else if (!player)
+	{
+		return;
+	}
+	else if (game_engine_running())
+	{
+		game_engine_player_get_change_color(&color, player_index);
+		known = TRUE;
+	}
+	else if (player->unit_index != NONE)
+	{
+		struct object_datum *object = object_try_and_get_and_verify_type(player->unit_index, NONE);
+
+		if (object)
+		{
+			color = object->object.base_change_colors[0];
+			known = TRUE;
+		}
+	}
+	if (mode == _campaign_score_hud_color_spartan &&
+		local_player_index >= 0 && local_player_index < MAXIMUM_NUMBER_OF_LOCAL_PLAYERS)
+	{
+		if (known)
+		{
+			campaign_score_player_colors[local_player_index] = color;
+			campaign_score_player_color_known[local_player_index] = TRUE;
+		}
+		else if (campaign_score_player_color_known[local_player_index])
+		{
+			color = campaign_score_player_colors[local_player_index];
+			known = TRUE;
+		}
+	}
+	if (!known)
+		return;
+
+	/* the colour's hue at its brightest (its brightest channel 1), as the
+	blue's: the fill dark, the edge bright, the strip and the subline toward
+	white; black, which would not show on the dark fill, a grey */
+	peak = MAX(color.red, MAX(color.green, color.blue));
+	if (peak < 0.08f)
+	{
+		hue.red = hue.green = hue.blue = 0.55f;
+	}
+	else
+	{
+		hue.red = color.red / peak;
+		hue.green = color.green / peak;
+		hue.blue = color.blue / peak;
+	}
+	campaign_score_palette.fill = campaign_score_pixel(0xA0, &hue, 0.27f);
+	campaign_score_palette.edge = campaign_score_pixel(0xE0, &hue, 0.88f);
+	{
+		real_rgb_color pale;
+
+		pale.red = hue.red * 0.8f + 0.2f;
+		pale.green = hue.green * 0.8f + 0.2f;
+		pale.blue = hue.blue * 0.8f + 0.2f;
+		campaign_score_palette.strip = campaign_score_pixel(0xC0, &pale, 0.94f);
+		campaign_score_palette.unlit = campaign_score_pixel(0x40, &pale, 0.94f);
+	}
+	campaign_score_palette.subline.red = hue.red * 0.6f + 0.4f;
+	campaign_score_palette.subline.green = hue.green * 0.6f + 0.4f;
+	campaign_score_palette.subline.blue = hue.blue * 0.6f + 0.4f;
+
+	return;
+}
+
+/* the medal history's row: its icons' size, and the room the row takes
+with the gap beneath it (0 with no medals) */
+static real campaign_score_history_size(
+	void)
+{
+	short slots = (short)PIN(campaign_score_values.medal_history, 1, CAMPAIGN_SCORE_HISTORY_MAXIMUM);
+
+	/* (as many slots as the history has, across the whole row: the icons
+	smaller, if they must be, to fit them) */
+	return MIN((real)CAMPAIGN_SCORE_HISTORY_SIZE,
+		(CAMPAIGN_SCORE_PANEL_WIDTH - CAMPAIGN_SCORE_ROW_PADDING * 4 - (slots - 1) * CAMPAIGN_SCORE_HISTORY_GAP) /
+			(real)slots);
+}
+
+static real campaign_score_history_height(
+	short history_count)
+{
+	if (history_count <= 0)
+		return 0.0f;
+	return campaign_score_history_size() + CAMPAIGN_SCORE_ROW_PADDING * 2 + CAMPAIGN_SCORE_ROW_GAP;
+}
+
+/* the medal history: the last medals the player won, the newest at the
+right, as campaign_score_values.json's medal history counts; at the panel's
+top, which it moves beneath itself */
+static void campaign_score_draw_history(
+	struct campaign_score_panel *panel,
+	short const *history,
+	short history_count)
+{
+	long bitmap_index = campaign_medals_bitmap();
+	real size = campaign_score_history_size();
+	real row = size + CAMPAIGN_SCORE_ROW_PADDING * 2;
+	short index;
+
+	if (history_count <= 0)
+		return;
+	campaign_score_panel_quad(panel, 0.0f, 0.0f, CAMPAIGN_SCORE_PANEL_WIDTH, row, CAMPAIGN_SCORE_PANEL_FILL);
+	campaign_score_panel_frame(panel, 0.0f, 0.0f, CAMPAIGN_SCORE_PANEL_WIDTH, row, CAMPAIGN_SCORE_HUD_EDGE);
+	for (index = 0; index < history_count && bitmap_index != NONE; index++)
+	{
+		struct bitmap_data *bitmap = bitmap_group_try_and_get_bitmap(bitmap_index, history[index]);
+		real x1 = CAMPAIGN_SCORE_PANEL_WIDTH - CAMPAIGN_SCORE_ROW_PADDING * 2 -
+			(history_count - 1 - index) * (size + CAMPAIGN_SCORE_HISTORY_GAP);
+		rectangle2d bounds;
+
+		if (!bitmap)
+			continue;
+		bounds.x0 = (short)(panel->left + (x1 - size) * panel->scale);
+		bounds.x1 = (short)(panel->left + x1 * panel->scale);
+		bounds.y0 = (short)(panel->top + CAMPAIGN_SCORE_ROW_PADDING * panel->scale);
+		bounds.y1 = (short)(panel->top + (CAMPAIGN_SCORE_ROW_PADDING + size) * panel->scale);
+		draw_bitmap_in_rect(bitmap, &bounds, NULL, NULL, 0xFFFFFFFF, NULL, TRUE);
+	}
+	/* (the rest beneath it) */
+	panel->top += campaign_score_history_height(history_count) * panel->scale;
+
+	return;
+}
+
+/* a wide string's plain letters (the panel's rows take them) */
+static void campaign_score_narrow(
+	wchar_t const *source,
+	char *text,
+	long size)
+{
+	long index;
+
+	for (index = 0; index < size - 1 && source[index]; index++)
+		text[index] = source[index] < 0x80 ? (char)source[index] : '?';
+	text[index] = 0;
+
+	return;
+}
+
+/* a multiplayer game's panel: the medal history (game.multiplayer_medals),
+and (game.multiplayer_score_hud) a strip of the team's standing (a team
+game's: winning, losing or tied) and the game's time (left, with a time
+limit), and the player's row: their name and place, their kills / deaths,
+and beneath, the game's kind and its game type's score */
+static void campaign_score_draw_multiplayer_view(
+	long player_index)
+{
+	struct campaign_score_panel panel;
+	struct player_datum *player = player_try_and_get(player_index);
+	boolean row_shown = campaign_score_multiplayer_hud();
+	real standing_height = 0.0f;
+	real row_height = 0.0f;
+	real history_height;
+	short width;
+	short view_height;
+	short history[CAMPAIGN_SCORE_HISTORY_MAXIMUM];
+	short history_count;
+
+	if (!player || !campaign_score_panel_begin(&panel, &width, &view_height))
+		return;
+	campaign_score_update();
+	campaign_score_palette_set(player_index);
+	history_count = campaign_score_medal_history(player_index, history, NUMBEROF(history));
+	history_height = campaign_score_history_height(history_count);
+	if (row_shown)
+	{
+		/* (one row: the standing's line, of the smaller text, over the
+		name's and the subline's) */
+		standing_height = panel.line_height * CAMPAIGN_SCORE_SUBLINE_SIZE;
+		row_height = panel.line_height * (1.0f + CAMPAIGN_SCORE_SUBLINE_SIZE) + CAMPAIGN_SCORE_ROW_PADDING * 2;
+		row_height = MAX(row_height, CAMPAIGN_SCORE_ROW_MINIMUM) + standing_height;
+	}
+	if (history_height + row_height > 0.0f)
+	{
+		/* (the history's gap beneath it with no row there) */
+		if (!row_shown)
+			history_height -= CAMPAIGN_SCORE_ROW_GAP;
+		panel.left = width - (CAMPAIGN_SCORE_PANEL_MARGIN + CAMPAIGN_SCORE_PANEL_WIDTH) * panel.scale;
+		panel.top = view_height - (CAMPAIGN_SCORE_PANEL_MARGIN + history_height + row_height) * panel.scale;
+		campaign_score_draw_history(&panel, history, history_count);
+		if (row_shown)
+		{
+			struct game_engine_hud_score hud_score;
+			real text_left = CAMPAIGN_SCORE_ROW_PADDING * 2;
+			real text_right = CAMPAIGN_SCORE_PANEL_WIDTH - CAMPAIGN_SCORE_ROW_PADDING * 2;
+			wchar_t own_name[MAXIMUM_PLAYER_PROFILE_NAME_LENGTH + 1];
+			wchar_t name[MAXIMUM_PLAYER_PROFILE_NAME_LENGTH + 16];
+			char kills_deaths[24];
+			char kind[48];
+			char score[64];
+			char time[32];
+			real_argb_color color;
+
+			game_engine_hud_score_get(player_index, &hud_score);
+			campaign_score_narrow(hud_score.kind, kind, sizeof(kind));
+			campaign_score_narrow(hud_score.score, score, sizeof(score));
+			campaign_score_narrow(hud_score.time, time, sizeof(time));
+
+			/* the row's panel; on top, the team's standing and the game's
+			time */
+			campaign_score_panel_quad(&panel, 0.0f, 0.0f, CAMPAIGN_SCORE_PANEL_WIDTH, row_height,
+				CAMPAIGN_SCORE_PANEL_FILL);
+			campaign_score_panel_frame(&panel, 0.0f, 0.0f, CAMPAIGN_SCORE_PANEL_WIDTH, row_height,
+				CAMPAIGN_SCORE_HUD_EDGE);
+			color.alpha = 1.0f;
+			switch (hud_score.team_standing)
+			{
+			case _game_engine_hud_winning:
+				color.red = 0.45f;
+				color.green = 0.95f;
+				color.blue = 0.45f;
+				campaign_score_panel_text(&panel, "WINNING", NULL, text_left, text_right, CAMPAIGN_SCORE_ROW_PADDING,
+					CAMPAIGN_SCORE_SUBLINE_SIZE, _campaign_score_text_left, &color);
+				break;
+			case _game_engine_hud_losing:
+				color.red = 1.0f;
+				color.green = 0.42f;
+				color.blue = 0.38f;
+				campaign_score_panel_text(&panel, "LOSING", NULL, text_left, text_right, CAMPAIGN_SCORE_ROW_PADDING,
+					CAMPAIGN_SCORE_SUBLINE_SIZE, _campaign_score_text_left, &color);
+				break;
+			case _game_engine_hud_tied:
+				color.red = 1.0f;
+				color.green = 0.92f;
+				color.blue = 0.55f;
+				campaign_score_panel_text(&panel, "TIED", NULL, text_left, text_right, CAMPAIGN_SCORE_ROW_PADDING,
+					CAMPAIGN_SCORE_SUBLINE_SIZE, _campaign_score_text_left, &color);
+				break;
+			default:
+				break;
+			}
+			color.red = campaign_score_palette.subline.red;
+			color.green = campaign_score_palette.subline.green;
+			color.blue = campaign_score_palette.subline.blue;
+			campaign_score_panel_text(&panel, time, NULL, text_left, text_right, CAMPAIGN_SCORE_ROW_PADDING,
+				CAMPAIGN_SCORE_SUBLINE_SIZE, _campaign_score_text_right, &color);
+
+			/* beneath it, their name and place, kills / deaths; the game's
+			kind, its score */
+			campaign_score_player_display_name(player_index, own_name, NUMBEROF(own_name));
+			usnprintf(name, NUMBEROF(name), L"%s #%d", own_name, (int)hud_score.place);
+			name[NUMBEROF(name) - 1] = 0;
+			snprintf(kills_deaths, sizeof(kills_deaths), "%d / %d", (int)player->statistics.kills[0],
+				(int)player->statistics.deaths);
+			campaign_score_panel_row_text(&panel, standing_height, NULL, name, kills_deaths, kind, score);
+		}
+		campaign_score_drawn_height = (short)(history_height + row_height + CAMPAIGN_SCORE_SKULLS_GAP + 0.5f);
+	}
+	/* the medals just won, at the center left (campaign_medals.c) */
+	campaign_medals_draw_popups(player_index);
+
+	return;
+}
+
 void campaign_score_draw_view(
 	long player_index)
 {
 	struct campaign_score_panel panel;
-	struct font_header *font;
 	boolean competitive;
 	boolean coop;
 	real row_height;
@@ -2020,21 +2578,17 @@ void campaign_score_draw_view(
 	real history_height;
 
 	campaign_score_drawn_height = 0;
-	if (!campaign_score_enabled() || player_index == NONE)
+	if (player_index == NONE)
 		return;
-	panel.font_index = hud_get_font_index();
-	if (panel.font_index == NONE)
+	if (campaign_score_multiplayer())
+	{
+		campaign_score_draw_multiplayer_view(player_index);
 		return;
-	font = font_definition_get(panel.font_index);
-	panel.line_height = (short)(font->ascending_height + font->descending_height);
-	if (panel.line_height <= 0)
-		return;
-	width = (short)(render.camera.viewport_bounds.x1 - render.camera.viewport_bounds.x0);
-	view_height = (short)(render.camera.viewport_bounds.y1 - render.camera.viewport_bounds.y0);
-	panel.scale = (real)view_height / 480.0f;
-	if (panel.scale <= 0.0f)
+	}
+	if (!campaign_score_enabled() || !campaign_score_panel_begin(&panel, &width, &view_height))
 		return;
 	campaign_score_update();
+	campaign_score_palette_set(player_index);
 	competitive = campaign_score_is_competitive();
 	coop = network_coop_active() || local_player_count() > 1;
 	rows = 1;
@@ -2047,52 +2601,10 @@ void campaign_score_draw_view(
 	height = rows_top + rows * row_height + (rows - 1) * CAMPAIGN_SCORE_ROW_GAP;
 	/* (and over it all, the player's last medals: none before the first) */
 	history_count = campaign_score_medal_history(player_index, history, NUMBEROF(history));
-	history_height = 0.0f;
-	if (history_count > 0)
-	{
-		short slots = (short)PIN(campaign_score_values.medal_history, 1, CAMPAIGN_SCORE_HISTORY_MAXIMUM);
-
-		history_height = MIN((real)CAMPAIGN_SCORE_HISTORY_SIZE,
-			(CAMPAIGN_SCORE_PANEL_WIDTH - CAMPAIGN_SCORE_ROW_PADDING * 4 - (slots - 1) * CAMPAIGN_SCORE_HISTORY_GAP) /
-				(real)slots) + CAMPAIGN_SCORE_ROW_PADDING * 2 + CAMPAIGN_SCORE_ROW_GAP;
-	}
+	history_height = campaign_score_history_height(history_count);
 	panel.left = width - (CAMPAIGN_SCORE_PANEL_MARGIN + CAMPAIGN_SCORE_PANEL_WIDTH) * panel.scale;
 	panel.top = view_height - (CAMPAIGN_SCORE_PANEL_MARGIN + history_height + height) * panel.scale;
-
-	/* the medal history: the last medals the player won, the newest at the
-	right, as campaign_score_values.json's medal history counts */
-	if (history_count > 0)
-	{
-		long bitmap_index = campaign_medals_bitmap();
-		short slots = (short)PIN(campaign_score_values.medal_history, 1, CAMPAIGN_SCORE_HISTORY_MAXIMUM);
-		/* (as many slots as the history has, across the whole row: the icons
-		smaller, if they must be, to fit them) */
-		real size = MIN((real)CAMPAIGN_SCORE_HISTORY_SIZE,
-			(CAMPAIGN_SCORE_PANEL_WIDTH - CAMPAIGN_SCORE_ROW_PADDING * 4 - (slots - 1) * CAMPAIGN_SCORE_HISTORY_GAP) /
-				(real)slots);
-		real row = size + CAMPAIGN_SCORE_ROW_PADDING * 2;
-		short index;
-
-		campaign_score_panel_quad(&panel, 0.0f, 0.0f, CAMPAIGN_SCORE_PANEL_WIDTH, row, CAMPAIGN_SCORE_PANEL_FILL);
-		campaign_score_panel_frame(&panel, 0.0f, 0.0f, CAMPAIGN_SCORE_PANEL_WIDTH, row, CAMPAIGN_SCORE_PANEL_EDGE);
-		for (index = 0; index < history_count && bitmap_index != NONE; index++)
-		{
-			struct bitmap_data *bitmap = bitmap_group_try_and_get_bitmap(bitmap_index, history[index]);
-			real x1 = CAMPAIGN_SCORE_PANEL_WIDTH - CAMPAIGN_SCORE_ROW_PADDING * 2 -
-				(history_count - 1 - index) * (size + CAMPAIGN_SCORE_HISTORY_GAP);
-			rectangle2d bounds;
-
-			if (!bitmap)
-				continue;
-			bounds.x0 = (short)(panel.left + (x1 - size) * panel.scale);
-			bounds.x1 = (short)(panel.left + x1 * panel.scale);
-			bounds.y0 = (short)(panel.top + CAMPAIGN_SCORE_ROW_PADDING * panel.scale);
-			bounds.y1 = (short)(panel.top + (CAMPAIGN_SCORE_ROW_PADDING + size) * panel.scale);
-			draw_bitmap_in_rect(bitmap, &bounds, NULL, NULL, 0xFFFFFFFF, NULL, TRUE);
-		}
-		/* (the rest beneath it) */
-		panel.top += history_height * panel.scale;
-	}
+	campaign_score_draw_history(&panel, history, history_count);
 
 	/* the strip of segments over the rows: the time left until the time's
 	multiplier is the last (x0: half again the par time), lit from the left,
@@ -2111,7 +2623,7 @@ void campaign_score_draw_view(
 		campaign_score_panel_quad(&panel, 0.0f, 0.0f, CAMPAIGN_SCORE_PANEL_WIDTH, CAMPAIGN_SCORE_STRIP_HEIGHT,
 			CAMPAIGN_SCORE_PANEL_FILL);
 		campaign_score_panel_frame(&panel, 0.0f, 0.0f, CAMPAIGN_SCORE_PANEL_WIDTH, CAMPAIGN_SCORE_STRIP_HEIGHT,
-			CAMPAIGN_SCORE_PANEL_EDGE);
+			CAMPAIGN_SCORE_HUD_EDGE);
 		for (segment = 0; segment < CAMPAIGN_SCORE_STRIP_SEGMENTS; segment++)
 		{
 			real span = (CAMPAIGN_SCORE_PANEL_WIDTH - 4.0f) / CAMPAIGN_SCORE_STRIP_SEGMENTS;
@@ -2136,11 +2648,11 @@ void campaign_score_draw_view(
 		campaign_score_panel_quad(&panel, 0.0f, y, CAMPAIGN_SCORE_PANEL_WIDTH, y + multipliers_height,
 			CAMPAIGN_SCORE_PANEL_FILL);
 		campaign_score_panel_frame(&panel, 0.0f, y, CAMPAIGN_SCORE_PANEL_WIDTH, y + multipliers_height,
-			CAMPAIGN_SCORE_PANEL_EDGE);
+			CAMPAIGN_SCORE_HUD_EDGE);
 		color.alpha = 1.0f;
-		color.red = 0.62f;
-		color.green = 0.80f;
-		color.blue = 1.0f;
+		color.red = campaign_score_palette.subline.red;
+		color.green = campaign_score_palette.subline.green;
+		color.blue = campaign_score_palette.subline.blue;
 		campaign_score_panel_text(&panel, "SCORE MULTIPLIER:", NULL, CAMPAIGN_SCORE_ROW_PADDING * 2,
 			CAMPAIGN_SCORE_PANEL_WIDTH - CAMPAIGN_SCORE_ROW_PADDING * 2, y + CAMPAIGN_SCORE_ROW_PADDING,
 			CAMPAIGN_SCORE_SUBLINE_SIZE, _campaign_score_text_left, &color);

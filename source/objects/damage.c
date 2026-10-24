@@ -1179,6 +1179,20 @@ static void object_damage_aftermath(
 	if (!network_game_distributed_client())
 		skulls_damage_dealt(object_index, damage->owner_player_index);
 
+	/* port: the multiplayer medals: the killing blow's style, for the kill
+	the chain below announces (port/linux/game/campaign_score.c's
+	campaign_score_player_killed) */
+	if (TEST_FLAG(_object_mask_unit, object->object.type) &&
+		TEST_FLAG(being_damaged_flags, _object_being_damaged_body_depleted_bit))
+	{
+		campaign_score_killing_blow(
+			object_index,
+			body_part,
+			damage_effect->damage.category == _damage_category_melee,
+			&damage->direction,
+			damage->definition_index);
+	}
+
 	if (game_engine_can_score() &&
 		!TEST_FLAG(damage->flags, _damage_no_statistics_bit))
 	{

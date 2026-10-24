@@ -23,18 +23,26 @@ clients as the kills are.
   an AI's gunner too, killing while the player drives);
 - the level's: Perfection, won without dying, with enough kills.
 
+In a multiplayer game (game.multiplayer_medals: campaign_score.c) the same
+medals but Perfection are a kill of another player's, an enemy's; Revenge is
+the player's last killer killed, as a player (their unit is new each time
+they spawn), and Avenger a teammate's, in a team game.
+
 The weapon is told by the killing blow's damage effect's name (the JSON's
 "weapons": sniper rifle\sniper bullet, plasma grenade\attached, ...).
 
 Only the machine that runs the AI gives medals, as it scores the kills (the
-host of a co-op game); every machine shows its own players' as they are
-logged: the medals just won at the center left of the view, up to ten (two
+host of a co-op game); in a multiplayer game each machine gives its own
+players theirs, from the kills every machine is told of (with the host's
+killer and killing blow: network_damage.c), and no other machine hears of
+them. Every machine shows its own players' as they are logged: the medals just won at the center left of the view, up to ten (two
 rows of five, the newest first) for the JSON's popup_seconds each, and the
 last few, the medal history, in the score's panel (campaign_score.c).
 */
 
 #include "cseries.h"
 #include "game/game.h"
+#include "game/game_engine.h"
 #include "game/players.h"
 #include "interface/hud_messaging.h"
 #include "interface/ui_widget.h"
@@ -52,6 +60,7 @@ last few, the medal history, in the score's panel (campaign_score.c).
 #include "campaign_medals.h"
 #include "campaign_score.h"
 #include "campaign_score_values.h"
+#include "halo_port_limits.h"
 
 #include <string.h>
 
@@ -59,8 +68,9 @@ last few, the medal history, in the score's panel (campaign_score.c).
 
 enum
 {
-	/* the players medals are kept for (by absolute index: campaign_score.c's) */
-	CAMPAIGN_MEDALS_MAXIMUM_PLAYERS = 16,
+	/* the players medals are kept for (by absolute index: campaign_score.c's;
+	a multiplayer game's every player) */
+	CAMPAIGN_MEDALS_MAXIMUM_PLAYERS = HALO_PORT_MAXIMUM_NETWORK_PLAYERS,
 	/* the medals shown at once, in rows of */
 	CAMPAIGN_MEDALS_POPUPS = 10,
 	CAMPAIGN_MEDALS_POPUPS_PER_ROW = 5,
@@ -109,8 +119,12 @@ struct campaign_medals_player
 	/* the multi-kill: its kills, and the last's time (the level's ticks) */
 	long multi_kill;
 	long last_kill_ticks;
-	/* who killed the player last (Revenge, Avenger): NONE */
+	/* who killed the player last (Revenge, Avenger): an AI's unit, a
+multiplayer game's player (its datum index); NONE */
 	long last_killer_object_index;
+	long last_killer_player_index;
+	/* (whose these are: the player's datum index, as they last died) */
+	long player_index;
 };
 
 struct campaign_medals_popup
@@ -197,6 +211,8 @@ static void campaign_medals_reset_player(
 	csmemset(state, 0, sizeof(*state));
 	state->last_kill_ticks = NONE;
 	state->last_killer_object_index = NONE;
+	state->last_killer_player_index = NONE;
+	state->player_index = NONE;
 
 	return;
 }
@@ -279,12 +295,40 @@ static long campaign_medals_wheelman(
 	return driver ? driver->unit.player_index : NONE;
 }
 
+/* whether the player's last killer, killed by another (both datum indices),
+was avenged: in a multiplayer game, a teammate's in a team game (in the
+campaign every player is the others' ally) */
+static boolean campaign_medals_avenged(
+	long player_index,
+	long avenger_player_index)
+{
+	struct player_datum *player = player_try_and_get(player_index);
+	struct player_datum *avenger = player_try_and_get(avenger_player_index);
+
+	if (!game_engine_running())
+		return TRUE;
+	return player && avenger && player_index != avenger_player_index && game_engine_has_teams() &&
+		player->team_index == avenger->team_index;
+}
+
+/* a kill by a player (NONE for none) or any unit (`killer_object_index`), of
+an AI's unit (`victim_player_index` NONE) or a multiplayer game's player's */
+static void campaign_medals_kill(
+	long killer_player_index,
+	long killer_object_index,
+	long victim_unit_index,
+	long victim_player_index,
+	long damage_definition_index,
+	boolean headshot,
+	boolean melee,
+	boolean backsmack);
+
 /* ---------- public code */
 
 boolean campaign_medals_enabled(
 	void)
 {
-	return campaign_score_enabled();
+	return campaign_score_enabled() || campaign_score_multiplayer_medals();
 }
 
 boolean campaign_medals_popups_shown(
@@ -298,7 +342,10 @@ boolean campaign_medals_popups_shown(
 		changes = config_changes();
 		shown = config_boolean("game.campaign_medals") != 0;
 	}
-	return shown && campaign_medals_enabled();
+	/* (a multiplayer game's, with its medals on) */
+	if (campaign_score_multiplayer_medals())
+		return TRUE;
+	return shown && campaign_score_enabled();
 }
 
 void campaign_medals_new_map(
@@ -324,6 +371,41 @@ void campaign_medals_enemy_killed(
 	long killer_player_index,
 	long killer_object_index,
 	long victim_unit_index,
+	long damage_definition_index,
+	boolean headshot,
+	boolean melee,
+	boolean backsmack)
+{
+	campaign_medals_kill(killer_player_index, killer_object_index, victim_unit_index, NONE, damage_definition_index,
+		headshot, melee, backsmack);
+
+	return;
+}
+
+void campaign_medals_player_killed_player(
+	long killer_player_index,
+	long killer_object_index,
+	long victim_player_index,
+	long damage_definition_index,
+	boolean headshot,
+	boolean melee,
+	boolean backsmack)
+{
+	struct player_datum *victim = player_try_and_get(victim_player_index);
+
+	if (!victim)
+		return;
+	campaign_medals_kill(killer_player_index, killer_object_index, victim->unit_index, victim_player_index,
+		damage_definition_index, headshot, melee, backsmack);
+
+	return;
+}
+
+static void campaign_medals_kill(
+	long killer_player_index,
+	long killer_object_index,
+	long victim_unit_index,
+	long victim_player_index,
 	long damage_definition_index,
 	boolean headshot,
 	boolean melee,
@@ -427,21 +509,32 @@ void campaign_medals_enemy_killed(
 			campaign_medals_give(killer_player_index, _campaign_medal_close_call);
 		}
 	}
-	/* Revenge, the player's last killer; Avenger, another player's */
-	if (state->last_killer_object_index == victim_unit_index)
+	/* Revenge, the player's last killer; Avenger, another player's (an AI's
+unit, or a multiplayer game's player) */
+	if (victim_player_index != NONE ? state->last_killer_player_index == victim_player_index :
+		state->last_killer_object_index == victim_unit_index)
 	{
 		state->last_killer_object_index = NONE;
+		state->last_killer_player_index = NONE;
 		campaign_medals_give(killer_player_index, _campaign_medal_revenge);
 	}
 	for (index = 0; index < CAMPAIGN_MEDALS_MAXIMUM_PLAYERS; index++)
 	{
-		if (&campaign_medals_players[index] != state &&
-			campaign_medals_players[index].last_killer_object_index == victim_unit_index)
+		struct campaign_medals_player *other = &campaign_medals_players[index];
+
+		if (other == state)
+			continue;
+		if (victim_player_index != NONE ? other->last_killer_player_index != victim_player_index :
+			other->last_killer_object_index != victim_unit_index)
 		{
-			campaign_medals_players[index].last_killer_object_index = NONE;
-			campaign_medals_give(killer_player_index, _campaign_medal_avenger);
-			break;
+			continue;
 		}
+		if (victim_player_index != NONE && !campaign_medals_avenged(other->player_index, killer_player_index))
+			continue;
+		other->last_killer_object_index = NONE;
+		other->last_killer_player_index = NONE;
+		campaign_medals_give(killer_player_index, _campaign_medal_avenger);
+		break;
 	}
 
 	return;
@@ -449,6 +542,7 @@ void campaign_medals_enemy_killed(
 
 void campaign_medals_player_died(
 	long player_index,
+	long killer_player_index,
 	long killer_object_index)
 {
 	struct campaign_medals_player *state = campaign_medals_player(player_index);
@@ -461,6 +555,9 @@ void campaign_medals_player_died(
 		state->weapon_sprees[weapon] = 0;
 	state->multi_kill = 0;
 	state->last_kill_ticks = NONE;
+	state->player_index = player_index;
+	/* (a multiplayer game's other player, killing them) */
+	state->last_killer_player_index = killer_player_index != player_index ? killer_player_index : NONE;
 	/* (another unit: not the player's own, nor its vehicle's fall) */
 	if (killer_object_index != NONE && object_try_and_get_and_verify_type(killer_object_index, _object_mask_unit))
 	{

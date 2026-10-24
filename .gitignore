@@ -43,3 +43,6 @@ reference/
 
 /maps
 /logs
+
+# Release files collected by tools/release.py
+/release/

@@ -72,6 +72,41 @@ def run(command, cwd=ROOT):
     subprocess.run([str(part) for part in command], cwd=cwd, check=True)
 
 
+def copy_notices(platform, dist):
+    """Puts the licences and notices each copy of a port's build carries, and
+    its brokers.txt, beside the build in dist (tools/release.py's zips too)."""
+    # OpenCE's own licence, the AGPL, which asks each copy to carry its text
+    shutil.copy2(ROOT / "LICENSE", dist / "LICENSE.txt")
+    if platform != "web":
+        # internet play's DTLS with browsers, and the Linux self-updater's TLS
+        # (port/third_party/mbedtls), whose Apache license asks the same
+        shutil.copy2(ROOT / "port/third_party/mbedtls/LICENSE", dist / "mbedtls-LICENSE.txt")
+    # internet play's UPnP (port/third_party/miniupnpc), in every build,
+    # whose BSD license asks binaries to carry its notice
+    shutil.copy2(ROOT / "port/third_party/miniupnpc/LICENSE", dist / "miniupnpc-LICENSE.txt")
+    # the text's fonts (port/assets/fonts), embedded in every build, whose
+    # SIL Open Font License asks each copy to carry it
+    shutil.copy2(ROOT / "port/assets/fonts/Overpass-OFL.txt", dist / "Overpass-OFL.txt")
+    # the menus' XML parser (port/third_party/expat), in every build, whose
+    # MIT license asks copies to carry its notice
+    shutil.copy2(ROOT / "port/third_party/expat/COPYING", dist / "expat-COPYING.txt")
+    # voice chat's codec (port/third_party/opus), in every build, whose BSD
+    # license asks binaries to carry its notice
+    shutil.copy2(ROOT / "port/third_party/opus/COPYING", dist / "opus-COPYING.txt")
+    # voice chat's speaker icons and the Mods menu's warning icons
+    # (port/assets/icons/lucide, drawn into the menus' bitmaps), whose ISC
+    # license asks copies to carry its notice
+    shutil.copy2(ROOT / "port/assets/icons/lucide/LICENSE", dist / "lucide-LICENSE.txt")
+    # internet play's MQTT brokers, a file beside the game (network.brokers_file;
+    # Android's APK has its own copy)
+    if platform != "android":
+        shutil.copy2(ROOT / "port/assets/network/brokers.txt", dist / "brokers.txt")
+    if platform == "switch":
+        # and the Switch's menus' title font (port/switch/host/host_ui.c),
+        # under the same license
+        shutil.copy2(ROOT / "port/assets/fonts/OpenCE-OFL.txt", dist / "OpenCE-OFL.txt")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("platform", choices=sorted(OUTPUTS))
@@ -161,36 +196,7 @@ def main() -> int:
         for pdb in [ROOT / "build/windows/halo.pdb", *sorted((ROOT / "build/windows/third_party").glob("SDL3-*/lib/x86/SDL3.pdb"))]:
             shutil.copy2(pdb, symbols)
             print(f"{pdb.relative_to(ROOT)} -> {symbols.relative_to(ROOT)}", flush=True)
-    # OpenCE's own licence, the AGPL, which asks each copy to carry its text
-    shutil.copy2(ROOT / "LICENSE", dist / "LICENSE.txt")
-    if args.platform != "web":
-        # internet play's DTLS with browsers, and the Linux self-updater's TLS
-        # (port/third_party/mbedtls), whose Apache license asks the same
-        shutil.copy2(ROOT / "port/third_party/mbedtls/LICENSE", dist / "mbedtls-LICENSE.txt")
-    # internet play's UPnP (port/third_party/miniupnpc), in every build,
-    # whose BSD license asks binaries to carry its notice
-    shutil.copy2(ROOT / "port/third_party/miniupnpc/LICENSE", dist / "miniupnpc-LICENSE.txt")
-    # the text's fonts (port/assets/fonts), embedded in every build, whose
-    # SIL Open Font License asks each copy to carry it
-    shutil.copy2(ROOT / "port/assets/fonts/Overpass-OFL.txt", dist / "Overpass-OFL.txt")
-    # the menus' XML parser (port/third_party/expat), in every build, whose
-    # MIT license asks copies to carry its notice
-    shutil.copy2(ROOT / "port/third_party/expat/COPYING", dist / "expat-COPYING.txt")
-    # voice chat's codec (port/third_party/opus), in every build, whose BSD
-    # license asks binaries to carry its notice
-    shutil.copy2(ROOT / "port/third_party/opus/COPYING", dist / "opus-COPYING.txt")
-    # voice chat's speaker icons and the Mods menu's warning icons
-    # (port/assets/icons/lucide, drawn into the menus' bitmaps), whose ISC
-    # license asks copies to carry its notice
-    shutil.copy2(ROOT / "port/assets/icons/lucide/LICENSE", dist / "lucide-LICENSE.txt")
-    # internet play's MQTT brokers, a file beside the game (network.brokers_file;
-    # Android's APK has its own copy)
-    if args.platform != "android":
-        shutil.copy2(ROOT / "port/assets/network/brokers.txt", dist / "brokers.txt")
-    if args.platform == "switch":
-        # and the Switch's menus' title font (port/switch/host/host_ui.c),
-        # under the same license
-        shutil.copy2(ROOT / "port/assets/fonts/OpenCE-OFL.txt", dist / "OpenCE-OFL.txt")
+    copy_notices(args.platform, dist)
     return 0
 
 

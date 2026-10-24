@@ -481,7 +481,7 @@ SCREENS["gameplay"] = {
         ("RANDOMIZER", "gameplay/randomizer",
          "The randomizer: a campaign level's enemies\nand weapons swapped."),
         ("SKULLS", "gameplay/skulls", "The Master Chief Collection's skulls, and\nhow they are found."),
-        ("SCORING", "gameplay/scoring", "The campaign's score, its time and par times,\nand its medals."),
+        ("SCORING", "gameplay/scoring", "The campaign's score, its time and par times,\nand medals, in multiplayer too."),
         ("COMMUNITY", "gameplay/community",
          "Online leaderboards, the daily challenge, and\nthe community server."),
         ("TAG INJECTOR", "gameplay/tag_injector",
@@ -516,7 +516,30 @@ SCREENS["gameplay/scoring"] = {
         ("MEDAL POPUPS:", "game.campaign_medals", ON_OFF,
          "Show the medals you win at the center left as\nyou win them. Medals always count with scoring.",
          None),
+        # (campaign_score.c's campaign_score_palette_set; CUSTOM COLOR shown
+        # with HUD COLOR's CUSTOM, the rows below it closing its gap:
+        # menu_functions.c's gameplay_screen_update)
+        ("HUD COLOR:", "game.score_hud_color",
+         [("DEFAULT", "default"), ("SPARTAN", "spartan"), ("CUSTOM", "custom")],
+         "The score panel's color: its own blue, your\nSpartan's (or team's), or one you choose.",
+         None),
+        ("CUSTOM COLOR:", "game.score_hud_custom_color", [(c.upper(), c) for c in SHIELD_COLORS],
+         "The score panel's color with HUD COLOR's\nCUSTOM, whatever your Spartan's is.",
+         None),
+        # (multiplayer's: campaign_score.c's multiplayer panel and medals,
+        # this machine's alone; MEDALS and SCORE HUD shown with MULTIPLAYER
+        # on: menu_functions.c's gameplay_screen_update)
+        ("MULTIPLAYER:", "game.multiplayer_scoring", ON_OFF,
+         "Medals and a score panel in multiplayer games,\nyours alone. Nothing is sent to other players.",
+         None),
+        ("MEDALS:", "game.multiplayer_medals", ON_OFF,
+         "Multiplayer: the campaign's medals for your\nkills, as you win them and the last few.",
+         None),
+        ("SCORE HUD:", "game.multiplayer_score_hud", ON_OFF,
+         "Multiplayer: your kills and deaths, and the\ngame's score, at the bottom right.",
+         None),
     ],
+    "inputs": ["gameplay screen update"],
 }
 # (Community: the daily challenge and the online leaderboards, port/linux/
 # game/community.c; SERVER ADDRESS shown with SERVER CUSTOM, typed in its row
