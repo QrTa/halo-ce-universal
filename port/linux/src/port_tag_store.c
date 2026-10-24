@@ -308,6 +308,19 @@ static unsigned long file_size(const char *path)
 		!(information.flags & _posix_file_is_directory) ? information.size_low : 0;
 }
 
+/* an open file's size, measured by the stream and not by its path: the
+Switch's stat opens the file to measure it, which fails while the file is
+open to be written (the pack, as a bundle is written), and a pack of 0 bytes
+had the next bundle's regions written over all of the others' */
+static unsigned long stream_size(FILE *file)
+{
+	long size;
+
+	if (fseek(file, 0, SEEK_END) != 0 || (size = ftell(file)) < 0)
+		return 0;
+	return (unsigned long)size;
+}
+
 /* a pack's header: its generation; 0 if it is not a pack */
 static int pack_header_read(FILE *pack, unsigned long *generation)
 {
@@ -393,7 +406,7 @@ static int folder_entries(const char *folder, FILE *pack, struct store_entry **e
 	if (!pack)
 		return 1;
 	folder_file(folder, PACK_NAME, path, sizeof(path));
-	pack_size = file_size(path);
+	pack_size = stream_size(pack);
 	if (!pack_header_read(pack, generation))
 	{
 		platform_log("tag injector: %s is not a pack of tags", path);
@@ -1036,7 +1049,7 @@ int port_tag_store_collect(const char *folder, const char *const *files, long fi
 	pack = fopen(path, "rb");
 	if (!pack)
 		return 1;
-	pack_size = file_size(path);
+	pack_size = stream_size(pack);
 	if (!folder_entries(folder, pack, &entries, &entry_count, &generation, &end))
 	{
 		fclose(pack);
