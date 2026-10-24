@@ -69,7 +69,7 @@ and to **deko3d**, the Switch's own GPU interface, on the Switch.
 ## Contents
 
 - [What works](#what-works) · [Known issues](#known-issues)
-- [Campaign upgrades](#campaign-upgrades): [daily challenge](#daily-challenge), [randomizer](#enemy-randomizer), [skulls](#skulls), [multiplayer and co-op](#multiplayer-and-co-op), [settings](#gameplay-settings)
+- [Campaign upgrades](#campaign-upgrades): [daily challenge](#daily-challenge), [randomizer](#enemy-randomizer), [Tag Injector](#tag-injector), [skulls](#skulls), [multiplayer and co-op](#multiplayer-and-co-op), [settings](#gameplay-settings)
 - [Download](#download) · [Install](#install): [Android](#android), [Nintendo Switch](#nintendo-switch), [PlayStation 5](#playstation-5), [updating](#updating)
 - [Graphics: Vulkan, Turnip and deko3d](#graphics-vulkan-turnip-and-deko3d)
 - [Multiplayer](#multiplayer) · [Controls](#controls)
@@ -81,7 +81,7 @@ and to **deko3d**, the Switch's own GPU interface, on the Switch.
 | | |
 | --- | --- |
 | 🎮 **Campaign** | The whole campaign, with checkpoints, saves and cinematics. Xbox maps of every region; PAL maps are made to play as NTSC ones. |
-| 🎲 **Campaign upgrades** | An enemy and weapon randomizer, 40 skulls, Halo 3-style scoring and medals, online leaderboards and a daily challenge. All optional. See [Campaign upgrades](#campaign-upgrades). |
+| 🎲 **Campaign upgrades** | An enemy and weapon randomizer (with weapons and enemies from Custom Edition maps through the Tag Injector), 40 skulls, Halo 3-style scoring and medals, online leaderboards and a daily challenge. All optional. See [Campaign upgrades](#campaign-upgrades). |
 | 🖼️ **Vulkan on Android** | The default renderer. On Qualcomm Adreno GPUs the app can download and use **Turnip**, Mesa's open-source driver, in place of the phone's own. OpenGL ES 3 is still there as a fallback. |
 | 🟥 **deko3d on the Switch** | A renderer written for the console's GPU, docked at 1080p or handheld at 720p, switching on its own when you dock. |
 | 🟦 **The PS5** | A homebrew title for a jailbroken console: up to native 4K at 120 frames a second, aiming with the DualSense's gyroscope, voice chat through the pad's microphone. |
@@ -174,6 +174,140 @@ On the first start (or the first time the randomizer is turned on, with
 the daily challenge off), the game builds `maps/randomizer.pack` (about
 500 MB) from your maps, once, so randomized levels load quickly.
 
+### Tag Injector
+
+<img width="640" alt="Gameplay with Custom Edition enemies, a Custom Edition weapon held, others on the floor and a marine carrying one" src="https://github.com/user-attachments/assets/efbcc8c9-6e7b-4781-9d80-89187f4f4a39" />
+
+The Tag Injector brings weapons, enemies and equipment from Halo PC /
+Custom Edition maps into the Xbox campaign. You take them out of the
+[Custom Edition maps](#custom-edition-maps) in your `custom_maps` folder,
+keep them in **tag profiles**, and the [randomizer](#enemy-randomizer) puts
+them in the level.
+
+<img width="640" alt="Settings > Gameplay, with TAG INJECTOR" src="https://github.com/user-attachments/assets/639b884d-1139-4a1c-a107-e4a24b8cde4b" />
+
+<img width="640" alt="The Tag Injector menu: TAG INJECTION, TAG PROFILES and MAPS" src="https://github.com/user-attachments/assets/72a717ad-f69d-4d72-8398-1bfd004ce650" />
+
+It's in **Settings > Gameplay > Tag Injector**. **TAG INJECTION** turns
+it on or off, **TAG PROFILES** lists your profiles, and **MAPS** lists your
+Custom Edition maps.
+
+#### Taking tags out of a map
+
+<img width="640" alt="MAPS: ADD TO, CUSTOM SINGLEPLAYER and CUSTOM MULTIPLAYER" src="https://github.com/user-attachments/assets/0533551b-c1df-4533-a164-d4535abaaf4f" />
+
+In **MAPS**, **ADD TO** picks the profile tags go into (**NEW PROFILE**
+makes one). Open **CUSTOM SINGLEPLAYER** or **CUSTOM MULTIPLAYER**, a
+folder and a map, and the map's tags are listed by kind: weapons, AI,
+equipment, vehicles, bipeds and scenery.
+
+<img width="640" alt="A map's tags by kind" src="https://github.com/user-attachments/assets/c7861247-f169-4141-b19f-d46f88351ae5" />
+
+<img width="640" alt="A map's AI, with one added to the profile" src="https://github.com/user-attachments/assets/c9f85c5a-9927-4b87-8ec9-cdf490ed68d1" />
+
+Press A on a weapon, an enemy or a piece of equipment to add it to the
+profile. Everything it needs comes with it: its model, animations,
+collision, HUD, projectiles, effects, sounds and bitmaps, and for an enemy
+the weapons and equipment it carries. Vehicles, bipeds and scenery are
+listed but can't be added yet.
+
+<img width="640" alt="An enemy's turning model preview" src="https://github.com/user-attachments/assets/0e1c588e-774e-4b9d-b856-d54cd814d149" />
+
+<img width="640" alt="A weapon's turning model preview" src="https://github.com/user-attachments/assets/cb23cbbb-591c-47bd-912d-04c710c7ed3b" />
+
+The frame on the right shows the tag's model turning, with its own colors,
+and under it what the tag needs to work and whether any of it is missing.
+Tags from protected maps, which have no names of their own, are named from
+what they are (`battle rifle`, `elite battle rifle`).
+
+#### Tag profiles
+
+<img width="640" alt="TAG PROFILES, with each profile's size" src="https://github.com/user-attachments/assets/9013e9d1-d1a8-47c5-a09a-0f7a12cd2f53" />
+
+<img width="640" alt="A profile's tags by kind" src="https://github.com/user-attachments/assets/6e4396c0-06f6-40f2-88d7-b19f09ca8dd4" />
+
+A profile keeps its tags on its own, so it plays without the maps they came
+from and can be copied to another device whole. Each one is a folder in
+`tag_injector`, beside `maps`. Tags from the same map share their data, so
+a profile is much smaller than its tags were in their maps.
+
+Left or right turns a tag off, to keep it in the profile but leave it out.
+A on a tag opens its settings:
+
+<img width="640" alt="An enemy's settings" src="https://github.com/user-attachments/assets/522f8084-0be4-4093-8bd7-32f2726dd4bc" />
+
+<img width="640" alt="A weapon's settings" src="https://github.com/user-attachments/assets/ab3ac3c3-8f93-4506-b7ac-01941892c4c6" />
+
+- **NAME:** the name the menus show.
+- **FACTION:** the randomizer pools it joins (Covenant, Flood, human).
+- **COUNTS AS** (an enemy's): the campaign type it plays as, so a brute
+  set to ELITE shows up when the randomizer picks elites.
+- **CLASS** (a weapon's): precision, automatic or power.
+- **CUSTOM TYPE:** groups tags so they can be played together: a brute
+  minor, major and captain all of type BRUTE.
+- **HUD** (a weapon's): its own HUD, or a stock one (the sniper rifle's,
+  the needler's...) with its crosshair, ammo meter and zoom.
+- **REPLACE ORIGINAL:** for a tag that has the same name as one in the
+  campaign (an energy sword, an elite major), puts it in that tag's place
+  everywhere in the level.
+- **REMOVE TAG:** takes it out of the profile.
+
+**DUPLICATE PROFILE** copies a profile, and **DELETE PROFILE** deletes it.
+
+<img width="640" alt="TAG PROFILES with a profile whose tag failed to load, in yellow" src="https://github.com/user-attachments/assets/f7ce8ef2-bfb1-42e5-89a4-130f666c950f" />
+
+<img width="640" alt="A kind of tags with one that failed, listed first" src="https://github.com/user-attachments/assets/37cfbcce-5532-450d-bd9c-f9b4fd13f3ff" />
+
+<img width="640" alt="A failed tag's details, saying why it failed" src="https://github.com/user-attachments/assets/82ad1a63-f7a9-4896-be53-9803389412af" />
+
+A tag the game couldn't play in a level (its data missing, a model or a
+bitmap this build can't draw, no room left in the level) is turned off and
+marked **FAILED**, with the reason in its details. The profile, the kind of
+tag and the tag itself turn yellow so it's easy to find, and the HUD says
+which tags failed a couple of seconds into the level. Turning it on again
+tries it again.
+
+#### Playing a profile
+
+With **TAG INJECTION** on, choosing a campaign level's difficulty first asks
+which profile to play in it, or none, then opens the randomizer's screen.
+The profile's tags join the pools their settings name, and the randomizer
+gets new **TAG INJECTOR** choices:
+
+<img width="640" alt="The randomizer with only the Tag Injector as the source" src="https://github.com/user-attachments/assets/06af9d6e-54a0-4bd6-9de5-6bf11cffc372" />
+
+- **ENEMY POOL**, **WEAPON POOL** and **PICKUP POOL** set to **TAG
+  INJECTOR** play the profile's enemies or weapons alone.
+
+<img width="640" alt="The randomizer with ONE TYPE set to a custom type from the Tag Injector" src="https://github.com/user-attachments/assets/829d693f-0ffe-4c67-8170-ae2c9568ad96" />
+
+- **ONE TYPE**'s **TAG INJECTOR** with a **CUSTOM TYPE** plays a single
+  custom type: a brute-only campaign, say.
+
+Only a level played alone gets the profile's tags: network games, the daily
+challenge and random runs don't, since everyone has to play the same thing.
+
+#### The code
+
+- [port/linux/game/tag_injector.c](port/linux/game/tag_injector.c): the
+  menu's maps and tags, taking tags out, and adding a profile's tags to a
+  level as it loads.
+- [port/linux/game/tag_bundle.c](port/linux/game/tag_bundle.c): a tag and
+  everything it names, packed as a bundle.
+- [port/linux/game/tag_preview.c](port/linux/game/tag_preview.c): the
+  turning model preview, drawn on the processor.
+- [port/linux/src/port_tag_profiles.c](port/linux/src/port_tag_profiles.c)
+  and [port_tag_store.c](port/linux/src/port_tag_store.c): the profiles'
+  folders, `profile.toml`, and the shared pack their data is kept in.
+- [port/linux/game/menu_functions.c](port/linux/game/menu_functions.c): the
+  menu ("port tags" functions) and the profile screen before the
+  randomizer's ("randomizer tag profile").
+- [port/linux/game/randomizer.c](port/linux/game/randomizer.c): the pools
+  the tags join.
+
+How it all works, down to the profile's files and what happens in the
+level, is in [docs/tag_injector.md](docs/tag_injector.md).
+
 ### Skulls
 
 <img width="640" alt="The skulls screen" src="https://github.com/user-attachments/assets/af8fc80e-503c-45a2-a35b-40ddf5ec8268" />
@@ -192,9 +326,15 @@ Assassins, Streaking, Swarm), and new ones made for this port, such as:
 - **Rip & Tear:** melee only, but punches hit twice as hard and you get an
   overshield.
 
+<img width="640" alt="The skulls screen, with RANDOM" src="https://github.com/user-attachments/assets/0096dfaa-0668-457c-b1d4-87f82a456025" />
+
+<img width="640" alt="RANDOM: the fewest and the most skulls, and ROLL" src="https://github.com/user-attachments/assets/e0f0543f-325a-4a26-860b-2258c7efe446" />
+
 **RANDOM** turns on a random set of skulls: choose the fewest and the most
 skulls you want, and **ROLL** turns on a random number between the two,
-picked from the skulls you have. The range is remembered for next time.
+picked from the skulls you have, and turns the rest off. The range is
+remembered for next time (`game.skulls_random_min` and
+`game.skulls_random_max` in `config.toml`).
 
 The help line on the screen describes each skull. On the first start,
 once the game has built the skulls' data, it asks how you want to get them: all unlocked from the start, or
@@ -279,19 +419,9 @@ Your scores are tied to a key made for this install, kept in
 `config.toml` as `community.key`; copy it to another install to keep
 them.
 
-**Tag Injector** takes weapons and AI out of your Custom Edition maps into
-profiles: in **MAPS**, pick singleplayer or multiplayer, a folder of
-`custom_maps`, a map, then its weapons or AI, and add them to a profile
-(**NEW PROFILE** makes one). **TAG PROFILES** lists each profile's tags,
-where they came from and their size; turn one off to keep it but leave it
-out, or open its settings to say which faction, type or weapon class it is
-and give it a custom type (BRUTE). With **TAG INJECTION** on, the randomizer
-adds the profile's weapons and enemies to a campaign level you play alone:
-they join the pools their settings name, a **TAG INJECTOR** pool plays them
-alone, and **ONE TYPE**'s **TAG INJECTOR** plays one custom type, for a
-brute-only campaign. A screen before the randomizer's asks which profile
-to play in that level, or none. See
-[docs/tag_injector.md](docs/tag_injector.md).
+**Tag Injector** turns Custom Edition weapons and enemies in the
+randomizer on or off, and manages their profiles. See
+[Tag Injector](#tag-injector).
 
 Every one of these settings is also in `config.toml`; they are listed in
 "Settings" in [port/linux/README.md](port/linux/README.md#settings).
