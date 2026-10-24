@@ -78,7 +78,9 @@
 	</widget>
 	<widget name="main_menu/difficulty_select/randomizer/op_custom_type" width="512" height="28" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/option_bkds" color="#FF2896FF">
 		<on event="left" run="randomizer custom left"/>
+		<on event="stick_left" run="randomizer custom left"/>
 		<on event="right" run="randomizer custom right"/>
+		<on event="stick_right" run="randomizer custom right"/>
 		<on event="a" run="randomizer custom right"/>
 		<on event="left_mouse" run="mouse emit accept event"/>
 		<child widget="main_menu/difficulty_select/randomizer/custom_type_label"/>
@@ -86,7 +88,7 @@
 	</widget>
 	<widget name="main_menu/difficulty_select/randomizer/custom_type_label" type="text" controller="1" width="300" height="22" string_list="main_menu/difficulty_select/randomizer/labels" string_index="4" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
 	</widget>
-	<widget name="main_menu/difficulty_select/randomizer/custom_type_value" type="text" controller="1" width="236" height="20" font="ui\large_ui" color="#FF2896FF" align="center" text_y="4" text_flags="no_focus_test">
+	<widget name="main_menu/difficulty_select/randomizer/custom_type_value" type="text" controller="1" width="236" height="22" font="ui\large_ui" color="#FF2896FF" align="center" text_y="4" text_flags="no_focus_test">
 	</widget>
 	<widget name="main_menu/difficulty_select/randomizer/op_grunt_rank" width="512" height="28" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/option_bkds" color="#FF2896FF">
 		<child widget="main_menu/difficulty_select/randomizer/grunt_rank_label"/>
@@ -162,7 +164,9 @@
 	</widget>
 	<widget name="main_menu/difficulty_select/randomizer/op_pickup_custom" width="512" height="28" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/option_bkds" color="#FF2896FF">
 		<on event="left" run="randomizer custom left"/>
+		<on event="stick_left" run="randomizer custom left"/>
 		<on event="right" run="randomizer custom right"/>
+		<on event="stick_right" run="randomizer custom right"/>
 		<on event="a" run="randomizer custom right"/>
 		<on event="left_mouse" run="mouse emit accept event"/>
 		<child widget="main_menu/difficulty_select/randomizer/pickup_custom_label"/>
@@ -170,7 +174,7 @@
 	</widget>
 	<widget name="main_menu/difficulty_select/randomizer/pickup_custom_label" type="text" controller="1" width="300" height="22" string_list="main_menu/difficulty_select/randomizer/labels" string_index="13" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
 	</widget>
-	<widget name="main_menu/difficulty_select/randomizer/pickup_custom_value" type="text" controller="1" width="236" height="20" font="ui\large_ui" color="#FF2896FF" align="center" text_y="4" text_flags="no_focus_test">
+	<widget name="main_menu/difficulty_select/randomizer/pickup_custom_value" type="text" controller="1" width="236" height="22" font="ui\large_ui" color="#FF2896FF" align="center" text_y="4" text_flags="no_focus_test">
 	</widget>
 	<widget name="main_menu/difficulty_select/randomizer/op_enemy_weapons" width="512" height="28" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/option_bkds" color="#FF2896FF">
 		<child widget="main_menu/difficulty_select/randomizer/enemy_weapons_label"/>
@@ -201,7 +205,9 @@
 	</widget>
 	<widget name="main_menu/difficulty_select/randomizer/op_weapon_custom" width="512" height="28" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/option_bkds" color="#FF2896FF">
 		<on event="left" run="randomizer custom left"/>
+		<on event="stick_left" run="randomizer custom left"/>
 		<on event="right" run="randomizer custom right"/>
+		<on event="stick_right" run="randomizer custom right"/>
 		<on event="a" run="randomizer custom right"/>
 		<on event="left_mouse" run="mouse emit accept event"/>
 		<child widget="main_menu/difficulty_select/randomizer/weapon_custom_label"/>
@@ -209,7 +215,7 @@
 	</widget>
 	<widget name="main_menu/difficulty_select/randomizer/weapon_custom_label" type="text" controller="1" width="300" height="22" string_list="main_menu/difficulty_select/randomizer/labels" string_index="17" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
 	</widget>
-	<widget name="main_menu/difficulty_select/randomizer/weapon_custom_value" type="text" controller="1" width="236" height="20" font="ui\large_ui" color="#FF2896FF" align="center" text_y="4" text_flags="no_focus_test">
+	<widget name="main_menu/difficulty_select/randomizer/weapon_custom_value" type="text" controller="1" width="236" height="22" font="ui\large_ui" color="#FF2896FF" align="center" text_y="4" text_flags="no_focus_test">
 	</widget>
 	<widget name="main_menu/difficulty_select/randomizer/button_save" type="text" width="128" height="24" bitmap="bitmaps/text_button_background" text="SAVE" font="ui\small_ui" color="#FFFFFFFF" align="center" text_y="2">
 		<on event="a" run="randomizer profile save"/>

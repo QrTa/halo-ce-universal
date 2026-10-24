@@ -1095,7 +1095,9 @@ def _randomizer_value_row(base: str, key: str, index: int) -> list:
     return _widget(f"{base}/op_{key}", [("width", 512), ("height", 28), ("flags", "pass_unhandled_to_focused_child"),
                                         ("bitmap", "bitmaps/option_bkds"), ("color", "#FF2896FF")],
                    ['<on event="left" run="randomizer custom left"/>',
+                    '<on event="stick_left" run="randomizer custom left"/>',
                     '<on event="right" run="randomizer custom right"/>',
+                    '<on event="stick_right" run="randomizer custom right"/>',
                     '<on event="a" run="randomizer custom right"/>',
                     '<on event="left_mouse" run="mouse emit accept event"/>',
                     f'<child widget="{base}/{key}_label"/>',
@@ -1105,7 +1107,10 @@ def _randomizer_value_row(base: str, key: str, index: int) -> list:
                  ("string_list", f"{base}/labels"), ("string_index", index), ("font", "ui\\large_ui"),
                  ("color", "#FF2896FF"), ("text_x", 13), ("text_y", 4)], []) + \
         _widget(f"{base}/{key}_value",
-                [("type", "text"), ("controller", 1), ("width", 236), ("height", 20), ("font", "ui\\large_ui"),
+                # (as tall as the label: the large font's line is drawn only
+                # when its baseline is above the box's bottom, and 20 less
+                # text_y's 4 is too short for it)
+                [("type", "text"), ("controller", 1), ("width", 236), ("height", 22), ("font", "ui\\large_ui"),
                  ("color", "#FF2896FF"), ("align", "center"), ("text_y", 4), ("text_flags", "no_focus_test")], [])
 
 
