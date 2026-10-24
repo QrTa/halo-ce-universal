@@ -119,6 +119,18 @@ lists NEW PROFILE and **VIEW <name> PROFILE**, which shows the profile MAPS
 adds to as A on it in TAG PROFILES does, B from there going back to the list
 it was pressed in (a map's weapons, still open).
 
+Under the details of a map's tag (a kind's list in MAPS) and of a
+profile's (a kind's list in TAG PROFILES), the frame shows the tag's model,
+turning (`port/linux/game/tag_preview.c`): a weapon's, equipment's, a
+vehicle's, a biped's or scenery's own, an actor variant's its unit's, in
+its default pose: the most detailed geometry of each region's first
+permutation, its opaque parts alone (all of them when it has none, as an
+energy sword). The game draws it on the processor, in grey lit from above
+with blue edges, into a picture the frame's `tag_preview` widget shows,
+once the row has been chosen for a moment (a profile's tag is read from its
+bundle). The details above it leave out their blank lines and stop at
+eight. A tag whose model cannot be read shows nothing there.
+
 A weapon without a first-person model or animations cannot be added: its
 map never let a player hold it, and the game reads them as the player holds
 it (a debug build stops). A profile's bundle that would add one, as an AI's

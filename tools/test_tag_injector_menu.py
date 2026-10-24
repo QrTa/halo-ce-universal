@@ -183,3 +183,31 @@ def test_a_profile_s_tag_can_be_renamed():
     assert 'port_tag_profiles_tag_option(profile, tag, "name")' in injector
     assert "tag_injector_tag_display_name(custom_profile" in randomizer
     assert injector.count("menu_names_restore(header);") == 2
+
+
+def test_a_tag_s_model_is_previewed_under_its_details():
+    """tag_preview, under the details, is the widget ui_widget.c draws the
+    preview's picture over (tag_preview.c), of the shape the picture is
+    drawn in; the menu chooses its tag in a map's tags and a profile's, and
+    lets it go as the screen does."""
+    screen = "\n".join(port_settings.settings_files()[SCREEN])
+    header = (ROOT / "port/linux/game/tag_preview.h").read_text()
+    widgets = (ROOT / "source/interface/ui_widget.c").read_text()
+    functions = (ROOT / "port/linux/game/menu_functions.c").read_text()
+    left, top, width, height = port_settings.TAG_PREVIEW_BOUNDS
+    assert (f'name="{port_settings.TAG_INJECTOR}/tag_preview" controller="1" left="{left}" top="{top}" '
+            f'width="{width}" height="{height}" bitmap="blank"') in screen
+    assert f'<child widget="{port_settings.TAG_INJECTOR}/tag_preview"/>' in screen
+    assert f"#define TAG_PREVIEW_WIDTH {width}\n" in header
+    assert f"#define TAG_PREVIEW_HEIGHT {height}\n" in header
+    assert '!strcmp(widget->name, "tag_preview")' in widgets
+    # (within the frame, below the details' lines above it)
+    assert left == 412 and top + height <= 130 + 272
+    lines = int(re.search(r"#define TAG_PREVIEW_DETAILS_LINES (\d+)", functions).group(1))
+    assert 130 + lines * 272 / 13 <= top
+    update = functions[functions.index("static void tags_update(struct widget_instance *list)"):]
+    update = update[:update.index("\n}\n")]
+    assert "tag_preview_map_tag(tags_screen.category, *chosen);" in update
+    assert "tag_preview_profile_tag(tags_screen.profile, tags_profile_tag_of(*chosen));" in update
+    assert "tag_preview_none();" in update
+    assert "tag_injector_map_close();\n\ttag_preview_dispose();" in functions

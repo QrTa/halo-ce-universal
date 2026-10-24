@@ -52,6 +52,11 @@ had it. Its tags of a path another bundle's replaced are that one.
 Adding an actor variant to a profile adds the weapons and equipment it
 names too, each a tag of the profile of its own (its HUD, its replacing).
 
+The menu's preview of a tag (tag_preview.c) is given its model's triangles
+(tag_injector_map_tag_mesh, tag_injector_profile_tag_mesh): the map open's
+read from its tags and its files, a profile's from its bundle's tags and
+file data, Halo PC's parts either way.
+
 Only a machine playing alone adds them (randomizer.c): the tags are this
 machine's, and a network game's machines must have the same tag table.
 */
@@ -60,10 +65,12 @@ machine's, and a network game's machines must have the same tag table.
 
 #include "cseries.h"
 #include "errors.h"
+#include "ai/actor_definitions.h"
 #include "bitmaps/bitmap_group.h"
 #include "bitmaps/bitmaps.h"
 #include "items/weapon_definitions.h"
 #include "models/model_definitions.h"
+#include "objects/object_definitions.h"
 #include "rasterizer/rasterizer_swizzle.h"
 #include "sound/sound_definitions.h"
 #include "tag_files/tag_files.h"
@@ -117,7 +124,32 @@ enum
 	are as much as 16 MB, uncompressed 512s) */
 	SMALL_BITMAP_LIMIT = 256,
 	AUTO_SMALL_CACHE = 0x4000000,
+
+	/* a Custom Edition gbxmodel's part (tag_bundle.c's, and
+	custom_edition_geometry.c's struct custom_edition_model_part) and vertex
+	(struct model_vertex_uncompressed) */
+	GBXMODEL_PART_BYTES = 0x84,
+	GBXMODEL_PART_SHADER_INDEX_OFFSET = 0x04,
+	GBXMODEL_PART_STRIP_TRIANGLE_COUNT_OFFSET = 0x48,
+	GBXMODEL_PART_STRIP_OFFSET_OFFSET = 0x4C,
+	GBXMODEL_PART_VERTEX_COUNT_OFFSET = 0x58,
+	GBXMODEL_PART_VERTEX_OFFSET_OFFSET = 0x64,
+	GBXMODEL_VERTEX_BYTES = 0x44,
+	GBXMODEL_VERTEX_POSITION_OFFSET = 0x00,
+	GBXMODEL_VERTEX_NORMAL_OFFSET = 0x0C,
+	/* a preview's mesh (tag_injector_mesh): the most of it read, as
+	object_mesh.c's, a part's strip at most, the regions read, and the
+	models' detail levels (models.c's NUMBER_OF_DETAIL_LEVELS_PER_MODEL) */
+	PREVIEW_MAXIMUM_VERTICES = 16384,
+	PREVIEW_MAXIMUM_TRIANGLES = 24576,
+	PREVIEW_MAXIMUM_STRIP_TRIANGLES = 0x10000,
+	PREVIEW_MAXIMUM_REGIONS = 32,
+	PREVIEW_DETAIL_LEVELS = 5,
 };
+
+/* the farthest from its origin a preview's vertex is taken to be (one
+farther is taken to be at it: a vertex that is not a number) */
+#define PREVIEW_MAXIMUM_COORDINATE 1000.0f
 
 /* the campaign's weapon HUDs (tag_injector_stock_hud_*): the "hud"
 setting's value, the HUD's path, and the first campaign map that has it */
@@ -175,16 +207,50 @@ struct injector_tag_instance
 	unsigned long unused[2];
 };
 
-/* a Custom Edition map's tags' header, as tag_bundle.c has it: the table */
+/* a Custom Edition map's tags' header, as tag_bundle.c has it: the table,
+and where its models' vertices and strips are in its files (a part's
+vertices at its vertex offset in the model data, its strip at its strip
+offset past the model data's index data offset) */
 struct injector_map_header
 {
 	struct injector_tag_instance *instances;
 	long scenario_tag_index;
 	unsigned long checksum;
 	long tag_count;
+	long model_part_count;
+	unsigned long model_data_offset;
+	long model_part_count_again;
+	unsigned long model_index_data_offset;
+	unsigned long model_data_size;
+	unsigned long signature;
 };
 
+/* a gbxmodel's shader, its geometry, and its geometry's part (read by its
+offsets: GBXMODEL_PART_*) */
+struct preview_model_shader
+{
+	struct tag_reference shader;
+	short permutation_index;
+	word pad;
+	long unused[3];
+};
+
+struct preview_model_geometry
+{
+	byte reserved[0x24];
+	struct tag_block parts;
+};
+
+struct preview_model_part
+{
+	byte bytes[GBXMODEL_PART_BYTES];
+};
+
+typedef char verify_preview_model_shader_size[sizeof(struct preview_model_shader) == 0x20 ? 1 : -1];
+typedef char verify_preview_model_geometry_size[sizeof(struct preview_model_geometry) == 0x30 ? 1 : -1];
+
 typedef char verify_injector_tag_instance_size[sizeof(struct injector_tag_instance) == 0x20 ? 1 : -1];
+typedef char verify_injector_map_header_size[sizeof(struct injector_map_header) == 0x28 ? 1 : -1];
 
 /* a map of the menu's list */
 struct injector_map
@@ -1469,6 +1535,323 @@ boolean tag_injector_tag_add(
 	free(indices);
 
 	return added;
+}
+
+/* ---------- the preview's (tag_preview.c) */
+
+/* where a preview's tags are: the map open's (its tags by their tag
+indices, its models' vertices and strips in its files), or a profile's
+bundle (its tags by the bundle's indices, its vertices and strips in its
+file data) */
+struct preview_source
+{
+	struct injected_bundle *bundle;
+	struct tag_bundle_source map;
+};
+
+/* the root of the tag a reference (or a tag index) names, and its group;
+NULL for none */
+static byte *preview_tag(
+	struct preview_source const *source,
+	long index,
+	unsigned long *group_tag)
+{
+	if (source->bundle)
+	{
+		struct tag_bundle_loaded const *loaded = &source->bundle->loaded;
+
+		if (index < 0 || index >= loaded->tag_count)
+			return NULL;
+		*group_tag = bundle_tag_group(loaded, index);
+		return bundle_tag_root(loaded, index);
+	}
+	else
+	{
+		struct injector_map_header const *header = tag_injector_menu.header;
+		long absolute = (long)(unsigned short)index;
+
+		if (!header || index == NONE || absolute >= header->tag_count || header->instances[absolute].tag_index != index)
+			return NULL;
+		*group_tag = (unsigned long)header->instances[absolute].group_tag;
+		return header->instances[absolute].base_address;
+	}
+}
+
+/* reads `size` bytes of a gbxmodel part's vertices (strip FALSE) or strip,
+at its offset of them */
+static boolean preview_read(
+	struct preview_source const *source,
+	boolean strip,
+	unsigned long offset,
+	unsigned long size,
+	void *buffer)
+{
+	struct injector_map_header const *header = tag_injector_menu.header;
+	unsigned long start;
+	unsigned long end;
+
+	if (source->bundle)
+		return bundle_file_read(source->bundle, offset, size, buffer);
+	if (!header || !source->map.read)
+		return FALSE;
+	/* (the bounds of the vertices and of the strips, as tag_bundle.c's) */
+	start = strip ? header->model_index_data_offset : 0;
+	end = strip ? header->model_data_size : header->model_index_data_offset;
+	if (start > end || end > header->model_data_size || offset > end - start || size > end - start - offset)
+		return FALSE;
+	return source->map.read(source->map.context, header->model_data_offset + start + offset, size, buffer);
+}
+
+/* whether a model's shader is opaque: a model's or an environment's (not
+glass, nor a transparent one's effects) */
+static boolean preview_shader_opaque(
+	struct preview_source const *source,
+	struct model const *model,
+	short shader_index)
+{
+	struct preview_model_shader const *reference;
+	unsigned long group_tag = 0;
+
+	if (shader_index < 0 || shader_index >= model->shaders.count)
+		return FALSE;
+	reference = TAG_BLOCK_GET_ELEMENT(&model->shaders, shader_index, struct preview_model_shader);
+	if (!preview_tag(source, reference->shader.index, &group_tag))
+		return FALSE;
+	return group_tag == 'soso' || group_tag == 'senv';
+}
+
+/* a gbxmodel part's triangles and vertices onto the mesh (none when it
+cannot be read, or there is no room for them) */
+static void preview_mesh_part(
+	struct preview_source const *source,
+	struct model const *model,
+	byte const *part,
+	boolean opaque_only,
+	struct tag_injector_mesh *mesh)
+{
+	short shader_index;
+	long strip_triangle_count = (long)read_unsigned_long(part + GBXMODEL_PART_STRIP_TRIANGLE_COUNT_OFFSET);
+	long vertex_count = (long)read_unsigned_long(part + GBXMODEL_PART_VERTEX_COUNT_OFFSET);
+	long first_vertex = mesh->vertex_count;
+	long index_count = strip_triangle_count + 2;
+	byte *vertices;
+	unsigned short *strip;
+	long index;
+
+	memcpy(&shader_index, part + GBXMODEL_PART_SHADER_INDEX_OFFSET, sizeof(shader_index));
+	if ((opaque_only && !preview_shader_opaque(source, model, shader_index)) ||
+		vertex_count <= 0 || vertex_count > PREVIEW_MAXIMUM_VERTICES - mesh->vertex_count ||
+		strip_triangle_count <= 0 || strip_triangle_count > PREVIEW_MAXIMUM_STRIP_TRIANGLES)
+	{
+		return;
+	}
+	vertices = malloc((unsigned long)vertex_count * GBXMODEL_VERTEX_BYTES);
+	strip = malloc((unsigned long)index_count * sizeof(unsigned short));
+	if (vertices && strip &&
+		preview_read(source, FALSE, read_unsigned_long(part + GBXMODEL_PART_VERTEX_OFFSET_OFFSET),
+			(unsigned long)vertex_count * GBXMODEL_VERTEX_BYTES, vertices) &&
+		preview_read(source, TRUE, read_unsigned_long(part + GBXMODEL_PART_STRIP_OFFSET_OFFSET),
+			(unsigned long)index_count * sizeof(unsigned short), strip))
+	{
+		for (index = 0; index < vertex_count; index++)
+		{
+			float *position = mesh->positions[first_vertex + index];
+			float *normal = mesh->normals[first_vertex + index];
+			short axis;
+
+			memcpy(position, vertices + index * GBXMODEL_VERTEX_BYTES + GBXMODEL_VERTEX_POSITION_OFFSET,
+				3 * sizeof(float));
+			memcpy(normal, vertices + index * GBXMODEL_VERTEX_BYTES + GBXMODEL_VERTEX_NORMAL_OFFSET, 3 * sizeof(float));
+			/* (a NaN fails every comparison) */
+			for (axis = 0; axis < 3; axis++)
+			{
+				if (!(position[axis] >= -PREVIEW_MAXIMUM_COORDINATE && position[axis] <= PREVIEW_MAXIMUM_COORDINATE))
+					position[axis] = 0.0f;
+				if (!(normal[axis] >= -2.0f && normal[axis] <= 2.0f))
+					normal[axis] = 0.0f;
+			}
+		}
+		mesh->vertex_count += vertex_count;
+		/* its strip's triangles (turning, its degenerate ones left out) */
+		for (index = 0; index + 2 < index_count && mesh->triangle_count < PREVIEW_MAXIMUM_TRIANGLES; index++)
+		{
+			unsigned short a = strip[index];
+			unsigned short b = strip[index + 1];
+			unsigned short c = strip[index + 2];
+			unsigned short *out = mesh->triangles[mesh->triangle_count];
+
+			if (a == b || b == c || a == c || a >= vertex_count || b >= vertex_count || c >= vertex_count)
+				continue;
+			/* (a strip's odd triangles turn the other way) */
+			if (index & 1)
+			{
+				unsigned short swap = b;
+
+				b = c;
+				c = swap;
+			}
+			out[0] = (unsigned short)(first_vertex + a);
+			out[1] = (unsigned short)(first_vertex + b);
+			out[2] = (unsigned short)(first_vertex + c);
+			mesh->triangle_count++;
+		}
+	}
+	if (vertices)
+		free(vertices);
+	if (strip)
+		free(strip);
+}
+
+/* the mesh of a tag of a preview's source (tag_injector_mesh's) */
+static boolean preview_mesh_build(
+	struct preview_source const *source,
+	byte *root,
+	unsigned long group_tag,
+	struct tag_injector_mesh *mesh)
+{
+	struct object_definition const *object;
+	struct model const *model;
+	short pass;
+
+	if (root && group_tag == ACTOR_VARIANT_GROUP_TAG)
+		root = preview_tag(source, ((struct actor_variant_definition const *)root)->unit_reference.index, &group_tag);
+	if (!root || (group_tag != WEAPON_DEFINITION_TAG && group_tag != EQUIPMENT_GROUP_TAG && group_tag != 'vehi' &&
+		group_tag != 'bipd' && group_tag != 'scen'))
+	{
+		return FALSE;
+	}
+	object = (struct object_definition const *)root;
+	model = (struct model const *)preview_tag(source, object->object.model.index, &group_tag);
+	if (!model || group_tag != GBXMODEL_GROUP_TAG || model->regions.count <= 0 || model->geometries.count <= 0)
+		return FALSE;
+	mesh->positions = malloc(PREVIEW_MAXIMUM_VERTICES * sizeof(*mesh->positions));
+	mesh->normals = malloc(PREVIEW_MAXIMUM_VERTICES * sizeof(*mesh->normals));
+	mesh->triangles = malloc(PREVIEW_MAXIMUM_TRIANGLES * sizeof(*mesh->triangles));
+	if (!mesh->positions || !mesh->normals || !mesh->triangles)
+		return FALSE;
+	/* (its opaque parts, else all of them: an energy sword's are all
+	transparent) */
+	for (pass = 0; pass < 2 && !mesh->triangle_count; pass++)
+	{
+		short region_index;
+
+		mesh->vertex_count = 0;
+		for (region_index = 0; region_index < MIN(model->regions.count, PREVIEW_MAXIMUM_REGIONS); region_index++)
+		{
+			struct model_region const *region = TAG_BLOCK_GET_ELEMENT(&model->regions, region_index,
+				struct model_region);
+			struct model_region_permutation const *permutation = NULL;
+			short permutation_index;
+			short geometry_index = NONE;
+			short level;
+			long part_index;
+			struct preview_model_geometry const *geometry;
+
+			/* (its first permutation an object may be given, else its first:
+			the others are its damaged ones, and the like) */
+			for (permutation_index = 0; permutation_index < region->permutations.count; permutation_index++)
+			{
+				struct model_region_permutation const *candidate = TAG_BLOCK_GET_ELEMENT(&region->permutations,
+					permutation_index, struct model_region_permutation);
+
+				if (!permutation)
+					permutation = candidate;
+				if (!TEST_FLAG(candidate->flags, _model_region_permutation_cannot_be_chosen_randomly_bit))
+				{
+					permutation = candidate;
+					break;
+				}
+			}
+			if (!permutation)
+				continue;
+			/* (its most detailed geometry) */
+			for (level = PREVIEW_DETAIL_LEVELS - 1;
+				level >= 0 && (geometry_index < 0 || geometry_index >= model->geometries.count); level--)
+			{
+				geometry_index = permutation->geometry_indices[level];
+			}
+			if (geometry_index < 0 || geometry_index >= model->geometries.count)
+				continue;
+			geometry = TAG_BLOCK_GET_ELEMENT(&model->geometries, geometry_index, struct preview_model_geometry);
+			for (part_index = 0; part_index < geometry->parts.count; part_index++)
+			{
+				preview_mesh_part(source, model,
+					(byte const *)TAG_BLOCK_GET_ELEMENT(&geometry->parts, part_index, struct preview_model_part),
+					pass == 0, mesh);
+			}
+		}
+	}
+
+	return mesh->triangle_count > 0;
+}
+
+boolean tag_injector_map_tag_mesh(
+	short category,
+	long index,
+	struct tag_injector_mesh *mesh)
+{
+	struct preview_source source;
+	long absolute = menu_tag(category, index);
+	boolean built = FALSE;
+
+	memset(mesh, 0, sizeof(*mesh));
+	memset(&source, 0, sizeof(source));
+	if (absolute != NONE)
+	{
+		custom_edition_cache_bundle_source(&source.map);
+		built = preview_mesh_build(&source, tag_injector_menu.header->instances[absolute].base_address,
+			(unsigned long)tag_injector_menu.header->instances[absolute].group_tag, mesh);
+	}
+	if (!built)
+		tag_injector_mesh_free(mesh);
+
+	return built;
+}
+
+boolean tag_injector_profile_tag_mesh(
+	long profile,
+	long tag,
+	struct tag_injector_mesh *mesh)
+{
+	struct preview_source source;
+	struct injected_bundle bundle;
+	unsigned long total = 0;
+	boolean built = FALSE;
+
+	memset(mesh, 0, sizeof(*mesh));
+	memset(&source, 0, sizeof(source));
+	if (profile < 0 || profile >= port_tag_profiles_count() || tag < 0 || tag >= port_tag_profiles_tag_count(profile))
+		return FALSE;
+	/* (its tags read, its file data read from its file as it is wanted) */
+	if (level_bundle_read(profile, tag, &bundle, &total) && bundle.loaded.tag_count > 0)
+	{
+		source.bundle = &bundle;
+		built = preview_mesh_build(&source, bundle_tag_root(&bundle.loaded, 0), bundle_tag_group(&bundle.loaded, 0),
+			mesh);
+	}
+	if (bundle.bytes)
+		free(bundle.bytes);
+	if (bundle.datums)
+		free(bundle.datums);
+	if (bundle.handle != NONE)
+		port_tag_profiles_bundle_close(bundle.handle);
+	if (!built)
+		tag_injector_mesh_free(mesh);
+
+	return built;
+}
+
+void tag_injector_mesh_free(
+	struct tag_injector_mesh *mesh)
+{
+	/* (the game's free does not take NULL) */
+	if (mesh->positions)
+		free(mesh->positions);
+	if (mesh->normals)
+		free(mesh->normals);
+	if (mesh->triangles)
+		free(mesh->triangles);
+	memset(mesh, 0, sizeof(*mesh));
 }
 
 long tag_injector_profiles_unstored(

@@ -133,10 +133,13 @@
 	<widget name="main_menu/settings_select/player_setup/player_profile_edit/gameplay/tag_injector/tag_details" width="640" height="480">
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/gameplay/tag_injector/tag_details_name"/>
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/gameplay/tag_injector/tag_details_text"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/gameplay/tag_injector/tag_preview"/>
 	</widget>
 	<widget name="main_menu/settings_select/player_setup/player_profile_edit/gameplay/tag_injector/tag_details_name" type="text" controller="1" left="412" top="84" width="200" height="44" font="ui\large_ui" color="#FFFFFFFF">
 	</widget>
 	<widget name="main_menu/settings_select/player_setup/player_profile_edit/gameplay/tag_injector/tag_details_text" type="text" controller="1" left="412" top="130" width="200" height="272" font="ui\small_ui" color="#FF2896FF">
+	</widget>
+	<widget name="main_menu/settings_select/player_setup/player_profile_edit/gameplay/tag_injector/tag_preview" controller="1" left="412" top="310" width="200" height="88" bitmap="blank">
 	</widget>
 	<widget name="main_menu/settings_select/player_setup/player_profile_edit/gameplay/tag_injector/button_bar" type="column_list" width="640" height="28" flags="pass_unhandled_to_focused_child left_right_tabs_items">
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/gameplay/tag_injector/button_new" y="1"/>

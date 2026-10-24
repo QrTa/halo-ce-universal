@@ -124,6 +124,34 @@ boolean tag_injector_tag_add(
 	char *reason,
 	long reason_size);
 
+/* A tag's model, for the menu's preview of it (tag_preview.c): the triangles
+of the most detailed geometry of the first permutation of each of its
+regions, in the model's space (its default pose), opaque parts alone (all
+of them when it has none). A weapon's, equipment's, a vehicle's, a biped's
+or scenery's own model, an actor variant's its unit's. */
+struct tag_injector_mesh
+{
+	long vertex_count;
+	long triangle_count;
+	float (*positions)[3];
+	float (*normals)[3];
+	unsigned short (*triangles)[3];
+};
+
+/* The mesh of the open map's tag of a category, or of a profile's tag (read
+from its bundle); FALSE when it has none this build reads (the mesh is then
+empty). tag_injector_mesh_free lets either go. */
+boolean tag_injector_map_tag_mesh(
+	short category,
+	long index,
+	struct tag_injector_mesh *mesh);
+boolean tag_injector_profile_tag_mesh(
+	long profile,
+	long tag,
+	struct tag_injector_mesh *mesh);
+void tag_injector_mesh_free(
+	struct tag_injector_mesh *mesh);
+
 /* How many of the profiles' tags are bundles as they were taken out (an
 earlier build kept them so), which the menu stores as port_tag_store.c keeps
 tags (a tag file each, and what they share once in the profile's pack); and

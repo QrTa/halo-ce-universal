@@ -51,7 +51,8 @@ calls them from PC_MENU_FUNCTION_BASE on):
   the skulls found and the question of how they are had;
 - Settings > Gameplay > Tag Injector (tools/port_settings.py), laid out as
   the Mods screen is: "port tags update" shows its rows and the details of
-  the one chosen, "port tags choose" (A) goes down a list (the profiles, a
+  the one chosen (under a map's tag's or a profile's, its model, turning:
+  tag_preview.c), "port tags choose" (A) goes down a list (the profiles, a
   profile's kinds of tags, a kind's tags, a tag's settings; the maps'
   kinds, folders and maps, a map's kinds of tags, a kind's tags), changes a
   setting, or adds the tag
@@ -116,6 +117,7 @@ their handlers open opens.
 #include "custom_edition_cache.h"
 #include "custom_edition_maps.h"
 #include "tag_injector.h"
+#include "tag_preview.h"
 #include "campaign_score.h"
 #include "community.h"
 #include "../src/community_net.h"
@@ -5279,6 +5281,9 @@ menus show it by: a protected map's tags have names made for them. */
 #define TAG_PROFILE_NAME 24
 /* how long the word of the last thing done stays at the details' top */
 #define TAG_MESSAGE_MILLISECONDS 5000
+/* the details' lines above the preview of a tag's model (tag_preview.c),
+which a map's tags and a profile's have under them */
+#define TAG_PREVIEW_DETAILS_LINES 8
 
 /* the lists */
 enum
@@ -6078,6 +6083,7 @@ static boolean tags_screen_reset(boolean opening)
 	short list;
 
 	tag_injector_map_close();
+	tag_preview_dispose();
 	tags_screen.list = _tags_list_top;
 	tags_screen.tag = NONE;
 	tags_screen.map = NONE;
@@ -6788,6 +6794,15 @@ static void tags_store_step(void)
 	tags_screen.shown[0] = 0;
 }
 
+/* a text's blank lines (" " between its parts) taken out */
+static void tags_text_close_up(char *text)
+{
+	char *blank;
+
+	while ((blank = strstr(text, "\n \n")) != NULL)
+		memmove(blank + 1, blank + 3, strlen(blank + 3) + 1);
+}
+
 /* "port tags update": the rows (the list moving on at its ends while there
 are more past them), each one's name (cut short where it is too long) and
 state, and the details of the one chosen, the last thing done's word above
@@ -6801,6 +6816,7 @@ static void tags_update(struct widget_instance *list)
 	short focused_index = focused ? (short)(atoi(focused->name + 7) - 1) : NONE;
 	short *first = &tags_screen.first[tags_screen.list];
 	short *chosen = &tags_screen.chosen[tags_screen.list];
+	boolean previewed;
 
 	tags_store_step();
 	/* (a profile made or deleted elsewhere, or by this screen; a tag taken
@@ -6877,6 +6893,15 @@ static void tags_update(struct widget_instance *list)
 	}
 	if (tags_screen.message[0] && system_milliseconds() - tags_screen.message_time > TAG_MESSAGE_MILLISECONDS)
 		tags_screen.message[0] = 0;
+	/* (the tag chosen's model under its details: a map's tag, or a
+	profile's) */
+	previewed = count && (tags_screen.list == _tags_list_tags || tags_screen.list == _tags_list_profile);
+	if (previewed && tags_screen.list == _tags_list_tags)
+		tag_preview_map_tag(tags_screen.category, *chosen);
+	else if (previewed)
+		tag_preview_profile_tag(tags_screen.profile, tags_profile_tag_of(*chosen));
+	else
+		tag_preview_none();
 	if (details)
 	{
 		char title[MOD_DETAILS_LENGTH];
@@ -6885,6 +6910,7 @@ static void tags_update(struct widget_instance *list)
 		char shown[sizeof(tags_screen.shown)];
 		wchar_t wide[MOD_DETAILS_LENGTH];
 		short line = 0;
+		short lines = previewed ? TAG_PREVIEW_DETAILS_LINES : MOD_DETAILS_LINES;
 
 		/* (made again only when what they show, or its fonts, change) */
 		snprintf(shown, sizeof(shown), "%d %d %d %d %d %ld %ld %d %s %lu %d %ld %ld %s %ld %d %ld %d", tags_screen.list,
@@ -6903,13 +6929,16 @@ static void tags_update(struct widget_instance *list)
 			mods_wide_text(wrapped, wide, NUMBEROF(wide));
 			text_set_length(named(details, "tag_details_name", 0), wide, NUMBEROF(wide));
 			wrapped[0] = 0;
+			/* (above a preview, without the blank lines between its parts) */
+			if (previewed)
+				tags_text_close_up(text);
 			if (tags_screen.message[0])
 			{
-				line = mods_wrap(tags_screen.message, wrapped, sizeof(wrapped), _mod_details_text, MOD_DETAILS_LINES,
-					line);
-				line = mods_wrap(" ", wrapped, sizeof(wrapped), _mod_details_text, MOD_DETAILS_LINES, line);
+				line = mods_wrap(tags_screen.message, wrapped, sizeof(wrapped), _mod_details_text, lines, line);
+				if (!previewed)
+					line = mods_wrap(" ", wrapped, sizeof(wrapped), _mod_details_text, lines, line);
 			}
-			mods_wrap(text, wrapped, sizeof(wrapped), _mod_details_text, MOD_DETAILS_LINES, line);
+			mods_wrap(text, wrapped, sizeof(wrapped), _mod_details_text, lines, line);
 			mods_wide_text(wrapped, wide, NUMBEROF(wide));
 			text_set_length(named(details, "tag_details_text", 0), wide, NUMBEROF(wide));
 		}
