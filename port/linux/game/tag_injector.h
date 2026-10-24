@@ -245,9 +245,8 @@ boolean tag_injector_profile_store_next(
 /* ---------- the randomizer's (randomizer.c) */
 
 /* The profile the randomizer plays: game.tag_injection's on, and the one
-profile there is, or of more the one game.randomizer_tag_profile names (the
-randomizer's profile screen chooses it), has a tag on. Its index, else
-NONE. */
+game.randomizer_tag_profile names (the randomizer's profile screen chooses
+it) has a tag on. Its index, else NONE. */
 long tag_injector_profile_playable(
 	void);
 /* how many tags of a profile are on: of a group, or of all (0) */

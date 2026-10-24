@@ -33,17 +33,22 @@ calls them from PC_MENU_FUNCTION_BASE on):
 - the campaign randomizer's screen (tools/port_settings.py), after a
   campaign level's difficulty when game.randomizer is on: "randomizer
   profile save" asks for a name and writes that setup beside config.toml,
-  "randomizer profile load" copies a saved one into the setup shown,
+  "randomizer profile load" copies a saved one into the setup shown (with
+  "randomizer profiles delete mode", DELETE, on: marks it, then deletes it,
+  as "randomizer profile delete", X, does; "randomizer profiles init" turns
+  it off as Load's screen opens),
   "randomizer start" writes the setup and starts the level, and
   "randomizer profiles update" shows the names saved; "randomizer custom
   left" and "right" choose the Tag Injector profile's custom type of a
-  TAG INJECTOR row; before it, with the Tag Injector on and more than one
-  profile, "randomizer tag profiles update" lists them and "randomizer tag
+  TAG INJECTOR row; before it, with the Tag Injector on and a profile,
+  "randomizer tag profiles update" lists them and "randomizer tag
   profile choose" plays one (or none) and opens it;
 - the skulls screen (tools/port_settings.py), after a campaign level's
   difficulty (and the randomizer's screen) when game.skulls is on: "skull
   toggle" turns the skull of the item chosen on or off, "skulls toggle all"
-  turns those had all off when any is on, else all on, "skulls start"
+  turns those had all off when any is on, else all on, "skulls random
+  roll" (RANDOM's screen's ROLL) turns on a number of those had between
+  the fewest and the most chosen, at random, and the rest off, "skulls start"
   writes game.skulls_active and starts the level,
   "skulls up", "down", "left" and "right" move through its grid, and
   "skulls screen update" ticks them and shows the chosen one's help;
@@ -146,6 +151,7 @@ int config_boolean(char const *name);
 void config_directory(char *path, unsigned int size);
 int config_default(char const *name, char *text, unsigned int size);
 char const *config_string(char const *name);
+long config_integer(const char *name);
 void platform_display_apply(void);
 void platform_binding_capture_begin(void);
 int platform_binding_capture_poll(int *input);
@@ -1959,7 +1965,9 @@ static struct
 	long applied;
 	/* the row X was pressed on once, which a second X deletes (NONE) */
 	short deleting;
-} randomizer_menu = { { { { 0 } } }, 0, FALSE, { 0 }, 0, NONE };
+	/* Load's DELETE on: A on a row is X (a touch screen has no X) */
+	boolean delete_mode;
+} randomizer_menu = { { { { 0 } } }, 0, FALSE, { 0 }, 0, NONE, FALSE };
 
 /* the level the randomizer's and the skulls' screens are before: its map,
 difficulty, and the controller that chose it (difficulty_start) */
@@ -2231,25 +2239,8 @@ static boolean randomizer_profile_save_event(struct widget_instance *widget)
 	return TRUE;
 }
 
-/* "randomizer profile load" (a row of Load's screen): that setup, which
-the randomizer screen shows on going back to it */
-static boolean randomizer_profile_load_event(struct widget_instance *widget)
-{
-	short index = randomizer_focused_profile(widget);
-
-	randomizer_profiles_read();
-	if (index == NONE || index >= randomizer_menu.count)
-	{
-		error(_error_silent, "randomizer: no profile to load (%d saved)", randomizer_menu.count);
-		return campaign_fail();
-	}
-	error(_error_silent, "randomizer: loaded profile %s", randomizer_menu.profiles[index].name);
-
-	return randomizer_profile_apply(index);
-}
-
-/* "randomizer profile delete" (X on a row of Load's screen): the first marks
-the setup, the second deletes it */
+/* "randomizer profile delete" (X on a row of Load's screen, or A with
+DELETE on): the first marks the setup, the second deletes it */
 static boolean randomizer_profile_delete_event(struct widget_instance *widget)
 {
 	short index = randomizer_focused_profile(widget);
@@ -2260,6 +2251,7 @@ static boolean randomizer_profile_delete_event(struct widget_instance *widget)
 	if (randomizer_menu.deleting != index)
 	{
 		randomizer_menu.deleting = index;
+		ui_play_audio_feedback_sound(SOUND_CURSOR);
 		return TRUE;
 	}
 	randomizer_menu.deleting = NONE;
@@ -2267,8 +2259,54 @@ static boolean randomizer_profile_delete_event(struct widget_instance *widget)
 	memmove(&randomizer_menu.profiles[index], &randomizer_menu.profiles[index + 1],
 		sizeof(randomizer_menu.profiles[0]) * (unsigned long)(randomizer_menu.count - index - 1));
 	randomizer_menu.count--;
+	/* (none left to delete: DELETE off) */
+	if (!randomizer_menu.count)
+		randomizer_menu.delete_mode = FALSE;
+	ui_play_audio_feedback_sound(SOUND_BACK);
 
 	return randomizer_profiles_write();
+}
+
+/* "randomizer profile load" (a row of Load's screen): that setup, which
+the randomizer screen shows on going back to it; with DELETE on, the row
+marked or deleted instead, and no going back */
+static boolean randomizer_profile_load_event(struct widget_instance *widget, boolean *widget_deleted)
+{
+	short index = randomizer_focused_profile(widget);
+
+	if (randomizer_menu.delete_mode)
+		return randomizer_profile_delete_event(widget);
+	randomizer_profiles_read();
+	if (index == NONE || index >= randomizer_menu.count)
+	{
+		error(_error_silent, "randomizer: no profile to load (%d saved)", randomizer_menu.count);
+		return campaign_fail();
+	}
+	error(_error_silent, "randomizer: loaded profile %s", randomizer_menu.profiles[index].name);
+	if (!randomizer_profile_apply(index))
+		return FALSE;
+	ui_play_audio_feedback_sound(SOUND_BACK);
+	ui_widget_port_go_back(widget);
+	*widget_deleted = TRUE;
+
+	return TRUE;
+}
+
+/* "randomizer profiles delete mode" (Load's DELETE, then DONE): A on a row
+deletes it (twice) or uses it */
+static boolean randomizer_profiles_delete_mode(void)
+{
+	randomizer_profiles_read();
+	if (!randomizer_menu.delete_mode && !randomizer_menu.count)
+	{
+		ui_play_audio_feedback_sound(SOUND_ERROR);
+		return TRUE;
+	}
+	randomizer_menu.delete_mode = !randomizer_menu.delete_mode;
+	randomizer_menu.deleting = NONE;
+	ui_play_audio_feedback_sound(randomizer_menu.delete_mode ? SOUND_FORWARD : SOUND_BACK);
+
+	return TRUE;
 }
 
 /* "randomizer start": the setup shown, then the skulls' screen (with
@@ -2313,13 +2351,21 @@ void randomizer_profiles_poll(void)
 }
 
 /* "randomizer profiles update" (Load's screen): the names saved, or that
-there are none */
+there are none, DELETE's words, and the help of what A does */
 static void randomizer_profiles_update(struct widget_instance *list)
 {
 	short index;
-	static wchar_t const delete_note[] = L"  - X AGAIN TO DELETE";
+	wchar_t const *delete_note = randomizer_menu.delete_mode ? L"  - A AGAIN TO DELETE" : L"  - X AGAIN TO DELETE";
+	struct widget_instance *help = list->parameters.list.extended_description;
 
 	randomizer_profiles_read();
+	text_set(named(list, "profiles_button_delete", 0), randomizer_menu.delete_mode ? L"DONE" : L"DELETE");
+	if (help)
+	{
+		long_text_set(help, randomizer_menu.delete_mode ?
+			L"A on a setup marks it, A again deletes it.\nDONE goes back to using them." :
+			L"A uses the setup chosen. DELETE (or X twice) deletes\none. No setup is saved until Save names one.");
+	}
 	/* (the mark goes with the focus) */
 	if (randomizer_menu.deleting != NONE &&
 		randomizer_profile_index(list->focused_child) != randomizer_menu.deleting)
@@ -2328,7 +2374,7 @@ static void randomizer_profiles_update(struct widget_instance *list)
 	{
 		char name[16];
 		struct widget_instance *row;
-		wchar_t text[RANDOMIZER_PROFILE_NAME + NUMBEROF(delete_note) + 1];
+		wchar_t text[RANDOMIZER_PROFILE_NAME + 24];
 		short character;
 
 		snprintf(name, sizeof(name), "profile_%d", index);
@@ -2678,8 +2724,8 @@ static boolean randomizer_custom_step(struct widget_instance *widget, short step
 }
 
 /* the screen before the randomizer's (tools/port_settings.py's
-_randomizer_tag_profiles_screen), with the Tag Injector on and more than
-one profile: NONE, then the profiles, a list at a time from this place */
+_randomizer_tag_profiles_screen), with the Tag Injector on and a profile:
+NONE, then the profiles, a list at a time from this place */
 #define RANDOMIZER_TAG_PROFILE_ROWS 9
 #define RANDOMIZER_TAG_PROFILE_SCREEN "pc\\main_menu\\difficulty_select\\randomizer\\tag_profile_screen"
 #define RANDOMIZER_SCREEN "pc\\main_menu\\difficulty_select\\randomizer\\randomizer_screen"
@@ -2893,12 +2939,71 @@ static boolean skull_toggle(struct widget_instance *widget)
 	return TRUE;
 }
 
+/* "skulls random roll" (ROLL, on RANDOM's screen over the skulls screen):
+the fewest and the most chosen written, then a number between them (of as
+many as are had, at most) of the skulls had on, each at random, and the rest
+off; back to the skulls screen, which shows them */
+static boolean skulls_random_roll(struct widget_instance *widget, boolean *widget_deleted)
+{
+	static unsigned long state;
+	struct skull_set unlocked = skulls_unlocked_set();
+	struct skull_set chosen = skull_set_none();
+	int had[NUMBER_OF_SKULLS];
+	long count = 0;
+	long fewest, most, wanted, index;
+	int skull;
+
+	settings_each(screen_of(widget), setting_changed_save);
+	fewest = config_integer("game.skulls_random_min");
+	most = config_integer("game.skulls_random_max");
+	for (skull = 0; skull < NUMBER_OF_SKULLS; skull++)
+	{
+		if (skull_set_has(&unlocked, skull))
+			had[count++] = skull;
+	}
+	/* (the fewer of the two first, neither more than are had) */
+	if (fewest > most)
+	{
+		long swap = fewest;
+
+		fewest = most;
+		most = swap;
+	}
+	fewest = PIN(fewest, 0, count);
+	most = PIN(most, 0, count);
+	/* (xorshift, stirred by the clock each roll) */
+	state ^= system_milliseconds() * 2654435761UL;
+	if (!(state & 0xFFFFFFFFUL))
+		state = 1;
+#define SKULLS_RANDOM_NEXT(limit) \
+	(state ^= (state << 13) & 0xFFFFFFFFUL, state ^= (state & 0xFFFFFFFFUL) >> 17, \
+	state ^= (state << 5) & 0xFFFFFFFFUL, (long)((state & 0xFFFFFFFFUL) % (unsigned long)(limit)))
+	wanted = fewest + SKULLS_RANDOM_NEXT(most - fewest + 1);
+	/* (the first wanted of those had, shuffled) */
+	for (index = 0; index < wanted; index++)
+	{
+		long other = index + SKULLS_RANDOM_NEXT(count - index);
+		int swap = had[index];
+
+		had[index] = had[other];
+		had[other] = swap;
+		skull_set_add(&chosen, had[index]);
+	}
+#undef SKULLS_RANDOM_NEXT
+	skulls_menu_set = chosen;
+	error(_error_silent, "skulls: %ld turned on at random (%ld to %ld of %ld had)", wanted, fewest, most, count);
+	ui_play_audio_feedback_sound(SOUND_FORWARD);
+	ui_widget_port_go_back(widget);
+	*widget_deleted = TRUE;
+	return TRUE;
+}
+
 /* the skulls screen's grid (tools/port_settings.py's _skulls_screen): its
-list has the skulls row by row, three to a row, then a row of its buttons
-(Toggle All, OK, Cancel). The list steps none itself: each of its items moves
-the focus here, so only the item focused is lit */
+list has the skulls row by row, four to a row, then a row of its buttons
+(Toggle All, Random, OK, Cancel). The list steps none itself: each of its
+items moves the focus here, so only the item focused is lit */
 #define SKULL_COLUMNS 4
-#define SKULL_BUTTONS 3
+#define SKULL_BUTTONS 4
 
 void ui_widget_port_give_focus(struct widget_instance *widget);
 
@@ -2932,7 +3037,7 @@ static boolean skulls_move(struct widget_instance *widget, short across, short d
 
 		/* (wrapping round, the buttons' row below the last of the skulls) */
 		row = (short)((row + down + rows + 1) % (rows + 1));
-		/* (Toggle All, OK and Cancel under the four columns) */
+		/* (Toggle All, Random, OK and Cancel under the four columns) */
 		if (buttons_row != (row == rows))
 			column = (short)MIN(column, (row == rows ? SKULL_BUTTONS : SKULL_COLUMNS) - 1);
 	}
@@ -3127,8 +3232,8 @@ static void gameplay_screen_update(struct widget_instance *list)
 /* the difficulty menu: "difficulty item select" starts the game at the
 item's; "set difficulty" (its OK button) at the one its description shows.
 With the randomizer on, one of the ten campaign levels opens its screen
-first (before it, with the Tag Injector on and more than one profile, the
-screen choosing the profile it plays), and with the skulls on, theirs (after
+first (before it, with the Tag Injector on and a profile, the screen
+choosing the profile it plays, or none), and with the skulls on, theirs (after
 the randomizer's: tools/port_settings.py); Continue and Load Game do not */
 static boolean difficulty_start(struct widget_instance *widget, short difficulty, short controller,
 	boolean *widget_deleted)
@@ -3150,7 +3255,7 @@ static boolean difficulty_start(struct widget_instance *widget, short difficulty
 	if (config_boolean("game.randomizer") && base_campaign)
 	{
 		long screen_tag = screen_of(widget)->definition_tag_index;
-		boolean choose_tags = config_boolean("game.tag_injection") && port_tag_profiles_scan() > 1;
+		boolean choose_tags = config_boolean("game.tag_injection") && port_tag_profiles_scan() > 0;
 		struct widget_instance *opened;
 
 		main_set_difficulty(difficulty);
@@ -5594,17 +5699,58 @@ static boolean tags_profile_failed(long profile, unsigned long group)
 	return FALSE;
 }
 
-/* the profile shown's tag at `place` of the category listed, or NONE */
+/* the profile shown's tags that failed to load, as they were when a kind's
+list of them was opened (tags_list_show forgets them): listed first, and one
+turned on again keeps its place until the list is opened anew, not moving
+from under the focus. Taken again for another profile, or once a tag is
+added or taken out (its tags' indices moved) */
+#define TAGS_LISTED_MAX 256 /* (port_tag_profiles.c's MAXIMUM_PROFILE_TAGS) */
+
+static struct
+{
+	boolean taken;
+	long profile;
+	long count;
+	boolean failed[TAGS_LISTED_MAX];
+} tags_listed;
+
+static boolean tags_listed_failed(long tag)
+{
+	long count = port_tag_profiles_tag_count(tags_screen.profile);
+
+	if (!tags_listed.taken || tags_listed.profile != tags_screen.profile || tags_listed.count != count)
+	{
+		long index;
+
+		tags_listed.taken = TRUE;
+		tags_listed.profile = tags_screen.profile;
+		tags_listed.count = count;
+		for (index = 0; index < TAGS_LISTED_MAX; index++)
+			tags_listed.failed[index] = index < count && tags_tag_failed(tags_screen.profile, index);
+	}
+	return tag >= 0 && tag < TAGS_LISTED_MAX && tags_listed.failed[tag];
+}
+
+/* the profile shown's tag at `place` of the category listed, or NONE: those
+that failed to load first (tags_listed_failed), then the rest, each in the
+profile's order */
 static long tags_profile_tag_of(short place)
 {
 	unsigned long group = tag_injector_category_group(tags_screen.profile_category);
 	long count = port_tag_profiles_tag_count(tags_screen.profile);
+	short pass;
 	long tag;
 
-	for (tag = 0; group && place >= 0 && tag < count; tag++)
+	for (pass = 0; pass < 2; pass++)
 	{
-		if (port_tag_profiles_tag_group(tags_screen.profile, tag) == group && !place--)
-			return tag;
+		for (tag = 0; group && place >= 0 && tag < count; tag++)
+		{
+			if (port_tag_profiles_tag_group(tags_screen.profile, tag) == group &&
+				tags_listed_failed(tag) == !pass && !place--)
+			{
+				return tag;
+			}
+		}
 	}
 	return NONE;
 }
@@ -5924,7 +6070,7 @@ static void tags_details_text(short place, char *title, size_t title_size, char 
 		{
 			snprintf(title, title_size, "Tag Injection");
 			snprintf(text, text_size, "On: the randomizer can add a profile's weapons and AI to a campaign level played "
-				"alone. With more than one profile, a screen before the randomizer's chooses which.\n \nA, left or right "
+				"alone. A screen before the randomizer's chooses which profile, or none.\n \nA, left or right "
 				"turns it on or off.");
 		}
 		else if (place == _tags_top_profiles)
@@ -6204,6 +6350,10 @@ static boolean tags_screen_reset(boolean opening)
 place chosen there */
 static void tags_list_show(struct widget_instance *list, short shown)
 {
+	/* (a kind's tags opened, not come back to from a tag's settings: those
+	that failed now first) */
+	if (shown == _tags_list_profile && tags_screen.list != _tags_list_tag)
+		tags_listed.taken = FALSE;
 	tags_screen.list = shown;
 	tags_screen.shown[0] = 0;
 	csmemset(tags_screen.row_shown, 0, sizeof(tags_screen.row_shown));
@@ -11790,7 +11940,16 @@ boolean pc_menu_event_function_invoke(
 		}
 		else if (!strcmp(name, "randomizer profile load"))
 		{
-			return randomizer_profile_load_event(widget);
+			return randomizer_profile_load_event(widget, widget_deleted);
+		}
+		else if (!strcmp(name, "randomizer profiles init"))
+		{
+			randomizer_menu.delete_mode = FALSE;
+			randomizer_menu.deleting = NONE;
+		}
+		else if (!strcmp(name, "randomizer profiles delete mode"))
+		{
+			return randomizer_profiles_delete_mode();
 		}
 		else if (!strcmp(name, "randomizer start"))
 		{
@@ -11820,6 +11979,10 @@ boolean pc_menu_event_function_invoke(
 		else if (!strcmp(name, "skulls start"))
 		{
 			return skulls_start(widget, widget_deleted);
+		}
+		else if (!strcmp(name, "skulls random roll"))
+		{
+			return skulls_random_roll(widget, widget_deleted);
 		}
 		else if (!strcmp(name, "skulls reset progress"))
 		{

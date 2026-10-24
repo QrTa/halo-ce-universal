@@ -152,7 +152,9 @@ without a first-person model, a bitmap this build cannot draw or a model it
 cannot make) is turned off, and its `failed` setting says why: its row says
 FAILED, and its details (and its ENABLED's) say it failed to load last time
 and why. Its row, its kind of tags', its profile's and TAG PROFILES' are
-yellow. Turning it on again clears it, to try it again. Tags past the 64 a
+yellow, and its kind's list has the tags that failed first. Turning it on
+again clears it, to try it again; it keeps its place in the list until the
+list is opened again. Tags past the 64 a
 level adds are left out but not turned off. Two seconds into the level
 played (past its opening cutscene, its players in their bodies), each local
 player's HUD says how many failed and which, by name, without stopping the
@@ -260,8 +262,9 @@ Limits: 64 profiles, 256 tags a profile.
 With **TAG INJECTION** on, the difficulty of a campaign level the randomizer
 plays opens, before the randomizer's screen, **TAG INJECTOR PROFILE**: NONE
 and each profile, A one to play it (`game.randomizer_tag_profile`), then the
-randomizer's screen, whose CANCEL comes back to it. It is shown only with
-more than one profile: one alone is played without it, and none plays none.
+randomizer's screen, whose CANCEL comes back to it. It is shown with any
+profile, one alone too, so a level can be played without its tags; with
+none, none is played.
 The randomizer's screen has the profile's choices only while it has tags on
 of their kind:
 

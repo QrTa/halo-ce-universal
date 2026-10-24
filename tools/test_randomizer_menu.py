@@ -59,12 +59,15 @@ def test_randomizer_menus():
     assert 'values="any|covenant|flood|human|one|tag_injector"' in screen
     assert 'values="any|covenant|human|precision|automatic|power|one|tag_injector"' in screen
     assert 'run="randomizer profile save"' in screen
-    assert 'run="randomizer profile load" back="true"' in screen
+    # (the code goes back from Load's screen itself: not while DELETE is on)
+    assert 'run="randomizer profile load"' in screen and 'run="randomizer profile load" back=' not in screen
     assert 'open="main_menu/difficulty_select/randomizer/profiles_screen"' in screen
     assert 'run="randomizer start"' in screen
     assert 'input="randomizer screen update"' in screen
     assert 'input="randomizer profiles update"' in screen
     assert 'run="randomizer profile delete"' in screen
+    assert 'run="randomizer profiles delete mode"' in screen and 'run="randomizer profiles init"' in screen
+    assert 'name="main_menu/difficulty_select/randomizer/profiles_button_delete"' in screen
     # (the Tag Injector profile's custom types: rows the code fills)
     for key in ("custom_type", "pickup_custom", "weapon_custom"):
         assert f'name="main_menu/difficulty_select/randomizer/{key}_value"' in screen

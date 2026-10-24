@@ -1216,8 +1216,9 @@ def _skulls_screen() -> list:
     """the screen difficulty opens (after the randomizer's) when the skulls
     are on: the skulls in two columns, A one to turn it on or off
     (menu_functions.c's "skull toggle", which "skulls screen update" ticks,
-    with the chosen one's help), and the buttons: Toggle All, OK, which starts
-    the level, and Cancel. One list of them all, the skulls row by row and
+    with the chosen one's help), and the buttons: Toggle All, Random (the
+    screen of how many to turn on at random), OK, which starts the level, and
+    Cancel. One list of them all, the skulls row by row and
     then the buttons, which menu_functions.c moves the focus through as a
     grid: a list of a row each would keep each row's item lit"""
     base = "main_menu/difficulty_select/skulls"
@@ -1246,7 +1247,7 @@ def _skulls_screen() -> list:
                           ("font", "ui\\small_ui"), ("color", "#FF2896FF"), ("text_x", 6), ("text_y", 7)],
                          ['<on event="a" run="skull toggle"/>', '<on event="start" run="skull toggle"/>',
                           '<on event="left_mouse" run="mouse emit accept event"/>', *moves])
-    for name, x in (("button_toggle_all", 0), ("button_ok", 380), ("button_cancel", 510)):
+    for name, x in (("button_toggle_all", 0), ("button_random", 130), ("button_ok", 380), ("button_cancel", 510)):
         children.append(f'<child{attributes([("widget", f"{base}/{name}"), ("x", x), ("y", 415)])}/>')
     lines += _widget(f"{base}/options_menu",
                      [("type", "column_list"), ("width", 640), ("height", 480),
@@ -1259,9 +1260,13 @@ def _skulls_screen() -> list:
                      ['<on event="a" run="skulls toggle all"/>',
                       '<on event="start" run="skulls toggle all"/>',
                       '<on event="left_mouse" run="mouse emit accept event"/>', *moves])
+    lines += _text_button(f"{base}/button_random", "RANDOM", [f'<on event="a" open="{base}/random_screen"/>',
+                                                              f'<on event="start" open="{base}/random_screen"/>',
+                                                              *moves])
     lines += _button(f"{base}/button_ok", 1, ['<on event="a" run="skulls start"/>',
                                               '<on event="start" run="skulls start"/>', *moves])
     lines += _skulls_unlock_screen(base)
+    lines += _skulls_random_screen(base)
     # (Cancel as shell.xml's common_button_cancel, with the grid's moves)
     lines += _widget(f"{base}/button_cancel",
                      [("type", "text"), ("width", 128), ("height", 24), ("bitmap", "bitmaps/text_button_background"),
@@ -1340,6 +1345,51 @@ def _skulls_question_screen(base: str, name: str, text: list, choices: list, bac
     return lines
 
 
+# the skulls screen's RANDOM: the fewest and the most skulls it turns on
+# (menu_functions.c's "skulls random roll": a number between them of the
+# skulls had, at random, and the rest off)
+SKULLS_RANDOM_ROWS = [("random_min", "FEWEST SKULLS:", "game.skulls_random_min"),
+                      ("random_max", "MOST SKULLS:", "game.skulls_random_max")]
+
+
+def _skulls_random_screen(base: str) -> list:
+    """RANDOM's screen, over the skulls screen: what it does, a spinner each
+    of the fewest and the most skulls, and the buttons: Roll, which turns the
+    skulls on and goes back to the skulls screen, and Cancel"""
+    lines = _widget(f"{base}/random_screen",
+                    [("width", 640), ("height", 480), ("flags", "pass_unhandled_to_focused_child"),
+                     ("bitmap", "bitmaps/gradient")],
+                    ['<on event="b" back="true"/>', '<on event="back" back="true"/>',
+                     f'<child widget="{base}/header_skulls"/>',
+                     f'<child widget="{base}/random_text"/>',
+                     f'<child widget="{base}/random_menu"/>'])
+    lines += _widget(f"{base}/random_text",
+                     [("type", "text"), ("controller", 1), ("left", 68), ("top", 84), ("width", 504), ("height", 80),
+                      ("text", "How many skulls should RANDOM turn on?\\n\\nROLL turns on a number between these two, "
+                               "each skull\\nat random among those you have, and the rest off."),
+                      ("font", "ui\\small_ui"), ("color", "#FFFFFFFF")], [])
+    choices = [(str(count), str(count)) for count in range(len(SKULLS) + 1)]
+    children = []
+    extra = []
+    for index, (key, _, setting) in enumerate(SKULLS_RANDOM_ROWS):
+        children.append(f'<child{attributes([("widget", f"{base}/op_{key}"), ("x", 64), ("y", 190 + index * 32)])}/>')
+        extra += _randomizer_spinner(base, key, index, setting, choices)
+    children.append(f'<child{attributes([("widget", f"{base}/random_button_bar"), ("y", 414)])}/>')
+    lines += _widget(f"{base}/random_menu",
+                     [("type", "column_list"), ("width", 640), ("height", 480),
+                      ("flags", "pass_unhandled_to_focused_child up_down_tabs_children")], children)
+    lines += _widget(f"{base}/random_button_bar",
+                     [("type", "column_list"), ("width", 640), ("height", 28),
+                      ("flags", "pass_unhandled_to_focused_child left_right_tabs_items")],
+                     [f'<child{attributes([("widget", f"{base}/button_roll"), ("x", 380), ("y", 1)])}/>',
+                      '<child widget="common_button_cancel" x="510" y="1"/>'])
+    lines += extra
+    lines += _text_button(f"{base}/button_roll", "ROLL", ['<on event="a" run="skulls random roll"/>',
+                                                         '<on event="start" run="skulls random roll"/>'])
+    lines += _strings(f"{base}/labels", [label for _, label, _ in SKULLS_RANDOM_ROWS])
+    return lines
+
+
 def _skulls_unlock_screen(base: str) -> list:
     """the questions of how the skulls are had: every one now, or those found
     playing, and then whether a death loses those picked up; menu_functions.c
@@ -1349,7 +1399,10 @@ def _skulls_unlock_screen(base: str) -> list:
 
 
 def _randomizer_profiles_screen(base: str) -> list:
-    """Load's screen: the setups saved, A one to use it, and back"""
+    """Load's screen: the setups saved, A one to use it (and back: the code
+    goes back itself, which it does not while DELETE is on), and the buttons:
+    DELETE (the code's words: DELETE, or DONE while it is on, A on a setup
+    then marking it and A again deleting it, as X twice does), and Cancel"""
     lines = _widget(f"{base}/profiles_screen",
                     [("width", 640), ("height", 480), ("flags", "pass_unhandled_to_focused_child"),
                      ("bitmap", "bitmaps/gradient")],
@@ -1358,17 +1411,16 @@ def _randomizer_profiles_screen(base: str) -> list:
                      f'<child widget="{base}/profiles_menu"/>'])
     lines += _widget(f"{base}/profiles_help",
                      [("type", "text"), ("controller", 1), ("left", 68), ("top", 388), ("width", 482), ("height", 24),
-                      ("string_list", f"{base}/profiles_help_strings"), ("font", "ui\\small_ui"),
-                      ("color", "#FFFFFFFF")], [])
-    children = ['<data input="randomizer profiles update"/>']
+                      ("font", "ui\\small_ui"), ("color", "#FFFFFFFF")], [])
+    children = ['<data input="randomizer profiles update"/>', '<on event="created" run="randomizer profiles init"/>']
     extra = []
     for index in range(8):
         children.append(f'<child{attributes([("widget", f"{base}/profile_{index}"), ("x", 54), ("y", 80 + index * 32)])}/>')
         extra += _widget(f"{base}/profile_{index}",
                          [("type", "text"), ("width", 512), ("height", 28), ("bitmap", "bitmaps/option_bkds"),
                           ("font", "ui\\large_ui"), ("color", "#FF2896FF"), ("text_x", 13), ("text_y", 4)],
-                         ['<on event="a" run="randomizer profile load" back="true"/>',
-                          '<on event="start" run="randomizer profile load" back="true"/>',
+                         ['<on event="a" run="randomizer profile load"/>',
+                          '<on event="start" run="randomizer profile load"/>',
                           '<on event="x" run="randomizer profile delete"/>',
                           '<on event="left_mouse" run="mouse emit accept event"/>'])
     children.append(f'<child{attributes([("widget", f"{base}/profiles_button_bar"), ("y", 414)])}/>')
@@ -1379,15 +1431,17 @@ def _randomizer_profiles_screen(base: str) -> list:
     lines += _widget(f"{base}/profiles_button_bar",
                      [("type", "column_list"), ("width", 640), ("height", 28),
                       ("flags", "pass_unhandled_to_focused_child left_right_tabs_items")],
-                     ['<child widget="common_button_cancel" x="510" y="1"/>'])
+                     [f'<child widget="{base}/profiles_button_delete" y="1"/>',
+                      '<child widget="common_button_cancel" x="510" y="1"/>'])
     lines += extra
-    lines += _strings(f"{base}/profiles_help_strings",
-                      ["A uses the setup chosen. X twice deletes it.\\nNo setup is saved until Save names one."])
+    lines += _text_button(f"{base}/profiles_button_delete", None,
+                          ['<on event="a" run="randomizer profiles delete mode"/>',
+                           '<on event="start" run="randomizer profiles delete mode"/>'])
     return lines
 
 
 # the screen before the randomizer's (menu_functions.c's difficulty_start),
-# with the Tag Injector on and more than one profile: which profile's tags
+# with the Tag Injector on and a profile: which profile's tags
 # the randomizer plays, or none (game.randomizer_tag_profile). Its rows a
 # list at a time ("randomizer tag profiles update" moves it on at its ends)
 RANDOMIZER_TAG_PROFILE_ROWS = 9

@@ -72,11 +72,12 @@ def test_skulls_grid_is_one_list():
     menu = re.search(r'<widget name="main_menu/difficulty_select/skulls/options_menu"[^>]*>(.*?)</widget>', screen,
                      re.DOTALL)
     children = re.findall(r'<child widget="main_menu/difficulty_select/skulls/([a-z_]+)"', menu.group(1))
-    items = [f"skull_{key}" for key, _ in port_settings.SKULLS] + ["button_toggle_all", "button_ok", "button_cancel"]
+    items = [f"skull_{key}" for key, _ in port_settings.SKULLS] + ["button_toggle_all", "button_random", "button_ok",
+                                                                    "button_cancel"]
 
     assert 'flags="pass_unhandled_to_focused_child"' in menu.group(0)
     assert children == items
-    assert "row_" not in screen
+    assert "skulls/row_" not in screen
     for event, function in port_settings.SKULL_MOVES:
         assert screen.count(f'<on event="{event}" run="{function}"/>') == len(items)
 
@@ -176,3 +177,24 @@ def test_server_setup_campaign_rows():
         assert f'"{title}:"' in server or f'text="{title}:"' in server
         assert f'"ss {key}"' in functions
         assert f'"op_{key}"' in functions
+
+
+def test_skulls_random_screen():
+    """RANDOM opens a screen of the fewest and the most skulls, settings of
+    port_config.c's, whose ROLL menu_tags.c lists and menu_functions.c runs."""
+    screen = "\n".join(port_settings.settings_files()["main_menu.difficulty_select.skulls.xml"])
+    base = "main_menu/difficulty_select/skulls"
+
+    assert f'open="{base}/random_screen"' in screen
+    assert f'name="{base}/random_screen"' in screen
+    assert 'run="skulls random roll"' in screen
+    for name in ("skulls random roll",):
+        assert f'"{name}"' in (ROOT / "port/linux/game/menu_tags.c").read_text()
+        assert f'"{name}"' in (ROOT / "port/linux/game/menu_functions.c").read_text()
+    choices = "|".join(str(count) for count in range(len(port_settings.SKULLS) + 1))
+    for key, _, setting in port_settings.SKULLS_RANDOM_ROWS:
+        assert f'setting="{setting}"' in screen
+        assert f'name="{base}/op_{key}"' in screen
+        assert f'"{setting}"' in (ROOT / "port/linux/src/port_config.c").read_text()
+        assert f'`{setting}`' in (ROOT / "port/linux/README.md").read_text()
+    assert f'values="{choices}"' in screen

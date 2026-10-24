@@ -279,10 +279,11 @@
 		<child widget="main_menu/difficulty_select/randomizer/header_randomizer"/>
 		<child widget="main_menu/difficulty_select/randomizer/profiles_menu"/>
 	</widget>
-	<widget name="main_menu/difficulty_select/randomizer/profiles_help" type="text" controller="1" left="68" top="388" width="482" height="24" string_list="main_menu/difficulty_select/randomizer/profiles_help_strings" font="ui\small_ui" color="#FFFFFFFF">
+	<widget name="main_menu/difficulty_select/randomizer/profiles_help" type="text" controller="1" left="68" top="388" width="482" height="24" font="ui\small_ui" color="#FFFFFFFF">
 	</widget>
 	<widget name="main_menu/difficulty_select/randomizer/profiles_menu" type="column_list" width="640" height="480" flags="pass_unhandled_to_focused_child up_down_tabs_children" description="main_menu/difficulty_select/randomizer/profiles_help">
 		<data input="randomizer profiles update"/>
+		<on event="created" run="randomizer profiles init"/>
 		<child widget="main_menu/difficulty_select/randomizer/profile_0" x="54" y="80"/>
 		<child widget="main_menu/difficulty_select/randomizer/profile_1" x="54" y="112"/>
 		<child widget="main_menu/difficulty_select/randomizer/profile_2" x="54" y="144"/>
@@ -294,59 +295,62 @@
 		<child widget="main_menu/difficulty_select/randomizer/profiles_button_bar" y="414"/>
 	</widget>
 	<widget name="main_menu/difficulty_select/randomizer/profiles_button_bar" type="column_list" width="640" height="28" flags="pass_unhandled_to_focused_child left_right_tabs_items">
+		<child widget="main_menu/difficulty_select/randomizer/profiles_button_delete" y="1"/>
 		<child widget="common_button_cancel" x="510" y="1"/>
 	</widget>
 	<widget name="main_menu/difficulty_select/randomizer/profile_0" type="text" width="512" height="28" bitmap="bitmaps/option_bkds" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
-		<on event="a" run="randomizer profile load" back="true"/>
-		<on event="start" run="randomizer profile load" back="true"/>
+		<on event="a" run="randomizer profile load"/>
+		<on event="start" run="randomizer profile load"/>
 		<on event="x" run="randomizer profile delete"/>
 		<on event="left_mouse" run="mouse emit accept event"/>
 	</widget>
 	<widget name="main_menu/difficulty_select/randomizer/profile_1" type="text" width="512" height="28" bitmap="bitmaps/option_bkds" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
-		<on event="a" run="randomizer profile load" back="true"/>
-		<on event="start" run="randomizer profile load" back="true"/>
+		<on event="a" run="randomizer profile load"/>
+		<on event="start" run="randomizer profile load"/>
 		<on event="x" run="randomizer profile delete"/>
 		<on event="left_mouse" run="mouse emit accept event"/>
 	</widget>
 	<widget name="main_menu/difficulty_select/randomizer/profile_2" type="text" width="512" height="28" bitmap="bitmaps/option_bkds" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
-		<on event="a" run="randomizer profile load" back="true"/>
-		<on event="start" run="randomizer profile load" back="true"/>
+		<on event="a" run="randomizer profile load"/>
+		<on event="start" run="randomizer profile load"/>
 		<on event="x" run="randomizer profile delete"/>
 		<on event="left_mouse" run="mouse emit accept event"/>
 	</widget>
 	<widget name="main_menu/difficulty_select/randomizer/profile_3" type="text" width="512" height="28" bitmap="bitmaps/option_bkds" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
-		<on event="a" run="randomizer profile load" back="true"/>
-		<on event="start" run="randomizer profile load" back="true"/>
+		<on event="a" run="randomizer profile load"/>
+		<on event="start" run="randomizer profile load"/>
 		<on event="x" run="randomizer profile delete"/>
 		<on event="left_mouse" run="mouse emit accept event"/>
 	</widget>
 	<widget name="main_menu/difficulty_select/randomizer/profile_4" type="text" width="512" height="28" bitmap="bitmaps/option_bkds" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
-		<on event="a" run="randomizer profile load" back="true"/>
-		<on event="start" run="randomizer profile load" back="true"/>
+		<on event="a" run="randomizer profile load"/>
+		<on event="start" run="randomizer profile load"/>
 		<on event="x" run="randomizer profile delete"/>
 		<on event="left_mouse" run="mouse emit accept event"/>
 	</widget>
 	<widget name="main_menu/difficulty_select/randomizer/profile_5" type="text" width="512" height="28" bitmap="bitmaps/option_bkds" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
-		<on event="a" run="randomizer profile load" back="true"/>
-		<on event="start" run="randomizer profile load" back="true"/>
+		<on event="a" run="randomizer profile load"/>
+		<on event="start" run="randomizer profile load"/>
 		<on event="x" run="randomizer profile delete"/>
 		<on event="left_mouse" run="mouse emit accept event"/>
 	</widget>
 	<widget name="main_menu/difficulty_select/randomizer/profile_6" type="text" width="512" height="28" bitmap="bitmaps/option_bkds" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
-		<on event="a" run="randomizer profile load" back="true"/>
-		<on event="start" run="randomizer profile load" back="true"/>
+		<on event="a" run="randomizer profile load"/>
+		<on event="start" run="randomizer profile load"/>
 		<on event="x" run="randomizer profile delete"/>
 		<on event="left_mouse" run="mouse emit accept event"/>
 	</widget>
 	<widget name="main_menu/difficulty_select/randomizer/profile_7" type="text" width="512" height="28" bitmap="bitmaps/option_bkds" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
-		<on event="a" run="randomizer profile load" back="true"/>
-		<on event="start" run="randomizer profile load" back="true"/>
+		<on event="a" run="randomizer profile load"/>
+		<on event="start" run="randomizer profile load"/>
 		<on event="x" run="randomizer profile delete"/>
 		<on event="left_mouse" run="mouse emit accept event"/>
 	</widget>
-	<strings name="main_menu/difficulty_select/randomizer/profiles_help_strings">
-		<string text="A uses the setup chosen. X twice deletes it.\nNo setup is saved until Save names one."/>
-	</strings>
+	<widget name="main_menu/difficulty_select/randomizer/profiles_button_delete" type="text" width="128" height="24" bitmap="bitmaps/text_button_background" font="ui\small_ui" color="#FFFFFFFF" align="center" text_y="2">
+		<on event="a" run="randomizer profiles delete mode"/>
+		<on event="start" run="randomizer profiles delete mode"/>
+		<on event="left_mouse" run="mouse emit accept event"/>
+	</widget>
 	<widget name="main_menu/difficulty_select/randomizer/tag_profile_screen" width="640" height="480" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/gradient">
 		<on event="b" back="true"/>
 		<on event="back" back="true"/>

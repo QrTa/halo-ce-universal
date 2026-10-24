@@ -166,7 +166,9 @@ command list) keep their own actor, so the story still plays out.
 <img width="640" alt="Loading a saved randomizer preset" src="https://github.com/user-attachments/assets/eb88a82c-dc57-4d13-b233-8daa2ae842c7" />
 
 The setup is kept for the following levels, and up to eight setups can be
-saved as named presets and loaded again from this screen.
+saved as named presets and loaded again from this screen. To delete one,
+press **DELETE** on the load screen, then the preset twice (or X twice on
+it with a controller).
 
 On the first start (or the first time the randomizer is turned on, with
 the daily challenge off), the game builds `maps/randomizer.pack` (about
@@ -189,6 +191,10 @@ Assassins, Streaking, Swarm), and new ones made for this port, such as:
 - **Woe Is Me:** everyone is your enemy, the marines included.
 - **Rip & Tear:** melee only, but punches hit twice as hard and you get an
   overshield.
+
+**RANDOM** turns on a random set of skulls: choose the fewest and the most
+skulls you want, and **ROLL** turns on a random number between the two,
+picked from the skulls you have. The range is remembered for next time.
 
 The help line on the screen describes each skull. On the first start,
 once the game has built the skulls' data, it asks how you want to get them: all unlocked from the start, or
@@ -283,8 +289,8 @@ and give it a custom type (BRUTE). With **TAG INJECTION** on, the randomizer
 adds the profile's weapons and enemies to a campaign level you play alone:
 they join the pools their settings name, a **TAG INJECTOR** pool plays them
 alone, and **ONE TYPE**'s **TAG INJECTOR** plays one custom type, for a
-brute-only campaign. With more than one profile, a screen before the
-randomizer's asks which to play, or none. See
+brute-only campaign. A screen before the randomizer's asks which profile
+to play in that level, or none. See
 [docs/tag_injector.md](docs/tag_injector.md).
 
 Every one of these settings is also in `config.toml`; they are listed in

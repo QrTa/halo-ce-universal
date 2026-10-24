@@ -54,6 +54,7 @@
 		<child widget="main_menu/difficulty_select/skulls/skull_tough_luck" x="320" y="335"/>
 		<child widget="main_menu/difficulty_select/skulls/skull_woe_is_me" x="480" y="335"/>
 		<child widget="main_menu/difficulty_select/skulls/button_toggle_all" x="0" y="415"/>
+		<child widget="main_menu/difficulty_select/skulls/button_random" x="130" y="415"/>
 		<child widget="main_menu/difficulty_select/skulls/button_ok" x="380" y="415"/>
 		<child widget="main_menu/difficulty_select/skulls/button_cancel" x="510" y="415"/>
 	</widget>
@@ -590,6 +591,19 @@
 		<on event="right" run="skulls right"/>
 		<on event="stick_right" run="skulls right"/>
 	</widget>
+	<widget name="main_menu/difficulty_select/skulls/button_random" type="text" width="128" height="24" bitmap="bitmaps/text_button_background" text="RANDOM" font="ui\small_ui" color="#FFFFFFFF" align="center" text_y="2">
+		<on event="a" open="main_menu/difficulty_select/skulls/random_screen"/>
+		<on event="start" open="main_menu/difficulty_select/skulls/random_screen"/>
+		<on event="up" run="skulls up"/>
+		<on event="stick_up" run="skulls up"/>
+		<on event="down" run="skulls down"/>
+		<on event="stick_down" run="skulls down"/>
+		<on event="left" run="skulls left"/>
+		<on event="stick_left" run="skulls left"/>
+		<on event="right" run="skulls right"/>
+		<on event="stick_right" run="skulls right"/>
+		<on event="left_mouse" run="mouse emit accept event"/>
+	</widget>
 	<widget name="main_menu/difficulty_select/skulls/button_ok" type="text" width="128" height="24" bitmap="bitmaps/text_button_background" string_list="strings/common_button_captions" string_index="1" font="ui\small_ui" color="#FFFFFFFF" align="center" text_y="2">
 		<on event="a" run="skulls start"/>
 		<on event="start" run="skulls start"/>
@@ -657,6 +671,51 @@
 		<on event="start" run="skulls death keep"/>
 		<on event="left_mouse" run="mouse emit accept event"/>
 	</widget>
+	<widget name="main_menu/difficulty_select/skulls/random_screen" width="640" height="480" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/gradient">
+		<on event="b" back="true"/>
+		<on event="back" back="true"/>
+		<child widget="main_menu/difficulty_select/skulls/header_skulls"/>
+		<child widget="main_menu/difficulty_select/skulls/random_text"/>
+		<child widget="main_menu/difficulty_select/skulls/random_menu"/>
+	</widget>
+	<widget name="main_menu/difficulty_select/skulls/random_text" type="text" controller="1" left="68" top="84" width="504" height="80" text="How many skulls should RANDOM turn on?\n\nROLL turns on a number between these two, each skull\nat random among those you have, and the rest off." font="ui\small_ui" color="#FFFFFFFF">
+	</widget>
+	<widget name="main_menu/difficulty_select/skulls/random_menu" type="column_list" width="640" height="480" flags="pass_unhandled_to_focused_child up_down_tabs_children">
+		<child widget="main_menu/difficulty_select/skulls/op_random_min" x="64" y="190"/>
+		<child widget="main_menu/difficulty_select/skulls/op_random_max" x="64" y="222"/>
+		<child widget="main_menu/difficulty_select/skulls/random_button_bar" y="414"/>
+	</widget>
+	<widget name="main_menu/difficulty_select/skulls/random_button_bar" type="column_list" width="640" height="28" flags="pass_unhandled_to_focused_child left_right_tabs_items">
+		<child widget="main_menu/difficulty_select/skulls/button_roll" x="380" y="1"/>
+		<child widget="common_button_cancel" x="510" y="1"/>
+	</widget>
+	<widget name="main_menu/difficulty_select/skulls/op_random_min" width="512" height="28" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/option_bkds" color="#FF2896FF">
+		<child widget="main_menu/difficulty_select/skulls/random_min_label"/>
+		<child widget="main_menu/difficulty_select/skulls/random_min_spinner" x="256" y="1"/>
+	</widget>
+	<widget name="main_menu/difficulty_select/skulls/random_min_label" type="text" controller="1" width="300" height="22" string_list="main_menu/difficulty_select/skulls/labels" string_index="0" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
+	</widget>
+	<widget name="main_menu/difficulty_select/skulls/random_min_spinner" type="spinner" left="3" top="2" width="236" height="20" flags="pass_unhandled_to_focused_child left_right_tabs_items" strings="0|1|2|3|4|5|6|7|8|9|10|11|12|13|14|15|16|17|18|19|20|21|22|23|24|25|26|27|28|29|30|31|32|33|34|35|36|37|38|39|40" setting="game.skulls_random_min" values="0|1|2|3|4|5|6|7|8|9|10|11|12|13|14|15|16|17|18|19|20|21|22|23|24|25|26|27|28|29|30|31|32|33|34|35|36|37|38|39|40" font="ui\large_ui" color="#FF2896FF" align="center" text_y="4" header_bitmap="bitmaps/arrow_sm_left" footer_bitmap="bitmaps/arrow_sm_right" header_bounds="7 -13 19 -7" footer_bounds="7 238 19 244">
+		<on event="created" run="port setting load"/>
+	</widget>
+	<widget name="main_menu/difficulty_select/skulls/op_random_max" width="512" height="28" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/option_bkds" color="#FF2896FF">
+		<child widget="main_menu/difficulty_select/skulls/random_max_label"/>
+		<child widget="main_menu/difficulty_select/skulls/random_max_spinner" x="256" y="1"/>
+	</widget>
+	<widget name="main_menu/difficulty_select/skulls/random_max_label" type="text" controller="1" width="300" height="22" string_list="main_menu/difficulty_select/skulls/labels" string_index="1" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
+	</widget>
+	<widget name="main_menu/difficulty_select/skulls/random_max_spinner" type="spinner" left="3" top="2" width="236" height="20" flags="pass_unhandled_to_focused_child left_right_tabs_items" strings="0|1|2|3|4|5|6|7|8|9|10|11|12|13|14|15|16|17|18|19|20|21|22|23|24|25|26|27|28|29|30|31|32|33|34|35|36|37|38|39|40" setting="game.skulls_random_max" values="0|1|2|3|4|5|6|7|8|9|10|11|12|13|14|15|16|17|18|19|20|21|22|23|24|25|26|27|28|29|30|31|32|33|34|35|36|37|38|39|40" font="ui\large_ui" color="#FF2896FF" align="center" text_y="4" header_bitmap="bitmaps/arrow_sm_left" footer_bitmap="bitmaps/arrow_sm_right" header_bounds="7 -13 19 -7" footer_bounds="7 238 19 244">
+		<on event="created" run="port setting load"/>
+	</widget>
+	<widget name="main_menu/difficulty_select/skulls/button_roll" type="text" width="128" height="24" bitmap="bitmaps/text_button_background" text="ROLL" font="ui\small_ui" color="#FFFFFFFF" align="center" text_y="2">
+		<on event="a" run="skulls random roll"/>
+		<on event="start" run="skulls random roll"/>
+		<on event="left_mouse" run="mouse emit accept event"/>
+	</widget>
+	<strings name="main_menu/difficulty_select/skulls/labels">
+		<string text="FEWEST SKULLS:"/>
+		<string text="MOST SKULLS:"/>
+	</strings>
 	<widget name="main_menu/difficulty_select/skulls/button_cancel" type="text" width="128" height="24" bitmap="bitmaps/text_button_background" string_list="strings/common_button_captions" string_index="2" font="ui\small_ui" color="#FFFFFFFF" align="center" text_y="2">
 		<on event="a" run="mouse emit back event"/>
 		<on event="start" run="mouse emit back event"/>

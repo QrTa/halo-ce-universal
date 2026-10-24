@@ -2478,12 +2478,7 @@ long tag_injector_profile_playable(
 	if (!config_boolean("game.tag_injection"))
 		return NONE;
 	port_tag_profiles_scan();
-	/* (one profile is played without being chosen: the randomizer's profile
-	screen is for choosing among more) */
-	if (port_tag_profiles_count() == 1)
-		profile = 0;
-	else
-		profile = port_tag_profiles_find(config_string("game.randomizer_tag_profile"));
+	profile = port_tag_profiles_find(config_string("game.randomizer_tag_profile"));
 
 	return profile >= 0 && tag_injector_profile_enabled_count(profile, 0) > 0 ? profile : NONE;
 }

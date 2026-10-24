@@ -244,6 +244,9 @@ def test_a_tag_that_failed_to_load_is_turned_off_and_said():
     assert 'found->options[tag_option_index("failed")][0] = 0;' in profiles
     assert "tag_injector_failure_describe(failed)" in functions
     assert '"FAILED  %s"' in functions
+    # (a kind's list has the tags that failed first, as they were when it was opened)
+    tag_of = functions[functions.index("static long tags_profile_tag_of("):]
+    assert "tags_listed_failed(tag) == !pass" in tag_of[:tag_of.index("\n}\n")]
     assert "tag_injector_tick();" in game
     assert "hud_print_message(local_player_index, text);" in injector
 

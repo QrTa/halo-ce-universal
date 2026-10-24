@@ -661,10 +661,9 @@ static const struct config_setting config_settings[] =
 		"placed. Without Go Crazy, one in three." },
 	{ "game.randomizer_tag_profile", _config_string, "\"\"", "HALO_RANDOMIZER_TAG_PROFILE", _environment_value,
 		_platform_all,
-		"The Tag Injector's profile the randomizer plays, of more than one: its\n"
-		"folder's name, or \"\" for none. Chosen on the screen before the\n"
-		"randomizer's, with game.tag_injection on (one profile alone is played\n"
-		"without it). A level played alone (not a network game, nor a challenge)\n"
+		"The Tag Injector's profile the randomizer plays: its folder's name, or\n"
+		"\"\" for none. Chosen on the screen before the randomizer's, with\n"
+		"game.tag_injection on and a profile. A level played alone (not a network game, nor a challenge)\n"
 		"is given its tags on, which join the pools their settings name, and the\n"
 		"TAG INJECTOR pools and types." },
 	{ "game.randomizer_profile_1", _config_string, "\"\"", "HALO_RANDOMIZER_PROFILE_1", _environment_value, _platform_all,
@@ -740,6 +739,12 @@ static const struct config_setting config_settings[] =
 		"as are left, more for a headshot, a punch from behind, an instant kill,\n"
 		"a group's or a vehicle's): 25, 50, 100, 200 or 400. The level's first\n"
 		"skull always drops at the first kill. The host's in co-op." },
+	{ "game.skulls_random_min", _config_integer, "1", "HALO_SKULLS_RANDOM_MIN", _environment_value, _platform_all,
+		"The skulls screen's RANDOM: the fewest skulls it turns on (0 to 40)." },
+	{ "game.skulls_random_max", _config_integer, "5", "HALO_SKULLS_RANDOM_MAX", _environment_value, _platform_all,
+		"The skulls screen's RANDOM: the most skulls it turns on (0 to 40). It\n"
+		"turns on a number between the two, at random, of the skulls had, and\n"
+		"the rest off." },
 	{ "game.terminal_output", _config_string, "\"menus\"", "HALO_TERMINAL_OUTPUT", _environment_value, _platform_all,
 		"The game's messages at the bottom left of the screen (\"Shaders\n"
 		"preloaded.\", what the console's commands print): \"none\", \"menus\" (in\n"
