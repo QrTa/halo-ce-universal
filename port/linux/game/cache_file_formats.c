@@ -2216,6 +2216,142 @@ void resource_map_close(
 	return;
 }
 
+/* a groupless tag's handle and its index, and the group the references to
+it say (0: none yet, NO_GROUP_TAG: more than one) */
+struct groupless_tag
+{
+	uint32_t handle;
+	int32_t index;
+	uint32_t group_tag;
+};
+
+static int groupless_tag_compare(
+	void const *left,
+	void const *right)
+{
+	uint32_t a = ((struct groupless_tag const *)left)->handle;
+	uint32_t b = ((struct groupless_tag const *)right)->handle;
+
+	return a < b ? -1 : a > b;
+}
+
+/* whether a word is a group's code a reference says a tag is of: four
+printable characters, not one of the groups others inherit from (which a
+tag is none of alone) */
+static int reference_group_concrete(
+	uint32_t group_tag)
+{
+	static uint32_t const abstract_groups[] =
+	{
+		0x6F626A65UL, /* obje */
+		0x756E6974UL, /* unit */
+		0x6974656DUL, /* item */
+		0x64657669UL, /* devi */
+		0x73686472UL, /* shdr */
+	};
+	size_t index;
+
+	for (index = 0; index < 4; index++)
+	{
+		uint32_t character = (group_tag >> (8 * index)) & 0xFF;
+
+		if (character < 0x20 || character > 0x7E)
+		{
+			return 0;
+		}
+	}
+	for (index = 0; index < sizeof(abstract_groups) / sizeof(abstract_groups[0]); index++)
+	{
+		if (group_tag == abstract_groups[index])
+		{
+			return 0;
+		}
+	}
+
+	return 1;
+}
+
+/* Map protection can also leave tags without a group (firefight-portent's
+animations, bitmaps and weapon HUDs: FFFFFFFF, their parent groups too).
+Halo PC never asked the table a tag's group, but the references that name
+it still say it: each groupless tag is given the one group they say (a
+reference is 16 bytes, its group's code first and the tag's handle last:
+every 4-byte place of the tag data where the handle is is looked at), when
+they say one alone, before anything reads the tags by their groups. A tag
+they say none of, or several, keeps NO_GROUP_TAG, as the validator takes it
+then. Its parent groups are the validator's to give. */
+static void groupless_tags_regroup(
+	struct load_state *state,
+	uint8_t *tag_instances,
+	int32_t tag_count)
+{
+	struct groupless_tag *tags;
+	int32_t count = 0;
+	int32_t tag_index_value;
+	uint32_t offset;
+
+	for (tag_index_value = 0; tag_index_value < tag_count; tag_index_value++)
+	{
+		count += read_u32(tag_instances + (uint32_t)tag_index_value * TAG_INSTANCE_BYTES + TAG_INSTANCE_GROUP_OFFSET) ==
+			NO_GROUP_TAG;
+	}
+	state->report->groupless_tags = count;
+	if (!count)
+	{
+		return;
+	}
+	tags = malloc((size_t)count * sizeof(*tags));
+	if (!tags)
+	{
+		return;
+	}
+	count = 0;
+	for (tag_index_value = 0; tag_index_value < tag_count; tag_index_value++)
+	{
+		uint8_t const *instance = tag_instances + (uint32_t)tag_index_value * TAG_INSTANCE_BYTES;
+
+		if (read_u32(instance + TAG_INSTANCE_GROUP_OFFSET) != NO_GROUP_TAG)
+		{
+			continue;
+		}
+		tags[count].handle = read_u32(instance + TAG_INSTANCE_HANDLE_OFFSET);
+		tags[count].index = tag_index_value;
+		tags[count].group_tag = 0;
+		count++;
+	}
+	qsort(tags, (size_t)count, sizeof(*tags), groupless_tag_compare);
+	for (offset = 0; offset + 16 <= state->tag_data_bytes; offset += 4)
+	{
+		struct groupless_tag key;
+		struct groupless_tag *found;
+		uint32_t group_tag;
+
+		key.handle = read_u32(state->tag_cache + offset + 12);
+		found = bsearch(&key, tags, (size_t)count, sizeof(*tags), groupless_tag_compare);
+		if (!found)
+		{
+			continue;
+		}
+		group_tag = read_u32(state->tag_cache + offset);
+		if (!reference_group_concrete(group_tag) || found->group_tag == group_tag)
+		{
+			continue;
+		}
+		found->group_tag = found->group_tag ? NO_GROUP_TAG : group_tag;
+	}
+	for (tag_index_value = 0; tag_index_value < count; tag_index_value++)
+	{
+		if (!tags[tag_index_value].group_tag || tags[tag_index_value].group_tag == NO_GROUP_TAG)
+		{
+			continue;
+		}
+		write_u32(tag_instances + (uint32_t)tags[tag_index_value].index * TAG_INSTANCE_BYTES + TAG_INSTANCE_GROUP_OFFSET,
+			tags[tag_index_value].group_tag);
+		state->report->tags_regrouped++;
+	}
+	free(tags);
+}
+
 enum cache_file_status custom_edition_cache_load(
 	struct cache_file_source *map,
 	struct resource_map *const resource_maps[NUMBER_OF_RESOURCE_MAP_TYPES],
@@ -2403,6 +2539,8 @@ enum cache_file_status custom_edition_cache_load(
 	{
 		report->warnings |= 1UL << _custom_edition_warning_checksum_mismatch_bit;
 	}
+	/* (after the checksum, which counts the table as the map holds it) */
+	groupless_tags_regroup(&state, tag_instances, tag_count);
 
 	/* the tags held by resource maps, placed after the tag data */
 	for (tag_index_value = 0; tag_index_value < tag_count; tag_index_value++)

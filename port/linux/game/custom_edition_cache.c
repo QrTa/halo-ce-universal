@@ -30,6 +30,7 @@ where its offset falls in their combined offset space.
 #include "cache_file_formats.h"
 #include "custom_edition_cache.h"
 #include "tag_schema.h"
+#include "tag_bundle.h"
 #include "map_share.h"
 
 #include <stdint.h>
@@ -86,6 +87,10 @@ struct custom_edition_file
 struct custom_edition_cache_globals
 {
 	boolean tags_loaded;
+	/* a map's tags loaded to be taken out as bundles (custom_edition_cache_bundle_open),
+	not played, and its report */
+	boolean bundle_open;
+	struct custom_edition_load_report bundle_report;
 	/* the loaded map's file (custom_edition_cache_loaded_path), while it
 	is open */
 	char map_path[MAP_PATH_SIZE];
@@ -600,6 +605,50 @@ static void custom_edition_cache_files_close(
 	return;
 }
 
+/* Opens the resource maps (bitmaps.map, sounds.map, loc.map) of the maps
+folders, those there are; FALSE after logging why when one is too large
+for the combined offset space, which serves bitmaps.map and sounds.map after
+the map itself. */
+static boolean custom_edition_cache_resource_maps_open(
+	void)
+{
+	struct custom_edition_cache_globals *globals = &custom_edition_cache_globals;
+	short type;
+
+	for (type = _resource_map_bitmaps; type < NUMBER_OF_RESOURCE_MAP_TYPES; type++)
+	{
+		char resource_path[MAP_PATH_SIZE];
+		enum cache_file_status status;
+
+		if (!custom_edition_resource_map_path((enum resource_map_type)type, resource_path) ||
+			!custom_edition_file_open(&globals->resource_files[type], resource_path))
+		{
+			error(_error_silent, "custom edition: no resource map '%s'", resource_path);
+			continue;
+		}
+		status = resource_map_open(
+			&globals->resource_files[type].source,
+			(enum resource_map_type)type,
+			&globals->resource_map_storage[type]);
+		if (status != _cache_file_status_ok)
+		{
+			error(_error_silent, "custom edition: resource map '%s': %s", resource_path, cache_file_status_describe(status));
+			continue;
+		}
+		globals->resource_maps[type] = &globals->resource_map_storage[type];
+	}
+	if ((globals->resource_files[_resource_map_bitmaps].stream &&
+		globals->resource_files[_resource_map_bitmaps].source.size > COMBINED_SOUNDS_OFFSET - COMBINED_BITMAPS_OFFSET) ||
+		(globals->resource_files[_resource_map_sounds].stream &&
+		globals->resource_files[_resource_map_sounds].source.size > COMBINED_OFFSET_LIMIT - COMBINED_SOUNDS_OFFSET))
+	{
+		error(_error_silent, "custom edition: a resource map is too large for this loader");
+		return FALSE;
+	}
+
+	return TRUE;
+}
+
 /* Converts the loaded map's models for this build from its model data,
 which is read for the purpose and let go. */
 static boolean custom_edition_cache_models_convert(
@@ -862,6 +911,11 @@ static void custom_edition_cache_report_log(
 		TEST_FLAG(report->warnings, _custom_edition_warning_checksum_mismatch_bit) ? "mismatched" : "matched");
 	if (report->scenario_regrouped)
 		error(_error_silent, "custom edition: the scenario tag had another group (map protection) and was given the scenario's");
+	if (report->groupless_tags)
+	{
+		error(_error_silent, "custom edition: %ld tags had no group (map protection): %ld were given the one the "
+			"references naming them say", (long)report->groupless_tags, (long)report->tags_regrouped);
+	}
 
 	return;
 }
@@ -1173,9 +1227,8 @@ struct cache_file_tag_header *custom_edition_cache_tags_load(
 	struct cache_file_identity identity;
 	char path[MAP_PATH_SIZE];
 	enum cache_file_status status;
-	short type;
 
-	assert(!globals->tags_loaded);
+	assert(!globals->tags_loaded && !globals->bundle_open);
 	if (!tag_cache)
 	{
 		error(_error_silent, "custom edition: cannot load the map '%s': %s", map_name,
@@ -1207,36 +1260,8 @@ struct cache_file_tag_header *custom_edition_cache_tags_load(
 	}
 	error(_error_silent, "custom edition: loading '%s' (build %s)", path, identity.build);
 
-	for (type = _resource_map_bitmaps; type < NUMBER_OF_RESOURCE_MAP_TYPES; type++)
+	if (!custom_edition_cache_resource_maps_open())
 	{
-		char resource_path[MAP_PATH_SIZE];
-
-		if (!custom_edition_resource_map_path((enum resource_map_type)type, resource_path) ||
-			!custom_edition_file_open(&globals->resource_files[type], resource_path))
-		{
-			error(_error_silent, "custom edition: no resource map '%s'", resource_path);
-			continue;
-		}
-		status = resource_map_open(
-			&globals->resource_files[type].source,
-			(enum resource_map_type)type,
-			&globals->resource_map_storage[type]);
-		if (status != _cache_file_status_ok)
-		{
-			error(_error_silent, "custom edition: resource map '%s': %s", resource_path, cache_file_status_describe(status));
-			continue;
-		}
-		globals->resource_maps[type] = &globals->resource_map_storage[type];
-	}
-
-	/* the combined offset space serves bitmaps.map and sounds.map after the
-	map itself */
-	if ((globals->resource_files[_resource_map_bitmaps].stream &&
-		globals->resource_files[_resource_map_bitmaps].source.size > COMBINED_SOUNDS_OFFSET - COMBINED_BITMAPS_OFFSET) ||
-		(globals->resource_files[_resource_map_sounds].stream &&
-		globals->resource_files[_resource_map_sounds].source.size > COMBINED_OFFSET_LIMIT - COMBINED_SOUNDS_OFFSET))
-	{
-		error(_error_silent, "custom edition: a resource map is too large for this loader");
 		custom_edition_cache_files_close();
 		return NULL;
 	}
@@ -1352,9 +1377,10 @@ struct resource_map const *custom_edition_cache_bitmap_resources(void)
 		custom_edition_cache_globals.resource_maps[_resource_map_bitmaps] : NULL;
 }
 
-void custom_edition_cache_read(
-	long tag_index,
-	long offset,
+/* Reads `size` bytes at `offset` in the combined offset space into
+`buffer`: FALSE unless every one was read. */
+static boolean custom_edition_cache_read_bytes(
+	unsigned long offset,
 	long size,
 	void *buffer)
 {
@@ -1364,44 +1390,30 @@ void custom_edition_cache_read(
 	long read_bytes;
 	boolean read;
 
-	if ((unsigned long)offset >= COMBINED_SOUNDS_OFFSET)
+	if (offset >= COMBINED_SOUNDS_OFFSET)
 	{
 		file = &globals->resource_files[_resource_map_sounds];
-		file_offset = (unsigned long)offset - COMBINED_SOUNDS_OFFSET;
+		file_offset = offset - COMBINED_SOUNDS_OFFSET;
 	}
-	else if ((unsigned long)offset >= COMBINED_BITMAPS_OFFSET)
+	else if (offset >= COMBINED_BITMAPS_OFFSET)
 	{
 		file = &globals->resource_files[_resource_map_bitmaps];
-		file_offset = (unsigned long)offset - COMBINED_BITMAPS_OFFSET;
+		file_offset = offset - COMBINED_BITMAPS_OFFSET;
 	}
-	else if ((unsigned long)offset >= COMBINED_DECODED_OFFSET)
+	else if (offset >= COMBINED_DECODED_OFFSET)
 	{
-		if (!custom_edition_sounds_read((long)((unsigned long)offset - COMBINED_DECODED_OFFSET), size, buffer))
-			csmemset(buffer, 0, size);
-		return;
+		return custom_edition_sounds_read((long)(offset - COMBINED_DECODED_OFFSET), size, buffer);
 	}
 	else
 	{
 		file = &globals->map;
-		file_offset = (unsigned long)offset;
+		file_offset = offset;
 	}
 
-#ifdef HALO_SWITCH
-	/* (a bitmap's pixels kept by the host: as read, and converted below as
-	they would be) */
-	if (tag_index != NONE && size > 0)
-	{
-		memory_watch_prepare_write(buffer, (unsigned long)size);
-		if (host_texture_cache_get(CUSTOM_EDITION_TEXTURE_KEY(offset), (uint32_t)(uintptr_t)buffer, (uint32_t)size))
-		{
-			custom_edition_bitmap_pixels_arrived(globals->tag_cache, globals->loaded_bytes, tag_index, offset, buffer);
-			return;
-		}
-	}
-#endif
 	/* the game reads its map from its main thread only (scenario and
-	structure BSP loading, the texture and sound caches), so the streams and
-	the staging buffer need no lock */
+	structure BSP loading, the texture and sound caches, the bundles taken
+	out at the main menu), so the streams and the staging buffer need no
+	lock */
 	read = file->stream && size >= 0;
 	for (read_bytes = 0; read && read_bytes < size; read_bytes += READ_STAGING_BYTES)
 	{
@@ -1413,7 +1425,32 @@ void custom_edition_cache_read(
 			csmemcpy((byte *)buffer + read_bytes, globals->read_staging, chunk_bytes);
 		}
 	}
-	if (!read)
+
+	return read;
+}
+
+void custom_edition_cache_read(
+	long tag_index,
+	long offset,
+	long size,
+	void *buffer)
+{
+	struct custom_edition_cache_globals *globals = &custom_edition_cache_globals;
+
+#ifdef HALO_SWITCH
+	/* (a bitmap's pixels kept by the host: as read, and converted as
+	they would be) */
+	if (tag_index != NONE && size > 0)
+	{
+		memory_watch_prepare_write(buffer, (unsigned long)size);
+		if (host_texture_cache_get(CUSTOM_EDITION_TEXTURE_KEY(offset), (uint32_t)(uintptr_t)buffer, (uint32_t)size))
+		{
+			custom_edition_bitmap_pixels_arrived(globals->tag_cache, globals->loaded_bytes, tag_index, offset, buffer);
+			return;
+		}
+	}
+#endif
+	if (!custom_edition_cache_read_bytes((unsigned long)offset, size, buffer))
 	{
 		/* the loader checked every range the tags give, so this is an I/O
 		failure: the reader gets zeros rather than whatever was there */
@@ -1431,6 +1468,152 @@ void custom_edition_cache_read(
 #endif
 		custom_edition_bitmap_pixels_arrived(globals->tag_cache, globals->loaded_bytes, tag_index, offset, buffer);
 	}
+
+	return;
+}
+
+/* ---------- tag bundles */
+
+static boolean custom_edition_cache_bundle_read(
+	void *context,
+	unsigned long offset,
+	unsigned long size,
+	void *buffer)
+{
+	(void)context;
+	if (!custom_edition_cache_read_bytes(offset, (long)size, buffer))
+	{
+		error(_error_silent, "custom edition: cannot read 0x%lX bytes at 0x%08lX for a tag bundle", size, offset);
+		return FALSE;
+	}
+
+	return TRUE;
+}
+
+void *custom_edition_cache_bundle_open(
+	char const *path,
+	byte const *sound_tags,
+	long sound_tag_count)
+{
+	struct custom_edition_cache_globals *globals = &custom_edition_cache_globals;
+	uint8_t *tag_cache = halo_custom_edition_tag_cache();
+	struct custom_edition_load_report *report = &globals->bundle_report;
+	struct custom_edition_conversion_report conversion;
+	struct cache_file_identity identity;
+	enum cache_file_status status;
+	uint32_t loaded_bytes;
+
+	if (globals->bundle_open)
+	{
+		custom_edition_cache_bundle_close();
+	}
+	if (globals->tags_loaded)
+	{
+		error(_error_silent, "custom edition: cannot take tags out of '%s' while a Custom Edition map is played", path);
+		return NULL;
+	}
+	if (!tag_cache)
+	{
+		error(_error_silent, "custom edition: cannot take tags out of '%s': %s", path, custom_edition_unavailable_reason());
+		return NULL;
+	}
+	if (!custom_edition_file_open(&globals->map, path))
+	{
+		error(_error_silent, "custom edition: cannot open '%s'", path);
+		return NULL;
+	}
+	snprintf(globals->map_path, sizeof(globals->map_path), "%s", path);
+	status = cache_file_identify(&globals->map.source, &identity);
+	if (status != _cache_file_status_ok ||
+		identity.format != _cache_file_format_custom_edition_cache ||
+		identity.file_size > COMBINED_DECODED_OFFSET)
+	{
+		error(_error_silent, "custom edition: '%s' is not a loadable cache (%s)", path, cache_file_status_describe(status));
+		custom_edition_cache_files_close();
+		return NULL;
+	}
+	if (!custom_edition_cache_resource_maps_open())
+	{
+		custom_edition_cache_files_close();
+		return NULL;
+	}
+	status = custom_edition_cache_load(
+		&globals->map.source,
+		globals->resource_maps,
+		tag_cache,
+		CUSTOM_EDITION_TAG_CACHE_BYTES,
+		report);
+	if (status != _cache_file_status_ok)
+	{
+		error(_error_silent, "custom edition: cannot load '%s': %s (tag %ld, 0x%08lX)", path,
+			cache_file_status_describe(status), (long)report->problem_tag_index, (unsigned long)report->problem_location);
+		custom_edition_cache_files_close();
+		return NULL;
+	}
+	/* (as custom_edition_cache_tags_convert, but for the models, which a
+	bundle keeps as Halo PC's, and what only play needs: the scripts, and
+	the bitmaps whose channels are elsewhere, found again where the bundle's
+	tags are played) */
+	loaded_bytes = report->tag_data_bytes + report->resource_tag_bytes;
+	custom_edition_cache_combine_resource_offsets(tag_cache, loaded_bytes, COMBINED_BITMAPS_OFFSET,
+		COMBINED_SOUNDS_OFFSET);
+	/* (none for the tags to be listed alone: decoding a map's every sound
+	takes seconds) */
+	if (sound_tags)
+	{
+		custom_edition_sounds_decode_tags(tag_cache, loaded_bytes, (long)COMBINED_DECODED_OFFSET,
+			COMBINED_BITMAPS_OFFSET - COMBINED_DECODED_OFFSET, sound_tags, sound_tag_count);
+	}
+	status = custom_edition_cache_convert(tag_cache, loaded_bytes, report->identity.name, &conversion);
+	if (status != _cache_file_status_ok || !custom_edition_cache_tags_validate(tag_cache, report))
+	{
+		error(_error_silent, "custom edition: cannot take tags out of '%s': %s", path,
+			status != _cache_file_status_ok ? cache_file_status_describe(status) : "its tags are not valid (above)");
+		custom_edition_sounds_dispose();
+		custom_edition_cache_files_close();
+		return NULL;
+	}
+	globals->tag_cache = tag_cache;
+	globals->loaded_bytes = loaded_bytes;
+	globals->bundle_open = TRUE;
+
+	return tag_cache;
+}
+
+void custom_edition_cache_bundle_source(
+	struct tag_bundle_source *source)
+{
+	struct custom_edition_cache_globals *globals = &custom_edition_cache_globals;
+
+	csmemset(source, 0, sizeof(*source));
+	if (!globals->bundle_open)
+	{
+		return;
+	}
+	source->tag_header = globals->tag_cache;
+	source->loaded_size = (long)globals->loaded_bytes;
+	source->read = custom_edition_cache_bundle_read;
+	source->context = NULL;
+	source->map_name = globals->bundle_report.identity.name;
+	source->map_build = globals->bundle_report.identity.build;
+
+	return;
+}
+
+void custom_edition_cache_bundle_close(
+	void)
+{
+	struct custom_edition_cache_globals *globals = &custom_edition_cache_globals;
+
+	if (!globals->bundle_open)
+	{
+		return;
+	}
+	custom_edition_sounds_dispose();
+	custom_edition_cache_files_close();
+	globals->tag_cache = NULL;
+	globals->loaded_bytes = 0;
+	globals->bundle_open = FALSE;
 
 	return;
 }

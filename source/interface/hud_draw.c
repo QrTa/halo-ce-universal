@@ -703,20 +703,25 @@ static void hud_draw_multitexture_overlay(
 			boolean non_power_of_two =
 				((parameters.map[map_index]->width-1)&parameters.map[map_index]->width) != 0 ||
 				((parameters.map[map_index]->height-1)&parameters.map[map_index]->height) != 0;
+			/* port: (a Halo PC bitmap: a Custom Edition map's, or one the Tag
+			Injector added, port/linux/game/tag_injector.c) */
+			extern boolean tag_injector_tag_injected(long tag_index);
+			boolean halo_pc =
+				custom_edition_cache_tags_loaded() || tag_injector_tag_injected(parameters.map[map_index]->tag_index);
 
 			/* port: on a Halo Custom Edition map, a linear map is sampled in
 			texels, so the 0 to 1 that the element's (not interface) bitmap
 			spans becomes the map's width and height: Halo PC's interface
 			bitmaps are linear at any size, and bigass_v3's dynamic DMR reticle
 			drew as a square. This build's maps keep the Xbox's scale */
-			if (custom_edition_cache_tags_loaded() && TEST_FLAG(parameters.map[map_index]->flags, _bitmap_linear_bit))
+			if (halo_pc && TEST_FLAG(parameters.map[map_index]->flags, _bitmap_linear_bit))
 			{
 				parameters.map_texture_scale[map_index].i =
 					(real)parameters.map[map_index]->width;
 				parameters.map_texture_scale[map_index].j =
 					(real)parameters.map[map_index]->height;
 			}
-			else if (!custom_edition_cache_tags_loaded() && non_power_of_two)
+			else if (!halo_pc && non_power_of_two)
 			{
 				parameters.map_texture_scale[map_index].i =
 					1.0f/(real)parameters.map[map_index]->width;
@@ -781,8 +786,14 @@ static void hud_draw_multitexture_overlay(
 	/* port: Halo PC adds a Custom Edition overlay's color weighted by its
 	alpha, where those overlays keep their shape (bigass_v3's dynamic DMR
 	reticle added its whole square) */
-	parameters.alpha_weighted = custom_edition_cache_tags_loaded() &&
-		parameters.framebuffer_blend_function == _shader_framebuffer_blend_function_add;
+	{
+		extern boolean tag_injector_tag_injected(long tag_index);
+
+		parameters.alpha_weighted =
+			(custom_edition_cache_tags_loaded() ||
+				(parameters.map[0] && tag_injector_tag_injected(parameters.map[0]->tag_index))) &&
+			parameters.framebuffer_blend_function == _shader_framebuffer_blend_function_add;
+	}
 
 	for (function_index = 0;
 		function_index < overlay->functions.count;

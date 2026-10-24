@@ -115,6 +115,9 @@ symbols in this file:
 #include "errors.h"
 
 #include <ctype.h>
+#ifdef HALO_WEB
+#include <emscripten.h>
+#endif
 
 /* January calls the CRT isspace function rather than the multibyte ctype macro. */
 #undef isspace
@@ -317,6 +320,31 @@ void stack_walk_with_context(
 	unsigned long routine_addresses[64] = { 0 };
 	unsigned long levels_dumped;
 	long frame_number;
+
+#ifdef HALO_WEB
+	/* port: WebAssembly's calls are not on a stack a frame pointer walks:
+	the browser's stack has them, by halo.wasm's function names */
+	if (!error_stream && !context_pointer)
+	{
+		static char callstack[8192];
+		char *line;
+		char *next;
+
+		error(_error_silent, "Printing stuff for Mat's edification");
+		emscripten_get_callstack(EM_LOG_C_STACK | EM_LOG_NO_PATHS, callstack, sizeof(callstack));
+		for (line = callstack; *line; line = next)
+		{
+			next = strchr(line, '\n');
+			if (next)
+				*next++ = 0;
+			else
+				next = line + strlen(line);
+			if (*line)
+				error(_error_silent, "%s", line);
+		}
+		return;
+	}
+#endif
 
 	if (context_pointer)
 	{

@@ -11,6 +11,7 @@ game (shell_xbox.c's main, renamed halo_game_main by tools/web_build.py).
 */
 
 #include <emscripten.h>
+#include <emscripten/console.h>
 #include <emscripten/wasmfs.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -18,6 +19,7 @@ game (shell_xbox.c's main, renamed halo_game_main by tools/web_build.py).
 #include <sys/stat.h>
 
 #include "web_shared.h"
+#include "../../linux/game/cache_file_formats.h"
 
 int halo_game_main(void);
 /* web_net.c: the arguments, for posix_command_line_argument */
@@ -31,16 +33,58 @@ void web_js_post(int kind, const char *text);
 The Xbox window (port/linux/src/platform.h) is the top 128 MB of the
 WebAssembly memory, 0x80000000 to 0x88000000 (tools/web_build.py makes the
 memory that size). sbrk grows the C heap up to the heap size this reports,
-so reporting the window's start keeps the heap below it. */
+so reporting the window's start keeps the heap below it.
+
+Custom Edition tag data is linked to 0x40440000 to 0x41B40000
+(cache_file_formats.h), in the middle of the heap's range, and is loaded
+there (halo_custom_edition_tag_cache, port/linux/src/xbox_memory.c). While
+the heap is below that window, the heap size reported is the window's start;
+sbrk then asks emscripten_resize_heap for the one growth that would enter it,
+which moves the heap's end past the window and fails. malloc (dlmalloc) takes
+that failure as a heap that cannot grow in place, and asks sbrk again for a
+segment of its own: above the window, which malloc never hands out. */
 
 #define WEB_HEAP_LIMIT 0x80000000UL
+#define WEB_CUSTOM_EDITION_START CUSTOM_EDITION_TAG_CACHE_ADDRESS
+#define WEB_CUSTOM_EDITION_END (CUSTOM_EDITION_TAG_CACHE_ADDRESS + CUSTOM_EDITION_TAG_CACHE_BYTES)
+
+/* (Emscripten's, declared here: emscripten/heap.h declares
+emscripten_resize_heap as the page's import, which this one replaces) */
+uintptr_t *emscripten_get_sbrk_ptr(void);
+
+static uintptr_t web_heap_end(void)
+{
+	return __atomic_load_n(emscripten_get_sbrk_ptr(), __ATOMIC_SEQ_CST);
+}
 
 size_t emscripten_get_heap_size(void)
 {
 	size_t size = (size_t)__builtin_wasm_memory_size(0) << 16;
+	size_t limit = web_heap_end() <= WEB_CUSTOM_EDITION_START ? WEB_CUSTOM_EDITION_START : WEB_HEAP_LIMIT;
 
-	return size > WEB_HEAP_LIMIT ? WEB_HEAP_LIMIT : size;
+	return size > limit ? limit : size;
 }
+
+_Bool emscripten_resize_heap(size_t requested)
+{
+	uintptr_t end = web_heap_end();
+
+	if (end <= WEB_CUSTOM_EDITION_START && requested > WEB_CUSTOM_EDITION_START)
+	{
+		/* (another thread's growth since is below the window: the next
+		request crosses it again and comes here) */
+		__atomic_compare_exchange_n(emscripten_get_sbrk_ptr(), &end, (uintptr_t)WEB_CUSTOM_EDITION_END, 0,
+			__ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST);
+		return 0;
+	}
+	/* as Emscripten's own does with a memory of fixed size (ABORTING_MALLOC) */
+	emscripten_errf("the C heap is full: %zu bytes asked for, %zu available", requested,
+		emscripten_get_heap_size());
+	abort();
+}
+
+/* (the Custom Edition window is below the Xbox window) */
+typedef char custom_edition_window_in_heap[WEB_CUSTOM_EDITION_END <= WEB_HEAP_LIMIT ? 1 : -1];
 
 /* ---------- what the page reads and writes (web_shared.h) */
 
@@ -100,9 +144,6 @@ int main(int argc, char **argv)
 	/* the canvas fills the page, which the page's own button takes
 	fullscreen (a page may only do so from a click) */
 	set_default("HALO_DISPLAY_MODE", "windowed");
-	/* (Custom Edition maps' window would be the C heap's here:
-	port/linux/src/xbox_memory.c) */
-	set_default("HALO_CUSTOM_EDITION", "false");
 	/* (an invite link among them is joined: port/linux/src/p2p.c) */
 	web_net_arguments(argc, argv);
 	web_js_post(0, "starting");

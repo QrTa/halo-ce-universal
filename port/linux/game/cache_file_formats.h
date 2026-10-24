@@ -233,6 +233,10 @@ struct custom_edition_load_report
 	/* 1 when the scenario tag had another group (map protection renames it)
 	and was given the scenario's */
 	int32_t scenario_regrouped;
+	/* the tags map protection gave no group (FFFFFFFF), and how many of them
+	were given the one the references that name them say */
+	int32_t groupless_tags;
+	int32_t tags_regrouped;
 };
 
 /* Where Halo PC keeps what a texture holds in other channels than this

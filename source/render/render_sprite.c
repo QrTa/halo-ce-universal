@@ -88,6 +88,9 @@ symbols in this file:
 #include "render/render_sprite.h"
 #include "cache/texture_cache.h"
 #include "tag_files/tag_files.h"
+
+/* port: (port/linux/game/tag_injector.c) */
+boolean tag_injector_tag_injected(long tag_index);
 #include "tag_files/tag_groups.h"
 #include "custom_edition_cache.h" /* port: port/linux/game/custom_edition_cache.c */
 #include "view_fov.h" /* port: port/linux/game/view_fov.c */
@@ -815,8 +818,9 @@ static short build_sprite_get_group(
 	call takes (beavercreek_rev_beta's fluid bursts have a bitmap a frame, up
 	to 56), which halted a debug build: its sprites on the others are not
 	drawn, as a release build already did, and it is logged once. The Xbox's
-	maps' particles stay within the limit. */
-	if (custom_edition_cache_tags_loaded())
+	maps' particles stay within the limit; one the Tag Injector added is Halo
+	PC's (port/linux/game/tag_injector.c) */
+	if (custom_edition_cache_tags_loaded() || tag_injector_tag_injected(data->bitmap_group_index))
 	{
 		static boolean logged;
 

@@ -342,6 +342,7 @@ static unsigned long collision_bsp_visited[
 /* ---------- prototypes */
 
 static boolean collision_model_bsp_check(struct tag_validation *validation, void *base);
+static boolean collision_node_check(struct tag_validation *validation, void *base);
 static boolean structure_collision_bsp_check(struct tag_validation *validation, void *base);
 static boolean structure_detail_object_data_check(struct tag_validation *validation, void *base);
 static boolean structure_bsp_check(struct tag_validation *validation, void *base);
@@ -532,6 +533,8 @@ static struct tag_schema_field const collision_node_fields[] =
 		offsetof(struct collision_model, nodes), FLAG(_tag_schema_none_bit)),
 	TAG_SCHEMA_BLOCK_INDEX(struct collision_node, first_child_node_index, TAG_SCHEMA_ROOT,
 		offsetof(struct collision_model, nodes), FLAG(_tag_schema_none_bit)),
+	/* (before its bsps' checks, which refuse what it makes none) */
+	TAG_SCHEMA_CHECK(collision_node_check),
 	TAG_SCHEMA_BLOCK(struct collision_node, bsps, collision_model_bsp_schema, MAXIMUM_BSPS_PER_COLLISION_NODE),
 	TAG_SCHEMA_END
 };
@@ -1169,11 +1172,40 @@ static void collision_leaves_check(
 	return;
 }
 
-/* each surface's plane, and its edges: a ring from its first edge back to
-it in at most MAXIMUM_EDGES_PER_COLLISION_SURFACE (collision_surface_polygon's
-points), each edge the surface's (on one side or the other), as the game
-walks it (collision_bsp.c and the others): FALSE if one is not, which would
-be walked without end */
+/* a surface's edges: a ring from its first edge back to it in at most
+MAXIMUM_EDGES_PER_COLLISION_SURFACE (collision_surface_polygon's points),
+each edge the surface's (on one side or the other), as the game walks it
+(collision_bsp.c and the others). NONE if they are, which the game can walk;
+else the edge the walk stopped at, past the bsp's edges (or the ring longer
+than that) when the ring does not close */
+static long collision_surface_ring_broken(
+	struct collision_bsp const *bsp,
+	long surface_index)
+{
+	struct collision_surface const *surface = (struct collision_surface const *)bsp->surfaces.address + surface_index;
+	long edge_index = surface->first_edge_index;
+	short edge_count = 0;
+
+	do
+	{
+		struct collision_edge const *edge;
+
+		/* (the edges' indices are the bsp's: the schema checked them) */
+		if (edge_index < 0 || edge_index >= bsp->edges.count || edge_count >= MAXIMUM_EDGES_PER_COLLISION_SURFACE)
+			return bsp->edges.count;
+		edge = (struct collision_edge const *)bsp->edges.address + edge_index;
+		if (edge->surface_indices[0] != surface_index && edge->surface_indices[1] != surface_index)
+			return edge_index;
+		edge_index = edge->edge_indices[edge->surface_indices[1] == surface_index];
+		edge_count++;
+	}
+	while (edge_index != surface->first_edge_index);
+
+	return NONE;
+}
+
+/* each surface's plane, and its edges (collision_surface_ring_broken):
+FALSE if one's are not a ring, which would be walked without end */
 static boolean collision_surfaces_check(
 	struct tag_validation *validation,
 	struct collision_bsp *bsp)
@@ -1183,8 +1215,7 @@ static boolean collision_surfaces_check(
 	for (surface_index = 0; surface_index < bsp->surfaces.count; surface_index++)
 	{
 		struct collision_surface *surface = (struct collision_surface *)bsp->surfaces.address + surface_index;
-		long edge_index = surface->first_edge_index;
-		short edge_count = 0;
+		long edge_index;
 
 		if ((surface->plane_designator & LONG_MAX) >= bsp->bsp3d.planes.count)
 		{
@@ -1192,28 +1223,71 @@ static boolean collision_surfaces_check(
 				surface_index, surface->plane_designator, bsp->bsp3d.planes.count);
 			surface->plane_designator = 0;
 		}
-		do
+		edge_index = collision_surface_ring_broken(bsp, surface_index);
+		if (edge_index == bsp->edges.count)
 		{
-			struct collision_edge const *edge;
-
-			/* (the edges' indices are the bsp's: the schema checked them) */
-			if (edge_index < 0 || edge_index >= bsp->edges.count || edge_count >= MAXIMUM_EDGES_PER_COLLISION_SURFACE)
-			{
-				tag_validate_refuse(validation, "has surface %ld whose edges do not close within %d",
-					surface_index, MAXIMUM_EDGES_PER_COLLISION_SURFACE);
-				return FALSE;
-			}
-			edge = (struct collision_edge const *)bsp->edges.address + edge_index;
-			if (edge->surface_indices[0] != surface_index && edge->surface_indices[1] != surface_index)
-			{
-				tag_validate_refuse(validation, "has surface %ld with edge %ld, which is not its", surface_index,
-					edge_index);
-				return FALSE;
-			}
-			edge_index = edge->edge_indices[edge->surface_indices[1] == surface_index];
-			edge_count++;
+			tag_validate_refuse(validation, "has surface %ld whose edges do not close within %d",
+				surface_index, MAXIMUM_EDGES_PER_COLLISION_SURFACE);
+			return FALSE;
 		}
-		while (edge_index != surface->first_edge_index);
+		if (edge_index != NONE)
+		{
+			tag_validate_refuse(validation, "has surface %ld with edge %ld, which is not its", surface_index,
+				edge_index);
+			return FALSE;
+		}
+	}
+
+	return TRUE;
+}
+
+/* a collision model node's bsps, before their checks: one the game could
+not walk (collision_bsp_graph_check's refusals: no planes, or a surface's
+edges not a ring) is the node's none, as a node of no geometry has (the
+game reads a node's bsps only while it has some: collision_models.c),
+rather than the map refused for a model's collision. A structure's
+collision bsp is the level's, and is refused */
+static boolean collision_node_check(
+	struct tag_validation *validation,
+	void *base)
+{
+	struct collision_node *node = base;
+	long bsp_index;
+
+	for (bsp_index = 0; bsp_index < node->bsps.count; bsp_index++)
+	{
+		struct collision_bsp const *bsp = (struct collision_bsp const *)node->bsps.address + bsp_index;
+		long surface_index;
+
+		if (!bsp->bsp3d.planes.count &&
+			(bsp->bsp3d.nodes.count || bsp->surfaces.count || bsp->bsp2d_references.count))
+		{
+			tag_validate_correct(validation, "bsp %ld has %ld nodes, %ld surfaces and %ld bsp2d references, and no"
+				" planes: the node's %ld bsps are none", bsp_index, bsp->bsp3d.nodes.count, bsp->surfaces.count,
+				bsp->bsp2d_references.count, node->bsps.count);
+			node->bsps.count = 0;
+			break;
+		}
+		for (surface_index = 0; surface_index < bsp->surfaces.count; surface_index++)
+		{
+			long edge_index = collision_surface_ring_broken(bsp, surface_index);
+
+			if (edge_index == bsp->edges.count)
+			{
+				tag_validate_correct(validation, "bsp %ld's surface %ld has edges that do not close within %d: the "
+					"node's %ld bsps are none", bsp_index, surface_index, MAXIMUM_EDGES_PER_COLLISION_SURFACE,
+					node->bsps.count);
+				node->bsps.count = 0;
+				break;
+			}
+			if (edge_index != NONE)
+			{
+				tag_validate_correct(validation, "bsp %ld's surface %ld has edge %ld, which is not its: the node's "
+					"%ld bsps are none", bsp_index, surface_index, edge_index, node->bsps.count);
+				node->bsps.count = 0;
+				break;
+			}
+		}
 	}
 
 	return TRUE;

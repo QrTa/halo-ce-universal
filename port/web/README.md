@@ -40,6 +40,16 @@ and `foot` signatures, the Xbox cache version and the build of a retail disc,
 `01.10.12.2276`, or of the decompilation, `01.01.14.2342`). A disc image is
 untrusted input: the reader checks every offset and size in it.
 
+Halo Custom Edition maps (`docs/custom_edition_caches.md`): under **Game
+data**, **Add a custom_maps folder…** copies a `custom_maps` folder into the
+browser's storage (`custom_maps/`, which the game reads as a native build
+reads the data root's): its maps and their pictures and descriptions, in it
+and in one level of its subfolders, and Custom Edition's `bitmaps.map`,
+`sounds.map` and `loc.map`, which must be in the folder itself. Each map's
+header is checked as the game checks it, and the files are added to those
+already there (`custom-maps-worker.js`); a map the game would not take is
+left out and named. **Remove the Custom Edition maps** deletes them all.
+
 Mods (`docs/mods.md`): under **Mods**, **Add a mod folder…** copies a mod's
 `mod.toml` and `tags` folder into the browser's storage (`mods/`, which the
 game reads as a native build reads the data root's), replacing a mod of the
@@ -148,9 +158,6 @@ reloads.
 - Internet play has no relay, as on the native builds: two machines whose
   networks let no direct connection through (some company and school
   networks block WebRTC) cannot play together.
-- No Custom Edition maps (their tag data's address is in the C heap there),
-  so a browser neither downloads nor sends one (map sharing,
-  `port/linux/NETCODE.md`).
 - No Bink videos (as on the other ports).
 - The browser's WebGL 2 is OpenGL ES 3.0 without its 3.1 and 3.2 additions:
   the visibility tests (lens flares) report whether anything was drawn, a

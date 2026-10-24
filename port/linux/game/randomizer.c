@@ -27,7 +27,12 @@ form in a carrier's harmless burst) (randomizer_tick). Of a squad's infection
 forms to be swapped for other actors, only a share is (one in three, or so
 many tenths with Go Crazy: the squad's first, then evenly); the rest are not
 placed. Go Crazy's parts are each a setting of their own
-(game.randomizer_crazy_weapons, _enemies, _flamethrower, _pods).
+(game.randomizer_crazy_weapons, _enemies, _flamethrower, _pods). A level
+played alone (not a network game, nor a challenge) is given the tags of the
+Tag Injector's profile chosen (tag_injector.c), and its weapons and actor
+variants on join the pools their settings name (a faction, a type, a
+class: by their names when not set), the TAG INJECTOR pools, which are
+theirs alone, and the one type of their custom type.
 
 Off unless game.randomizer is on, and only for the ten campaign levels. A
 multiplayer game that is not co-op is not randomized. A client uses the
@@ -46,6 +51,7 @@ off. Each map read is a donor of one pack or the other.
 
 #include "cseries.h"
 #include "cseries/errors.h"
+#include "cseries/cseries_windows.h"
 #include "ai/actor_definitions.h"
 #include "ai/actor_placement.h"
 #include "ai/actors.h"
@@ -78,6 +84,7 @@ void platform_log(char const *format, ...);
 #include "randomizer.h"
 #include "community.h"
 #include "tag_schema.h"
+#include "tag_injector.h"
 
 #include <xtl.h>
 /* the port's zlib, the same one that unpacks a map while precaching it
@@ -98,6 +105,8 @@ keeps the tag cache (halo_port_window.h) */
 #define PROTECTED_MAX 128
 #define COPY_BUDGET (32UL * 1024UL * 1024UL)
 #define WALK_DEPTH 32
+/* the most weapons and actor variants of the Tag Injector's profile */
+#define CUSTOM_ROOT_MAX 128
 
 enum
 {
@@ -106,6 +115,8 @@ enum
 	POOL_FLOOD,
 	POOL_HUMAN,
 	POOL_ONE,
+	/* the Tag Injector profile's actor variants alone */
+	POOL_TAG_INJECTOR,
 	TYPE_GRUNT = 0,
 	TYPE_ELITE,
 	TYPE_JACKAL,
@@ -160,7 +171,17 @@ enum
 	WEAPON_POOL_AUTOMATIC,
 	WEAPON_POOL_POWER,
 	WEAPON_POOL_ONE,
+	/* the Tag Injector profile's weapons alone */
+	WEAPON_POOL_TAG_INJECTOR,
 	WEAPON_POOL_COUNT
+};
+
+/* a Tag Injector weapon's classes (its setting "class", or by its name) */
+enum
+{
+	WEAPON_CLASS_PRECISION_BIT = 1,
+	WEAPON_CLASS_AUTOMATIC_BIT = 2,
+	WEAPON_CLASS_POWER_BIT = 4,
 };
 
 static struct
@@ -256,6 +277,14 @@ struct pack_entry
 	long resources_at;
 };
 
+/* a range of a map's pixels the pack has not got, read from the map */
+struct donor_extra
+{
+	long offset;
+	long size;
+	unsigned char *bytes;
+};
+
 struct donor
 {
 	/* CreateFileA, not fopen: the Switch keeps map files in memory, and a
@@ -274,6 +303,13 @@ struct donor
 	int from_pack;
 	struct pack_span *spans;
 	long span_count;
+	/* the pixels of the bitmaps copied from it that the pack has not got
+	(it keeps no bitmap of the ui folder, a HUD's: a stock HUD copied for
+	the Tag Injector's weapons, or the sniper rifle's), read from the map as
+	the level loads (donor_extras_fill) */
+	struct donor_extra *extras;
+	long extra_count;
+	long extra_capacity;
 	long count;
 	struct randomizer_tag_instance *instances;
 	unsigned char *seen;
@@ -327,6 +363,10 @@ struct setup
 	int any_weapon;
 	int odd_enemies;
 	int flamethrower;
+	/* the Tag Injector's profile's tags added, and their weapons and actor
+	variants in the pools (a level played alone only: never a network
+	game's, nor a challenge's) */
+	int custom_tags;
 	/* the infection forms swapped, in tenths (the rest are not placed); 0,
 	one in three, without game.randomizer_crazy */
 	int pods;
@@ -340,6 +380,14 @@ struct setup
 	int pickup_type;
 	int weapon_pool;
 	int weapon_type;
+	/* the one type a custom type of the profile's (ONE TYPE's TAG INJECTOR),
+	and its name, in capitals (tag_injector_tag_custom_type) */
+	int custom_type;
+	int pickup_custom_type;
+	int weapon_custom_type;
+	char custom_type_name[TAG_INJECTOR_CUSTOM_TYPE_LENGTH];
+	char pickup_custom_type_name[TAG_INJECTOR_CUSTOM_TYPE_LENGTH];
+	char weapon_custom_type_name[TAG_INJECTOR_CUSTOM_TYPE_LENGTH];
 };
 
 extern boolean tag_index_is_group(long tag_index, long group_tag);
@@ -405,6 +453,10 @@ static long import_count;
 /* how many copied bitmap and sound ranges the pack does not hold, and what
 the reads during play actually returned. The detail lines stop after a few
 dozen so a level does not fill the log */
+/* the most bytes of pixels a level reads from the maps for the pack
+(donor_extras_fill), all its donors', and how many it has */
+#define DONOR_EXTRA_BYTES_MAX (16L * 1024L * 1024L)
+static long donor_extra_bytes;
 static long resource_checked;
 static long resource_uncovered;
 static long resource_empty;
@@ -436,6 +488,18 @@ static struct weapon_choice
 } pickup_choice, actor_weapon_choice;
 static unsigned long placement_roll;
 static int placement_roll_ready;
+/* the weapons and actor variants of the Tag Injector's profile the level was
+given (tag_injector_tags_load), which join the pools, and the profile's tag
+each is (its settings) */
+static long custom_roots[CUSTOM_ROOT_MAX];
+static long custom_root_tags[CUSTOM_ROOT_MAX];
+static long custom_root_count;
+static long custom_profile = NONE;
+/* the stock HUDs the profile's weapons want that the level has not got
+(tag_injector_tags_read), which gather_stock_huds copies */
+#define STOCK_HUD_MAX 16
+static short stock_huds[STOCK_HUD_MAX];
+static long stock_hud_count;
 static void *map_widget;
 static wchar_t prefixed_title[96];
 
@@ -537,7 +601,7 @@ static int campaign_leaf(char const *name, char *leaf, unsigned int leaf_size)
 
 static int pool_id(char const *text)
 {
-	static char const *const names[] = { "any", "covenant", "flood", "human", "one" };
+	static char const *const names[] = { "any", "covenant", "flood", "human", "one", "tag_injector" };
 	int index;
 
 	if (!text)
@@ -621,7 +685,7 @@ static int rank_id(char const *text)
 static int weapon_pool_id(char const *text)
 {
 	static char const *const names[WEAPON_POOL_COUNT] = {
-		"any", "covenant", "human", "precision", "automatic", "power", "one"
+		"any", "covenant", "human", "precision", "automatic", "power", "one", "tag_injector"
 	};
 
 	return name_index(text, names, WEAPON_POOL_COUNT, WEAPON_POOL_ANY);
@@ -655,6 +719,17 @@ static char const *rank_setting(int type)
 	return NULL;
 }
 
+/* a custom type's name as the setup keeps it: in capitals, as
+tag_injector_tag_custom_type gives a tag's */
+static void custom_type_name_copy(char *name, char const *text)
+{
+	int index;
+
+	for (index = 0; text && text[index] && index < TAG_INJECTOR_CUSTOM_TYPE_LENGTH - 1; index++)
+		name[index] = text[index] >= 'a' && text[index] <= 'z' ? (char)(text[index] - 'a' + 'A') : text[index];
+	name[index] = 0;
+}
+
 static void setup_from_config(struct setup *setup)
 {
 	setup->enemies = config_boolean("game.randomizer_enemies");
@@ -663,6 +738,10 @@ static void setup_from_config(struct setup *setup)
 	setup->any_weapon = setup->crazy && config_boolean("game.randomizer_crazy_weapons");
 	setup->odd_enemies = setup->crazy && config_boolean("game.randomizer_crazy_enemies");
 	setup->flamethrower = setup->crazy && config_boolean("game.randomizer_crazy_flamethrower");
+	/* (the profile's tags, played alone: a network game's machines must all
+	have the same, and a challenge is the same for everyone) */
+	setup->custom_tags = !network_game_get_game() && !network_game_distributed_client() &&
+		!community_challenge_running() && tag_injector_profile_playable() != NONE;
 	/* (a percentage, to the nearest tenth from one to all of them) */
 	setup->pods = setup->crazy ? (int)PIN((config_integer("game.randomizer_crazy_pods") + 5) / 10, 1, 10) : 0;
 	setup->pickups = config_boolean("game.randomizer_pickups");
@@ -685,6 +764,28 @@ static void setup_from_config(struct setup *setup)
 		setup->pickup_type = WEAPON_PISTOL;
 	if (setup->weapon_type == WEAPON_FLAMETHROWER && !setup->flamethrower)
 		setup->weapon_type = WEAPON_PLASMA_RIFLE;
+	/* (ONE TYPE's TAG INJECTOR: a custom type of the profile's) */
+	setup->custom_type = !_stricmp(config_string("game.randomizer_type"), "tag_injector");
+	setup->pickup_custom_type = !_stricmp(config_string("game.randomizer_pickup_type"), "tag_injector");
+	setup->weapon_custom_type = !_stricmp(config_string("game.randomizer_weapon_type"), "tag_injector");
+	custom_type_name_copy(setup->custom_type_name, config_string("game.randomizer_custom_type"));
+	custom_type_name_copy(setup->pickup_custom_type_name, config_string("game.randomizer_pickup_custom"));
+	custom_type_name_copy(setup->weapon_custom_type_name, config_string("game.randomizer_weapon_custom"));
+	/* (the TAG INJECTOR pools and types without the profile's tags: any) */
+	if (!setup->custom_tags)
+	{
+		if (setup->pool == POOL_TAG_INJECTOR || (setup->pool == POOL_ONE && setup->custom_type))
+			setup->pool = POOL_ANY;
+		if (setup->pickup_pool == WEAPON_POOL_TAG_INJECTOR ||
+			(setup->pickup_pool == WEAPON_POOL_ONE && setup->pickup_custom_type))
+			setup->pickup_pool = WEAPON_POOL_ANY;
+		if (setup->weapon_pool == WEAPON_POOL_TAG_INJECTOR ||
+			(setup->weapon_pool == WEAPON_POOL_ONE && setup->weapon_custom_type))
+			setup->weapon_pool = WEAPON_POOL_ANY;
+		setup->custom_type = 0;
+		setup->pickup_custom_type = 0;
+		setup->weapon_custom_type = 0;
+	}
 }
 
 static void setup_from_remote(struct setup *setup)
@@ -697,10 +798,10 @@ static void setup_from_remote(struct setup *setup)
 	setup->pool = remote_setup[1] <= POOL_ONE ? remote_setup[1] : POOL_ANY;
 	setup->type = type_known(remote_setup[2]) ? remote_setup[2] : TYPE_GRUNT;
 	setup->rank = remote_setup[7] < RANK_COUNT ? remote_setup[7] : RANK_ANY;
-	setup->pickup_pool = remote_setup[8] < WEAPON_POOL_COUNT ? remote_setup[8] : WEAPON_POOL_ANY;
+	setup->pickup_pool = remote_setup[8] < WEAPON_POOL_TAG_INJECTOR ? remote_setup[8] : WEAPON_POOL_ANY;
 	setup->pickup_type = remote_setup[9] < WEAPON_KIND_COUNT && !weapon_kinds[remote_setup[9]].actors_only ?
 		remote_setup[9] : WEAPON_PISTOL;
-	setup->weapon_pool = remote_setup[10] < WEAPON_POOL_COUNT ? remote_setup[10] : WEAPON_POOL_ANY;
+	setup->weapon_pool = remote_setup[10] < WEAPON_POOL_TAG_INJECTOR ? remote_setup[10] : WEAPON_POOL_ANY;
 	setup->weapon_type = remote_setup[11] < WEAPON_KIND_COUNT ? remote_setup[11] : WEAPON_PLASMA_RIFLE;
 	/* (Go Crazy's parts; a host built before there were any has all of
 	them, and swaps every infection form) */
@@ -718,6 +819,11 @@ static void setup_from_remote(struct setup *setup)
 		setup->flamethrower = setup->crazy;
 		setup->pods = 10;
 	}
+	/* (the host's profile's tags are its own) */
+	setup->custom_tags = 0;
+	setup->custom_type = 0;
+	setup->pickup_custom_type = 0;
+	setup->weapon_custom_type = 0;
 }
 
 static int setup_swaps(struct setup const *setup)
@@ -851,9 +957,23 @@ static int weapon_pool_allows(int pool, int type, int kind, int for_pickups)
 	case WEAPON_POOL_AUTOMATIC: return weapon_kinds[kind].automatic;
 	case WEAPON_POOL_POWER: return weapon_kinds[kind].power;
 	case WEAPON_POOL_ONE: return kind == type;
+	/* (the profile's weapons alone: add_custom_root) */
+	case WEAPON_POOL_TAG_INJECTOR: return 0;
 	}
 
 	return 1;
+}
+
+/* the one weapon type of the pickups' pool, and of the actors' weapons':
+none of the campaign's when it is a custom type of the profile's */
+static int pickup_one_type(void)
+{
+	return current.pickup_custom_type ? WEAPON_NONE : current.pickup_type;
+}
+
+static int weapon_one_type(void)
+{
+	return current.weapon_custom_type ? WEAPON_NONE : current.weapon_type;
 }
 
 /* a weapon to copy from the other maps: one a pool the setup chose names.
@@ -863,9 +983,9 @@ static int weapon_wanted(char const *name)
 	int kind = weapon_kind(name);
 
 	return (current.pickups && current.pickup_pool != WEAPON_POOL_ANY &&
-			weapon_pool_allows(current.pickup_pool, current.pickup_type, kind, 1)) ||
+			weapon_pool_allows(current.pickup_pool, pickup_one_type(), kind, 1)) ||
 		(current.weapons && current.weapon_pool != WEAPON_POOL_ANY &&
-			weapon_pool_allows(current.weapon_pool, current.weapon_type, kind, 0));
+			weapon_pool_allows(current.weapon_pool, weapon_one_type(), kind, 0));
 }
 
 static int pool_allows(int kind);
@@ -882,6 +1002,9 @@ static int rank_allows(int kind, char const *variant_name)
 static int pool_allows(int kind)
 {
 	if (kind == TYPE_NONE)
+		return 0;
+	/* (the profile's actor variants alone: add_custom_root) */
+	if (current.pool == POOL_TAG_INJECTOR || (current.pool == POOL_ONE && current.custom_type))
 		return 0;
 	if (current.pool == POOL_ONE)
 		return kind == current.type;
@@ -1985,11 +2108,23 @@ static int open_donor(struct donor *donor, char const *leaf, struct pack *pack)
 
 static void close_donor_bytes(struct donor *donor)
 {
+	long index;
+
 	release_donor_blob(donor);
 	if (donor->spans)
 		free(donor->spans);
 	donor->spans = NULL;
 	donor->span_count = 0;
+	for (index = 0; index < donor->extra_count; index++)
+	{
+		if (donor->extras[index].bytes)
+			free(donor->extras[index].bytes);
+	}
+	if (donor->extras)
+		free(donor->extras);
+	donor->extras = NULL;
+	donor->extra_count = 0;
+	donor->extra_capacity = 0;
 	donor->from_pack = 0;
 	if (donor->datum_of)
 		free(donor->datum_of);
@@ -2025,6 +2160,7 @@ static void donors_close(void)
 		}
 	}
 	donor_count = 0;
+	donor_extra_bytes = 0;
 	pack_close(&randomizer_pack);
 	pack_close(&skulls_pack);
 }
@@ -2334,6 +2470,191 @@ static void import_progress_end(void)
 	import_progress_open = 0;
 }
 
+/* a range of pixels the pack has not got, to be read from the map */
+static void donor_extra_add(struct donor *donor, long offset, long size)
+{
+	long index;
+
+	if (offset < 0x800 || size > DONOR_EXTRA_BYTES_MAX - donor_extra_bytes)
+		return;
+	for (index = 0; index < donor->extra_count; index++)
+	{
+		if (donor->extras[index].offset == offset && donor->extras[index].size >= size)
+			return;
+	}
+	if (donor->extra_count == donor->extra_capacity)
+	{
+		long capacity = donor->extra_capacity ? donor->extra_capacity * 2 : 32;
+		struct donor_extra *grown = realloc(donor->extras, (unsigned long)capacity * sizeof(*grown));
+
+		if (!grown)
+			return;
+		donor->extras = grown;
+		donor->extra_capacity = capacity;
+	}
+	donor->extras[donor->extra_count].offset = offset;
+	donor->extras[donor->extra_count].size = size;
+	donor->extras[donor->extra_count].bytes = NULL;
+	donor->extra_count++;
+	donor_extra_bytes += size;
+}
+
+static int donor_extra_less(void const *left, void const *right)
+{
+	struct donor_extra const *a = left;
+	struct donor_extra const *b = right;
+
+	return a->offset < b->offset ? -1 : a->offset > b->offset;
+}
+
+/* the ranges inflated from a disc map's zlib stream in one pass, each
+copied out as the stream passes it (sorted by offset); whether it reached
+the last */
+static int extras_inflate(HANDLE file, struct donor_extra *extras, long count)
+{
+	z_stream stream;
+	unsigned char input[0x2000];
+	unsigned char output[0x4000];
+	long produced = 0x800;
+	long end = 0;
+	long first = 0;
+	long index;
+	int result = Z_OK;
+	DWORD got;
+
+	for (index = 0; index < count; index++)
+	{
+		if (extras[index].offset + extras[index].size > end)
+			end = extras[index].offset + extras[index].size;
+	}
+	if (!donor_file_at(file, 0x800))
+		return 0;
+	memset(&stream, 0, sizeof(stream));
+	if (inflateInit(&stream) != Z_OK)
+		return 0;
+	while (produced < end && result != Z_STREAM_END)
+	{
+		long filled;
+
+		if (stream.avail_in == 0)
+		{
+			got = 0;
+			if (!ReadFile(file, input, (DWORD)sizeof(input), &got, NULL) || got == 0)
+				break;
+			stream.next_in = (Bytef *)input;
+			stream.avail_in = got;
+		}
+		stream.next_out = (Bytef *)output;
+		stream.avail_out = (unsigned int)sizeof(output);
+		result = inflate(&stream, Z_NO_FLUSH);
+		if (result != Z_OK && result != Z_STREAM_END && result != Z_BUF_ERROR)
+			break;
+		filled = (long)(sizeof(output) - stream.avail_out);
+		if (filled <= 0 && stream.avail_in)
+			break;
+		for (index = first; index < count && extras[index].offset < produced + filled; index++)
+		{
+			struct donor_extra *extra = extras + index;
+			long from = extra->offset > produced ? extra->offset : produced;
+			long to = extra->offset + extra->size < produced + filled ? extra->offset + extra->size : produced + filled;
+
+			if (from < to)
+				memcpy(extra->bytes + (from - extra->offset), output + (from - produced), (unsigned long)(to - from));
+		}
+		produced += filled;
+		while (first < count && extras[first].offset + extras[first].size <= produced)
+			first++;
+		if (result == Z_BUF_ERROR)
+			result = Z_OK;
+	}
+	inflateEnd(&stream);
+
+	return produced >= end;
+}
+
+/* the pixels the pack has not got of the bitmaps copied from a donor,
+read from its map (a few HUD bitmaps: the stream is inflated once, to the
+last of them); none when the map cannot be read, which draws them black */
+static void donor_extras_fill(struct donor *donor)
+{
+	char path[512];
+	HANDLE file;
+	DWORD physical;
+	unsigned long started;
+	long bytes = 0;
+	long index;
+	int read;
+
+	if (!donor->from_pack || donor->extra_count <= 0)
+		return;
+	qsort(donor->extras, (unsigned long)donor->extra_count, sizeof(*donor->extras), donor_extra_less);
+	for (index = 0; index < donor->extra_count; index++)
+	{
+		donor->extras[index].bytes = malloc((unsigned long)donor->extras[index].size);
+		if (!donor->extras[index].bytes)
+			break;
+		bytes += donor->extras[index].size;
+	}
+	snprintf(path, sizeof(path), "%s%s.map", cache_files_map_directory(), donor->leaf);
+	file = index == donor->extra_count ? CreateFileA(path, GENERIC_READ, 0, NULL, OPEN_EXISTING, 0, NULL) :
+		INVALID_HANDLE_VALUE;
+	read = 0;
+	started = system_milliseconds();
+	if (file != INVALID_HANDLE_VALUE)
+	{
+		physical = GetFileSize(file, NULL);
+		if (physical != INVALID_FILE_SIZE && (long)physical >= donor->file_length)
+		{
+			for (read = 1, index = 0; read && index < donor->extra_count; index++)
+			{
+				read = donor_file_at(file, donor->extras[index].offset) &&
+					donor_file_read(file, donor->extras[index].bytes, (unsigned long)donor->extras[index].size);
+			}
+		}
+		else
+			read = extras_inflate(file, donor->extras, donor->extra_count);
+		CloseHandle(file);
+	}
+	if (!read)
+	{
+		error(_error_silent, "randomizer: the %ld ranges the pack has not got of %s cannot be read from %s",
+			donor->extra_count, donor->leaf, path);
+		for (index = 0; index < donor->extra_count; index++)
+		{
+			if (donor->extras[index].bytes)
+				free(donor->extras[index].bytes);
+			donor->extras[index].bytes = NULL;
+		}
+		return;
+	}
+	error(_error_silent, "randomizer: %ld ranges the pack has not got (%ld bytes) read from %s in %lu ms",
+		donor->extra_count, bytes, path, system_milliseconds() - started);
+}
+
+/* bytes at `offset` of a donor's map from the ranges read for the pack
+(donor_extras_fill): how many */
+static long extras_copy(struct donor *donor, long offset, long size, unsigned char *buffer)
+{
+	long index;
+
+	for (index = 0; index < donor->extra_count; index++)
+	{
+		struct donor_extra const *extra = donor->extras + index;
+
+		if (extra->bytes && offset >= extra->offset && offset < extra->offset + extra->size)
+		{
+			long have = extra->offset + extra->size - offset;
+
+			if (have > size)
+				have = size;
+			memcpy(buffer, extra->bytes + (offset - extra->offset), (unsigned long)have);
+			return have;
+		}
+	}
+
+	return 0;
+}
+
 /* a copied bitmap's or sound's file range, checked against the pack before
 the tag bytes are dropped. A miss here is a black texture or an empty sample */
 static void note_range(struct donor *donor, char const *kind, char const *name, long index, long offset, long size)
@@ -2351,6 +2672,8 @@ static void note_range(struct donor *donor, char const *kind, char const *name, 
 	if (cover == 1)
 		return;
 	resource_uncovered++;
+	if (donor->from_pack && size > 0 && !strcmp(kind, "bitm"))
+		donor_extra_add(donor, offset, size);
 	if (resource_logged >= 48)
 		return;
 	resource_logged++;
@@ -2564,7 +2887,10 @@ static void import_wanted(void)
 	error(_error_silent, "randomizer: %ld pixel and sample ranges, %ld not in the pack, %ld empty",
 		resource_checked, resource_uncovered, resource_empty);
 	for (index = 0; index < donor_count; index++)
+	{
 		release_donor_blob(donors + index);
+		donor_extras_fill(donors + index);
+	}
 	if (import_stopped)
 	{
 		/* (out of room part way: tags copied without some they name would
@@ -2603,7 +2929,9 @@ static void add_variant(long datum)
 	struct actor_variant_definition *variant;
 	char const *unit_name;
 
-	if (variant_count >= POOL_MAX || datum == NONE || !tag_index_is_group(datum, ACTOR_VARIANT_DEFINITION_TAG))
+	/* (a profile's join by their settings: add_custom_root) */
+	if (variant_count >= POOL_MAX || datum == NONE || !tag_index_is_group(datum, ACTOR_VARIANT_DEFINITION_TAG) ||
+		tag_injector_tag_injected(datum))
 		return;
 	variant = actor_variant_definition_get(datum);
 	if (!variant)
@@ -2628,6 +2956,254 @@ static void add_weapon(struct weapon_choice *choice, long datum, int pool, int t
 			return;
 	}
 	choice->definitions[choice->count++] = datum;
+}
+
+/* whether a name has any of the words */
+static int name_has(char const *lower, char const *const *words)
+{
+	for (; *words; words++)
+	{
+		if (strstr(lower, *words))
+			return 1;
+	}
+
+	return 0;
+}
+
+/* a Tag Injector root's words, which AUTO finds its pools by: its path and
+the name it is shown by (one a player gave a protected map's "weapon 2"),
+in lower case */
+static void custom_words(long root, char const *name, char *words, unsigned int size)
+{
+	char shown[TAG_INJECTOR_CUSTOM_TYPE_LENGTH];
+	char both[256 + TAG_INJECTOR_CUSTOM_TYPE_LENGTH];
+
+	tag_injector_tag_display_name(custom_profile, custom_root_tags[root], shown, sizeof(shown));
+	snprintf(both, sizeof(both), "%s %s", name ? name : "", shown);
+	lower_copy(words, size, both);
+}
+
+/* a Tag Injector actor variant's faction (its setting "faction", else its
+unit's type's): the enemy pool it joins, else POOL_ANY for ANY's alone */
+static int custom_variant_faction(long root, int kind)
+{
+	char const *faction = tag_injector_tag_setting(custom_profile, custom_root_tags[root], "faction");
+
+	if (faction[0] && _stricmp(faction, "auto"))
+	{
+		int pool = pool_id(faction);
+
+		return pool == POOL_COVENANT || pool == POOL_FLOOD || pool == POOL_HUMAN ? pool : POOL_ANY;
+	}
+	switch (kind)
+	{
+	case TYPE_GRUNT: case TYPE_ELITE: case TYPE_JACKAL: case TYPE_HUNTER: case TYPE_ENGINEER:
+		return POOL_COVENANT;
+	case TYPE_FLOOD_COMBAT: case TYPE_FLOOD_CARRIER: case TYPE_FLOOD_INFECTION:
+		return POOL_FLOOD;
+	case TYPE_MARINE:
+		return POOL_HUMAN;
+	}
+
+	return POOL_ANY;
+}
+
+/* ... and the campaign's type it counts as for ONE TYPE (its setting
+"type", else its unit's), or TYPE_NONE */
+static int custom_variant_type(long root, int kind)
+{
+	char const *type = tag_injector_tag_setting(custom_profile, custom_root_tags[root], "type");
+	int index;
+
+	if (!type[0] || !_stricmp(type, "auto"))
+		return kind;
+	for (index = 0; index < (int)NUMBEROF(type_names); index++)
+	{
+		if (!_stricmp(type, type_names[index].name))
+			return type_names[index].type;
+	}
+
+	return TYPE_NONE;
+}
+
+/* a Tag Injector weapon's faction (its setting "faction", else the
+campaign's kind's of its name, else its name's words): Covenant's or not */
+static int custom_weapon_covenant(long root, char const *name)
+{
+	static char const *const covenant_words[] = {
+		"covenant", "plasma", "needle", "carbine", "fuel rod", "sword", "brute", "spike", "elite", "beam", NULL
+	};
+	char const *faction = tag_injector_tag_setting(custom_profile, custom_root_tags[root], "faction");
+	char lower[256 + TAG_INJECTOR_CUSTOM_TYPE_LENGTH];
+	int kind = weapon_kind(name);
+
+	if (faction[0] && _stricmp(faction, "auto"))
+		return !_stricmp(faction, "covenant");
+	if (kind != WEAPON_NONE)
+		return weapon_kinds[kind].covenant;
+	custom_words(root, name, lower, sizeof(lower));
+
+	return name_has(lower, covenant_words);
+}
+
+/* ... and its classes (WEAPON_CLASS_*_BIT: its setting "class", else the
+campaign's kind's, else its name's words) */
+static int custom_weapon_classes(long root, char const *name)
+{
+	static char const *const precision_words[] = {
+		"sniper", "pistol", "carbine", "battle rifle", "battlerifle", "dmr", "magnum", "beam rifle", NULL
+	};
+	static char const *const power_words[] = {
+		"rocket", "fuel", "sword", "shotgun", "launcher", "cannon", "hammer", "flame", "laser", "grenade", "mortar", NULL
+	};
+	static char const *const automatic_words[] = {
+		"assault", "smg", "rifle", "needler", "spiker", "machine", "repeater", "mauler", NULL
+	};
+	char const *setting = tag_injector_tag_setting(custom_profile, custom_root_tags[root], "class");
+	char lower[256 + TAG_INJECTOR_CUSTOM_TYPE_LENGTH];
+	int kind = weapon_kind(name);
+
+	if (setting[0] && _stricmp(setting, "auto"))
+	{
+		return !_stricmp(setting, "precision") ? WEAPON_CLASS_PRECISION_BIT :
+			!_stricmp(setting, "automatic") ? WEAPON_CLASS_AUTOMATIC_BIT :
+			!_stricmp(setting, "power") ? WEAPON_CLASS_POWER_BIT : 0;
+	}
+	if (kind != WEAPON_NONE)
+	{
+		return (weapon_kinds[kind].precision ? WEAPON_CLASS_PRECISION_BIT : 0) |
+			(weapon_kinds[kind].automatic ? WEAPON_CLASS_AUTOMATIC_BIT : 0) |
+			(weapon_kinds[kind].power ? WEAPON_CLASS_POWER_BIT : 0);
+	}
+	custom_words(root, name, lower, sizeof(lower));
+	if (name_has(lower, precision_words))
+		return WEAPON_CLASS_PRECISION_BIT;
+	if (name_has(lower, power_words))
+		return WEAPON_CLASS_POWER_BIT;
+	if (name_has(lower, automatic_words))
+		return WEAPON_CLASS_AUTOMATIC_BIT;
+
+	return 0;
+}
+
+/* whether a Tag Injector root is of the custom type `name` */
+static int custom_type_is(long root, char const *name)
+{
+	char type[TAG_INJECTOR_CUSTOM_TYPE_LENGTH];
+
+	tag_injector_tag_custom_type(custom_profile, custom_root_tags[root], type, sizeof(type));
+
+	return name[0] && !strcmp(type, name);
+}
+
+/* whether a pool of weapons has a Tag Injector weapon */
+static int custom_weapon_pool_allows(long root, char const *name, int pool, int custom_type, char const *custom_name)
+{
+	int classes;
+
+	switch (pool)
+	{
+	case WEAPON_POOL_ANY: case WEAPON_POOL_TAG_INJECTOR: return 1;
+	case WEAPON_POOL_COVENANT: return custom_weapon_covenant(root, name);
+	case WEAPON_POOL_HUMAN: return !custom_weapon_covenant(root, name);
+	case WEAPON_POOL_ONE: return custom_type && custom_type_is(root, custom_name);
+	}
+	classes = custom_weapon_classes(root, name);
+	switch (pool)
+	{
+	case WEAPON_POOL_PRECISION: return (classes & WEAPON_CLASS_PRECISION_BIT) != 0;
+	case WEAPON_POOL_AUTOMATIC: return (classes & WEAPON_CLASS_AUTOMATIC_BIT) != 0;
+	case WEAPON_POOL_POWER: return (classes & WEAPON_CLASS_POWER_BIT) != 0;
+	}
+
+	return 0;
+}
+
+/* a weapon or an actor variant of the Tag Injector's profile (the root
+`root` of custom_roots), in each pool of the setup its settings name: ANY's
+and TAG INJECTOR's, its faction's, its class's, and the one type of its
+type or its custom type */
+static void add_custom_root(long root)
+{
+	long datum = custom_roots[root];
+	struct weapon_choice *choices[2];
+	int pools[2];
+	int custom_types[2];
+	char const *custom_names[2];
+	short choice_count = 0;
+	short choice;
+	char const *name;
+
+	if (datum == NONE)
+		return;
+	name = tag_get_name(datum);
+	if (tag_index_is_group(datum, ACTOR_VARIANT_DEFINITION_TAG))
+	{
+		struct actor_variant_definition *variant = actor_variant_definition_get(datum);
+		char const *unit_name = variant && variant->unit_reference.index != NONE ?
+			tag_get_name(variant->unit_reference.index) : NULL;
+		int kind = classify(unit_name);
+		int allowed;
+		char words[256 + TAG_INJECTOR_CUSTOM_TYPE_LENGTH];
+
+		if (!current.enemies || variant_count >= POOL_MAX)
+			return;
+		/* (a unit of no type the campaign has: the variant's words', its
+		name's too) */
+		custom_words(root, name, words, sizeof(words));
+		if (kind == TYPE_NONE)
+			kind = classify(words);
+		switch (current.pool)
+		{
+		case POOL_ANY: case POOL_TAG_INJECTOR:
+			allowed = 1;
+			break;
+		case POOL_ONE:
+			allowed = current.custom_type ? custom_type_is(root, current.custom_type_name) :
+				custom_variant_type(root, kind) == current.type && rank_allows(current.type, words);
+			break;
+		default:
+			allowed = custom_variant_faction(root, kind) == current.pool;
+			break;
+		}
+		if (!allowed)
+			return;
+		for (choice = 0; choice < variant_count && variant_pool[choice] != datum; choice++)
+		{
+		}
+		if (choice == variant_count)
+			variant_pool[variant_count++] = datum;
+		return;
+	}
+	if (!tag_index_is_group(datum, WEAPON_DEFINITION_TAG))
+		return;
+	if (current.pickups)
+	{
+		choices[choice_count] = &pickup_choice;
+		pools[choice_count] = current.pickup_pool;
+		custom_types[choice_count] = current.pickup_custom_type;
+		custom_names[choice_count++] = current.pickup_custom_type_name;
+	}
+	if (current.weapons)
+	{
+		choices[choice_count] = &actor_weapon_choice;
+		pools[choice_count] = current.weapon_pool;
+		custom_types[choice_count] = current.weapon_custom_type;
+		custom_names[choice_count++] = current.weapon_custom_type_name;
+	}
+	for (choice = 0; choice < choice_count; choice++)
+	{
+		struct weapon_choice *weapons = choices[choice];
+		long index;
+
+		if (!custom_weapon_pool_allows(root, name, pools[choice], custom_types[choice], custom_names[choice]))
+			continue;
+		for (index = 0; index < weapons->count && weapons->definitions[index] != datum; index++)
+		{
+		}
+		if (index == weapons->count && weapons->count < WEAPON_MAX)
+			weapons->definitions[weapons->count++] = datum;
+	}
 }
 
 /* a block definition still at the address the map was linked with is not a
@@ -2685,9 +3261,12 @@ static void build_pools(void)
 		if (instances[index].group_tag != WEAPON_DEFINITION_TAG)
 			continue;
 		if (current.pickup_pool != WEAPON_POOL_ANY)
-			add_weapon(&pickup_choice, instances[index].tag_index, current.pickup_pool, current.pickup_type, 1);
-		add_weapon(&actor_weapon_choice, instances[index].tag_index, current.weapon_pool, current.weapon_type, 0);
+			add_weapon(&pickup_choice, instances[index].tag_index, current.pickup_pool, pickup_one_type(), 1);
+		add_weapon(&actor_weapon_choice, instances[index].tag_index, current.weapon_pool, weapon_one_type(), 0);
 	}
+	/* the Tag Injector's profile's: the pools their settings name */
+	for (index = 0; index < custom_root_count; index++)
+		add_custom_root(index);
 	/* "any": the level's own lying about, and those its actors carry */
 	if (current.pickup_pool == WEAPON_POOL_ANY)
 	{
@@ -2868,9 +3447,18 @@ static void gather_campaign(char const *leaf)
 {
 	int level;
 
-	/* (a pool of weapons other than the level's needs them copied too) */
-	if (!current.enemies && !(current.pickups && current.pickup_pool != WEAPON_POOL_ANY) &&
-		!(current.weapons && current.weapon_pool != WEAPON_POOL_ANY))
+	/* (a pool of weapons other than the level's needs them copied too; the
+	TAG INJECTOR pools and custom types are the profile's alone) */
+	int enemies = current.enemies && current.pool != POOL_TAG_INJECTOR &&
+		!(current.pool == POOL_ONE && current.custom_type);
+	int pickups = current.pickups && current.pickup_pool != WEAPON_POOL_ANY &&
+		current.pickup_pool != WEAPON_POOL_TAG_INJECTOR &&
+		!(current.pickup_pool == WEAPON_POOL_ONE && current.pickup_custom_type);
+	int weapons = current.weapons && current.weapon_pool != WEAPON_POOL_ANY &&
+		current.weapon_pool != WEAPON_POOL_TAG_INJECTOR &&
+		!(current.weapon_pool == WEAPON_POOL_ONE && current.weapon_custom_type);
+
+	if (!enemies && !pickups && !weapons)
 		return;
 	error(_error_silent, "randomizer: reading actors and weapons from the other campaign maps");
 	for (level = 0; level < 10 && donor_count < DONOR_COUNT; level++)
@@ -2993,6 +3581,154 @@ static void gather_skulls(int carried, int outbreak, int scarab)
 		gather_skull_roots(SKULLS_FLOOD_DONOR, roots, count);
 }
 
+/* the Tag Injector's: the stock weapon HUDs its profile's weapons are drawn
+with that the level has not got (tag_injector_tags_read), each from the
+first campaign map that has it, read again when the randomizer read it
+already for its pools */
+static void gather_stock_huds(char const *leaf)
+{
+	long index;
+
+	for (index = 0; index < stock_hud_count; index++)
+	{
+		char const *map = tag_injector_stock_hud_map(stock_huds[index]);
+		char const *name = tag_injector_stock_hud_tag(stock_huds[index]);
+		struct donor *donor;
+		long donor_index;
+		long tag;
+
+		if (tag_loaded('wphi', name) != NONE || !_stricmp(map, leaf))
+			continue;
+		for (donor_index = 0; donor_index < donor_count && _stricmp(donors[donor_index].leaf, map); donor_index++)
+		{
+		}
+		donor = donors + donor_index;
+		if (donor_index < donor_count)
+		{
+			if (!donor_bytes(donor))
+				continue;
+			/* (let go with its bytes: what was wanted of it before is known
+			by name, wanted_find) */
+			if (!donor->seen)
+			{
+				donor->seen = malloc((unsigned long)donor->count);
+				if (!donor->seen)
+					continue;
+				memset(donor->seen, 0, (unsigned long)donor->count);
+			}
+		}
+		else
+		{
+			if (donor_count >= DONOR_COUNT)
+			{
+				error(_error_silent, "randomizer: no room to read %s.map for the HUD %s", map, name);
+				continue;
+			}
+			if (!open_donor(donor, map, &randomizer_pack))
+			{
+				close_donor_bytes(donor);
+				continue;
+			}
+			donor_count++;
+		}
+		for (tag = 0; tag < donor->count; tag++)
+		{
+			struct randomizer_tag_instance *instance = donor->instances + tag;
+			char const *instance_name_text = instance_name(donor, instance);
+
+			if (instance->group_tag == 'wphi' && instance_name_text && !_stricmp(instance_name_text, name))
+			{
+				error(_error_silent, "randomizer: copying the HUD %s from %s.map for the Tag Injector's weapons",
+					name, map);
+				want_root(donor, tag);
+				break;
+			}
+		}
+		if (tag == donor->count)
+			error(_error_silent, "randomizer: %s.map has no %s", map, name);
+		release_donor_blob(donor);
+	}
+}
+
+/* the campaign maps' weapons, actor variants and equipment, by group and
+path (randomizer_stock_tag_exists): read once, the first time one is asked
+for */
+#define STOCK_TAG_MAX 1024
+static struct
+{
+	long group;
+	char *name;
+} stock_tags[STOCK_TAG_MAX];
+static long stock_tag_count;
+static int stock_tags_read;
+
+static void stock_tags_gather(void)
+{
+	/* (the pack left as it was: a level in play reads its pixels from it) */
+	int pack_was_open = randomizer_pack.state == 1;
+	int level;
+
+	stock_tags_read = 1;
+	for (level = 0; level < 10; level++)
+	{
+		char const *leaf = tag_name_strip_path(main_get_solo_level_name(level));
+		struct donor donor;
+		long tag;
+
+		if (!open_donor(&donor, leaf, &randomizer_pack))
+		{
+			close_donor_bytes(&donor);
+			continue;
+		}
+		for (tag = 0; tag < donor.count; tag++)
+		{
+			struct randomizer_tag_instance *instance = donor.instances + tag;
+			char const *name;
+			long index;
+
+			if (instance->group_tag != WEAPON_DEFINITION_TAG && instance->group_tag != ACTOR_VARIANT_DEFINITION_TAG &&
+				instance->group_tag != 'eqip')
+				continue;
+			name = instance_name(&donor, instance);
+			if (!name)
+				continue;
+			for (index = 0; index < stock_tag_count &&
+				(stock_tags[index].group != instance->group_tag || _stricmp(stock_tags[index].name, name)); index++)
+			{
+			}
+			if (index < stock_tag_count || stock_tag_count >= STOCK_TAG_MAX)
+				continue;
+			stock_tags[stock_tag_count].name = malloc(strlen(name) + 1);
+			if (!stock_tags[stock_tag_count].name)
+				break;
+			strcpy(stock_tags[stock_tag_count].name, name);
+			stock_tags[stock_tag_count++].group = instance->group_tag;
+		}
+		/* (its file closed with its bytes: it is not kept) */
+		close_donor_bytes(&donor);
+	}
+	if (!pack_was_open)
+		pack_close(&randomizer_pack);
+	error(_error_silent, "randomizer: the campaign maps have %ld weapons, actor variants and equipment", stock_tag_count);
+}
+
+int randomizer_stock_tag_exists(long group_tag, char const *name)
+{
+	long index;
+
+	if (!name || !name[0])
+		return 0;
+	if (!stock_tags_read)
+		stock_tags_gather();
+	for (index = 0; index < stock_tag_count; index++)
+	{
+		if (stock_tags[index].group == group_tag && !_stricmp(stock_tags[index].name, name))
+			return 1;
+	}
+
+	return 0;
+}
+
 void randomizer_tag_table_fingerprint(long *count, unsigned long *hash)
 {
 	long index;
@@ -3055,13 +3791,32 @@ void randomizer_tags_loaded(char const *scenario_name)
 	if (randomize && !network_game_distributed_client() && !placement_roll_ready)
 		placement_roll_new(scenario_name);
 	snprintf(map_name_leaf, sizeof(map_name_leaf), "%s", leaf);
+	/* (the Tag Injector's profile: a level played alone only, as only this
+	machine has it, and never a challenge's, which is the same for everyone.
+	Its bundles are read now, for the stock HUDs its weapons want) */
+	custom_root_count = 0;
+	custom_profile = NONE;
+	stock_hud_count = 0;
+	if (randomize && current.custom_tags && !game && !network_game_distributed_client() &&
+		!community_challenge_running())
+	{
+		custom_profile = tag_injector_profile_playable();
+		if (custom_profile != NONE)
+			stock_hud_count = tag_injector_tags_read(custom_profile, stock_huds, STOCK_HUD_MAX);
+		else
+			error(_error_silent, "randomizer: the Tag Injector's profile has no tags on any more");
+	}
 	if (gather_begin())
 	{
 		if (randomize)
 			gather_campaign(leaf);
 		gather_skulls(skull, outbreak, scarab);
+		gather_stock_huds(leaf);
 		import_wanted();
 	}
+	/* (its tags, after those) */
+	if (custom_profile != NONE)
+		custom_root_count = tag_injector_tags_load(custom_profile, custom_roots, custom_root_tags, CUSTOM_ROOT_MAX);
 	if (randomize)
 	{
 		error(_error_silent, "randomizer: gathering actors already in %s", leaf);
@@ -3113,6 +3868,9 @@ void randomizer_tags_unloaded(void)
 	already clear */
 	if (loaded)
 		placement_roll_ready = 0;
+	tag_injector_tags_unloaded();
+	custom_root_count = 0;
+	custom_profile = NONE;
 	donors_close();
 	bound_release();
 	held_free();
@@ -3252,7 +4010,11 @@ int randomizer_donor_read(long tag_index, long offset, long size, void *buffer)
 		if (size > donor->file_length - offset)
 			size = donor->file_length - offset;
 		if (donor->from_pack)
+		{
 			filled = pack_copy(donor, offset, size, buffer);
+			if (filled < size)
+				filled += extras_copy(donor, offset + filled, size - filled, (unsigned char *)buffer + filled);
+		}
 		else if (donor->file && donor->file != INVALID_HANDLE_VALUE)
 		{
 			if (!donor->compressed)

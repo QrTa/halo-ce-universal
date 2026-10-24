@@ -18,17 +18,20 @@
 		<child widget="main_menu/difficulty_select/randomizer/op_allies" x="54" y="96"/>
 		<child widget="main_menu/difficulty_select/randomizer/op_pool" x="54" y="122"/>
 		<child widget="main_menu/difficulty_select/randomizer/op_type" x="54" y="148"/>
-		<child widget="main_menu/difficulty_select/randomizer/op_grunt_rank" x="54" y="174"/>
-		<child widget="main_menu/difficulty_select/randomizer/op_elite_rank" x="54" y="200"/>
-		<child widget="main_menu/difficulty_select/randomizer/op_jackal_rank" x="54" y="226"/>
-		<child widget="main_menu/difficulty_select/randomizer/op_hunter_rank" x="54" y="252"/>
-		<child widget="main_menu/difficulty_select/randomizer/op_flood_combat_rank" x="54" y="278"/>
-		<child widget="main_menu/difficulty_select/randomizer/op_pickups" x="54" y="304"/>
-		<child widget="main_menu/difficulty_select/randomizer/op_pickup_pool" x="54" y="330"/>
-		<child widget="main_menu/difficulty_select/randomizer/op_pickup_type" x="54" y="356"/>
-		<child widget="main_menu/difficulty_select/randomizer/op_enemy_weapons" x="54" y="382"/>
-		<child widget="main_menu/difficulty_select/randomizer/op_weapon_pool" x="54" y="408"/>
-		<child widget="main_menu/difficulty_select/randomizer/op_weapon_type" x="54" y="434"/>
+		<child widget="main_menu/difficulty_select/randomizer/op_custom_type" x="54" y="174"/>
+		<child widget="main_menu/difficulty_select/randomizer/op_grunt_rank" x="54" y="200"/>
+		<child widget="main_menu/difficulty_select/randomizer/op_elite_rank" x="54" y="226"/>
+		<child widget="main_menu/difficulty_select/randomizer/op_jackal_rank" x="54" y="252"/>
+		<child widget="main_menu/difficulty_select/randomizer/op_hunter_rank" x="54" y="278"/>
+		<child widget="main_menu/difficulty_select/randomizer/op_flood_combat_rank" x="54" y="304"/>
+		<child widget="main_menu/difficulty_select/randomizer/op_pickups" x="54" y="330"/>
+		<child widget="main_menu/difficulty_select/randomizer/op_pickup_pool" x="54" y="356"/>
+		<child widget="main_menu/difficulty_select/randomizer/op_pickup_type" x="54" y="382"/>
+		<child widget="main_menu/difficulty_select/randomizer/op_pickup_custom" x="54" y="408"/>
+		<child widget="main_menu/difficulty_select/randomizer/op_enemy_weapons" x="54" y="434"/>
+		<child widget="main_menu/difficulty_select/randomizer/op_weapon_pool" x="54" y="460"/>
+		<child widget="main_menu/difficulty_select/randomizer/op_weapon_type" x="54" y="486"/>
+		<child widget="main_menu/difficulty_select/randomizer/op_weapon_custom" x="54" y="512"/>
 		<child widget="main_menu/difficulty_select/randomizer/button_bar" y="414"/>
 	</widget>
 	<widget name="main_menu/difficulty_select/randomizer/button_bar" type="column_list" width="640" height="28" flags="pass_unhandled_to_focused_child left_right_tabs_items">
@@ -61,7 +64,7 @@
 	</widget>
 	<widget name="main_menu/difficulty_select/randomizer/pool_label" type="text" controller="1" width="300" height="22" string_list="main_menu/difficulty_select/randomizer/labels" string_index="2" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
 	</widget>
-	<widget name="main_menu/difficulty_select/randomizer/pool_spinner" type="spinner" left="3" top="2" width="236" height="20" flags="pass_unhandled_to_focused_child left_right_tabs_items" strings="ANY|COVENANT|FLOOD|HUMAN|ONE TYPE" setting="game.randomizer_pool" values="any|covenant|flood|human|one" font="ui\large_ui" color="#FF2896FF" align="center" text_y="4" header_bitmap="bitmaps/arrow_sm_left" footer_bitmap="bitmaps/arrow_sm_right" header_bounds="7 -13 19 -7" footer_bounds="7 238 19 244">
+	<widget name="main_menu/difficulty_select/randomizer/pool_spinner" type="spinner" left="3" top="2" width="236" height="20" flags="pass_unhandled_to_focused_child left_right_tabs_items" strings="ANY|COVENANT|FLOOD|HUMAN|ONE TYPE|TAG INJECTOR" setting="game.randomizer_pool" values="any|covenant|flood|human|one|tag_injector" font="ui\large_ui" color="#FF2896FF" align="center" text_y="4" header_bitmap="bitmaps/arrow_sm_left" footer_bitmap="bitmaps/arrow_sm_right" header_bounds="7 -13 19 -7" footer_bounds="7 238 19 244">
 		<on event="created" run="port setting load"/>
 	</widget>
 	<widget name="main_menu/difficulty_select/randomizer/op_type" width="512" height="28" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/option_bkds" color="#FF2896FF">
@@ -70,14 +73,28 @@
 	</widget>
 	<widget name="main_menu/difficulty_select/randomizer/type_label" type="text" controller="1" width="300" height="22" string_list="main_menu/difficulty_select/randomizer/labels" string_index="3" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
 	</widget>
-	<widget name="main_menu/difficulty_select/randomizer/type_spinner" type="spinner" left="3" top="2" width="236" height="20" flags="pass_unhandled_to_focused_child left_right_tabs_items" strings="GRUNT|ELITE|JACKAL|HUNTER|COMBAT FORM|CARRIER FORM|MARINE|ENGINEER|SENTINEL" setting="game.randomizer_type" values="grunt|elite|jackal|hunter|flood_combat|flood_carrier|marine|engineer|sentinel" font="ui\large_ui" color="#FF2896FF" align="center" text_y="4" header_bitmap="bitmaps/arrow_sm_left" footer_bitmap="bitmaps/arrow_sm_right" header_bounds="7 -13 19 -7" footer_bounds="7 238 19 244">
+	<widget name="main_menu/difficulty_select/randomizer/type_spinner" type="spinner" left="3" top="2" width="236" height="20" flags="pass_unhandled_to_focused_child left_right_tabs_items" strings="GRUNT|ELITE|JACKAL|HUNTER|COMBAT FORM|CARRIER FORM|MARINE|ENGINEER|SENTINEL|TAG INJECTOR" setting="game.randomizer_type" values="grunt|elite|jackal|hunter|flood_combat|flood_carrier|marine|engineer|sentinel|tag_injector" font="ui\large_ui" color="#FF2896FF" align="center" text_y="4" header_bitmap="bitmaps/arrow_sm_left" footer_bitmap="bitmaps/arrow_sm_right" header_bounds="7 -13 19 -7" footer_bounds="7 238 19 244">
 		<on event="created" run="port setting load"/>
+	</widget>
+	<widget name="main_menu/difficulty_select/randomizer/op_custom_type" width="512" height="28" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/option_bkds" color="#FF2896FF">
+		<on event="left" run="randomizer custom left"/>
+		<on event="stick_left" run="randomizer custom left"/>
+		<on event="right" run="randomizer custom right"/>
+		<on event="stick_right" run="randomizer custom right"/>
+		<on event="a" run="randomizer custom right"/>
+		<on event="left_mouse" run="mouse emit accept event"/>
+		<child widget="main_menu/difficulty_select/randomizer/custom_type_label"/>
+		<child widget="main_menu/difficulty_select/randomizer/custom_type_value" x="259" y="3"/>
+	</widget>
+	<widget name="main_menu/difficulty_select/randomizer/custom_type_label" type="text" controller="1" width="300" height="22" string_list="main_menu/difficulty_select/randomizer/labels" string_index="4" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
+	</widget>
+	<widget name="main_menu/difficulty_select/randomizer/custom_type_value" type="text" controller="1" width="236" height="22" font="ui\large_ui" color="#FF2896FF" align="center" text_y="4" text_flags="no_focus_test">
 	</widget>
 	<widget name="main_menu/difficulty_select/randomizer/op_grunt_rank" width="512" height="28" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/option_bkds" color="#FF2896FF">
 		<child widget="main_menu/difficulty_select/randomizer/grunt_rank_label"/>
 		<child widget="main_menu/difficulty_select/randomizer/grunt_rank_spinner" x="256" y="1"/>
 	</widget>
-	<widget name="main_menu/difficulty_select/randomizer/grunt_rank_label" type="text" controller="1" width="300" height="22" string_list="main_menu/difficulty_select/randomizer/labels" string_index="4" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
+	<widget name="main_menu/difficulty_select/randomizer/grunt_rank_label" type="text" controller="1" width="300" height="22" string_list="main_menu/difficulty_select/randomizer/labels" string_index="5" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
 	</widget>
 	<widget name="main_menu/difficulty_select/randomizer/grunt_rank_spinner" type="spinner" left="3" top="2" width="236" height="20" flags="pass_unhandled_to_focused_child left_right_tabs_items" strings="ANY|MINOR|MAJOR|SPEC OPS" setting="game.randomizer_grunt_rank" values="any|minor|major|specops" font="ui\large_ui" color="#FF2896FF" align="center" text_y="4" header_bitmap="bitmaps/arrow_sm_left" footer_bitmap="bitmaps/arrow_sm_right" header_bounds="7 -13 19 -7" footer_bounds="7 238 19 244">
 		<on event="created" run="port setting load"/>
@@ -86,7 +103,7 @@
 		<child widget="main_menu/difficulty_select/randomizer/elite_rank_label"/>
 		<child widget="main_menu/difficulty_select/randomizer/elite_rank_spinner" x="256" y="1"/>
 	</widget>
-	<widget name="main_menu/difficulty_select/randomizer/elite_rank_label" type="text" controller="1" width="300" height="22" string_list="main_menu/difficulty_select/randomizer/labels" string_index="5" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
+	<widget name="main_menu/difficulty_select/randomizer/elite_rank_label" type="text" controller="1" width="300" height="22" string_list="main_menu/difficulty_select/randomizer/labels" string_index="6" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
 	</widget>
 	<widget name="main_menu/difficulty_select/randomizer/elite_rank_spinner" type="spinner" left="3" top="2" width="236" height="20" flags="pass_unhandled_to_focused_child left_right_tabs_items" strings="ANY|MINOR|MAJOR|SPEC OPS|ZEALOT|STEALTH" setting="game.randomizer_elite_rank" values="any|minor|major|specops|zealot|stealth" font="ui\large_ui" color="#FF2896FF" align="center" text_y="4" header_bitmap="bitmaps/arrow_sm_left" footer_bitmap="bitmaps/arrow_sm_right" header_bounds="7 -13 19 -7" footer_bounds="7 238 19 244">
 		<on event="created" run="port setting load"/>
@@ -95,7 +112,7 @@
 		<child widget="main_menu/difficulty_select/randomizer/jackal_rank_label"/>
 		<child widget="main_menu/difficulty_select/randomizer/jackal_rank_spinner" x="256" y="1"/>
 	</widget>
-	<widget name="main_menu/difficulty_select/randomizer/jackal_rank_label" type="text" controller="1" width="300" height="22" string_list="main_menu/difficulty_select/randomizer/labels" string_index="6" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
+	<widget name="main_menu/difficulty_select/randomizer/jackal_rank_label" type="text" controller="1" width="300" height="22" string_list="main_menu/difficulty_select/randomizer/labels" string_index="7" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
 	</widget>
 	<widget name="main_menu/difficulty_select/randomizer/jackal_rank_spinner" type="spinner" left="3" top="2" width="236" height="20" flags="pass_unhandled_to_focused_child left_right_tabs_items" strings="ANY|MINOR|MAJOR" setting="game.randomizer_jackal_rank" values="any|minor|major" font="ui\large_ui" color="#FF2896FF" align="center" text_y="4" header_bitmap="bitmaps/arrow_sm_left" footer_bitmap="bitmaps/arrow_sm_right" header_bounds="7 -13 19 -7" footer_bounds="7 238 19 244">
 		<on event="created" run="port setting load"/>
@@ -104,7 +121,7 @@
 		<child widget="main_menu/difficulty_select/randomizer/hunter_rank_label"/>
 		<child widget="main_menu/difficulty_select/randomizer/hunter_rank_spinner" x="256" y="1"/>
 	</widget>
-	<widget name="main_menu/difficulty_select/randomizer/hunter_rank_label" type="text" controller="1" width="300" height="22" string_list="main_menu/difficulty_select/randomizer/labels" string_index="7" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
+	<widget name="main_menu/difficulty_select/randomizer/hunter_rank_label" type="text" controller="1" width="300" height="22" string_list="main_menu/difficulty_select/randomizer/labels" string_index="8" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
 	</widget>
 	<widget name="main_menu/difficulty_select/randomizer/hunter_rank_spinner" type="spinner" left="3" top="2" width="236" height="20" flags="pass_unhandled_to_focused_child left_right_tabs_items" strings="ANY|MINOR|MAJOR" setting="game.randomizer_hunter_rank" values="any|minor|major" font="ui\large_ui" color="#FF2896FF" align="center" text_y="4" header_bitmap="bitmaps/arrow_sm_left" footer_bitmap="bitmaps/arrow_sm_right" header_bounds="7 -13 19 -7" footer_bounds="7 238 19 244">
 		<on event="created" run="port setting load"/>
@@ -113,7 +130,7 @@
 		<child widget="main_menu/difficulty_select/randomizer/flood_combat_rank_label"/>
 		<child widget="main_menu/difficulty_select/randomizer/flood_combat_rank_spinner" x="256" y="1"/>
 	</widget>
-	<widget name="main_menu/difficulty_select/randomizer/flood_combat_rank_label" type="text" controller="1" width="300" height="22" string_list="main_menu/difficulty_select/randomizer/labels" string_index="8" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
+	<widget name="main_menu/difficulty_select/randomizer/flood_combat_rank_label" type="text" controller="1" width="300" height="22" string_list="main_menu/difficulty_select/randomizer/labels" string_index="9" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
 	</widget>
 	<widget name="main_menu/difficulty_select/randomizer/flood_combat_rank_spinner" type="spinner" left="3" top="2" width="236" height="20" flags="pass_unhandled_to_focused_child left_right_tabs_items" strings="ANY|HUMAN|ELITE" setting="game.randomizer_flood_combat_rank" values="any|human|elite" font="ui\large_ui" color="#FF2896FF" align="center" text_y="4" header_bitmap="bitmaps/arrow_sm_left" footer_bitmap="bitmaps/arrow_sm_right" header_bounds="7 -13 19 -7" footer_bounds="7 238 19 244">
 		<on event="created" run="port setting load"/>
@@ -122,7 +139,7 @@
 		<child widget="main_menu/difficulty_select/randomizer/pickups_label"/>
 		<child widget="main_menu/difficulty_select/randomizer/pickups_spinner" x="256" y="1"/>
 	</widget>
-	<widget name="main_menu/difficulty_select/randomizer/pickups_label" type="text" controller="1" width="300" height="22" string_list="main_menu/difficulty_select/randomizer/labels" string_index="9" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
+	<widget name="main_menu/difficulty_select/randomizer/pickups_label" type="text" controller="1" width="300" height="22" string_list="main_menu/difficulty_select/randomizer/labels" string_index="10" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
 	</widget>
 	<widget name="main_menu/difficulty_select/randomizer/pickups_spinner" type="spinner" left="3" top="2" width="236" height="20" flags="pass_unhandled_to_focused_child left_right_tabs_items" strings="OFF|ON" setting="game.randomizer_pickups" values="false|true" font="ui\large_ui" color="#FF2896FF" align="center" text_y="4" header_bitmap="bitmaps/arrow_sm_left" footer_bitmap="bitmaps/arrow_sm_right" header_bounds="7 -13 19 -7" footer_bounds="7 238 19 244">
 		<on event="created" run="port setting load"/>
@@ -131,25 +148,39 @@
 		<child widget="main_menu/difficulty_select/randomizer/pickup_pool_label"/>
 		<child widget="main_menu/difficulty_select/randomizer/pickup_pool_spinner" x="256" y="1"/>
 	</widget>
-	<widget name="main_menu/difficulty_select/randomizer/pickup_pool_label" type="text" controller="1" width="300" height="22" string_list="main_menu/difficulty_select/randomizer/labels" string_index="10" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
+	<widget name="main_menu/difficulty_select/randomizer/pickup_pool_label" type="text" controller="1" width="300" height="22" string_list="main_menu/difficulty_select/randomizer/labels" string_index="11" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
 	</widget>
-	<widget name="main_menu/difficulty_select/randomizer/pickup_pool_spinner" type="spinner" left="3" top="2" width="236" height="20" flags="pass_unhandled_to_focused_child left_right_tabs_items" strings="ANY|COVENANT|HUMAN|PRECISION|AUTOMATIC|POWER|ONE TYPE" setting="game.randomizer_pickup_pool" values="any|covenant|human|precision|automatic|power|one" font="ui\large_ui" color="#FF2896FF" align="center" text_y="4" header_bitmap="bitmaps/arrow_sm_left" footer_bitmap="bitmaps/arrow_sm_right" header_bounds="7 -13 19 -7" footer_bounds="7 238 19 244">
+	<widget name="main_menu/difficulty_select/randomizer/pickup_pool_spinner" type="spinner" left="3" top="2" width="236" height="20" flags="pass_unhandled_to_focused_child left_right_tabs_items" strings="ANY|COVENANT|HUMAN|PRECISION|AUTOMATIC|POWER|ONE TYPE|TAG INJECTOR" setting="game.randomizer_pickup_pool" values="any|covenant|human|precision|automatic|power|one|tag_injector" font="ui\large_ui" color="#FF2896FF" align="center" text_y="4" header_bitmap="bitmaps/arrow_sm_left" footer_bitmap="bitmaps/arrow_sm_right" header_bounds="7 -13 19 -7" footer_bounds="7 238 19 244">
 		<on event="created" run="port setting load"/>
 	</widget>
 	<widget name="main_menu/difficulty_select/randomizer/op_pickup_type" width="512" height="28" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/option_bkds" color="#FF2896FF">
 		<child widget="main_menu/difficulty_select/randomizer/pickup_type_label"/>
 		<child widget="main_menu/difficulty_select/randomizer/pickup_type_spinner" x="256" y="1"/>
 	</widget>
-	<widget name="main_menu/difficulty_select/randomizer/pickup_type_label" type="text" controller="1" width="300" height="22" string_list="main_menu/difficulty_select/randomizer/labels" string_index="11" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
+	<widget name="main_menu/difficulty_select/randomizer/pickup_type_label" type="text" controller="1" width="300" height="22" string_list="main_menu/difficulty_select/randomizer/labels" string_index="12" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
 	</widget>
-	<widget name="main_menu/difficulty_select/randomizer/pickup_type_spinner" type="spinner" left="3" top="2" width="236" height="20" flags="pass_unhandled_to_focused_child left_right_tabs_items" strings="PISTOL|ASSAULT RIFLE|SHOTGUN|SNIPER RIFLE|ROCKETS|FLAMETHROWER|PLASMA PISTOL|PLASMA RIFLE|NEEDLER" setting="game.randomizer_pickup_type" values="pistol|assault_rifle|shotgun|sniper_rifle|rocket_launcher|flamethrower|plasma_pistol|plasma_rifle|needler" font="ui\large_ui" color="#FF2896FF" align="center" text_y="4" header_bitmap="bitmaps/arrow_sm_left" footer_bitmap="bitmaps/arrow_sm_right" header_bounds="7 -13 19 -7" footer_bounds="7 238 19 244">
+	<widget name="main_menu/difficulty_select/randomizer/pickup_type_spinner" type="spinner" left="3" top="2" width="236" height="20" flags="pass_unhandled_to_focused_child left_right_tabs_items" strings="PISTOL|ASSAULT RIFLE|SHOTGUN|SNIPER RIFLE|ROCKETS|FLAMETHROWER|PLASMA PISTOL|PLASMA RIFLE|NEEDLER|TAG INJECTOR" setting="game.randomizer_pickup_type" values="pistol|assault_rifle|shotgun|sniper_rifle|rocket_launcher|flamethrower|plasma_pistol|plasma_rifle|needler|tag_injector" font="ui\large_ui" color="#FF2896FF" align="center" text_y="4" header_bitmap="bitmaps/arrow_sm_left" footer_bitmap="bitmaps/arrow_sm_right" header_bounds="7 -13 19 -7" footer_bounds="7 238 19 244">
 		<on event="created" run="port setting load"/>
+	</widget>
+	<widget name="main_menu/difficulty_select/randomizer/op_pickup_custom" width="512" height="28" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/option_bkds" color="#FF2896FF">
+		<on event="left" run="randomizer custom left"/>
+		<on event="stick_left" run="randomizer custom left"/>
+		<on event="right" run="randomizer custom right"/>
+		<on event="stick_right" run="randomizer custom right"/>
+		<on event="a" run="randomizer custom right"/>
+		<on event="left_mouse" run="mouse emit accept event"/>
+		<child widget="main_menu/difficulty_select/randomizer/pickup_custom_label"/>
+		<child widget="main_menu/difficulty_select/randomizer/pickup_custom_value" x="259" y="3"/>
+	</widget>
+	<widget name="main_menu/difficulty_select/randomizer/pickup_custom_label" type="text" controller="1" width="300" height="22" string_list="main_menu/difficulty_select/randomizer/labels" string_index="13" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
+	</widget>
+	<widget name="main_menu/difficulty_select/randomizer/pickup_custom_value" type="text" controller="1" width="236" height="22" font="ui\large_ui" color="#FF2896FF" align="center" text_y="4" text_flags="no_focus_test">
 	</widget>
 	<widget name="main_menu/difficulty_select/randomizer/op_enemy_weapons" width="512" height="28" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/option_bkds" color="#FF2896FF">
 		<child widget="main_menu/difficulty_select/randomizer/enemy_weapons_label"/>
 		<child widget="main_menu/difficulty_select/randomizer/enemy_weapons_spinner" x="256" y="1"/>
 	</widget>
-	<widget name="main_menu/difficulty_select/randomizer/enemy_weapons_label" type="text" controller="1" width="300" height="22" string_list="main_menu/difficulty_select/randomizer/labels" string_index="12" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
+	<widget name="main_menu/difficulty_select/randomizer/enemy_weapons_label" type="text" controller="1" width="300" height="22" string_list="main_menu/difficulty_select/randomizer/labels" string_index="14" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
 	</widget>
 	<widget name="main_menu/difficulty_select/randomizer/enemy_weapons_spinner" type="spinner" left="3" top="2" width="236" height="20" flags="pass_unhandled_to_focused_child left_right_tabs_items" strings="OFF|ON" setting="game.randomizer_enemy_weapons" values="false|true" font="ui\large_ui" color="#FF2896FF" align="center" text_y="4" header_bitmap="bitmaps/arrow_sm_left" footer_bitmap="bitmaps/arrow_sm_right" header_bounds="7 -13 19 -7" footer_bounds="7 238 19 244">
 		<on event="created" run="port setting load"/>
@@ -158,19 +189,33 @@
 		<child widget="main_menu/difficulty_select/randomizer/weapon_pool_label"/>
 		<child widget="main_menu/difficulty_select/randomizer/weapon_pool_spinner" x="256" y="1"/>
 	</widget>
-	<widget name="main_menu/difficulty_select/randomizer/weapon_pool_label" type="text" controller="1" width="300" height="22" string_list="main_menu/difficulty_select/randomizer/labels" string_index="13" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
+	<widget name="main_menu/difficulty_select/randomizer/weapon_pool_label" type="text" controller="1" width="300" height="22" string_list="main_menu/difficulty_select/randomizer/labels" string_index="15" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
 	</widget>
-	<widget name="main_menu/difficulty_select/randomizer/weapon_pool_spinner" type="spinner" left="3" top="2" width="236" height="20" flags="pass_unhandled_to_focused_child left_right_tabs_items" strings="ANY|COVENANT|HUMAN|PRECISION|AUTOMATIC|POWER|ONE TYPE" setting="game.randomizer_weapon_pool" values="any|covenant|human|precision|automatic|power|one" font="ui\large_ui" color="#FF2896FF" align="center" text_y="4" header_bitmap="bitmaps/arrow_sm_left" footer_bitmap="bitmaps/arrow_sm_right" header_bounds="7 -13 19 -7" footer_bounds="7 238 19 244">
+	<widget name="main_menu/difficulty_select/randomizer/weapon_pool_spinner" type="spinner" left="3" top="2" width="236" height="20" flags="pass_unhandled_to_focused_child left_right_tabs_items" strings="ANY|COVENANT|HUMAN|PRECISION|AUTOMATIC|POWER|ONE TYPE|TAG INJECTOR" setting="game.randomizer_weapon_pool" values="any|covenant|human|precision|automatic|power|one|tag_injector" font="ui\large_ui" color="#FF2896FF" align="center" text_y="4" header_bitmap="bitmaps/arrow_sm_left" footer_bitmap="bitmaps/arrow_sm_right" header_bounds="7 -13 19 -7" footer_bounds="7 238 19 244">
 		<on event="created" run="port setting load"/>
 	</widget>
 	<widget name="main_menu/difficulty_select/randomizer/op_weapon_type" width="512" height="28" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/option_bkds" color="#FF2896FF">
 		<child widget="main_menu/difficulty_select/randomizer/weapon_type_label"/>
 		<child widget="main_menu/difficulty_select/randomizer/weapon_type_spinner" x="256" y="1"/>
 	</widget>
-	<widget name="main_menu/difficulty_select/randomizer/weapon_type_label" type="text" controller="1" width="300" height="22" string_list="main_menu/difficulty_select/randomizer/labels" string_index="14" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
+	<widget name="main_menu/difficulty_select/randomizer/weapon_type_label" type="text" controller="1" width="300" height="22" string_list="main_menu/difficulty_select/randomizer/labels" string_index="16" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
 	</widget>
-	<widget name="main_menu/difficulty_select/randomizer/weapon_type_spinner" type="spinner" left="3" top="2" width="236" height="20" flags="pass_unhandled_to_focused_child left_right_tabs_items" strings="PISTOL|ASSAULT RIFLE|SHOTGUN|SNIPER RIFLE|ROCKETS|FLAMETHROWER|PLASMA PISTOL|PLASMA RIFLE|NEEDLER|FUEL ROD|ENERGY SWORD" setting="game.randomizer_weapon_type" values="pistol|assault_rifle|shotgun|sniper_rifle|rocket_launcher|flamethrower|plasma_pistol|plasma_rifle|needler|fuel_rod|energy_sword" font="ui\large_ui" color="#FF2896FF" align="center" text_y="4" header_bitmap="bitmaps/arrow_sm_left" footer_bitmap="bitmaps/arrow_sm_right" header_bounds="7 -13 19 -7" footer_bounds="7 238 19 244">
+	<widget name="main_menu/difficulty_select/randomizer/weapon_type_spinner" type="spinner" left="3" top="2" width="236" height="20" flags="pass_unhandled_to_focused_child left_right_tabs_items" strings="PISTOL|ASSAULT RIFLE|SHOTGUN|SNIPER RIFLE|ROCKETS|FLAMETHROWER|PLASMA PISTOL|PLASMA RIFLE|NEEDLER|FUEL ROD|ENERGY SWORD|TAG INJECTOR" setting="game.randomizer_weapon_type" values="pistol|assault_rifle|shotgun|sniper_rifle|rocket_launcher|flamethrower|plasma_pistol|plasma_rifle|needler|fuel_rod|energy_sword|tag_injector" font="ui\large_ui" color="#FF2896FF" align="center" text_y="4" header_bitmap="bitmaps/arrow_sm_left" footer_bitmap="bitmaps/arrow_sm_right" header_bounds="7 -13 19 -7" footer_bounds="7 238 19 244">
 		<on event="created" run="port setting load"/>
+	</widget>
+	<widget name="main_menu/difficulty_select/randomizer/op_weapon_custom" width="512" height="28" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/option_bkds" color="#FF2896FF">
+		<on event="left" run="randomizer custom left"/>
+		<on event="stick_left" run="randomizer custom left"/>
+		<on event="right" run="randomizer custom right"/>
+		<on event="stick_right" run="randomizer custom right"/>
+		<on event="a" run="randomizer custom right"/>
+		<on event="left_mouse" run="mouse emit accept event"/>
+		<child widget="main_menu/difficulty_select/randomizer/weapon_custom_label"/>
+		<child widget="main_menu/difficulty_select/randomizer/weapon_custom_value" x="259" y="3"/>
+	</widget>
+	<widget name="main_menu/difficulty_select/randomizer/weapon_custom_label" type="text" controller="1" width="300" height="22" string_list="main_menu/difficulty_select/randomizer/labels" string_index="17" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
+	</widget>
+	<widget name="main_menu/difficulty_select/randomizer/weapon_custom_value" type="text" controller="1" width="236" height="22" font="ui\large_ui" color="#FF2896FF" align="center" text_y="4" text_flags="no_focus_test">
 	</widget>
 	<widget name="main_menu/difficulty_select/randomizer/button_save" type="text" width="128" height="24" bitmap="bitmaps/text_button_background" text="SAVE" font="ui\small_ui" color="#FFFFFFFF" align="center" text_y="2">
 		<on event="a" run="randomizer profile save"/>
@@ -192,6 +237,7 @@
 		<string text="ALLIES TOO:"/>
 		<string text="ENEMY POOL:"/>
 		<string text="ENEMY TYPE:"/>
+		<string text="CUSTOM TYPE:"/>
 		<string text="RANK:"/>
 		<string text="RANK:"/>
 		<string text="RANK:"/>
@@ -200,16 +246,19 @@
 		<string text="WEAPON PICKUPS:"/>
 		<string text="PICKUP POOL:"/>
 		<string text="PICKUP TYPE:"/>
+		<string text="CUSTOM TYPE:"/>
 		<string text="ENEMY WEAPONS:"/>
 		<string text="WEAPON POOL:"/>
 		<string text="WEAPON TYPE:"/>
+		<string text="CUSTOM TYPE:"/>
 	</strings>
 	<strings name="main_menu/difficulty_select/randomizer/help_strings">
 		<string text="Save keeps this setup under a name.\nLoad chooses one saved before."/>
 		<string text="On: a squad's actors are taken from the pool."/>
 		<string text="On: the marines beside you are swapped too,\nonce out of any vehicle. Off: they stay."/>
-		<string text="Which actors a squad may become."/>
+		<string text="Which actors a squad may become. Tag Injector:\nthe profile's AI alone."/>
 		<string text="The only actor a squad may become."/>
+		<string text="The Tag Injector profile's AI of this type alone.\nLeft and right choose another."/>
 		<string text="Which grunts."/>
 		<string text="Which elites. Zealots are the gold commanders."/>
 		<string text="Which jackals."/>
@@ -218,9 +267,11 @@
 		<string text="On: a weapon lying in the level is swapped.\nOne a script names stays."/>
 		<string text="Which weapons a pickup may become. A weapon\nthe level lacks comes from another level."/>
 		<string text="The only weapon a pickup may become."/>
+		<string text="The Tag Injector profile's weapons of this type\nalone. Left and right choose another."/>
 		<string text="On: an actor's weapon is swapped for one it\ncan hold; one that can hold none keeps its own."/>
 		<string text="Which weapons an actor may be given. An actor\nthat can hold none of them keeps its own."/>
 		<string text="Only enemies that can hold it get it; others\nkeep theirs (Go Crazy lends them the hands)."/>
+		<string text="The Tag Injector profile's weapons of this type\nalone, for those that can hold them."/>
 	</strings>
 	<widget name="main_menu/difficulty_select/randomizer/profiles_screen" width="640" height="480" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/gradient">
 		<on event="b" back="true"/>
@@ -296,4 +347,76 @@
 	<strings name="main_menu/difficulty_select/randomizer/profiles_help_strings">
 		<string text="A uses the setup chosen. X twice deletes it.\nNo setup is saved until Save names one."/>
 	</strings>
+	<widget name="main_menu/difficulty_select/randomizer/tag_profile_screen" width="640" height="480" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/gradient">
+		<on event="b" back="true"/>
+		<on event="back" back="true"/>
+		<child widget="main_menu/difficulty_select/randomizer/header_randomizer"/>
+		<child widget="main_menu/difficulty_select/randomizer/tag_profile_title"/>
+		<child widget="main_menu/difficulty_select/randomizer/tag_profile_menu"/>
+	</widget>
+	<widget name="main_menu/difficulty_select/randomizer/tag_profile_title" type="text" controller="1" left="68" top="74" width="504" height="22" text="TAG INJECTOR PROFILE" font="ui\large_ui" color="#FFFFFFFF">
+	</widget>
+	<widget name="main_menu/difficulty_select/randomizer/tag_profile_help" type="text" controller="1" left="68" top="388" width="482" height="24" font="ui\small_ui" color="#FFFFFFFF">
+	</widget>
+	<widget name="main_menu/difficulty_select/randomizer/tag_profile_menu" type="column_list" width="640" height="480" flags="pass_unhandled_to_focused_child up_down_tabs_children" description="main_menu/difficulty_select/randomizer/tag_profile_help">
+		<data input="randomizer tag profiles update"/>
+		<child widget="main_menu/difficulty_select/randomizer/tag_profile_0" x="54" y="100"/>
+		<child widget="main_menu/difficulty_select/randomizer/tag_profile_1" x="54" y="131"/>
+		<child widget="main_menu/difficulty_select/randomizer/tag_profile_2" x="54" y="162"/>
+		<child widget="main_menu/difficulty_select/randomizer/tag_profile_3" x="54" y="193"/>
+		<child widget="main_menu/difficulty_select/randomizer/tag_profile_4" x="54" y="224"/>
+		<child widget="main_menu/difficulty_select/randomizer/tag_profile_5" x="54" y="255"/>
+		<child widget="main_menu/difficulty_select/randomizer/tag_profile_6" x="54" y="286"/>
+		<child widget="main_menu/difficulty_select/randomizer/tag_profile_7" x="54" y="317"/>
+		<child widget="main_menu/difficulty_select/randomizer/tag_profile_8" x="54" y="348"/>
+		<child widget="main_menu/difficulty_select/randomizer/tag_profile_button_bar" y="414"/>
+	</widget>
+	<widget name="main_menu/difficulty_select/randomizer/tag_profile_button_bar" type="column_list" width="640" height="28" flags="pass_unhandled_to_focused_child left_right_tabs_items">
+		<child widget="common_button_cancel" x="510" y="1"/>
+	</widget>
+	<widget name="main_menu/difficulty_select/randomizer/tag_profile_0" type="text" width="512" height="28" bitmap="bitmaps/option_bkds" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
+		<on event="a" run="randomizer tag profile choose"/>
+		<on event="start" run="randomizer tag profile choose"/>
+		<on event="left_mouse" run="mouse emit accept event"/>
+	</widget>
+	<widget name="main_menu/difficulty_select/randomizer/tag_profile_1" type="text" width="512" height="28" bitmap="bitmaps/option_bkds" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
+		<on event="a" run="randomizer tag profile choose"/>
+		<on event="start" run="randomizer tag profile choose"/>
+		<on event="left_mouse" run="mouse emit accept event"/>
+	</widget>
+	<widget name="main_menu/difficulty_select/randomizer/tag_profile_2" type="text" width="512" height="28" bitmap="bitmaps/option_bkds" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
+		<on event="a" run="randomizer tag profile choose"/>
+		<on event="start" run="randomizer tag profile choose"/>
+		<on event="left_mouse" run="mouse emit accept event"/>
+	</widget>
+	<widget name="main_menu/difficulty_select/randomizer/tag_profile_3" type="text" width="512" height="28" bitmap="bitmaps/option_bkds" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
+		<on event="a" run="randomizer tag profile choose"/>
+		<on event="start" run="randomizer tag profile choose"/>
+		<on event="left_mouse" run="mouse emit accept event"/>
+	</widget>
+	<widget name="main_menu/difficulty_select/randomizer/tag_profile_4" type="text" width="512" height="28" bitmap="bitmaps/option_bkds" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
+		<on event="a" run="randomizer tag profile choose"/>
+		<on event="start" run="randomizer tag profile choose"/>
+		<on event="left_mouse" run="mouse emit accept event"/>
+	</widget>
+	<widget name="main_menu/difficulty_select/randomizer/tag_profile_5" type="text" width="512" height="28" bitmap="bitmaps/option_bkds" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
+		<on event="a" run="randomizer tag profile choose"/>
+		<on event="start" run="randomizer tag profile choose"/>
+		<on event="left_mouse" run="mouse emit accept event"/>
+	</widget>
+	<widget name="main_menu/difficulty_select/randomizer/tag_profile_6" type="text" width="512" height="28" bitmap="bitmaps/option_bkds" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
+		<on event="a" run="randomizer tag profile choose"/>
+		<on event="start" run="randomizer tag profile choose"/>
+		<on event="left_mouse" run="mouse emit accept event"/>
+	</widget>
+	<widget name="main_menu/difficulty_select/randomizer/tag_profile_7" type="text" width="512" height="28" bitmap="bitmaps/option_bkds" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
+		<on event="a" run="randomizer tag profile choose"/>
+		<on event="start" run="randomizer tag profile choose"/>
+		<on event="left_mouse" run="mouse emit accept event"/>
+	</widget>
+	<widget name="main_menu/difficulty_select/randomizer/tag_profile_8" type="text" width="512" height="28" bitmap="bitmaps/option_bkds" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
+		<on event="a" run="randomizer tag profile choose"/>
+		<on event="start" run="randomizer tag profile choose"/>
+		<on event="left_mouse" run="mouse emit accept event"/>
+	</widget>
 </menus>

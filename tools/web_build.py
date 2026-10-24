@@ -376,5 +376,46 @@ def generate_web_build(n: Writer, sln: Any) -> None:
     version_file = site_dir / "version.json"
     n.build(outputs=version_file, rule="web_version", inputs=[halo_js, halo_wasm, *site_files],
             implicit=[PORT_DIR / "stamp_version.py", Path("port/linux/include/halo_port_limits.h")])
-    n.build(outputs="web", rule="phony", inputs=[halo_js, halo_wasm, version_file, *site_files])
+    # ---------- the Custom Edition tag tool (tools/ce_tags.c), run with node:
+    # the tag validator's, the tag bundles' and the loader's objects of the
+    # game, and a program that reads maps from the computer's files
+
+    game_dir = Path(config["game_sources"])
+    tool_js = build_dir / "tools" / "ce_tags.js"
+    tool_object = obj_dir / "tools" / "ce_tags.o"
+    n.build(outputs=tool_object, rule="web_cc", inputs=Path("tools/ce_tags.c"),
+            variables={"cflags": " ".join([abi, "-std=gnu11", "-w"])})
+    tool_objects = [tool_object,
+                    *(obj_dir / (game_dir / f"{name}.o")
+                      for name in ("tag_validate", "tag_bundle", "tag_names", "cache_file_formats")),
+                    *(obj_dir / source.with_suffix(".o") for source in sorted(game_dir.glob("tag_schema*.c")))]
+    n.rule(name="web_tool_link", command="$web_emcc $ldflags $in -o $out", description="WEB LINK $out")
+    n.build(outputs=tool_js, implicit_outputs=[tool_js.with_suffix(".wasm")], rule="web_tool_link",
+            inputs=tool_objects,
+            variables={"ldflags": " ".join([
+                "-O2", "-g2", "-pthread",
+                # the computer's files, as they are
+                "-sNODERAWFS=1", "-sENVIRONMENT=node", "-sEXIT_RUNTIME=1",
+                # (its tag cache is at 0x40440000, past where the memory
+                # starts: it grows)
+                "-sALLOW_MEMORY_GROWTH=1", "-sMAXIMUM_MEMORY=4GB", "-Wno-pthreads-mem-growth",
+                "-sSTACK_SIZE=4MB",
+            ])})
+
+    # ---------- the check of the Tag Injector's names for a protected map's
+    # tags (tools/tag_names_check.c, which tools/test_tag_names.py runs with
+    # node): a unit built as the game's are, with tag_names.c and the schemas
+    check_js = build_dir / "tools" / "tag_names_check.js"
+    check_object = obj_dir / "tools" / "tag_names_check.o"
+    n.build(outputs=check_object, rule="web_cc", inputs=Path("tools/tag_names_check.c"), implicit=implicit_headers,
+            variables={"cflags": game_cflags})
+    n.build(outputs=check_js, implicit_outputs=[check_js.with_suffix(".wasm")], rule="web_tool_link",
+            inputs=[check_object, *(obj_dir / (game_dir / f"{name}.o") for name in ("tag_names", "tag_validate")),
+                    *(obj_dir / source.with_suffix(".o") for source in sorted(game_dir.glob("tag_schema*.c")))],
+            variables={"ldflags": " ".join([
+                "-O2", "-g2", "-pthread", "-sNODERAWFS=1", "-sENVIRONMENT=node", "-sEXIT_RUNTIME=1",
+                "-sALLOW_MEMORY_GROWTH=1", "-Wno-pthreads-mem-growth",
+            ])})
+
+    n.build(outputs="web", rule="phony", inputs=[halo_js, halo_wasm, version_file, *site_files, tool_js])
     n.newline()

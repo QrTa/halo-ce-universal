@@ -64,6 +64,8 @@ void *tag_empty_data(
 
 /* port: (cache_files.c) */
 boolean tag_index_is_group(long tag_index, long group_tag);
+/* port: (port/linux/game/tag_injector.c) */
+boolean tag_injector_tags_loaded(void);
 
 long verify_tag_reference(
 	const struct tag_reference *reference)
@@ -73,8 +75,10 @@ long verify_tag_reference(
 	match_assert("c:\\halo\\SOURCE\\tag_files\\tag_groups.c", 3055, reference);
 	/* port: a protected Custom Edition map has its tag names replaced and
 	its references' names emptied, so a reference is taken by its index
-	(port/linux/game/custom_edition_cache.c) */
-	if (custom_edition_cache_tags_loaded())
+	(port/linux/game/custom_edition_cache.c); and so is one of a level with a
+	Tag Injector profile's tags, which may add a tag of a path the level has
+	(a replacing tag's own: port/linux/game/tag_injector.c) */
+	if (custom_edition_cache_tags_loaded() || tag_injector_tags_loaded())
 		return tag_index_is_group(reference->index, reference->group_tag) ? reference->index : NONE;
 #if defined(HALO_ANDROID) || defined(HALO_MOVABLE_WINDOW)
 	/* the map data names this string as the window was linked */
@@ -122,8 +126,9 @@ void* tag_data_get_pointer(
 	/* port: Halo PC reads a Custom Edition map's tags unchecked, and maps
 	made for it can hold an offset past a tag data's end, which never
 	stopped a game there: it gets the empty data below without an
-	assertion. This build's maps keep theirs */
-	if (!custom_edition_cache_tags_loaded())
+	assertion, as a level with tags of such maps does (the Tag Injector's,
+	port/linux/game/tag_injector.c). This build's maps keep theirs */
+	if (!custom_edition_cache_tags_loaded() && !tag_injector_tags_loaded())
 	{
 		match_assert("c:\\halo\\SOURCE\\tag_files\\tag_groups.c", 3073, size>=0);
 		match_assert("c:\\halo\\SOURCE\\tag_files\\tag_groups.c", 3074, offset>=0 && offset+size<=data->size);
@@ -152,7 +157,7 @@ void *tag_block_get_element_with_size(
 	block's end (which Halo PC never checked: foundation@ce, 13 seconds in)
 	gets the empty data below without an assertion. This build's maps keep
 	theirs */
-	if (!custom_edition_cache_tags_loaded())
+	if (!custom_edition_cache_tags_loaded() && !tag_injector_tags_loaded())
 	{
 		match_vassert("c:\\halo\\SOURCE\\tag_files\\tag_groups.c", 3089, index>=0 && index<block->count,
 			csprintf(temporary,

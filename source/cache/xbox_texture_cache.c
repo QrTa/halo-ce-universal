@@ -805,13 +805,16 @@ static boolean texture_cache_bitmap_valid(
 	if (valid && linear)
 	{
 		extern boolean mod_bitmaps_contain(struct bitmap_data const *bitmap);
+		extern boolean tag_injector_tag_injected(long tag_index);
 		long row_pitch = bitmap_mipmap_get_row_pitch(bitmap, 0);
 		long steps = (row_pitch+D3DTEXTURE_PITCH_ALIGNMENT-1)/D3DTEXTURE_PITCH_ALIGNMENT;
 
+		/* port: (a Halo PC bitmap's rows, a Custom Edition map's, a mod's or
+		one the Tag Injector added, need not be: the rebuild pads them) */
 		valid =
 			row_pitch>0 &&
 			(row_pitch%D3DTEXTURE_PITCH_ALIGNMENT==0 || custom_edition_cache_tags_loaded() ||
-				mod_bitmaps_contain(bitmap)) &&
+				mod_bitmaps_contain(bitmap) || tag_injector_tag_injected(bitmap->tag_index)) &&
 			steps<=(long)((D3DSIZE_PITCH_MASK>>D3DSIZE_PITCH_SHIFT)+1);
 	}
 	if (!valid && !reported)
