@@ -42,8 +42,9 @@ Scoring's MULTIPLAYER) nothing is scored: each machine gives its own
 players the campaign's medals (game.multiplayer_medals:
 campaign_score_player_killed, campaign_medals.c), logged as entries here
 for their history and popups, and draws its own players' panel
-(game.multiplayer_score_hud): their kills and deaths, and the game type's
-score (captures, time on the hill). No other machine is told of either.
+(game.multiplayer_score_hud): their kills, deaths and assists, and the game
+type's score (captures, time on the hill). No other machine is told of
+either.
 
 When a level is won (main_won_map) its totals, its time against its par,
 each player's score and the best variants are written to the log, and shown
@@ -2444,8 +2445,8 @@ static void campaign_score_narrow(
 /* a multiplayer game's panel: the medal history (game.multiplayer_medals),
 and (game.multiplayer_score_hud) a strip of the team's standing (a team
 game's: winning, losing or tied) and the game's time (left, with a time
-limit), and the player's row: their name and place, their kills / deaths,
-and beneath, the game's kind and its game type's score */
+limit), and the player's row: their name and place, their kills / deaths /
+assists, and beneath, the game's kind and its game type's score */
 static void campaign_score_draw_multiplayer_view(
 	long player_index)
 {
@@ -2489,7 +2490,7 @@ static void campaign_score_draw_multiplayer_view(
 			real text_right = CAMPAIGN_SCORE_PANEL_WIDTH - CAMPAIGN_SCORE_ROW_PADDING * 2;
 			wchar_t own_name[MAXIMUM_PLAYER_PROFILE_NAME_LENGTH + 1];
 			wchar_t name[MAXIMUM_PLAYER_PROFILE_NAME_LENGTH + 16];
-			char kills_deaths[24];
+			char kills_deaths_assists[32];
 			char kind[48];
 			char score[64];
 			char time[32];
@@ -2539,14 +2540,14 @@ static void campaign_score_draw_multiplayer_view(
 			campaign_score_panel_text(&panel, time, NULL, text_left, text_right, CAMPAIGN_SCORE_ROW_PADDING,
 				CAMPAIGN_SCORE_SUBLINE_SIZE, _campaign_score_text_right, &color);
 
-			/* beneath it, their name and place, kills / deaths; the game's
-			kind, its score */
+			/* beneath it, their name and place, kills / deaths / assists; the
+			game's kind, its score */
 			campaign_score_player_display_name(player_index, own_name, NUMBEROF(own_name));
 			usnprintf(name, NUMBEROF(name), L"%s #%d", own_name, (int)hud_score.place);
 			name[NUMBEROF(name) - 1] = 0;
-			snprintf(kills_deaths, sizeof(kills_deaths), "%d / %d", (int)player->statistics.kills[0],
-				(int)player->statistics.deaths);
-			campaign_score_panel_row_text(&panel, standing_height, NULL, name, kills_deaths, kind, score);
+			snprintf(kills_deaths_assists, sizeof(kills_deaths_assists), "%d / %d / %d",
+				(int)player->statistics.kills[0], (int)player->statistics.deaths, (int)player->statistics.assists[0]);
+			campaign_score_panel_row_text(&panel, standing_height, NULL, name, kills_deaths_assists, kind, score);
 		}
 		campaign_score_drawn_height = (short)(history_height + row_height + CAMPAIGN_SCORE_SKULLS_GAP + 0.5f);
 	}

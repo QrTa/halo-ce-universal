@@ -374,8 +374,8 @@ The panel at the bottom right has two parts:
 
 - **Medal history** (with **MEDALS** on): your last 12 medals.
 - **Score** (with **SCORE HUD** on): whether you're winning, tied or losing
-  and the match time, then your name, your place and your kills / deaths,
-  then the game mode and its score.
+  and the match time, then your name, your place and your kills / deaths /
+  assists, then the game mode and its score.
 
 <img width="640" alt="A team CTF game with the score panel in the Spartan's color: the red team's" src="https://github.com/user-attachments/assets/00f05b2a-af6f-42ca-a32c-4f110704fc81" />
 
