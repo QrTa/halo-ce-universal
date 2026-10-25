@@ -1643,6 +1643,24 @@ def replaced(folder: str) -> bool:
 
 MT = "main_menu/multiplayer_type_select"
 
+# Multiplayer's rows, in order: the PC version's, Create Game's LOCAL
+# (_create_local) and CO-OP CAMPAIGN (_coop), 29 apart (not the PC version's
+# 33) so that CO-OP still ends above the divider and Edit Gametypes
+# (tools/ce_menus.py's CHILD_OFFSETS), as the profile settings' ten rows fit
+# in the nine's room. JOIN GAME and CREATE GAME are labels, 32 to the left
+MULTIPLAYER_ROWS = ["multiplayer_type_join_item", "multiplayer_type_join_internet_item",
+                    "multiplayer_type_join_lan_item", "multiplayer_type_join_direct_item",
+                    "multiplayer_type_create_item", "multiplayer_type_create_internet_item",
+                    "multiplayer_type_create_lan_item", "multiplayer_type_create_local_item",
+                    "multiplayer_type_coop_item"]
+MULTIPLAYER_LABEL_ROWS = {"multiplayer_type_join_item", "multiplayer_type_create_item"}
+
+
+def multiplayer_row_place(row: str) -> tuple:
+    """a Multiplayer row's place in its list (x, y)"""
+    return (-32 if row in MULTIPLAYER_LABEL_ROWS else 0, 78 + 29 * MULTIPLAYER_ROWS.index(row))
+
+
 # strings added to the PC version's lists: (at, strings) of each list. Slayer's
 # kills to win goes up to 500, for big games (the Xbox editor's are
 # source/interface/ui_widget.c's kills_to_win_extra_strings): the values,
@@ -1754,13 +1772,14 @@ def LOADOUT_HELPS(slot: str) -> list:
 
 STRING_OVERRIDES.update({
     f"{MT}/multiplayer_options": ["JOIN GAME", "CREATE GAME", "INTERNET", "LAN", "DIRECT LINK", "EDIT GAMETYPES",
-                                  "SERVER BROWSER", "CO-OP CAMPAIGN"],
+                                  "SERVER BROWSER", "CO-OP CAMPAIGN", "LOCAL"],
     f"{MT}/multiplayer_option_descriptions": [
         "Browse the games on the\\nInternet.",
         "Join a multiplayer game on\\nyour LAN.",
         "Join a game by its invite link,\\nor one a Discord invite\\nreached.",
         "Host a game on the Internet:\\nplayers join by its invite\\nlink or Discord.",
         "Host a game on your LAN\\nonly.",
+        "Play on this computer alone:\\nsplit screen, and bots in\\nSlayer games.",
         "Play the campaign with a\\nfriend in split screen:\\nplayer 2 on a gamepad.",
         "Set all the attributes for your \\nmultiplayer gametypes and\\nkeep them for future use.",
     ],
@@ -1811,8 +1830,8 @@ STRING_OVERRIDES.update({
 # port's own, the rest of their lists the PC version's
 OVERRIDE_ORIGINALS = {
     f"{PE}/profile_edit_descriptions": [0, None, None, None, None, None, None, 7, None],
-    f"{MT}/multiplayer_options": [0, 1, 2, 3, None, 5, None, None],
-    f"{MT}/multiplayer_option_descriptions": [0, 1, None, None, 4, None, 5],
+    f"{MT}/multiplayer_options": [0, 1, 2, 3, None, 5, None, None, None],
+    f"{MT}/multiplayer_option_descriptions": [0, 1, None, None, 4, None, None, 5],
     "main_menu/gametype_select/var_gametype_banks": [0, None, 2],
     "main_menu/settings_select/multiplayer_setup/item_options_edit/item_options_labels": [0, 1, 2, 3, 4] + [None] * 4,
     # (the first's note that infinite grenades work only with 4 players or
@@ -1928,9 +1947,12 @@ WIDGET_PATCHES = {
         f'<on event="start" run="mp type set mode" open="{MT}/join_game/join_game_screen"/>',
         '<on event="left_mouse" run="mouse emit accept event"/>',
     ]},
-    # (Co-op, after Create Game's: _coop)
+    # (Create Game's LOCAL, then Co-op, after Create Game's: _create_local,
+    # _coop)
     f"{MT}/multiplayer_type_select_list": {"insert_before": {
-        f"{MT}/multiplayer_type_gametypes_item": [f'<child widget="{MT}/multiplayer_type_coop_item" y="309"/>'],
+        f"{MT}/multiplayer_type_gametypes_item": [
+            f'<child widget="{MT}/{row}" y="{multiplayer_row_place(row)[1]}"/>'
+            for row in ["multiplayer_type_create_local_item", "multiplayer_type_coop_item"]],
     }},
     # (the Map screen's and New Game's lists: SINGLEPLAYER or MULTIPLAYER
     # maps, the first row's chooser's (_map_kind); B on the Map screen goes
@@ -2280,6 +2302,27 @@ def _server_settings() -> list:
                                              ("font", "ui\\large_ui"), ("color", "#FF2896FF"), ("text_x", 13),
                                              ("text_y", 4)], [])
     rows.append((f"{base}/op_{key}", None, SETUP_OPTIONS_PLACE - 1))
+    # BOTS (a LOCAL game's: bots.c), in MAP SHARING's place (BOTS_SETUP),
+    # its value what the screen chose: "4, DISTRIBUTED, EVEN", or NONE
+    # (menu_functions.c's server_settings_update), as the gametype's rows'
+    key = BOTS_SETUP[0]
+    target = f"{base}/{key}/{key}_screen"
+    extra += _widget(f"{base}/op_{key}", [("width", 512), ("height", 28),
+                                         ("flags", "pass_unhandled_to_focused_child"),
+                                         ("bitmap", "bitmaps/option_bkds"), ("color", "#FF2896FF")],
+                     [f'<on event="a" open="{target}"/>', f'<on event="start" open="{target}"/>',
+                      '<on event="left_mouse" run="mouse emit accept event"/>',
+                      f'<child widget="{base}/{key}_label"/>', f'<child widget="{base}/{key}_value" x="230" y="1"/>'])
+    extra += _widget(f"{base}/{key}_value", [("type", "text"), ("controller", 1), ("width", 280), ("height", 22),
+                                             ("font", "ui\\small_ui"), ("color", "#FF2896FF"), ("align", "center"),
+                                             ("text_y", 5), ("text_flags", "no_focus_test")], [])
+    extra += _widget(f"{base}/{key}_label", [("type", "text"), ("controller", 1), ("width", 230), ("height", 22),
+                                             ("string_list", f"{base}/labels"),
+                                             ("string_index", 12 + len(COOP_SETUP_SCREENS) +
+                                              len(CAMPAIGN_SETUP_SCREENS)),
+                                             ("font", "ui\\large_ui"), ("color", "#FF2896FF"), ("text_x", 13),
+                                             ("text_y", 4)], [])
+    rows.append((f"{base}/op_{key}", None, SETUP_OPTIONS_PLACE - 1))
     # co-op's options, in the place of the gametype's rows, which co-op hides
     # as multiplayer hides co-op's (menu_functions.c's server_settings_update):
     # rows opening their screens, as the gametype's options' do
@@ -2346,7 +2389,8 @@ def _server_settings() -> list:
                                          "TEAMPLAY OPTIONS:", "LISTING:",
                                          *(f"{title}:" for _, title, _, _ in COOP_SETUP_SCREENS), "PASSWORD:",
                                          f"{MAP_SHARE_SETUP[1]}:",
-                                         *(f"{title}:" for _, title, _ in CAMPAIGN_SETUP_SCREENS)])
+                                         *(f"{title}:" for _, title, _ in CAMPAIGN_SETUP_SCREENS),
+                                         f"{BOTS_SETUP[1]}:"])
     extra += _strings(f"{base}/help_strings", [
         "",
         "The name the game shows in the lists of games.\\nEnter changes it.",
@@ -2369,11 +2413,13 @@ def _server_settings() -> list:
         MAP_SHARE_SETUP[2],
         # (the campaign's screens' rows: CAMPAIGN_SETUP_SCREENS)
         *(help_text for _, _, help_text in CAMPAIGN_SETUP_SCREENS),
+        # (BOTS': BOTS_SETUP)
+        BOTS_SETUP[2],
     ])
     lines = _screen(base, spec, rows, ["server settings update"],
                     ['<on event="created" run="server settings init"/>'], extra)
-    # (co-op's options' screens, and map sharing's)
-    for key, title, _, screen_rows in [*COOP_SETUP_SCREENS, MAP_SHARE_SETUP]:
+    # (co-op's options' screens, map sharing's and the bots')
+    for key, title, _, screen_rows in [*COOP_SETUP_SCREENS, MAP_SHARE_SETUP, BOTS_SETUP]:
         lines += _setup_option_screen(f"{base}/{key}", key, screen_rows)
     # (no Defaults: the bar is START and CANCEL; B cancels the name's edit
     # first)
@@ -2466,12 +2512,43 @@ MAP_SHARE_SETUP = ("map_share_options", "MAP SHARING",
                                            for kb in MAP_SHARE_UPLOADS],
      ["The most you send of maps, so that the game\\nkeeps the rest of your upload."] * len(MAP_SHARE_UPLOADS)),
 ])
+# Server Setup's bots (port/linux/game/bots.c, the settings' bots.count,
+# bots.skill and bots.teams), a LOCAL game's only (no other machine joins
+# it), in MAP SHARING's place, which a LOCAL game hides (menu_functions.c's
+# server_settings_update); laid out as co-op's options are. The bots join
+# the lobby as the screen's OK sets them, in a Slayer game (and SWAT,
+# Infection and Gun Game, Slayer's)
+BOTS_COUNTS = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 15]
+BOTS_SKILLS = ["recruit", "easy", "normal", "heroic", "veteran", "legendary"]
+# (SKILL's choices: DISTRIBUTED, bots.skill's default, a curve of the
+# levels, then each level: bots_combat.c's bots_combat_distributed_skill)
+BOTS_SKILL_CHOICES = ["distributed", *BOTS_SKILLS]
+BOTS_SETUP = ("bots_options", "BOTS",
+              "Computer players in this game: how many, how\\nwell they play, and their teams. Slayer only.", [
+    ("bots_count", "BOTS:", [str(count) if count else "NONE" for count in BOTS_COUNTS],
+     ["No bots: only the players on this computer."] +
+     ["Bots join the lobby with you, as far as the game\\nhas room. Slayer gametypes only."] *
+     (len(BOTS_COUNTS) - 1)),
+    ("bots_skill", "SKILL:", [skill.upper() for skill in BOTS_SKILL_CHOICES], [
+        "Each bot its own level, on a curve: most NORMAL\\nand HEROIC, a few RECRUIT and LEGENDARY.",
+        "For new players: they react late, aim loosely\\nand never throw grenades.",
+        "They react slowly, and their aim trails a target\\nthat turns back.",
+        "They aim for the head once your shields are down,\\nand back off when they are losing.",
+        "They lead their grenades and run in to finish a\\nfight they have won.",
+        "They throw where they last saw you, back off as\\ntheir shields pop, and take high ground.",
+        "The best: the fastest reactions, and no aim error\\neven at long range.",
+    ]),
+    ("bots_teams", "TEAMS:", ["EVEN", "AGAINST YOU"], [
+        "In a team game, the bots join both teams, evening\\nthem with the players.",
+        "In a team game, every bot is on the team the\\nplayers are not on.",
+    ]),
+])
 # (Server Setup's place of its options' rows, co-op's or the gametype's: after
 # MAP SHARING's)
 SETUP_OPTIONS_PLACE = 6
 # (their screens' titles)
 TITLES.update({f"{MT}/server_settings/{key}/header_{key}": title
-               for key, title, _, _ in [*COOP_SETUP_SCREENS, MAP_SHARE_SETUP]})
+               for key, title, _, _ in [*COOP_SETUP_SCREENS, MAP_SHARE_SETUP, BOTS_SETUP]})
 # (the rows of a co-op options screen in one place, the one shown: PER
 # PLAYER's and MULTIPLIER's, by EXTRA ENEMIES')
 SETUP_OPTION_SAME_PLACE = set()
@@ -2698,6 +2775,20 @@ def _lobby() -> list:
                          [f'<on event="a" run="{run}"/>', f'<on event="start" run="{run}"/>',
                           '<on event="left_mouse" run="mouse emit accept event"/>'])
     return lines
+
+
+def _create_local() -> list:
+    """Create Game's LOCAL, after LAN: a multiplayer game of this machine
+    alone, as the Xbox's Split Screen is (no other machine joins it, so the
+    bots can play it: port/linux/game/bots.c), made as LAN's is, then the
+    Map screen's multiplayer maps (menu_functions.c's multiplayer_host)"""
+    return _widget(f"{MT}/multiplayer_type_create_local_item",
+                   [("type", "text"), ("left", 51), ("width", 232), ("height", 32), ("bitmap", "bitmaps/list_item_bkd"),
+                    ("string_list", f"{MT}/multiplayer_options"), ("string_index", 8), ("font", "ui\\large_ui"),
+                    ("color", "#FF2896FF"), ("text_x", 13), ("text_y", 5)],
+                   ['<on event="a" run="join controller to mp game"/>',
+                    f'<on event="a" run="mp type set mode" open="{MT}/connected/connected_map_select_wrapper"/>',
+                    '<on event="left_mouse" run="mouse emit accept event"/>'])
 
 
 def _coop() -> list:
@@ -3209,6 +3300,7 @@ def multiplayer_files() -> dict:
         f"{MT}/server_settings".replace("/", ".") + ".xml": head + _server_settings() + ["</menus>", ""],
         f"{MT}/lobby".replace("/", ".") + ".xml": head + _lobby() + ["</menus>", ""],
         f"{MT}/coop".replace("/", ".") + ".xml": head + _coop() + ["</menus>", ""],
+        f"{MT}/local".replace("/", ".") + ".xml": head + _create_local() + ["</menus>", ""],
         "main_menu/new_select".replace("/", ".") + ".port.xml": head + _map_kind() + ["</menus>", ""],
         "main_menu/solo_level_select".replace("/", ".") + ".port.xml": head + _level_records() + _leaderboard() +
         ["</menus>", ""],

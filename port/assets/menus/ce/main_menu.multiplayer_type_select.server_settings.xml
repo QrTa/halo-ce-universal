@@ -20,6 +20,7 @@
 		<child widget="main_menu/multiplayer_type_select/server_settings/op_listing" x="54" y="145"/>
 		<child widget="main_menu/multiplayer_type_select/server_settings/op_password" x="54" y="169"/>
 		<child widget="main_menu/multiplayer_type_select/server_settings/op_map_share_options" x="54" y="193"/>
+		<child widget="main_menu/multiplayer_type_select/server_settings/op_bots_options" x="54" y="193"/>
 		<child widget="main_menu/multiplayer_type_select/server_settings/op_coop_options" x="54" y="217"/>
 		<child widget="main_menu/multiplayer_type_select/server_settings/op_voice_options" x="54" y="241"/>
 		<child widget="main_menu/multiplayer_type_select/server_settings/op_randomizer" x="54" y="265"/>
@@ -100,6 +101,17 @@
 		<child widget="main_menu/multiplayer_type_select/server_settings/map_share_options_label"/>
 	</widget>
 	<widget name="main_menu/multiplayer_type_select/server_settings/map_share_options_label" type="text" controller="1" width="300" height="22" string_list="main_menu/multiplayer_type_select/server_settings/labels" string_index="13" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
+	</widget>
+	<widget name="main_menu/multiplayer_type_select/server_settings/op_bots_options" width="512" height="28" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/option_bkds" color="#FF2896FF">
+		<on event="a" open="main_menu/multiplayer_type_select/server_settings/bots_options/bots_options_screen"/>
+		<on event="start" open="main_menu/multiplayer_type_select/server_settings/bots_options/bots_options_screen"/>
+		<on event="left_mouse" run="mouse emit accept event"/>
+		<child widget="main_menu/multiplayer_type_select/server_settings/bots_options_label"/>
+		<child widget="main_menu/multiplayer_type_select/server_settings/bots_options_value" x="230" y="1"/>
+	</widget>
+	<widget name="main_menu/multiplayer_type_select/server_settings/bots_options_value" type="text" controller="1" width="280" height="22" font="ui\small_ui" color="#FF2896FF" align="center" text_y="5" text_flags="no_focus_test">
+	</widget>
+	<widget name="main_menu/multiplayer_type_select/server_settings/bots_options_label" type="text" controller="1" width="230" height="22" string_list="main_menu/multiplayer_type_select/server_settings/labels" string_index="16" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
 	</widget>
 	<widget name="main_menu/multiplayer_type_select/server_settings/op_coop_options" width="512" height="28" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/option_bkds" color="#FF2896FF">
 		<on event="a" open="main_menu/multiplayer_type_select/server_settings/coop_options/coop_options_screen"/>
@@ -224,6 +236,7 @@
 		<string text="MAP SHARING:"/>
 		<string text="RANDOMIZER:"/>
 		<string text="SKULLS:"/>
+		<string text="BOTS:"/>
 	</strings>
 	<strings name="main_menu/multiplayer_type_select/server_settings/help_strings">
 		<string text=""/>
@@ -244,6 +257,7 @@
 		<string text="Sending players who join without the game's\nCustom Edition map the map, and how fast."/>
 		<string text="How this level's enemies and weapons are swapped,&#10;for every player."/>
 		<string text="The skulls every player plays this level with."/>
+		<string text="Computer players in this game: how many, how\nwell they play, and their teams. Slayer only."/>
 	</strings>
 	<widget name="main_menu/multiplayer_type_select/server_settings/coop_options/coop_options_screen" width="640" height="480" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/gradient">
 		<child widget="main_menu/multiplayer_type_select/server_settings/coop_options/header_coop_options"/>
@@ -691,5 +705,117 @@
 		<string text="The most you send of maps, so that the game\nkeeps the rest of your upload."/>
 		<string text="The most you send of maps, so that the game\nkeeps the rest of your upload."/>
 		<string text="The most you send of maps, so that the game\nkeeps the rest of your upload."/>
+	</strings>
+	<widget name="main_menu/multiplayer_type_select/server_settings/bots_options/bots_options_screen" width="640" height="480" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/gradient">
+		<child widget="main_menu/multiplayer_type_select/server_settings/bots_options/header_bots_options"/>
+		<child widget="main_menu/multiplayer_type_select/server_settings/bots_options/bots_options_menu"/>
+	</widget>
+	<widget name="main_menu/multiplayer_type_select/server_settings/bots_options/header_bots_options" controller="1" left="35" top="11" width="363" height="59" bitmap="main_menu/multiplayer_type_select/server_settings/bots_options/header_bots_options">
+	</widget>
+	<widget name="main_menu/multiplayer_type_select/server_settings/bots_options/bots_options_help" type="text" controller="1" left="68" top="341" width="482" height="79" string_list="main_menu/multiplayer_type_select/server_settings/bots_options/cap_bots_options" font="ui\large_ui" color="#FFFFFFFF">
+	</widget>
+	<widget name="main_menu/multiplayer_type_select/server_settings/bots_options/bots_options_menu" type="column_list" width="640" height="480" flags="pass_unhandled_to_focused_child up_down_tabs_children" description="main_menu/multiplayer_type_select/server_settings/bots_options/bots_options_help">
+		<data input="game settings lists text update"/>
+		<on event="created" run="port setup options init"/>
+		<child widget="main_menu/multiplayer_type_select/server_settings/bots_options/op_bots_count" x="54" y="73"/>
+		<child widget="main_menu/multiplayer_type_select/server_settings/bots_options/op_bots_skill" x="54" y="103"/>
+		<child widget="main_menu/multiplayer_type_select/server_settings/bots_options/op_bots_teams" x="54" y="133"/>
+		<child widget="main_menu/multiplayer_type_select/server_settings/bots_options/bots_options_button_bar" y="414"/>
+	</widget>
+	<widget name="main_menu/multiplayer_type_select/server_settings/bots_options/bots_options_button_bar" type="column_list" width="640" height="28" flags="pass_unhandled_to_focused_child left_right_tabs_items">
+		<data input="common button bar update"/>
+		<child widget="main_menu/multiplayer_type_select/server_settings/bots_options/bots_options_button_ok" x="380" y="1"/>
+		<child widget="common_button_cancel" x="510" y="1"/>
+	</widget>
+	<widget name="main_menu/multiplayer_type_select/server_settings/bots_options/bots_options_button_ok" type="text" width="128" height="24" bitmap="bitmaps/text_button_background" string_list="strings/common_button_captions" string_index="1" font="ui\small_ui" color="#FFFFFFFF" align="center" text_y="2">
+		<on event="a" run="port setup options save" back="true"/>
+		<on event="start" run="port setup options save" back="true"/>
+		<on event="left_mouse" run="mouse emit accept event"/>
+	</widget>
+	<widget name="main_menu/multiplayer_type_select/server_settings/bots_options/op_bots_count" width="512" height="28" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/option_bkds" color="#FF2896FF">
+		<child widget="main_menu/multiplayer_type_select/server_settings/bots_options/bots_count_label"/>
+		<child widget="main_menu/multiplayer_type_select/server_settings/bots_options/bots_count_spinner" x="286" y="1"/>
+	</widget>
+	<widget name="main_menu/multiplayer_type_select/server_settings/bots_options/bots_count_label" type="text" controller="1" width="300" height="22" string_list="main_menu/multiplayer_type_select/server_settings/bots_options/bots_options_labels" string_index="0" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
+	</widget>
+	<widget name="main_menu/multiplayer_type_select/server_settings/bots_options/bots_count_spinner" type="spinner" top="2" width="206" height="20" flags="pass_unhandled_to_focused_child left_right_tabs_items" string_list="main_menu/multiplayer_type_select/server_settings/bots_options/var_bots_count" font="ui\large_ui" color="#FF2896FF" align="center" text_y="4" list_flags="items_from_strings" header_bitmap="bitmaps/arrow_sm_left" footer_bitmap="bitmaps/arrow_sm_right" header_bounds="7 -13 19 -7" footer_bounds="7 208 19 214">
+		<on event="left_mouse" run="mouse spinner 1wide click"/>
+	</widget>
+	<strings name="main_menu/multiplayer_type_select/server_settings/bots_options/var_bots_count">
+		<string text="NONE"/>
+		<string text="1"/>
+		<string text="2"/>
+		<string text="3"/>
+		<string text="4"/>
+		<string text="5"/>
+		<string text="6"/>
+		<string text="7"/>
+		<string text="8"/>
+		<string text="9"/>
+		<string text="10"/>
+		<string text="11"/>
+		<string text="12"/>
+		<string text="15"/>
+	</strings>
+	<widget name="main_menu/multiplayer_type_select/server_settings/bots_options/op_bots_skill" width="512" height="28" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/option_bkds" color="#FF2896FF">
+		<child widget="main_menu/multiplayer_type_select/server_settings/bots_options/bots_skill_label"/>
+		<child widget="main_menu/multiplayer_type_select/server_settings/bots_options/bots_skill_spinner" x="286" y="1"/>
+	</widget>
+	<widget name="main_menu/multiplayer_type_select/server_settings/bots_options/bots_skill_label" type="text" controller="1" width="300" height="22" string_list="main_menu/multiplayer_type_select/server_settings/bots_options/bots_options_labels" string_index="1" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
+	</widget>
+	<widget name="main_menu/multiplayer_type_select/server_settings/bots_options/bots_skill_spinner" type="spinner" top="2" width="206" height="20" flags="pass_unhandled_to_focused_child left_right_tabs_items" string_list="main_menu/multiplayer_type_select/server_settings/bots_options/var_bots_skill" font="ui\large_ui" color="#FF2896FF" align="center" text_y="4" list_flags="items_from_strings" header_bitmap="bitmaps/arrow_sm_left" footer_bitmap="bitmaps/arrow_sm_right" header_bounds="7 -13 19 -7" footer_bounds="7 208 19 214">
+		<on event="left_mouse" run="mouse spinner 1wide click"/>
+	</widget>
+	<strings name="main_menu/multiplayer_type_select/server_settings/bots_options/var_bots_skill">
+		<string text="DISTRIBUTED"/>
+		<string text="RECRUIT"/>
+		<string text="EASY"/>
+		<string text="NORMAL"/>
+		<string text="HEROIC"/>
+		<string text="VETERAN"/>
+		<string text="LEGENDARY"/>
+	</strings>
+	<widget name="main_menu/multiplayer_type_select/server_settings/bots_options/op_bots_teams" width="512" height="28" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/option_bkds" color="#FF2896FF">
+		<child widget="main_menu/multiplayer_type_select/server_settings/bots_options/bots_teams_label"/>
+		<child widget="main_menu/multiplayer_type_select/server_settings/bots_options/bots_teams_spinner" x="286" y="1"/>
+	</widget>
+	<widget name="main_menu/multiplayer_type_select/server_settings/bots_options/bots_teams_label" type="text" controller="1" width="300" height="22" string_list="main_menu/multiplayer_type_select/server_settings/bots_options/bots_options_labels" string_index="2" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
+	</widget>
+	<widget name="main_menu/multiplayer_type_select/server_settings/bots_options/bots_teams_spinner" type="spinner" top="2" width="206" height="20" flags="pass_unhandled_to_focused_child left_right_tabs_items" string_list="main_menu/multiplayer_type_select/server_settings/bots_options/var_bots_teams" font="ui\large_ui" color="#FF2896FF" align="center" text_y="4" list_flags="items_from_strings" header_bitmap="bitmaps/arrow_sm_left" footer_bitmap="bitmaps/arrow_sm_right" header_bounds="7 -13 19 -7" footer_bounds="7 208 19 214">
+		<on event="left_mouse" run="mouse spinner 1wide click"/>
+	</widget>
+	<strings name="main_menu/multiplayer_type_select/server_settings/bots_options/var_bots_teams">
+		<string text="EVEN"/>
+		<string text="AGAINST YOU"/>
+	</strings>
+	<strings name="main_menu/multiplayer_type_select/server_settings/bots_options/bots_options_labels">
+		<string text="BOTS:"/>
+		<string text="SKILL:"/>
+		<string text="TEAMS:"/>
+	</strings>
+	<strings name="main_menu/multiplayer_type_select/server_settings/bots_options/cap_bots_options">
+		<string text="No bots: only the players on this computer."/>
+		<string text="Bots join the lobby with you, as far as the game\nhas room. Slayer gametypes only."/>
+		<string text="Bots join the lobby with you, as far as the game\nhas room. Slayer gametypes only."/>
+		<string text="Bots join the lobby with you, as far as the game\nhas room. Slayer gametypes only."/>
+		<string text="Bots join the lobby with you, as far as the game\nhas room. Slayer gametypes only."/>
+		<string text="Bots join the lobby with you, as far as the game\nhas room. Slayer gametypes only."/>
+		<string text="Bots join the lobby with you, as far as the game\nhas room. Slayer gametypes only."/>
+		<string text="Bots join the lobby with you, as far as the game\nhas room. Slayer gametypes only."/>
+		<string text="Bots join the lobby with you, as far as the game\nhas room. Slayer gametypes only."/>
+		<string text="Bots join the lobby with you, as far as the game\nhas room. Slayer gametypes only."/>
+		<string text="Bots join the lobby with you, as far as the game\nhas room. Slayer gametypes only."/>
+		<string text="Bots join the lobby with you, as far as the game\nhas room. Slayer gametypes only."/>
+		<string text="Bots join the lobby with you, as far as the game\nhas room. Slayer gametypes only."/>
+		<string text="Bots join the lobby with you, as far as the game\nhas room. Slayer gametypes only."/>
+		<string text="Each bot its own level, on a curve: most NORMAL\nand HEROIC, a few RECRUIT and LEGENDARY."/>
+		<string text="For new players: they react late, aim loosely\nand never throw grenades."/>
+		<string text="They react slowly, and their aim trails a target\nthat turns back."/>
+		<string text="They aim for the head once your shields are down,\nand back off when they are losing."/>
+		<string text="They lead their grenades and run in to finish a\nfight they have won."/>
+		<string text="They throw where they last saw you, back off as\ntheir shields pop, and take high ground."/>
+		<string text="The best: the fastest reactions, and no aim error\neven at long range."/>
+		<string text="In a team game, the bots join both teams, evening\nthem with the players."/>
+		<string text="In a team game, every bot is on the team the\nplayers are not on."/>
 	</strings>
 </menus>

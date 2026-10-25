@@ -809,9 +809,12 @@ static const struct config_setting config_settings[] =
 		"Computer players (bots) in a local (split screen) Slayer game: 0 to 63\n"
 		"join its lobby with the players, as far as the game has room. Not in\n"
 		"system link or internet games. 0: none, as in the stock game." },
-	{ "bots.skill", _config_string, "\"normal\"", "HALO_BOT_SKILL", _environment_value, _platform_all,
-		"How well the bots play: \"easy\", \"normal\", \"heroic\" or \"legendary\"\n"
-		"(how soon they react, how well they aim, how far they see)." },
+	{ "bots.skill", _config_string, "\"distributed\"", "HALO_BOT_SKILL", _environment_value, _platform_all,
+		"How well the bots play: \"recruit\", \"easy\", \"normal\", \"heroic\",\n"
+		"\"veteran\" or \"legendary\" (how soon they react, how well they aim,\n"
+		"how far they see, and how they fight: blows, grenades, strafes, retreats),\n"
+		"or \"distributed\": each bot its own level, on a curve (most of them normal\n"
+		"and heroic, a few recruit and legendary), the same on both teams." },
 	{ "bots.teams", _config_string, "\"even\"", "HALO_BOT_TEAMS", _environment_value, _platform_all,
 		"In team games: \"even\" puts the bots on both teams, evening them with\n"
 		"the players; \"against\" puts them all on the team the players are not on." },

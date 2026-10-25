@@ -126,6 +126,7 @@ their handlers open opens.
 #include "campaign_score.h"
 #include "community.h"
 #include "../src/community_net.h"
+#include "bots.h"
 #include "game_modes.h"
 #include "network_voice.h"
 #include "text/draw_string.h"
@@ -7272,6 +7273,8 @@ enum
 	_multiplayer_mode_direct_link,
 	_multiplayer_mode_host_internet,
 	_multiplayer_mode_host_lan,
+	/* (Create Game's LOCAL: this machine alone, the bots' games) */
+	_multiplayer_mode_host_local,
 };
 
 enum
@@ -7317,6 +7320,7 @@ boolean ui_widget_port_cooperative_level_choose(char const *map_name, short diff
 short ui_widget_port_gametypes(long *indices, short maximum, short *last_used);
 boolean ui_widget_port_gametype_choose(long profile_index);
 boolean ui_widget_port_host(struct widget_instance *widget, struct event_record *event, boolean *widget_deleted);
+boolean ui_widget_port_host_local(struct widget_instance *widget, struct event_record *event, boolean *widget_deleted);
 boolean ui_widget_port_browse(struct widget_instance *widget, struct event_record *event, boolean *widget_deleted);
 boolean ui_widget_port_open(struct widget_instance *widget, char const *name, boolean *widget_deleted);
 boolean network_game_client_advertised_game_in_progress(void *client, struct advertised_game *game);
@@ -7550,6 +7554,7 @@ static void multiplayer_mode_set(struct widget_instance *widget)
 	multiplayer.mode =
 		strstr(name, "create_inter") ? _multiplayer_mode_host_internet :
 		strstr(name, "create_lan") ? _multiplayer_mode_host_lan :
+		strstr(name, "create_local") ? _multiplayer_mode_host_local :
 		strstr(name, "join_lan") ? _multiplayer_mode_lan :
 		strstr(name, "join_direct") ? _multiplayer_mode_direct_link : _multiplayer_mode_server_browser;
 }
@@ -7565,7 +7570,8 @@ static boolean multiplayer_player(short controller)
 }
 
 /* Create Game's ("join controller to mp game", first): player 1 in, and
-the server made: an internet one (an invite, Discord) or a LAN one */
+the server made: an internet one (an invite, Discord), a LAN one, or a
+LOCAL one, which no other machine joins (the bots': bots.c) */
 static boolean multiplayer_host(struct widget_instance *widget, struct event_record *event, short controller,
 	boolean *widget_deleted)
 {
@@ -7578,6 +7584,8 @@ static boolean multiplayer_host(struct widget_instance *widget, struct event_rec
 	multiplayer.game_private = !config_boolean("network.host_public");
 	p2p_set_hosting_public(multiplayer.mode == _multiplayer_mode_host_internet && !multiplayer.game_private);
 	multiplayer.cooperative_maximum_players_set = FALSE;
+	if (multiplayer.mode == _multiplayer_mode_host_local)
+		return ui_widget_port_host_local(widget, event, widget_deleted);
 	return ui_widget_port_host(widget, event, widget_deleted);
 }
 
@@ -8210,6 +8218,9 @@ SKULLS taking RANDOMIZER's place when that is hidden */
 #define RANDOMIZER_SETUP_HELP 16
 #define SKULLS_SETUP_HELP 17
 #define SERVER_SETTINGS_ROW_SPACING 24
+/* Server Setup's BOTS row (tools/port_settings.py's BOTS_SETUP), a LOCAL
+game's, in MAP SHARING's place: its help */
+#define BOTS_SETUP_HELP 18
 
 /* co-op's EXTRA ENEMIES' choices (network.coop_enemies_mode's values, as
 gametype_options' coop_extra_enemies_spinner has them, in this order): its
@@ -8342,7 +8353,9 @@ static void server_settings_update(struct widget_instance *list)
 			maximum_players_choices() - 1);
 	wide_to_text(multiplayer.game_name, text, sizeof(text));
 	text_field_show(named(list, "server_name_value", 0), text, text_field_editing(row));
-	if (multiplayer.mode != _multiplayer_mode_host_internet)
+	if (multiplayer.mode == _multiplayer_mode_host_local)
+		snprintf(text, sizeof(text), "NONE: A LOCAL GAME");
+	else if (multiplayer.mode != _multiplayer_mode_host_internet)
 		snprintf(text, sizeof(text), "NONE: A LAN GAME");
 	else if (!config_boolean("network.online"))
 		snprintf(text, sizeof(text), "INTERNET PLAY IS OFF (SETTINGS)");
@@ -8398,6 +8411,37 @@ static void server_settings_update(struct widget_instance *list)
 			/* (MAP SHARING's, any game's: map_share.c) */
 			else if (help && list->focused_child == named(list, "op_map_share_options", 0))
 				help->parameters.text_box.string_list_index = MAP_SHARE_OPTIONS_HELP;
+		}
+		/* BOTS in MAP SHARING's place, a LOCAL game's: no one joins it to
+		share a map with, and only its lobby takes the bots (bots.c) */
+		{
+			boolean local = multiplayer.mode == _multiplayer_mode_host_local && !cooperative;
+			struct widget_instance *help = list->parameters.list.extended_description;
+
+			visible_set(named(list, "op_map_share_options", 0), !local);
+			visible_set(named(list, "op_bots_options", 0), local);
+			if (help && local && list->focused_child == named(list, "op_bots_options", 0))
+				help->parameters.text_box.string_list_index = BOTS_SETUP_HELP;
+			/* (its value, what its screen chose: "4, DISTRIBUTED, EVEN", or
+			NONE) */
+			if (local)
+			{
+				long count = PIN(config_integer("bots.count"), 0, BOTS_MAXIMUM);
+				char const *skill = config_string("bots.skill");
+				char value[64];
+				short index;
+
+				if (!count)
+					snprintf(value, sizeof(value), "NONE");
+				else
+				{
+					snprintf(value, sizeof(value), "%ld, %s, %s", count, skill ? skill : "",
+						!strcmp(config_string("bots.teams"), "against") ? "AGAINST YOU" : "EVEN");
+					for (index = 0; value[index]; index++)
+						value[index] = (char)toupper((unsigned char)value[index]);
+				}
+				text_field_show(named(list, "bots_options_value", 0), value, FALSE);
+			}
 		}
 	}
 	/* LISTING (an internet game's): PUBLIC, listed in everyone's server
@@ -10741,6 +10785,13 @@ static struct gametype_option const gametype_options[] =
 	{ "map_share_spinner", _option_setting, 0, 0, 2, { 0 }, "network.map_share", { "true", "false" } },
 	{ "map_share_upload_spinner", _option_setting, 0, 0, 8, { 0 }, "network.map_share_upload",
 		{ "256", "512", "1024", "2048", "4096", "8192", "16384", "20480" } },
+	/* the bots' (Server Setup's BOTS, a LOCAL game's: tools/port_settings.py's
+	BOTS_SETUP; bots.c, which the lobby's bots follow as they change) */
+	{ "bots_count_spinner", _option_setting, 0, 0, 14, { 0 }, "bots.count",
+		{ "0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "15" } },
+	{ "bots_skill_spinner", _option_setting, 0, 0, 7, { 0 }, "bots.skill",
+		{ "distributed", "recruit", "easy", "normal", "heroic", "veteran", "legendary" } },
+	{ "bots_teams_spinner", _option_setting, 0, 0, 2, { 0 }, "bots.teams", { "even", "against" } },
 	/* vehicle options (the side's set and counts: vehicles_update) */
 	{ "vehicles_respawn_spinner", _option_short, OPTIONS_FIELD(vehicle_respawn_time), 0, 7,
 		{ 0, 30, 60, 90, 120, 180, 300 } },
@@ -11539,7 +11590,8 @@ boolean pc_menu_event_function_invoke(
 			to mp game" before; it fails with the game's port in use, by
 			another copy of the game) */
 			if ((multiplayer.mode == _multiplayer_mode_host_internet ||
-				multiplayer.mode == _multiplayer_mode_host_lan) && !global_network_game_server_get())
+				multiplayer.mode == _multiplayer_mode_host_lan ||
+				multiplayer.mode == _multiplayer_mode_host_local) && !global_network_game_server_get())
 			{
 				platform_log("menus: the game could not be made (is its port in use?)");
 				return campaign_fail();

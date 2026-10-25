@@ -6131,6 +6131,10 @@ boolean ui_widget_port_gametype_choose(
 		playlist_profile_get_options(profile_index, &options);
 		player_ui_set_game_variant_options(&options);
 	}
+	/* (and the playlist's: the next round's after a game, which was the
+	gametype the server had when it was made, none, and took the bots of a
+	LOCAL game away with it: bots.c's are Slayer's) */
+	game_engine_override_game_variant(&profile);
 	if (server)
 		network_game_server_change_game_variant(server, &profile);
 	return TRUE;
@@ -6149,6 +6153,21 @@ boolean ui_widget_port_host(
 	dispose_global_network_game_client();
 	dispose_global_network_game_server();
 	return network_game_start_new_server(widget, event, widget_deleted);
+}
+
+/* port: Create Game's LOCAL: hosting a game no other machine joins, as the
+Xbox's split screen is (split_screen_game_initialize), so that the bots can
+play it (port/linux/game/bots.c). The servers and clients read the setting
+as they run, not as they are made */
+boolean ui_widget_port_host_local(
+	struct widget_instance *widget,
+	struct event_record *event,
+	boolean *widget_deleted)
+{
+	if (!ui_widget_port_host(widget, event, widget_deleted))
+		return FALSE;
+	network_game_accept_remote_connections(FALSE);
+	return TRUE;
 }
 
 /* the game browsing (as the Xbox's server list): found games' client */
@@ -6303,6 +6322,9 @@ boolean ui_widget_port_game_variant_set(
 
 	player_ui_set_game_variant(variant);
 	player_ui_set_game_variant_options(options);
+	/* (and the playlist's, which sets up each round after the first: the
+	map's is too, ui_widget_port_multiplayer_map_choose) */
+	game_engine_override_game_variant(variant);
 	if (server)
 		network_game_server_change_game_variant(server, variant);
 	return TRUE;

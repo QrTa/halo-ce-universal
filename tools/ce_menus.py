@@ -88,6 +88,11 @@ CHILD_OFFSETS = {
      "ui\\shell\\main_menu\\campaign_select\\menu_item_back"): port_settings.CAMPAIGN_BACK_ITEM_PLACE,
     ("ui\\shell\\main_menu\\multiplayer_type_select\\multiplayer_type_select_list",
      "ui\\shell\\main_menu\\multiplayer_type_select\\multiplayer_type_gametypes_item"): (0, 358),
+    # (Multiplayer's rows closer, for Create Game's LOCAL and Co-op:
+    # port_settings.MULTIPLAYER_ROWS)
+    **{("ui\\shell\\main_menu\\multiplayer_type_select\\multiplayer_type_select_list",
+        f"ui\\shell\\main_menu\\multiplayer_type_select\\{row}"): port_settings.multiplayer_row_place(row)
+       for row in port_settings.MULTIPLAYER_ROWS[:7]},
     ("ui\\shell\\main_menu\\multiplayer_type_select\\multiplayer_type_select_screen",
      "ui\\shell\\main_menu\\blueline"): (64, 349),
     # the profile settings' rows, ten in the nine's room

@@ -375,16 +375,49 @@ problem.
 
 Computer players (bots) can play a local multiplayer game with you:
 `bots.count` (1 to 63) of them join the lobby of a Slayer game played on
-this computer, which is Multiplayer > Split Screen in the Xbox's menus
-(`display.menus = "xbox"`; the PC version's menus have no game of this
-computer alone). They are players as you are: in the scores, the respawns
-and the game's rules, on the teams that `bots.teams` asks for, and they
-follow the teams' changes in the lobby. They look for enemies, aim, fire,
+this computer, which is Multiplayer > Create Game > LOCAL in the PC
+version's menus, and Multiplayer > Split Screen in the Xbox's
+(`display.menus = "xbox"`). LOCAL is made as LAN is (the map, the gametype,
+Server Setup, the lobby), but no other machine joins it; its Server Setup
+has BOTS in MAP SHARING's place, a screen of how many bots (none to 15),
+their skill and their teams, which writes `bots.count`, `bots.skill` and
+`bots.teams`, so the next game starts with them too. They are players as
+you are: in the scores, the respawns and the game's rules, on the teams
+that `bots.teams` asks for, and they follow the teams' changes in the
+lobby. They look for enemies, aim, fire,
 throw grenades and pick up better weapons, as well as `bots.skill` lets
 them, and walk the paths that the campaign's AI finds on the maps' walkable
 surfaces (`game/bots.c`). They are never in system link or internet games,
 nor in other gametypes (but SWAT, Infection and Gun Game, which are
 Slayer's: below), and nothing that the machines send each other changes.
+
+`bots.skill` sets six levels, from `"recruit"` (for new players: it reacts
+late, aims loosely and never throws) to `"legendary"`. Each level fights as
+a player of that level does (`game/bots_combat.c`): its reaction is never
+the same twice; the lower levels' aim trails a target that turns back, and
+every level but `"legendary"` keeps an aim error at long range; from
+`"normal"` up a bot aims at the head once the shields are down, paces the
+pistol at range and zooms the sniper rifle (again, a moment after a hit
+knocks the zoom out); its blows and grenades follow its level (how near,
+how soon, how often; from `"heroic"` a throw leads the target's path, from
+`"veteran"` one goes to where a target was last seen); it strafes in the
+level's rhythm, from long sidesteps to short jiggles at the top, halts,
+crouches and jumps; it steps in for a blow when near; from `"normal"` it
+backs off along a path when it is losing, and from `"veteran"` as soon as
+its shields pop; from `"heroic"` it runs in to finish a won fight; it does
+not see a player far above or below where it looks (unless near, or shot by
+them); and from `"veteran"` it prefers high ground as it roams. halo.log's
+bots line each minute is followed by the fight's counts.
+
+`"distributed"`, the default, gives each bot a level of its own on a curve:
+of every 24 bots, 2 are `"recruit"`, 4 `"easy"`, 6 `"normal"`, 6
+`"heroic"`, 4 `"veteran"` and 2 `"legendary"`. Bots go to the levels two at
+a time, and the lobby puts each bot on the smaller team, so the two of a
+level are on opposite teams and even teams are as skilled. The first bots
+take the middle levels, so a few bots are a curve too: 1 or 2 `"normal"`,
+then `"heroic"`, `"easy"`, `"veteran"`, and so on. A bot keeps its level
+(by its number: Johnson is always `"normal"`). halo.log's bots line gives
+each bot's level by its first letter (`3:4/2/h`).
 
 ## OpenCE gametypes
 
@@ -559,8 +592,8 @@ the setting for one start of the game. It has priority over the file.
 | `game.maps.path` | `""` | `HALO_MAPS_PATH` | The folder that the game reads its maps from. Empty: the `maps` folder in the data folder. A relative path is in the data folder. The game reads it once, at the start. The game unpacks a disc image only into the `maps` folder in the data folder, so the folder that this setting names must already hold the maps. On the Switch, a folder that is missing or has no `ui.map` stops the game at the start with an error. |
 | `game.custom_maps.path` | `""` | `HALO_CUSTOM_MAPS_PATH` | The folder that the game reads Custom Edition maps from, and that map sharing downloads maps into. Empty: the `custom_maps` folder in the data folder. A relative path is in the data folder. The game reads it once, at the start. On the Switch, a folder that is missing gets a warning at the start. |
 | `game.unlock_all_levels` | `false` | `HALO_UNLOCK_ALL_LEVELS` | `true`: a profile created afterward starts with all the campaign levels finished on all the difficulties. `false`: a new profile starts at The Pillar of Autumn, and each level opens when you finish the level before it, as on the Xbox. Existing profiles keep their progress. To start a profile over, type `profile_reset_campaign` in the console. |
-| `bots.count` | `0` | `HALO_BOTS` | Computer players (bots) in a local (split screen) Slayer game: `0` to `63` join its lobby with the players, as far as the game has room. Not in system link or internet games. `0`: none, as in the stock game. Refer to "Bots". |
-| `bots.skill` | `"normal"` | `HALO_BOT_SKILL` | How well the bots play: `"easy"`, `"normal"`, `"heroic"` or `"legendary"`: how soon they react, how far and how wide they see, how large their aim error is and how fast it settles, how fast they turn. |
+| `bots.count` | `0` | `HALO_BOTS` | Computer players (bots) in a local (split screen) Slayer game: `0` to `63` join its lobby with the players, as far as the game has room. Not in system link or internet games. `0`: none, as in the stock game. BOTS in Create Game > LOCAL's Server Setup writes it (and `bots.skill`, `bots.teams`). Refer to "Bots". |
+| `bots.skill` | `"distributed"` | `HALO_BOT_SKILL` | How well the bots play: `"distributed"` (each bot its own level, on a curve, the same on both teams), or `"recruit"`, `"easy"`, `"normal"`, `"heroic"`, `"veteran"` or `"legendary"` for all of them: how soon they react, how far and how wide they see, how large their aim error is and how fast it settles, how fast they turn, and how they fight. `"easy"`, `"normal"`, `"heroic"` and `"legendary"` keep their numbers; `"recruit"` is below `"easy"`, and `"veteran"` halfway from `"heroic"` to `"legendary"`. Refer to "Bots". |
 | `bots.teams` | `"even"` | `HALO_BOT_TEAMS` | In a team game: `"even"` puts the bots on both teams, evening them with the players; `"against"` puts them all on the team the players are not on. |
 | `paths.data` | `""` | `HALO_DATA_ROOT` | The data root. Refer to "Start the game". |
 | `paths.saves` | `""` | `HALO_SAVE_ROOT` | The save root. Refer to "Files and folders". |
@@ -1710,7 +1743,7 @@ Other changes:
 | `cache/cache_files.c` | When a map's tags load and unload, the port finds the bitmaps that the high-res HUD replaces (`game/hud_hires_tags.c`), adds the tags of the menus to the menus' map (`game/menu_tags.c`), and plays the mods' tags (`game/mods.c`). |
 | `cache/xbox_sound_cache.c`, `cache/xbox_texture_cache.c` | The samples of a mod's sound are copied from memory, and the pixels of a mod's bitmap read from its file and laid out for the hardware, at once (`game/mod_sounds.c`, `game/mod_bitmaps.c`); a mod's linear bitmap need not have rows of whole steps of the pitch. |
 | `hs/hs.c` | The console's `mods_reload`, `mods_enable` and `mods_list`, which a client may run too. |
-| `interface/ui_widget.c`, `interface/ui_widget_event_handler_functions.c`, `interface/ui_widget_game_data_input_functions.c` | The main menu is the PC version's from `port/assets/menus` (`display.menus`); the menus' widgets can call the port's functions (`game/menu_functions.c`) and send the PC version's custom activation event; the widgets' memory is 256 KB, not 16 KB; the main menu and Multiplayer clear co-op's controllers, so that a gamepad going back to controller 1 is not a controller unplugged; the lobby's split screen players leave alone, and one who quits in game is not joined to the next game (`interface/player_ui.c`). |
+| `interface/ui_widget.c`, `interface/ui_widget_event_handler_functions.c`, `interface/ui_widget_game_data_input_functions.c` | The main menu is the PC version's from `port/assets/menus` (`display.menus`); the menus' widgets can call the port's functions (`game/menu_functions.c`) and send the PC version's custom activation event; the widgets' memory is 256 KB, not 16 KB; the main menu and Multiplayer clear co-op's controllers, so that a gamepad going back to controller 1 is not a controller unplugged; the lobby's split screen players leave alone, and one who quits in game is not joined to the next game (`interface/player_ui.c`); Create Game > LOCAL hosts as the others do, then takes no other machine, as the Xbox's split screen (the bots' games); the gametype chosen (the gametype list's, Server Setup's) is the playlist's too, as the map is, so that each round after the first is set up with it, not the none the server was made with. |
 | `interface/player_ui.c` | Fast setup opens the pregame screen through the port's menus (the lobby), as `interface/ui_widget.c` does. |
 | `game/game_engine.c`, `game/game_engine.h`, `game/game_engine_slayer.c`, `game/game.c`, `game/aim_assist.c`, `game/players.c`, `objects/damage.c`, `objects/objects.c`, `units/units.c`, `items/weapons.c`, `saved games/playlist_profile.c`, `saved games/saved_game_files.c` | OpenCE's gametypes (`game/game_modes.c`, "OpenCE gametypes"): the gametype's PC options carry a mode and Hardcore with their options; the built-in ones are written after the Xbox's default gametypes; Infection's and Gun Game's game engines are Slayer's with their rules; SWAT's headshots, Hardcore's motion sensor, aim assist and restore of the killer; Infection's zombies' skulls, grenades, powerups, seats and melee. |
 | `game/game_time.c`, `main/main.c` | With `debug.fixed_step`, a game of one machine runs a tick a frame, each frame taking a tick's time, so that it plays the same every time (`tools/stagekit`). |
