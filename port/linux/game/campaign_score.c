@@ -140,6 +140,8 @@ enum
 	CAMPAIGN_SCORE_ROW_PADDING = 3,
 	/* (the shortest a row is) */
 	CAMPAIGN_SCORE_ROW_MINIMUM = 22,
+	/* (the least room between a row's name and its value) */
+	CAMPAIGN_SCORE_ROW_TEXT_GAP = 20,
 	/* (the skulls' icons this far above the panel) */
 	CAMPAIGN_SCORE_SKULLS_GAP = 4,
 	/* the medal history's icons, their gap, and the most it shows (the
@@ -2030,6 +2032,9 @@ struct campaign_score_panel
 	/* (the panel's top left, in the view's pixels) */
 	real left;
 	real top;
+	/* (how wide it is, in its own units: CAMPAIGN_SCORE_PANEL_WIDTH, or a
+	multiplayer row's wider to fit its text) */
+	real width;
 	long font_index;
 	short line_height;
 };
@@ -2128,6 +2133,28 @@ static void campaign_score_panel_text(
 	return;
 }
 
+/* how wide a line of text is in the panel's units, its ink's, at `size`
+times the HUD's text (0 for none) */
+static real campaign_score_panel_text_width(
+	struct campaign_score_panel const *panel,
+	wchar_t const *unicode_text,
+	real size)
+{
+	rectangle2d bounds;
+	rectangle2d ink;
+	rectangle2d cursor;
+	real_argb_color color;
+
+	color.alpha = color.red = color.green = color.blue = 1.0f;
+	bounds.x0 = 0;
+	bounds.y0 = 0;
+	bounds.x1 = 0x3fff;
+	bounds.y1 = panel->line_height;
+	draw_string_set_draw_mode(panel->font_index, NONE, _campaign_score_text_left, 0, &color);
+	draw_unicode_string_compute_bounds(&bounds, unicode_text, &ink, &cursor);
+	return ink.x0 <= ink.x1 ? (ink.x1 - ink.x0) * size : 0.0f;
+}
+
 /* a row's text: the name and its value on top, the subline and its
 value beneath; the name's top at y (the row's padding below the row's) */
 static void campaign_score_panel_row_text(
@@ -2142,7 +2169,7 @@ static void campaign_score_panel_row_text(
 	real_argb_color text_color;
 	real_argb_color subline_color;
 	real text_left = CAMPAIGN_SCORE_ROW_PADDING * 2;
-	real text_right = CAMPAIGN_SCORE_PANEL_WIDTH - CAMPAIGN_SCORE_ROW_PADDING * 2;
+	real text_right = panel->width - CAMPAIGN_SCORE_ROW_PADDING * 2;
 	real subline_top = y + CAMPAIGN_SCORE_ROW_PADDING + panel->line_height * 0.92f;
 
 	text_color.alpha = 1.0f;
@@ -2181,8 +2208,8 @@ static void campaign_score_panel_row(
 	char const *subline,
 	char const *subline_value)
 {
-	campaign_score_panel_quad(panel, 0.0f, y, CAMPAIGN_SCORE_PANEL_WIDTH, y + row_height, CAMPAIGN_SCORE_PANEL_FILL);
-	campaign_score_panel_frame(panel, 0.0f, y, CAMPAIGN_SCORE_PANEL_WIDTH, y + row_height, CAMPAIGN_SCORE_HUD_EDGE);
+	campaign_score_panel_quad(panel, 0.0f, y, panel->width, y + row_height, CAMPAIGN_SCORE_PANEL_FILL);
+	campaign_score_panel_frame(panel, 0.0f, y, panel->width, y + row_height, CAMPAIGN_SCORE_HUD_EDGE);
 	campaign_score_panel_row_text(panel, y, name, unicode_name, value, subline, subline_value);
 
 	return;
@@ -2206,6 +2233,7 @@ static boolean campaign_score_panel_begin(
 		return FALSE;
 	font = font_definition_get(panel->font_index);
 	panel->line_height = (short)(font->ascending_height + font->descending_height);
+	panel->width = CAMPAIGN_SCORE_PANEL_WIDTH;
 	if (panel->line_height <= 0)
 		return FALSE;
 	*width = (short)(render.camera.viewport_bounds.x1 - render.camera.viewport_bounds.x0);
@@ -2404,12 +2432,12 @@ static void campaign_score_draw_history(
 
 	if (history_count <= 0)
 		return;
-	campaign_score_panel_quad(panel, 0.0f, 0.0f, CAMPAIGN_SCORE_PANEL_WIDTH, row, CAMPAIGN_SCORE_PANEL_FILL);
-	campaign_score_panel_frame(panel, 0.0f, 0.0f, CAMPAIGN_SCORE_PANEL_WIDTH, row, CAMPAIGN_SCORE_HUD_EDGE);
+	campaign_score_panel_quad(panel, 0.0f, 0.0f, panel->width, row, CAMPAIGN_SCORE_PANEL_FILL);
+	campaign_score_panel_frame(panel, 0.0f, 0.0f, panel->width, row, CAMPAIGN_SCORE_HUD_EDGE);
 	for (index = 0; index < history_count && bitmap_index != NONE; index++)
 	{
 		struct bitmap_data *bitmap = bitmap_group_try_and_get_bitmap(bitmap_index, history[index]);
-		real x1 = CAMPAIGN_SCORE_PANEL_WIDTH - CAMPAIGN_SCORE_ROW_PADDING * 2 -
+		real x1 = panel->width - CAMPAIGN_SCORE_ROW_PADDING * 2 -
 			(history_count - 1 - index) * (size + CAMPAIGN_SCORE_HISTORY_GAP);
 		rectangle2d bounds;
 
@@ -2446,7 +2474,9 @@ static void campaign_score_narrow(
 and (game.multiplayer_score_hud) a strip of the team's standing (a team
 game's: winning, losing or tied) and the game's time (left, with a time
 limit), and the player's row: their name and place, their kills / deaths /
-assists, and beneath, the game's kind and its game type's score */
+assists, and beneath, the game's kind and its game type's score (the
+row wider than CAMPAIGN_SCORE_PANEL_WIDTH when the name and numbers need it,
+grown to the left; the history over it keeps its own width) */
 static void campaign_score_draw_multiplayer_view(
 	long player_index)
 {
@@ -2477,36 +2507,59 @@ static void campaign_score_draw_multiplayer_view(
 	}
 	if (history_height + row_height > 0.0f)
 	{
+		struct game_engine_hud_score hud_score;
+		wchar_t own_name[MAXIMUM_PLAYER_PROFILE_NAME_LENGTH + 1];
+		wchar_t name[MAXIMUM_PLAYER_PROFILE_NAME_LENGTH + 16];
+		wchar_t wide_numbers[32];
+		char kills_deaths_assists[32];
+		long index;
+		real row_width = panel.width;
+
 		/* (the history's gap beneath it with no row there) */
 		if (!row_shown)
 			history_height -= CAMPAIGN_SCORE_ROW_GAP;
-		panel.left = width - (CAMPAIGN_SCORE_PANEL_MARGIN + CAMPAIGN_SCORE_PANEL_WIDTH) * panel.scale;
-		panel.top = view_height - (CAMPAIGN_SCORE_PANEL_MARGIN + history_height + row_height) * panel.scale;
-		campaign_score_draw_history(&panel, history, history_count);
+		/* (the row's name and place, kills / deaths / assists: the row wider
+		than the panel's own width if they need it) */
 		if (row_shown)
 		{
-			struct game_engine_hud_score hud_score;
+			game_engine_hud_score_get(player_index, &hud_score);
+			campaign_score_player_display_name(player_index, own_name, NUMBEROF(own_name));
+			own_name[NUMBEROF(own_name) - 1] = 0;
+			usnprintf(name, NUMBEROF(name), L"%s #%d", own_name, (int)hud_score.place);
+			name[NUMBEROF(name) - 1] = 0;
+			snprintf(kills_deaths_assists, sizeof(kills_deaths_assists), "%d / %d / %d",
+				(int)player->statistics.kills[0], (int)player->statistics.deaths, (int)player->statistics.assists[0]);
+			for (index = 0; index < (long)NUMBEROF(wide_numbers) - 1 && kills_deaths_assists[index]; index++)
+				wide_numbers[index] = (wchar_t)(unsigned char)kills_deaths_assists[index];
+			wide_numbers[index] = 0;
+			row_width = MAX(row_width, CAMPAIGN_SCORE_ROW_PADDING * 4 + CAMPAIGN_SCORE_ROW_TEXT_GAP +
+				campaign_score_panel_text_width(&panel, name, 1.0f) +
+				campaign_score_panel_text_width(&panel, wide_numbers, 1.0f));
+		}
+		/* (the history at the panel's own width, as many medals as it
+		counts, over the row's right; the row beneath it, as wide as it is) */
+		panel.left = width - (CAMPAIGN_SCORE_PANEL_MARGIN + panel.width) * panel.scale;
+		panel.top = view_height - (CAMPAIGN_SCORE_PANEL_MARGIN + history_height + row_height) * panel.scale;
+		campaign_score_draw_history(&panel, history, history_count);
+		panel.width = row_width;
+		panel.left = width - (CAMPAIGN_SCORE_PANEL_MARGIN + panel.width) * panel.scale;
+		if (row_shown)
+		{
 			real text_left = CAMPAIGN_SCORE_ROW_PADDING * 2;
-			real text_right = CAMPAIGN_SCORE_PANEL_WIDTH - CAMPAIGN_SCORE_ROW_PADDING * 2;
-			wchar_t own_name[MAXIMUM_PLAYER_PROFILE_NAME_LENGTH + 1];
-			wchar_t name[MAXIMUM_PLAYER_PROFILE_NAME_LENGTH + 16];
-			char kills_deaths_assists[32];
+			real text_right = panel.width - CAMPAIGN_SCORE_ROW_PADDING * 2;
 			char kind[48];
 			char score[64];
 			char time[32];
 			real_argb_color color;
 
-			game_engine_hud_score_get(player_index, &hud_score);
 			campaign_score_narrow(hud_score.kind, kind, sizeof(kind));
 			campaign_score_narrow(hud_score.score, score, sizeof(score));
 			campaign_score_narrow(hud_score.time, time, sizeof(time));
 
 			/* the row's panel; on top, the team's standing and the game's
 			time */
-			campaign_score_panel_quad(&panel, 0.0f, 0.0f, CAMPAIGN_SCORE_PANEL_WIDTH, row_height,
-				CAMPAIGN_SCORE_PANEL_FILL);
-			campaign_score_panel_frame(&panel, 0.0f, 0.0f, CAMPAIGN_SCORE_PANEL_WIDTH, row_height,
-				CAMPAIGN_SCORE_HUD_EDGE);
+			campaign_score_panel_quad(&panel, 0.0f, 0.0f, panel.width, row_height, CAMPAIGN_SCORE_PANEL_FILL);
+			campaign_score_panel_frame(&panel, 0.0f, 0.0f, panel.width, row_height, CAMPAIGN_SCORE_HUD_EDGE);
 			color.alpha = 1.0f;
 			switch (hud_score.team_standing)
 			{
@@ -2542,11 +2595,6 @@ static void campaign_score_draw_multiplayer_view(
 
 			/* beneath it, their name and place, kills / deaths / assists; the
 			game's kind, its score */
-			campaign_score_player_display_name(player_index, own_name, NUMBEROF(own_name));
-			usnprintf(name, NUMBEROF(name), L"%s #%d", own_name, (int)hud_score.place);
-			name[NUMBEROF(name) - 1] = 0;
-			snprintf(kills_deaths_assists, sizeof(kills_deaths_assists), "%d / %d / %d",
-				(int)player->statistics.kills[0], (int)player->statistics.deaths, (int)player->statistics.assists[0]);
 			campaign_score_panel_row_text(&panel, standing_height, NULL, name, kills_deaths_assists, kind, score);
 		}
 		campaign_score_drawn_height = (short)(history_height + row_height + CAMPAIGN_SCORE_SKULLS_GAP + 0.5f);
@@ -2993,6 +3041,7 @@ void campaign_score_draw(
 		return;
 	font = font_definition_get(panel.font_index);
 	panel.line_height = (short)(font->ascending_height + font->descending_height);
+	panel.width = CAMPAIGN_SCORE_PANEL_WIDTH;
 	if (panel.line_height <= 0)
 		return;
 	/* (the whole screen black: the fullscreen overlays' camera is the
