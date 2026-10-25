@@ -10,6 +10,7 @@ GitHub release:
     release/halo-web-<flavor>.zip       build/web/site, whole
     release/halo-android-<flavor>.apk   what ninja android_apk assembled
     release/halo-android-<flavor>.zip   the same APK, for the app's updater
+    release/halo-android-debug.zip      the same zip, for the apps up to build 108
 
 It runs ninja switch, windows, web and android_apk first, so that nothing
 older than build.ninja's build number ships (an up-to-date tree builds
@@ -130,6 +131,13 @@ def main() -> int:
     print(f"-> {target.relative_to(ROOT)}")
     # (the APK is compressed already)
     zip_port("android", flavor, zipfile.ZIP_STORED, [target])
+    # (the APK is Gradle's debug build, and the apps up to build 108 ask for
+    # the zip of their own kind, halo-android-debug.zip, by name: it too, so
+    # that they find the update)
+    if flavor != "debug":
+        legacy = RELEASE / "halo-android-debug.zip"
+        shutil.copy2(RELEASE / f"halo-android-{flavor}.zip", legacy)
+        print(f"-> {legacy.relative_to(ROOT)} (the same, for the apps up to build 108)")
     return 0
 
 

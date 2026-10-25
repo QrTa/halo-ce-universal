@@ -15,6 +15,7 @@ import android.widget.LinearLayout;
 import android.widget.ProgressBar;
 import android.widget.TextView;
 
+import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.io.ByteArrayOutputStream;
@@ -46,7 +47,9 @@ import java.util.zip.ZipInputStream;
  * the latest release when it starts, on a thread of its own, and if it is
  * newer asks the player whether to update:
  *
- * - Yes: the release's app (halo-android-release.zip or -debug.zip) is
+ * - Yes: the release's app (halo-android-release.zip or -debug.zip, the one
+ *   named for this build's kind if the release has it, else the other: a
+ *   local release's APK is Gradle's debug build, whatever its zip is named) is
  *   downloaded and handed to Android's package installer, which replaces the
  *   game (closing it) and offers to open the new version.
  * - No: nothing, until the next start.
@@ -76,9 +79,9 @@ final class Updater {
         if (BuildConfig.HALO_BUILD_NUMBER <= 0 || config == null || !autoUpdate(config))
             return;
         new Thread(() -> {
-            int latest = latestRelease();
+            Release latest = latestRelease();
 
-            if (latest > BuildConfig.HALO_BUILD_NUMBER)
+            if (latest != null && latest.number > BuildConfig.HALO_BUILD_NUMBER)
                 activity.runOnUiThread(() -> ask(activity, latest));
         }, "update check").start();
     }
@@ -420,33 +423,63 @@ final class Updater {
         return connection;
     }
 
-    /** the build number of GitHub's latest release, 0 if there is none */
-    private static int latestRelease() {
+    /** GitHub's latest release: its build number and the address of its app's zip */
+    private static final class Release {
+        final int number;
+        final String zip;
+
+        Release(int number, String zip) {
+            this.number = number;
+            this.zip = zip;
+        }
+    }
+
+    /** GitHub's latest release, null if there is none or it has no app */
+    private static Release latestRelease() {
         try {
             HttpURLConnection connection = open("https://api.github.com/repos/" + REPOSITORY + "/releases/latest");
 
             connection.setRequestProperty("Accept", "application/vnd.github+json");
             try (InputStream stream = connection.getInputStream()) {
-                String tag = new JSONObject(new String(readAll(stream), StandardCharsets.UTF_8)).optString("tag_name");
+                JSONObject release = new JSONObject(new String(readAll(stream), StandardCharsets.UTF_8));
+                String tag = release.optString("tag_name");
+                JSONArray assets = release.optJSONArray("assets");
+                String wanted = "halo-android-" + (BuildConfig.DEBUG ? "debug" : "release") + ".zip";
+                String zip = null;
 
-                return tag.startsWith("build-") ? Integer.parseInt(tag.substring(6)) : 0;
+                if (!tag.startsWith("build-") || assets == null)
+                    return null;
+                // (this build's kind's zip, else the other's)
+                for (int index = 0; index < assets.length(); index++) {
+                    JSONObject asset = assets.getJSONObject(index);
+                    String name = asset.optString("name");
+
+                    if (name.startsWith("halo-android-") && name.endsWith(".zip")
+                        && (zip == null || name.equals(wanted)))
+                        zip = asset.optString("browser_download_url");
+                }
+                if (zip == null || zip.isEmpty()) {
+                    android.util.Log.i("halo", "update: " + tag + " has no Android app");
+                    return null;
+                }
+                return new Release(Integer.parseInt(tag.substring(6)), zip);
             } finally {
                 connection.disconnect();
             }
         } catch (Exception e) {
             android.util.Log.i("halo", "update: could not check for a new version: " + e);
-            return 0;
+            return null;
         }
     }
 
     /* ---------- the player's answer */
 
-    private static void ask(Activity activity, int latest) {
+    private static void ask(Activity activity, Release latest) {
         if (activity.isFinishing())
             return;
         new AlertDialog.Builder(activity)
             .setTitle("Halo: new version")
-            .setMessage("A new version of Halo was detected (build " + latest + "; this is build "
+            .setMessage("A new version of Halo was detected (build " + latest.number + "; this is build "
                 + BuildConfig.HALO_BUILD_NUMBER + ").\n\nDo you want to update? The game will close and start "
                 + "the new version.")
             .setCancelable(false)
@@ -474,8 +507,7 @@ final class Updater {
 
     /* ---------- updating */
 
-    private static void update(Activity activity, int latest) {
-        String asset = "halo-android-" + (BuildConfig.DEBUG ? "debug" : "release") + ".zip";
+    private static void update(Activity activity, Release latest) {
         File directory = new File(activity.getCacheDir(), UpdateProvider.DIRECTORY);
         LinearLayout layout = new LinearLayout(activity);
         TextView status = new TextView(activity);
@@ -485,7 +517,7 @@ final class Updater {
 
         layout.setOrientation(LinearLayout.VERTICAL);
         layout.setPadding(padding, padding / 2, padding, 0);
-        status.setText("Downloading build " + latest + "...");
+        status.setText("Downloading build " + latest.number + "...");
         bar.setMax(1000);
         layout.addView(status);
         layout.addView(bar);
@@ -501,10 +533,10 @@ final class Updater {
                 File zip = new File(directory, "update.zip");
                 File apk = new File(directory, UpdateProvider.APK);
 
-                download("https://github.com/" + REPOSITORY + "/releases/download/build-" + latest + "/" + asset, zip,
+                download(latest.zip, zip,
                     (received, total) -> activity.runOnUiThread(() -> {
                         bar.setProgress(total > 0 ? (int) (received * 1000 / total) : 0);
-                        status.setText("Downloading build " + latest + "... (" + (received >> 20) + " of "
+                        status.setText("Downloading build " + latest.number + "... (" + (received >> 20) + " of "
                             + (total >> 20) + " MB)");
                     }));
                 extractApk(zip, apk);

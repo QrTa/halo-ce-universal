@@ -69,8 +69,10 @@ public class LauncherActivity extends Activity {
         dataRoot = getExternalFilesDir(null);
         // created by the app, so that files pushed into it with adb stay
         // readable (a directory adb creates there belongs to the shell user)
-        if (dataRoot != null)
+        if (dataRoot != null) {
             new File(dataRoot, "maps").mkdirs();
+            new File(dataRoot, "custom_maps").mkdirs();
+        }
         passOnHardwareId();
         passOnInvite(getIntent());
         Updater.moveToVulkanDefault(dataRoot);
