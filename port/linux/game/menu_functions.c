@@ -6577,7 +6577,7 @@ extern const unsigned int halo_news_size;
 
 /* the window's rows (port_settings.py's NEWS_ROWS), the most wrapped lines
 kept, and the longest */
-#define NEWS_ROWS 17
+#define NEWS_ROWS 12
 #define NEWS_MAXIMUM_LINES 512
 #define NEWS_LINE_LENGTH 128
 /* the characters a line holds until its font is known */
@@ -6768,15 +6768,13 @@ static void news_update(struct widget_instance *screen)
 		text[row] = 0;
 		text_set(named(screen, "news_title", 0), text);
 	}
+	/* (the buttons as the console's pictures of them: the menus' %-codes) */
 	if (!news_screen.count)
-		usnprintf(text, NUMBEROF(text) - 1, L"No news in this build. B: back");
+		usnprintf(text, NUMBEROF(text) - 1, L"No news in this build.   %%b-button Back");
 	else if (news_screen.count <= NEWS_ROWS)
-		usnprintf(text, NUMBEROF(text) - 1, L"B: back");
+		usnprintf(text, NUMBEROF(text) - 1, L"%%b-button Back");
 	else
-	{
-		usnprintf(text, NUMBEROF(text) - 1, L"Lines %ld to %ld of %ld. Up and down: scroll. B: back",
-			news_screen.first + 1, MIN(news_screen.first + NEWS_ROWS, news_screen.count), news_screen.count);
-	}
+		usnprintf(text, NUMBEROF(text) - 1, L"%%dpad-up%%dpad-down Scroll   %%b-button Back");
 	text[NUMBEROF(text) - 1] = 0;
 	text_set_length(named(screen, "news_footer", 0), text, NEWS_LINE_LENGTH);
 }

@@ -1062,7 +1062,11 @@ MAP_KIND_CHOOSER = "main_menu/new_select/list_item_0_map_kind"
 # news_text) in a window the main menu's X opens (WIDGET_PATCHES), its lines
 # filled and scrolled by menu_functions.c's news screen ("port news ...")
 NEWS = "main_menu/news"
-NEWS_ROWS = 17
+NEWS_ROWS = 12
+# the window's panel (bitmaps/controller_border, drawn a texel a unit from
+# its widget's corner: the panel is its texels 49 to 556 across and 104 to
+# 349 down), placed in the middle of the screen
+NEWS_PANEL = (17, 14)
 
 
 # changes to the PC version's widgets (by our names): attributes set, all
@@ -1080,6 +1084,9 @@ WIDGET_PATCHES = {
         # a PS5 - opens the news, the latest release's notes: _news_screen;
         # on the main menu alone)
         "handlers": ['<on event="down"/>', f'<on event="x" open="{NEWS}/news_screen"/>']},
+    # (and the hint that X opens it, over the build number)
+    "main_menu/main_menu": {"insert_before": {"main_menu/build_number": [
+        f'<child widget="{NEWS}/news_hint" x="450" y="380"/>']}},
     f"{PLAYER_EDIT}/player_options_menu": {"insert_before": {
         f"{PLAYER_EDIT}/player_button_bar": [
             f'<child widget="{PLAYER_EDIT}/op_aim_assist" x="54" y="289"/>',
@@ -2104,32 +2111,40 @@ def _map_kind() -> list:
 
 
 def _news_screen() -> list:
-    """the news window: its title, NEWS_ROWS lines of the notes (their texts
-    menu_functions.c's alone, which makes them as long as it needs) (each its
-    line of the wrapped text from the top line shown), and how to scroll and
-    leave; up and down (the D-pad, the sticks, the mouse wheel) scroll a
-    line, left and right a page, B, Back or X again close it"""
+    """the news window: its title over a panel (bitmaps/controller_border)
+    of NEWS_ROWS lines of the notes, and under it the buttons that scroll
+    and close it as the console's pictures of them (the menus' %-codes); the
+    texts menu_functions.c's alone, which makes them as long as it needs.
+    Up and down (the D-pad, the sticks, the mouse wheel) scroll a line, left
+    and right a page, B, Back or X again close it. And the main menu's hint
+    that X opens it (WIDGET_PATCHES)"""
     base = NEWS
+    left, top = NEWS_PANEL[0] + 49, NEWS_PANEL[1] + 104
     close = ['<on event="b" run="port news close"/>', '<on event="back" run="port news close"/>',
              '<on event="x" run="port news close"/>']
     scroll = [f'<on event="{event}" run="port news up"/>' for event in ("up", "stick_up", "right_stick_up")]
     scroll += [f'<on event="{event}" run="port news down"/>' for event in ("down", "stick_down", "right_stick_down")]
     scroll += ['<on event="left" run="port news page up"/>', '<on event="right" run="port news page down"/>']
-    lines = _widget(f"{base}/news_screen", [("width", 640), ("height", 480), ("bitmap", "bitmaps/gradient")],
+    lines = _widget(f"{base}/news_screen", [("width", 640), ("height", 480), ("bitmap", "bitmaps/gradient_big")],
                     ['<data input="port news update"/>', '<on event="created" run="port news init"/>', *close,
-                     *scroll, f'<child widget="{base}/news_title"/>',
-                     *[f'<child widget="{base}/news_line" x="40" y="{64 + 18 * row}"/>' for row in range(NEWS_ROWS)],
-                     f'<child widget="{base}/news_footer"/>'])
-    lines += _widget(f"{base}/news_title", [("type", "text"), ("controller", 1), ("left", 35), ("top", 24),
-                                           ("width", 570), ("height", 30),
+                     *scroll, f'<child widget="{base}/news_panel" x="{NEWS_PANEL[0]}" y="{NEWS_PANEL[1]}"/>',
+                     f'<child widget="{base}/news_title" x="{left}" y="{top - 34}"/>',
+                     *[f'<child widget="{base}/news_line" x="{left + 16}" y="{top + 12 + 18 * row}"/>'
+                       for row in range(NEWS_ROWS)],
+                     f'<child widget="{base}/news_footer" x="{left}" y="{top + 245 + 8}"/>'])
+    lines += _widget(f"{base}/news_panel", [("width", 640), ("height", 480), ("bitmap", "bitmaps/controller_border")],
+                     [])
+    lines += _widget(f"{base}/news_title", [("type", "text"), ("controller", 1), ("width", 507), ("height", 30),
                                            ("font", "ui\\large_ui"), ("color", "#FF2896FF")], [])
-    lines += _widget(f"{base}/news_line", [("type", "text"), ("controller", 1), ("width", 560), ("height", 18),
+    lines += _widget(f"{base}/news_line", [("type", "text"), ("controller", 1), ("width", 475), ("height", 18),
                                           ("font", "ui\\small_ui"), ("color", "#FFFFFFFF"),
                                           ("text_flags", "no_focus_test")], [])
-    lines += _widget(f"{base}/news_footer", [("type", "text"), ("controller", 1), ("left", 40), ("top", 410),
-                                            ("width", 560), ("height", 18), ("font", "ui\\small_ui"),
-                                            ("color", "#FF2896FF"), ("align", "center"),
+    lines += _widget(f"{base}/news_footer", [("type", "text"), ("controller", 1), ("width", 507), ("height", 20),
+                                            ("font", "ui\\small_ui"), ("color", "#FFFFFFFF"), ("align", "center"),
                                             ("text_flags", "no_focus_test")], [])
+    lines += _widget(f"{base}/news_hint", [("type", "text"), ("controller", 1), ("width", 150), ("height", 20),
+                                          ("text", "%x-button NEWS"), ("font", "ui\\small_ui"),
+                                          ("color", "#FFCCCCCC"), ("text_flags", "no_focus_test")], [])
     return lines
 
 
