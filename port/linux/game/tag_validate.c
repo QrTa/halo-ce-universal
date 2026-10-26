@@ -1299,6 +1299,7 @@ boolean tag_validate_custom_edition_tags(
 		tag_validate_refuse(&validation, "cannot be checked: a tag schema is wrong");
 		return FALSE;
 	}
+	VALIDATE_MOVE(header->instances);
 	if (tag_cache_size > TAG_VALIDATE_MAXIMUM_TAG_CACHE_SIZE ||
 		loaded_size < (long)sizeof(*header) || (unsigned long)loaded_size > tag_cache_size ||
 		header->signature != TAG_HEADER_SIGNATURE ||
