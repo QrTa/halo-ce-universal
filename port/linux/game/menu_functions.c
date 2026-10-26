@@ -119,7 +119,11 @@ void halo_input_shown_name(char const *binding, char *shown, unsigned int size);
 short pc_menu_string_index(long definition_index);
 /* cseries_windows.c's */
 unsigned long system_milliseconds(void);
-/* the Switch's link page (port/linux/src/link_page.c) */
+/* the link page (port/linux/src/link_page.c), the Switch's and the PS5's:
+Direct Link's way in for an invite link, with its QR code */
+#if defined(HALO_SWITCH) || defined(HALO_PS5)
+#define LINK_PAGE 1
+#endif
 void link_page_wanted(void);
 char const *link_page_address(void);
 int link_page_qr_size(void);
@@ -4153,8 +4157,8 @@ static void server_settings_update(struct widget_instance *list)
 		snprintf(text, sizeof(text), "INTERNET PLAY IS OFF (SETTINGS)");
 	else if (!p2p_invite_link(text, sizeof(text)))
 		snprintf(text, sizeof(text), "MADE WHEN THE GAME STARTS");
-#ifdef HALO_SWITCH
-	/* (the Switch shows the link as a QR code for a phone instead: invite_copy) */
+#ifdef LINK_PAGE
+	/* (the Switch and the PS5 show the link as a QR code for a phone instead: invite_copy) */
 	else
 		snprintf(text, sizeof(text), "CLICK TO OPEN A QR WITH THE LINK");
 #endif
@@ -4262,16 +4266,16 @@ static boolean server_name_edit(struct widget_instance *row)
 
 #define INVITE_QR_NAME "pc\\main_menu\\multiplayer_type_select\\server_settings\\invite_qr\\invite_qr_screen"
 
-/* "ss copy invite": the invite link copied; on the Switch, whose clipboard
-nothing else reads, its QR code on a screen of its own (invite_qr_draw),
-which only B closes ("ss invite qr back") */
+/* "ss copy invite": the invite link copied; on the Switch and the PS5, whose
+clipboard nothing else reads, its QR code on a screen of its own
+(invite_qr_draw), which only B closes ("ss invite qr back") */
 static boolean invite_copy(struct widget_instance *widget, boolean *widget_deleted)
 {
 	char link[TEXT_FIELD_LENGTH];
 
 	if (!p2p_invite_link(link, sizeof(link)))
 		return campaign_fail();
-#ifdef HALO_SWITCH
+#ifdef LINK_PAGE
 	ui_play_audio_feedback_sound(SOUND_FORWARD);
 	return ui_widget_port_open(widget, INVITE_QR_NAME, widget_deleted);
 #else
@@ -4528,8 +4532,9 @@ static boolean browser_initialize(struct widget_instance *screen, struct event_r
 		visible_set(named(screen, unused[index], 0), server_browser && index != 1);
 	if (server_browser && named(screen, "browser_mode_spinner", 0))
 		setting_load(named(screen, "browser_mode_spinner", 0));
-#ifdef HALO_SWITCH
-	/* (the Switch's clipboard is the game's own: its link comes from the link page's QR code instead) */
+#ifdef LINK_PAGE
+	/* (the Switch's and the PS5's clipboard is the game's own: the link comes from the link page's QR code
+	instead) */
 	visible_set(named(screen, "button_clipboard", 0), FALSE);
 #else
 	visible_set(named(screen, "button_clipboard", 0), multiplayer.mode == _multiplayer_mode_direct_link);
@@ -5904,7 +5909,7 @@ the one chosen's line, the counts over the titles (the PC version's: its
 players, page, servers) */
 static void browser_update(struct widget_instance *list)
 {
-#ifdef HALO_SWITCH
+#ifdef LINK_PAGE
 	/* (the link page while Direct Link's page is up: link_page.c) */
 	if (multiplayer.mode == _multiplayer_mode_direct_link)
 		link_page_wanted();
@@ -5958,7 +5963,7 @@ static void browser_update(struct widget_instance *list)
 
 		if (multiplayer.mode == _multiplayer_mode_server_browser)
 			text[0] = 0;
-#ifdef HALO_SWITCH
+#ifdef LINK_PAGE
 		/* (Direct Link's way in: the link page, on the local network, and its QR code above this line) */
 		else if (multiplayer.mode == _multiplayer_mode_direct_link && !multiplayer.game_count)
 		{
@@ -5975,8 +5980,13 @@ static void browser_update(struct widget_instance *list)
 			}
 			else if (!config_boolean("network.link_page"))
 				usnprintf(text, NUMBEROF(text) - 1, L"%s", L"The link page is off (network.link_page in config.toml)");
+#ifdef HALO_PS5
+			else
+				usnprintf(text, NUMBEROF(text) - 1, L"%s", L"Connect the PS5 to a network to send it an invite link");
+#else
 			else
 				usnprintf(text, NUMBEROF(text) - 1, L"%s", L"Connect the Switch to a network to send it an invite link");
+#endif
 		}
 #endif
 		else if (!multiplayer.game_count)
@@ -6438,13 +6448,13 @@ static struct
 	unsigned long updated_at;
 } lobby_icons;
 
-#ifdef HALO_SWITCH
-/* The Switch's QR codes (link_page.c's encoder): Direct Link's of the link
-page's address, in the games' list while it has none, centred over it and
-drawn from where the ticker line under the list is (UI units: the list's
-rows from y 102 to 357, the ticker's text from x 100 at y 402); and Server
-Setup's of the game's invite link, on its own screen (invite_copy), over its
-line of text. Each picture is made again when its text changes: whole
+#ifdef LINK_PAGE
+/* The QR codes (link_page.c's encoder): Direct Link's of the link page's
+address, in the games' list while it has none, centred over it and drawn
+from where the ticker line under the list is (UI units: the list's rows from
+y 102 to 357, the ticker's text from x 100 at y 402); and Server Setup's of
+the game's invite link, on its own screen (invite_copy), over its line of
+text. The Switch's and the PS5's. Each picture is made again when its text changes: whole
 texels a module (and the white margin a QR code wants, four modules), in a
 256 by 256 texture */
 enum
@@ -6558,7 +6568,7 @@ void menu_functions_text_box_drawn(struct widget_instance *widget, rectangle2d c
 {
 	short row;
 
-#ifdef HALO_SWITCH
+#ifdef LINK_PAGE
 	if (widget->name && !strcmp(widget->name, "ticker_player_info"))
 		link_qr_draw(bounds);
 	if (widget->name && !strcmp(widget->name, "invite_qr_text"))

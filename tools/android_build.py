@@ -335,7 +335,7 @@ def generate_guest_image(n: Writer, sln: Any, config: Dict[str, Any], *, arch: G
                          objdump: str, builtins_cc: str, environment: str, platform_defines: List[str],
                          extra_runtime: Optional[List[Path]] = None, extra_imports: Optional[List[Path]] = None,
                          updater_cflags: str = "", desktop_gl: bool = False, relocatable: bool = False,
-                         vulkan: bool = False) -> Dict[str, Path]:
+                         vulkan: bool = False, extra_sources: Optional[List[Path]] = None) -> Dict[str, Path]:
     """The guest image (build/halo_guest.elf) and the host's import table, for
     the builds that run the game as ILP32 code of the architecture arch
     (tools/guest_arch.py): Android, and the desktop guest builds
@@ -347,7 +347,9 @@ def generate_guest_image(n: Writer, sln: Any, config: Dict[str, Any], *, arch: G
     toolchain's (android, gnu), which the assembler's target ends with;
     platform_defines are the platform's code paths (ANDROID_DEFINES, or a
     desktop's). extra_runtime are more guest runtime sources, and
-    extra_imports more lists of the host functions they import;
+    extra_imports more lists of the host functions they import; extra_sources
+    are more of the platform layer's sources, with its flags (the PS5's QR
+    code encoder, port/third_party/qrcodegen);
     updater_cflags are the desktop self-updater's defines
     (port/linux/src/updater.c), for a guest that has it. desktop_gl gives the
     guest desktop OpenGL's entry points (from gl_headers' GL/glcorearb.h) in
@@ -360,6 +362,7 @@ def generate_guest_image(n: Writer, sln: Any, config: Dict[str, Any], *, arch: G
     the OpenGL renderer's."""
     extra_runtime = extra_runtime or []
     extra_imports = extra_imports or []
+    extra_sources = extra_sources or []
     asm_target = arch.assembler_target(environment)
     musl_dir = third_party / f"musl-{MUSL_VERSION}"
     sdl_dir = third_party / "SDL3"
@@ -608,6 +611,8 @@ def generate_guest_image(n: Writer, sln: Any, config: Dict[str, Any], *, arch: G
     # (port/third_party/monocypher; p2p_crypto.c)
     for name in ("monocypher.c", "monocypher-ed25519.c"):
         objects.append(guest_object(MONOCYPHER_DIR / name, platform_cflags))
+    for source in extra_sources:
+        objects.append(guest_object(source, platform_cflags))
     # the port's zlib
     for name in ZLIB_SOURCES:
         # (not the processor's features that the guest's assembly step is

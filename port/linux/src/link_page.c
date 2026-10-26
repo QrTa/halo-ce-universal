@@ -1,7 +1,7 @@
 /*
 LINK_PAGE.C
 
-The Switch's way in for an invite link (network.link_page): the console has
+The Switch's and the PS5's way in for an invite link (network.link_page): the console has
 no clipboard anything else can write to, no browser and no keyboard to paste
 with, so while Direct Link's page is up (Join Game > Direct Link) the game
 serves a small web page on the local network, shown on that page as a QR
@@ -13,10 +13,11 @@ network, while the screen is up (link_page_wanted, called by it each frame);
 nothing listens otherwise. One connection at a time, a request of a few KB
 at most, and a few seconds for it, answered and closed. The listening socket
 is looked at a few times a second, not each frame: on the Switch a socket's
-call is a request to the system's service (link_page_update, main_loop's).
+call is a request to the system's service, on the PS5 a call to the host
+(link_page_update, main_loop's).
 
 The QR code is Project Nayuki's encoder (port/third_party/qrcodegen, MIT),
-which only the Switch's build has.
+which only the Switch's and the PS5's builds have.
 */
 
 #include "platform.h"
@@ -38,15 +39,22 @@ char const *link_page_address(void);
 /* the address's QR code: its side in modules (0 for none) and whether a module is dark */
 int link_page_qr_size(void);
 int link_page_qr_dark(int x, int y);
-/* (the Switch's) a QR code of any text (Server Setup's invite link): made, then as the address's */
+/* a QR code of any text (Server Setup's invite link): made, then as the address's */
 int link_page_text_qr(char const *text);
 int link_page_text_qr_dark(int x, int y);
 /* a link it took, since this was last asked (1 once a link was sent and joined) */
 int link_page_took_link(void);
 
-#ifdef HALO_SWITCH
+#if defined(HALO_SWITCH) || defined(HALO_PS5)
 
 #include "../../third_party/qrcodegen/qrcodegen.h"
+
+/* the console, as the page names it */
+#ifdef HALO_PS5
+#define LINK_PAGE_CONSOLE "PS5"
+#else
+#define LINK_PAGE_CONSOLE "Switch"
+#endif
 
 unsigned long system_milliseconds(void);
 
@@ -218,9 +226,9 @@ static void link_page_page(char const *message)
 		"padding:10px;border:1px solid #4a6a9a;background:#13284a;color:#fff}button{margin-top:12px;width:100%%;"
 		"padding:14px;font-size:1.1em;border:0;border-radius:8px;background:#2896ff;color:#fff}p.note{color:#9fb6d8}"
 		"p.message{background:#13284a;padding:10px;border-radius:8px}</style></head><body><main>"
-		"<h1>Join a game on the Switch</h1>%s<form method=\"post\" action=\"/join\">"
+		"<h1>Join a game on the " LINK_PAGE_CONSOLE "</h1>%s<form method=\"post\" action=\"/join\">"
 		"<p>Paste the invite link (halo://join/...):</p><textarea name=\"link\" autofocus "
-		"placeholder=\"halo://join/...\"></textarea><button type=\"submit\">Send to the Switch</button></form>"
+		"placeholder=\"halo://join/...\"></textarea><button type=\"submit\">Send to the " LINK_PAGE_CONSOLE "</button></form>"
 		"<p class=\"note\">This page is the game's, on your local network, while its Direct Link page is open.</p>"
 		"</main></body></html>",
 		message);
@@ -274,7 +282,7 @@ static void link_page_answer(void)
 		{
 			platform_log("link page: an invite link came from the local network");
 			link_page.took_link = 1;
-			link_page_page("<p class=\"message\">Sent. The game appears on the Switch's Direct Link page: "
+			link_page_page("<p class=\"message\">Sent. The game appears on the " LINK_PAGE_CONSOLE "'s Direct Link page: "
 				"pick it there to join.</p>");
 		}
 		else

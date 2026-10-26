@@ -400,6 +400,8 @@ RELEASE_LICENSES = (
     ("repo", "port/third_party/stb/LICENSE", "licenses/stb-LICENSE.txt", None, "stb_truetype"),
     ("repo", "port/third_party/stb_vorbis/LICENSE", "licenses/stb_vorbis-LICENSE.txt", None, "stb_vorbis"),
     ("repo", "port/third_party/smaa/LICENSE", "licenses/smaa-LICENSE.txt", None, "SMAA"),
+    ("repo", "port/third_party/qrcodegen/LICENSE", "licenses/qrcodegen-LICENSE.txt", None,
+     "QR Code generator (Project Nayuki), Direct Link's QR code"),
     ("repo", "port/assets/fonts/Overpass-OFL.txt", "licenses/Overpass-OFL.txt", None, "Overpass"),
     ("repo", "port/assets/icons/lucide/LICENSE", "licenses/lucide-LICENSE.txt", None, "Lucide's icons"),
     ("repo", "port/assets/buttons/platforms/Kenney-LICENSE.txt", "licenses/Kenney-LICENSE.txt", None,
@@ -553,7 +555,9 @@ def _generate(n: Writer, sln: Any, config_path: Path) -> None:
         environment="gnu", platform_defines=["-DHALO_MOVABLE_WINDOW=1", "-DHALO_PS5=1"],
         extra_runtime=[LINUX_HOST_DIR / "guest_desktop.c"], extra_imports=[LINUX_HOST_DIR / "host_imports.list", ANDROID_DIR / "host_imports_vk.list",
                                                          PORT_DIR / "host_imports.list"],
-        updater_cflags=guest_updater_cflags, desktop_gl=True, vulkan=True)
+        updater_cflags=guest_updater_cflags, desktop_gl=True, vulkan=True,
+        # (Direct Link's link page's QR code, as the Switch's: port/linux/src/link_page.c)
+        extra_sources=[Path("port/third_party/qrcodegen/qrcodegen.c")])
 
     # ---------- the toolchain
 

@@ -479,12 +479,15 @@ static const struct config_setting config_settings[] =
 	{ "controls.team_chat", _config_string, "\"Y\"", "HALO_KEY_TEAM_CHAT", _environment_value, _platform_all,
 		"Network games' text chat: type a line to your team." },
 
-#ifdef HALO_SWITCH
+#if defined(HALO_SWITCH) || defined(HALO_PS5)
+	/* (the link page: port/linux/src/link_page.c) */
 	{ "network.link_page", _config_boolean, "true", "HALO_LINK_PAGE", _environment_value, _platform_all,
 		"While Join Game > Direct Link is open, serve a page on the local network\n"
 		"(its QR code and address are on that page) where a phone or a computer\n"
-		"pastes an invite link for the Switch to join; nothing is served\n"
+		"pastes an invite link for the console to join; nothing is served\n"
 		"otherwise. false: none." },
+#endif
+#ifdef HALO_SWITCH
 	{ "controls.nintendo_menu_buttons", _config_boolean, "true", "HALO_NINTENDO_MENU_BUTTONS", _environment_value,
 		_platform_all,
 		"The menus' buttons as the Switch's own menus have them: the button\n"
