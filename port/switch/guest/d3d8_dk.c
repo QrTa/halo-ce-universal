@@ -1046,6 +1046,14 @@ void xgpu_gl_state_invalidate(void)
 {
 }
 
+/* hud_hires.c and text_hires.c make their textures only when this says a
+renderer is there: always, under deko3d (d3d8_gl.c's says no with
+debug.null_renderer) */
+int xgpu_gl_ready(void)
+{
+	return 1;
+}
+
 /* ---------- device creation */
 
 Direct3D *WINAPI Direct3DCreate8(UINT sdk_version)

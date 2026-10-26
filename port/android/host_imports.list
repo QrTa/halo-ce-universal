@@ -62,3 +62,5 @@ host_gl_wait_frame
 host_errno
 # HTTPS (port/android/host/host_https.c; the Switch's own port/switch/host/host_https.c)
 host_https_request
+# the server browser's master servers (port/linux/src/master_list.c)
+host_https_get

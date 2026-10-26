@@ -893,11 +893,14 @@ def generate_android_build(n: Writer, sln: Any) -> None:
         n.build(outputs=obj, rule="android_host_cc", inputs=source,
                 variables={"cflags": miniupnpc_cflags + (" -w" if source.name != "posix_upnp.c" else "")})
         host_objects.append(obj)
-    # internet play's DTLS with browsers (posix_dtls.c) and the community
-    # server's HTTPS requests (posix_update.c's update_request, which
+    # internet play's DTLS with browsers (posix_dtls.c), the community
+    # server's HTTPS requests and the server browser's to the master servers
+    # (posix_update.c's update_request and update_https_request, which
     # host_https.c answers the guest's with), with port/third_party/mbedtls,
-    # as the other posix_*.c in the host
-    mbedtls_cflags = " ".join([host_cflags, f"-I{MBEDTLS_DIR / 'include'}", f"-I{MBEDTLS_DIR / 'library'}"])
+    # as the other posix_*.c in the host (with its locks: internet play's
+    # thread and the server browser's master servers' both use it, as on Linux)
+    mbedtls_cflags = " ".join([host_cflags, f"-I{MBEDTLS_DIR / 'include'}", f"-I{MBEDTLS_DIR / 'library'}",
+                               "-DMBEDTLS_THREADING_C", "-DMBEDTLS_THREADING_PTHREAD"])
     own_tls_sources = ("posix_dtls.c", "posix_update.c")
     for source in [*(LINUX_DIR / "src" / name for name in own_tls_sources),
                    *sorted((MBEDTLS_DIR / "library").glob("*.c"))]:

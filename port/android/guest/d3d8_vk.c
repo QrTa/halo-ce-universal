@@ -1121,6 +1121,14 @@ void xgpu_gl_state_invalidate(void)
 {
 }
 
+/* hud_hires.c and text_hires.c make their textures only when this says a
+renderer is there: always, under Vulkan (d3d8_gl.c's says no with
+debug.null_renderer) */
+int xgpu_gl_ready(void)
+{
+	return 1;
+}
+
 /* ---------- debug.vk_self_test: the data a draw reads is copied at the draw (phase 3)
 
 A buffer of three vertices in the game's memory, a red triangle that covers the target,

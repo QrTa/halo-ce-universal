@@ -191,7 +191,7 @@ static long latest_build(void)
 	snprintf(url, sizeof(url), "https://github.com/" UPDATE_REPOSITORY "/releases/latest");
 	for (hop = 0; hop < 3; hop++)
 	{
-		status = host_https_get(url, 0, NULL, NULL, location, sizeof(location), error, sizeof(error));
+		status = host_https_fetch(url, 0, NULL, NULL, location, sizeof(location), error, sizeof(error));
 		if (status < 300 || status >= 400)
 		{
 			if (status >= 0)
@@ -539,7 +539,7 @@ static int download_and_install(long build, char *error, size_t error_size)
 	host_logf(HOST_LOG_INFO, "update: downloading %s", url);
 	unpack->build = build;
 	draw_progress(unpack);
-	status = host_https_get(url, 1, unpack_body, unpack, NULL, 0, error, error_size);
+	status = host_https_fetch(url, 1, unpack_body, unpack, NULL, 0, error, error_size);
 	if (unpack->file)
 		fclose(unpack->file);
 	if (unpack->error[0])
@@ -684,7 +684,7 @@ static void keys_refresh(void)
 	int status;
 
 	memset(&sha1_text, 0, sizeof(sha1_text));
-	status = host_https_get(KEYS_SHA1_URL, 1, keys_sha1_body, &sha1_text, NULL, 0, error, sizeof(error));
+	status = host_https_fetch(KEYS_SHA1_URL, 1, keys_sha1_body, &sha1_text, NULL, 0, error, sizeof(error));
 	if (status != 200)
 	{
 		host_logf(HOST_LOG_INFO, "update: no shared shader keys to check (%s)", status < 0 ? error : "not on main");
@@ -715,7 +715,7 @@ static void keys_refresh(void)
 		return;
 	}
 	sha1ContextCreate(&download.sha1);
-	status = host_https_get(KEYS_URL, 1, keys_body, &download, NULL, 0, error, sizeof(error));
+	status = host_https_fetch(KEYS_URL, 1, keys_body, &download, NULL, 0, error, sizeof(error));
 	if (fclose(download.file) != 0)
 		download.failed = 1;
 	sha1ContextGetHash(&download.sha1, got);
@@ -784,7 +784,7 @@ static void clock_check(void)
 
 	if (!host_https_clock_offset(&offset))
 	{
-		host_https_get("https://github.com/" UPDATE_REPOSITORY "/releases/latest", 0, NULL, NULL, location,
+		host_https_fetch("https://github.com/" UPDATE_REPOSITORY "/releases/latest", 0, NULL, NULL, location,
 			sizeof(location), error, sizeof(error));
 		if (!host_https_clock_offset(&offset))
 		{

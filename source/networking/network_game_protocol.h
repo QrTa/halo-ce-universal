@@ -25,6 +25,9 @@ enum
 	_rejection_code_game_is_full,
 	_rejection_code_game_is_closed,
 	_rejection_code_blacklisted_machine,
+	/* port: a player's name a dedicated server's word filter keeps out
+	(server.chat_filter "block"); a build before it says the game is closed */
+	_rejection_code_name_refused,
 	/* port: the game randomizes the campaign, and this machine never said
 	its build can run that */
 	_rejection_code_randomizer,

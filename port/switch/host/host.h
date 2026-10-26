@@ -399,7 +399,7 @@ typedef int (*host_https_body)(void *context, const void *data, size_t size, lon
 /* GET url (https://...). A 200's body goes to body, in pieces; redirects are
 followed if follow_redirects, and the last Location seen is copied to location
 either way. Returns the last status, or -1 with error said. */
-int host_https_get(const char *url, int follow_redirects, host_https_body body, void *context, char *location,
+int host_https_fetch(const char *url, int follow_redirects, host_https_body body, void *context, char *location,
 	size_t location_size, char *error, size_t error_size);
 /* how many seconds the clock of the servers asked is ahead of this
 console's (behind if negative), from the last answer; 0 if none has come */

@@ -159,4 +159,14 @@ void host_touch_bindings(const int *controls);
 off, 1 on, 2 only while zoomed in */
 void host_touch_gyro_mode(int mode);
 
+/* ---------- the server browser's master servers (host_https.c) */
+
+/* a GET of an https:// url (port/linux/src/master_list.c): the answer's
+HTTP status, with its headers ("Name: value" lines) and up to body_capacity
+bytes of its body (its size in body_size); 0 if no answer came, and why in
+headers. (Six arguments: on an x86-64 host a seventh would go on the stack,
+where the x32 guest's pointers are 4 bytes and the host's 8) */
+int host_https_get(const char *url, char *headers, int headers_size, char *body, int body_capacity,
+	int *body_size);
+
 #endif

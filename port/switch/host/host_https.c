@@ -347,11 +347,12 @@ int host_https_clock_offset(long long *seconds)
 
 /* one request of path on host (method, with the header lines in headers and
 the text in payload, either NULL for none): the status, the redirect's target
-if there is one, and on 200 (or whatever the status, with any_status) the
-body to body(). -1 if it could not be asked. */
+if there is one, the answer's headers after its status line ("Name: value"
+lines, each ended by "\n") if answer_headers_size, and on 200 (or whatever the
+status, with any_status) the body to body(). -1 if it could not be asked. */
 static int request(const char *host, const char *path, const char *method, const char *headers,
 	const char *payload, int any_status, host_https_body body, void *context, char *location,
-	size_t location_size, char *error, size_t error_size)
+	size_t location_size, char *answer_headers, size_t answer_headers_size, char *error, size_t error_size)
 {
 	SslContext ssl_context;
 	SslConnection connection;
@@ -364,6 +365,8 @@ static int request(const char *host, const char *path, const char *method, const
 
 	if (location_size)
 		location[0] = 0;
+	if (answer_headers_size)
+		answer_headers[0] = 0;
 	descriptor = connect_to(host, error, error_size);
 	if (descriptor < 0)
 		return -1;
@@ -479,6 +482,21 @@ static int request(const char *host, const char *path, const char *method, const
 		}
 		if (location_size)
 			header_value(buffer, end, "Location", location, location_size);
+		if (answer_headers_size)
+		{
+			const char *line = strstr(buffer, "\r\n");
+			size_t written = 0;
+
+			for (line = line ? line + 2 : end; line < end && written < answer_headers_size - 1; line++)
+			{
+				if (*line != '\r')
+					answer_headers[written++] = *line;
+			}
+			/* (the last line's end, which the blank line's search left out) */
+			if (written && written < answer_headers_size - 1)
+				answer_headers[written++] = '\n';
+			answer_headers[written] = 0;
+		}
 		if (header_value(buffer, end, "Content-Length", value, sizeof(value)))
 			content_length = strtoll(value, NULL, 10);
 		if ((status != 200 && !any_status) || !body)
@@ -550,7 +568,7 @@ static int split_url(const char *url, char *host, size_t host_size, const char *
 	return 1;
 }
 
-int host_https_get(const char *url, int follow_redirects, host_https_body body, void *context, char *location,
+int host_https_fetch(const char *url, int follow_redirects, host_https_body body, void *context, char *location,
 	size_t location_size, char *error, size_t error_size)
 {
 	char host[MAXIMUM_HOST + 1];
@@ -573,8 +591,8 @@ int host_https_get(const char *url, int follow_redirects, host_https_body body, 
 			status = fail(error, error_size, "Not an https link: %.80s", target);
 			break;
 		}
-		status = request(host, path, "GET", NULL, NULL, 0, body, context, next, HOST_HTTPS_MAXIMUM_URL, error,
-			error_size);
+		status = request(host, path, "GET", NULL, NULL, 0, body, context, next, HOST_HTTPS_MAXIMUM_URL, NULL, 0,
+			error, error_size);
 		if (status < 0 || status < 300 || status >= 400 || !next[0])
 			break;
 		if (!follow_redirects)
@@ -646,12 +664,46 @@ int host_https_request(int post, const char *url, const char *headers, const cha
 	memory.size = (size_t)response_size;
 	memory.length = 0;
 	status = request(host, path, post ? "POST" : "GET", headers, post ? (body ? body : "") : NULL, 1, memory_body,
-		&memory, NULL, 0, error, sizeof(error));
+		&memory, NULL, 0, NULL, 0, error, sizeof(error));
 	/* (why, in the answer's room: guest_https.c moves it to its caller's) */
 	if (status <= 0)
 	{
 		snprintf(response, (size_t)response_size, "%s", error[0] ? error : "no answer");
 		return 0;
 	}
+	return status;
+}
+
+/* ---------- the guest's host_https_get (port/linux/src/master_list.c: the
+server browser's master servers) */
+
+int host_https_get(const char *url, char *headers, int headers_size, char *body, int body_capacity,
+	int *body_size)
+{
+	char host[MAXIMUM_HOST + 1];
+	char error[256] = "";
+	const char *path;
+	struct memory_body memory;
+	int status;
+
+	*body_size = 0;
+	if (!split_url(url, host, sizeof(host), &path))
+	{
+		snprintf(headers, (size_t)headers_size, "Not an https link: %.80s", url);
+		return 0;
+	}
+	/* (memory_body keeps a byte for the NUL: body has body_capacity + 1) */
+	memory.response = body;
+	memory.size = (size_t)body_capacity + 1;
+	memory.length = 0;
+	status = request(host, path, "GET", NULL, NULL, 1, memory_body, &memory, NULL, 0, headers, (size_t)headers_size,
+		error, sizeof(error));
+	if (status <= 0)
+	{
+		/* (why, in the headers' room: master_list.c logs it) */
+		snprintf(headers, (size_t)headers_size, "%s", error[0] ? error : "no answer");
+		return 0;
+	}
+	*body_size = (int)memory.length;
 	return status;
 }

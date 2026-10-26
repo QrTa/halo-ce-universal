@@ -66,7 +66,7 @@ is newer (network_client_manager.c). A host advertises it, with its netcode,
 in its game's advertisement's reserved bytes (network_server_message_handler.c),
 which hosts built before there was a version send as zeros: version 0.
 Raise it with any change to what the machines send each other. */
-#define HALO_PORT_NETWORK_VERSION 38
+#define HALO_PORT_NETWORK_VERSION 39
 /* ... the advertisement's reserved bytes: the version (a little-endian word),
 then flags, then the game's kind (an OpenCE gametype's mode, and Hardcore:
 port/linux/game/game_modes.h's game_modes_kind), for the server browser;
@@ -81,8 +81,11 @@ netcode was removed; hosts of version 4 built before then may not) */
 /* ... the game is under way (loading, playing or over), not in its lobby:
 the menus show it before joining it (hosts built before then never set it) */
 #define HALO_PORT_ADVERTISED_IN_PROGRESS_FLAG 0x02
-/* ... the game randomizes a campaign level. The next three reserved bytes
-are which swaps are on (bit 0 enemies, bit 1 weapon pickups, bit 2 the
+/* ... the host is a dedicated server, with no player of its own (halo
+--server: port/linux/src/server_mode.c): the menus say so (from version 39) */
+#define HALO_PORT_ADVERTISED_DEDICATED_FLAG 0x04
+/* ... the game randomizes a campaign level (0x20: 0x04 is the dedicated flag,
+above). The next three reserved bytes are which swaps are on (bit 0 enemies, bit 1 weapon pickups, bit 2 the
 weapons actors carry, bit 3 the player's allies with the enemies, bit 4
 go crazy), the pool (0 any, 1 covenant, 2 flood, 3 human, 4 one type) and
 that type (0 grunt, 1 elite, 2 jackal, 3 hunter, 4 flood combat, 5 flood
@@ -90,7 +93,7 @@ carrier, 6 marine, 8 engineer, 9 sentinel). The next four bytes are the placemen
 little-endian unsigned long, so a client lays out the level the host did.
 A build that cannot run it leaves its join's capability clear and is refused
 only for this game */
-#define HALO_PORT_ADVERTISED_RANDOMIZER_FLAG 0x04
+#define HALO_PORT_ADVERTISED_RANDOMIZER_FLAG 0x20
 #define HALO_PORT_ADVERTISED_RANDOMIZER_SETUP_OFFSET 3
 #define HALO_PORT_ADVERTISED_RANDOMIZER_ROLL_OFFSET 6
 /* ... then five bytes: the one type's rank (randomizer.c's RANK_), the
