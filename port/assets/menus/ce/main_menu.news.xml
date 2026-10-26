@@ -29,8 +29,8 @@
 		<child widget="main_menu/news/news_line" x="82" y="292"/>
 		<child widget="main_menu/news/news_line" x="82" y="310"/>
 		<child widget="main_menu/news/news_line" x="82" y="328"/>
-		<child widget="main_menu/news/news_scroll_up" x="230" y="373"/>
-		<child widget="main_menu/news/news_scroll_down" x="248" y="373"/>
+		<child widget="main_menu/news/news_scroll_up" x="230" y="378"/>
+		<child widget="main_menu/news/news_scroll_down" x="248" y="378"/>
 		<child widget="main_menu/news/news_scroll_text" x="270" y="371"/>
 		<child widget="main_menu/news/news_back_text" x="340" y="371"/>
 	</widget>

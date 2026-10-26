@@ -2139,8 +2139,10 @@ def _news_screen() -> list:
                      # menus' centring of a text with pictures in it put
                      # apart; no picture of the D-pad is drawn in text, so the
                      # menus' own scroll arrows)
-                     f'<child widget="{base}/news_scroll_up" x="{left + 164}" y="{top + 253 + 2}"/>',
-                     f'<child widget="{base}/news_scroll_down" x="{left + 182}" y="{top + 253 + 2}"/>',
+                     # (the arrows' pictures sit high in their 16 texels: 7 down
+                     # puts their middles at the text's)
+                     f'<child widget="{base}/news_scroll_up" x="{left + 164}" y="{top + 253 + 7}"/>',
+                     f'<child widget="{base}/news_scroll_down" x="{left + 182}" y="{top + 253 + 7}"/>',
                      f'<child widget="{base}/news_scroll_text" x="{left + 204}" y="{top + 253}"/>',
                      f'<child widget="{base}/news_back_text" x="{left + 274}" y="{top + 253}"/>'])
     lines += _widget(f"{base}/news_panel", [("width", 640), ("height", 480), ("bitmap", "bitmaps/controller_border")],
