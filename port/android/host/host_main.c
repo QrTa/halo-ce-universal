@@ -341,6 +341,91 @@ void host_gesture_insets(int *insets)
 	}
 }
 
+/* ---------- the custom maps folder (Settings > Gameplay's CUSTOM MAPS FOLDER)
+
+Android's folder picker, and the storage access the folder needs, are the
+activity's (HaloActivity.pickCustomMapsFolder, which shows itself why a
+folder will not do); the game asks for its answer each frame
+(HaloActivity.takeCustomMapsFolder). Found on the activity's class, as
+host_gesture_insets's method is */
+
+/* the activity's method name (signature) called, its object result into
+*result (a local reference, or NULL) when result is not NULL; 0 if it could
+not be */
+static int activity_call(const char *name, const char *signature, jobject *result)
+{
+	JNIEnv *env = (JNIEnv *)SDL_GetAndroidJNIEnv();
+	jobject activity = (jobject)SDL_GetAndroidActivity();
+	jclass activity_class;
+	jmethodID method;
+	int called = 0;
+
+	if (result)
+		*result = NULL;
+	if (!env || !activity)
+		return 0;
+	activity_class = (*env)->GetObjectClass(env, activity);
+	method = activity_class ? (*env)->GetMethodID(env, activity_class, name, signature) : NULL;
+	if (method)
+	{
+		if (result)
+			*result = (*env)->CallObjectMethod(env, activity, method);
+		else
+			(*env)->CallVoidMethod(env, activity, method);
+		called = 1;
+	}
+	if ((*env)->ExceptionCheck(env))
+	{
+		(*env)->ExceptionClear(env);
+		called = 0;
+		if (result && *result)
+		{
+			(*env)->DeleteLocalRef(env, *result);
+			*result = NULL;
+		}
+	}
+	if (activity_class)
+		(*env)->DeleteLocalRef(env, activity_class);
+	(*env)->DeleteLocalRef(env, activity);
+	if (!called)
+		host_logf(HOST_LOG_WARN, "HaloActivity.%s could not be called", name);
+	return called;
+}
+
+int host_folder_pick_begin(void)
+{
+	return activity_call("pickCustomMapsFolder", "()V", NULL);
+}
+
+int host_folder_pick_result(char *buffer, uint32_t size)
+{
+	JNIEnv *env = (JNIEnv *)SDL_GetAndroidJNIEnv();
+	jobject answer;
+	const char *text;
+	int result = -1;
+
+	if (!activity_call("takeCustomMapsFolder", "()Ljava/lang/String;", &answer))
+		return -1;
+	/* (null: the picker still open; "": left without a folder) */
+	if (!answer)
+		return 0;
+	text = (*env)->GetStringUTFChars(env, (jstring)answer, NULL);
+	if (text && text[0] && strlen(text) < size)
+	{
+		memcpy(buffer, text, strlen(text) + 1);
+		host_logf(HOST_LOG_INFO, "custom maps folder chosen: %s", text);
+		result = 1;
+	}
+	else if (text && text[0])
+	{
+		host_logf(HOST_LOG_WARN, "custom maps folder too long for the game: %s", text);
+	}
+	if (text)
+		(*env)->ReleaseStringUTFChars(env, (jstring)answer, text);
+	(*env)->DeleteLocalRef(env, answer);
+	return result;
+}
+
 /* the settings of [debug] that this file reads, from config.toml */
 struct host_settings
 {

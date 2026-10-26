@@ -870,7 +870,8 @@ static const struct config_setting config_settings[] =
 	{ "game.custom_maps.path", _config_string, "\"\"", "HALO_CUSTOM_MAPS_PATH", _environment_value, _platform_all,
 		"The folder Custom Edition maps are read from (and map sharing's\n"
 		"downloads go to); empty for the custom_maps folder in the data folder.\n"
-		"A relative path is under the data folder. Read once, at the start." },
+		"A relative path is under the data folder. On Android, Settings >\n"
+		"Gameplay > CUSTOM MAPS FOLDER chooses it; a change takes effect at once." },
 
 	{ "paths.data", _config_string, "\"\"", "HALO_DATA_ROOT", _environment_value, _platform_desktop,
 		"The folder holding the game data's maps folder; empty looks in the\n"
@@ -1377,6 +1378,12 @@ static const struct config_setting config_settings[] =
 		"that gpu.txt times each part on its own. The stores and loads it adds\n"
 		"make every frame slower: for ranking the parts, in a run of its own.\n"
 		"Takes effect the next start." },
+	{ "debug.custom_edition_moved", _config_boolean, "false", "HALO_CUSTOM_EDITION_MOVED", _environment_value,
+		_platform_android,
+		"Put the Custom Edition tag cache elsewhere than 0x40440000, where its\n"
+		"maps' tags are linked, even where that is free, as it is where the\n"
+		"Java runtime holds it: to test Custom Edition maps on such phones.\n"
+		"Read at the start." },
 	{ "debug.profile_run", _config_boolean, "false", "HALO_PROFILE_RUN", _environment_set_is_true, _platform_android,
 		"Profile each run, to send to the developers: a folder of its own in the\n"
 		"phone's Download/halo_profiles (named for the day and time it started:\n"

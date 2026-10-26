@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
     android:installLocation="auto">
 
     <uses-feature android:glEsVersion="0x00030000" android:required="true" />
@@ -18,8 +19,13 @@
     <!-- voice chat's microphone (asked for only when voice chat first talks) -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <!-- debug.profile_run's folder in Download (LauncherActivity), on Android 9 and 10 only: from 11 on, the app makes
-         its own files there without it. Asked for only when a profile is recorded -->
+         its own files there without it. Asked for only when a profile is recorded, or when Settings > Gameplay's
+         CUSTOM MAPS FOLDER chooses a folder outside the app's own (HaloActivity) -->
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="29" />
+    <!-- Settings > Gameplay's CUSTOM MAPS FOLDER, from Android 11: the game reads and downloads maps in the folder
+         chosen by its path, which a folder outside the app's own needs all files access for. Asked for (a settings
+         page) only when such a folder is chosen (HaloActivity.pickCustomMapsFolder) -->
+    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" tools:ignore="ScopedStorage" />
     <!-- installing a new version of the game (Updater) -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 

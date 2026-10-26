@@ -476,6 +476,16 @@ SCREENS["gameplay"] = {
          "Default: finish a level to unlock the next.\nAll unlocked: every campaign level can be played.",
          None),
     ],
+    # (the phone's: game.custom_maps.path, a folder chosen with Android's
+    # folder picker and shown in the row, written with OK:
+    # menu_functions.c's "port custom maps" functions)
+    "fields": [
+        ("CUSTOM MAPS FOLDER:", "port custom maps pick", "custom_maps_folder",
+         "Where Custom Edition maps are read from and\ndownloaded to. A chooses another folder.", "android"),
+    ],
+    "field_label_width": 290,
+    "inputs": ["port custom maps update"],
+    "handlers": ['<on event="created" run="port custom maps init"/>'],
     "categories": [
         ("RAGDOLLS", "gameplay/ragdolls", "How the bodies of players and the AI fall."),
         ("RANDOMIZER", "gameplay/randomizer",
@@ -911,25 +921,30 @@ def _setting_screen(folder: str, spec: dict) -> list:
                           ("font", "ui\\large_ui"), ("color", "#FF2896FF"), ("text_x", 13), ("text_y", 4)], [])
     # (each field's row: its label, the function A runs (the typing begins,
     # or ends), its key (its value's widget is <key>_value, which the screen's
-    # inputs show) and its help)
+    # inputs show), its help and the platforms it is for, as a row's; its
+    # label as wide as the screen's field_label_width, its value the rest)
     actions = len(spec.get("actions", ()))
-    for index, (label, function, key, _) in enumerate(spec.get("fields", ())):
+    label_width = spec.get("field_label_width", 200)
+    for index, (label, function, key, _, *field_platform) in enumerate(spec.get("fields", ())):
         row = f"{base}/op_{key}"
-        rows.append((row, None, place + 1 + categories + actions + index))
+        platform = field_platform[0] if field_platform else None
+        rows.append((row, platform, place + 1 + categories + actions + index))
         extra += _widget(row, [("width", 512), ("height", 28), ("flags", "pass_unhandled_to_focused_child"),
-                               ("bitmap", "bitmaps/option_bkds"), ("color", "#FF2896FF")],
+                               ("bitmap", "bitmaps/option_bkds"), ("color", "#FF2896FF"), ("platform", platform)],
                          [f'<on event="a" run="{function}"/>', f'<on event="start" run="{function}"/>',
                           # (B ends the typing, else leaves as Cancel does)
                           '<on event="b" run="port field back"/>', '<on event="back" run="port field back"/>',
                           '<on event="left_mouse" run="mouse emit accept event"/>',
-                          f'<child widget="{base}/{key}_label"/>', f'<child widget="{base}/{key}_value" x="200" y="1"/>'])
+                          f'<child widget="{base}/{key}_label"/>',
+                          f'<child widget="{base}/{key}_value" x="{label_width}" y="1"/>'])
         extra += _widget(f"{base}/{key}_label",
-                         [("type", "text"), ("controller", 1), ("width", 200), ("height", 22),
+                         [("type", "text"), ("controller", 1), ("width", label_width), ("height", 22),
                           ("string_list", f"{base}/labels"),
                           ("string_index", len(spec["rows"]) + categories + actions + index),
                           ("font", "ui\\large_ui"), ("color", "#FF2896FF"), ("text_x", 13), ("text_y", 4)], [])
         extra += _widget(f"{base}/{key}_value",
-                         [("type", "text"), ("controller", 1), ("width", 306), ("height", 22), ("font", "ui\\small_ui"),
+                         [("type", "text"), ("controller", 1), ("width", 506 - label_width), ("height", 22),
+                          ("font", "ui\\small_ui"),
                           ("color", "#FF2896FF"), ("align", "center"), ("text_y", 5), ("text_flags", "no_focus_test")],
                          [])
     extra += _button(f"{base}/button_defaults", 3, ['<on event="a" run="port settings defaults"/>',
@@ -946,7 +961,7 @@ def _setting_screen(folder: str, spec: dict) -> list:
                       [help_text.replace("\n", "\\n") for _, _, help_text, *_ in spec.get("categories", ())] +
                       [text.replace("\n", "\\n") for *_, help_text, more in spec.get("actions", ())
                        for text in [help_text, *more]] +
-                      [help_text.replace("\n", "\\n") for *_, help_text in spec.get("fields", ())])
+                      [help_text.replace("\n", "\\n") for _, _, _, help_text, *_ in spec.get("fields", ())])
     # (a note's place None: the one after its platform's last row)
     if spec.get("notes"):
         spec = dict(spec, notes=[(text, platform, places[platform] + 1 if place is None else place)

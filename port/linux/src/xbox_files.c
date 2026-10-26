@@ -253,15 +253,19 @@ static BOOL same_name(const char *first, const char *second)
 
 /* d:\'s maps and custom_maps folders, if game.maps.path or
 game.custom_maps.path moves them (the path's first name, which is matched
-whatever its case): the folder, else NULL */
+whatever its case): the folder, else NULL. Read again once a setting is
+written (Android's Settings > Gameplay > CUSTOM MAPS FOLDER changes
+game.custom_maps.path while the game runs) */
 static const char *moved_folder(const char *name)
 {
 	static char maps[MAX_PATH], custom_maps[MAX_PATH];
 	static int read;
+	static unsigned long read_changes;
 
-	if (!read)
+	if (!read || read_changes != config_changes())
 	{
 		read = 1;
+		read_changes = config_changes();
 		configured_folder("game.maps.path", maps, sizeof(maps));
 		configured_folder("game.custom_maps.path", custom_maps, sizeof(custom_maps));
 	}

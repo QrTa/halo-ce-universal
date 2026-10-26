@@ -1510,3 +1510,17 @@ void host_touch_gyro_mode(int mode)
 {
 	(void)mode;
 }
+
+/* (Android's folder picker, for its CUSTOM MAPS FOLDER: the Switch's menus
+have no such row, and its game.custom_maps.path is config.toml's) */
+int host_folder_pick_begin(void)
+{
+	return 0;
+}
+
+int host_folder_pick_result(char *buffer, unsigned int size)
+{
+	(void)buffer;
+	(void)size;
+	return -1;
+}

@@ -1259,6 +1259,11 @@ struct cache_file_tag_header *custom_edition_cache_tags_load(
 		memcpy((byte *)header + CACHE_FILE_HEADER_FILE_LENGTH_OFFSET, &file_length, sizeof(file_length));
 	}
 	error(_error_silent, "custom edition: loading '%s' (build %s)", path, identity.build);
+	if ((unsigned long)tag_cache != CUSTOM_EDITION_TAG_CACHE_ADDRESS)
+	{
+		error(_error_silent, "custom edition: its tags go to %08lx, %08lx being taken; their addresses are moved there",
+			(unsigned long)tag_cache, (unsigned long)CUSTOM_EDITION_TAG_CACHE_ADDRESS);
+	}
 
 	if (!custom_edition_cache_resource_maps_open())
 	{
@@ -1318,7 +1323,10 @@ boolean custom_edition_structure_bsp_reference_valid(
 {
 	struct custom_edition_cache_globals *globals = &custom_edition_cache_globals;
 	unsigned long address = (unsigned long)reference->base_address;
-	unsigned long top = CUSTOM_EDITION_TAG_CACHE_ADDRESS + globals->tag_cache_bytes;
+	/* (where the tag cache is: the address cache_files.c has already moved
+	there where it is not where the map was linked, PORT_WINDOW_REBASE) */
+	unsigned long base = (unsigned long)globals->tag_cache;
+	unsigned long top = base + globals->tag_cache_bytes;
 
 	/* (in the map's cache data, read to the top of its tag cache, above its
 	tags, as its loader found them) */
@@ -1327,7 +1335,7 @@ boolean custom_edition_structure_bsp_reference_valid(
 		reference->file_size < 0x18 ||
 		(unsigned long)reference->file_offset > globals->file_length ||
 		(unsigned long)reference->file_size > globals->file_length - (unsigned long)reference->file_offset ||
-		address < CUSTOM_EDITION_TAG_CACHE_ADDRESS + globals->loaded_bytes ||
+		address < base + globals->loaded_bytes ||
 		address > top ||
 		(unsigned long)reference->file_size > top - address)
 	{

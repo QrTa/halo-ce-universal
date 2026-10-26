@@ -8620,6 +8620,112 @@ static boolean field_back(struct widget_instance *widget, boolean *widget_delete
 	return TRUE;
 }
 
+/* ---- Settings > Gameplay's CUSTOM MAPS FOLDER (the Android app's:
+tools/port_settings.py): game.custom_maps.path, a folder of the phone's
+chosen with Android's folder picker (HaloActivity.pickCustomMapsFolder, which
+asks for the storage access it needs and says itself why a folder will not
+do), shown in its row and written with OK; xbox_files.c reads it again at
+once, and the map lists scan it the next time they open */
+
+#if defined(HALO_ANDROID) && !defined(HALO_SWITCH)
+/* port/android/guest/runtime/guest_host.h */
+int host_folder_pick_begin(void);
+int host_folder_pick_result(char *buffer, unsigned int size);
+#endif
+
+static struct
+{
+	/* the row's, until OK writes it; empty for the data folder's custom_maps */
+	char path[512];
+	boolean changed;
+	/* the picker open, its answer asked for each frame */
+	boolean picking;
+} custom_maps_folder;
+
+/* "port custom maps init" */
+static boolean custom_maps_folder_initialize(void)
+{
+	snprintf(custom_maps_folder.path, sizeof(custom_maps_folder.path), "%s", config_string("game.custom_maps.path"));
+	custom_maps_folder.changed = FALSE;
+	custom_maps_folder.picking = FALSE;
+	return TRUE;
+}
+
+/* "port custom maps pick" (CUSTOM MAPS FOLDER's A) */
+static boolean custom_maps_folder_pick(void)
+{
+#if defined(HALO_ANDROID) && !defined(HALO_SWITCH)
+	if (!custom_maps_folder.picking)
+		custom_maps_folder.picking = host_folder_pick_begin() != 0;
+#endif
+	return TRUE;
+}
+
+/* "port custom maps update": the folder chosen, once the picker has
+answered, and the row's folder: DEFAULT, else the path without the phone's
+own storage's start, its end alone if the row is too narrow for it */
+static void custom_maps_folder_update(struct widget_instance *list)
+{
+	static char const internal_storage[] = "/storage/emulated/0/";
+	struct widget_instance *row = named(list, "op_custom_maps_folder", 0);
+	char const *shown = custom_maps_folder.path;
+	char text[34];
+	size_t length;
+
+	if (!row)
+		return;
+#if defined(HALO_ANDROID) && !defined(HALO_SWITCH)
+	if (custom_maps_folder.picking)
+	{
+		char chosen[sizeof(custom_maps_folder.path)];
+		int result = host_folder_pick_result(chosen, sizeof(chosen));
+
+		if (result)
+			custom_maps_folder.picking = FALSE;
+		if (result > 0)
+		{
+			snprintf(custom_maps_folder.path, sizeof(custom_maps_folder.path), "%s", chosen);
+			custom_maps_folder.changed = TRUE;
+		}
+	}
+#endif
+	if (!shown[0])
+	{
+		shown = "DEFAULT";
+	}
+	else
+	{
+		if (!strncmp(shown, internal_storage, sizeof(internal_storage) - 1))
+			shown += sizeof(internal_storage) - 1;
+		length = strlen(shown);
+		if (length >= sizeof(text))
+		{
+			snprintf(text, sizeof(text), "...%s", shown + length - (sizeof(text) - 4));
+			shown = text;
+		}
+	}
+	text_field_show(named(row, "custom_maps_folder_value", 0), shown, FALSE);
+}
+
+/* (OK, "port settings save") CUSTOM MAPS FOLDER written, if one was
+chosen; and (Defaults) the data folder's */
+static void custom_maps_folder_save(void)
+{
+	if (!custom_maps_folder.changed)
+		return;
+	if (!config_write("game.custom_maps.path", custom_maps_folder.path))
+		platform_log("menus: could not write game.custom_maps.path");
+	else
+		platform_log("menus: game.custom_maps.path = %s", custom_maps_folder.path);
+	custom_maps_folder.changed = FALSE;
+}
+
+static void custom_maps_folder_defaults(void)
+{
+	custom_maps_folder.path[0] = 0;
+	custom_maps_folder.changed = TRUE;
+}
+
 /* (the challenge's screen, its server not reached) the window wanted, once
 until the challenge is asked for again */
 static void daily_connection_want(struct widget_instance *screen)
@@ -11798,6 +11904,14 @@ boolean pc_menu_event_function_invoke(
 		{
 			return field_back(widget, widget_deleted);
 		}
+		else if (!strcmp(name, "port custom maps init"))
+		{
+			return custom_maps_folder_initialize();
+		}
+		else if (!strcmp(name, "port custom maps pick"))
+		{
+			return custom_maps_folder_pick();
+		}
 		else if (!strcmp(name, "port password edit"))
 		{
 			return password_screen_edit(widget, widget_deleted);
@@ -11830,6 +11944,7 @@ boolean pc_menu_event_function_invoke(
 		{
 			settings_each(screen_of(widget), setting_changed_save);
 			daily_settings_save();
+			custom_maps_folder_save();
 			platform_display_apply();
 		}
 		else if (!strcmp(name, "port settings defaults"))
@@ -11837,6 +11952,8 @@ boolean pc_menu_event_function_invoke(
 			settings_each(screen_of(widget), setting_default_show);
 			if (named(screen_of(widget), "op_server_address", 0))
 				daily_settings_defaults();
+			if (named(screen_of(widget), "op_custom_maps_folder", 0))
+				custom_maps_folder_defaults();
 		}
 		else if (!strcmp(name, "port mods init") || !strcmp(name, "port mods close"))
 		{
@@ -12158,6 +12275,8 @@ void pc_menu_game_data_function_invoke(
 		daily_connection_update(widget);
 	else if (!strcmp(name, "port daily settings update"))
 		daily_settings_update(widget);
+	else if (!strcmp(name, "port custom maps update"))
+		custom_maps_folder_update(widget);
 	else if (!strcmp(name, "gamespy screen update"))
 		browser_update(widget);
 	else if (!strcmp(name, "gt edit list update"))

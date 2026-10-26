@@ -83,11 +83,30 @@ used, which can happen more than once for the same field) */
 #define PORT_WINDOW_MOVE(address) \
 	((void *)((byte *)(address) + PORT_WINDOW_SHIFT))
 
-/* an address the game data was written with, moved to where the window
-actually is. A value that is not one (already moved, or a count) is left
-alone, so this can be done where the value is used even if that happens more
-than once for the same field */
+/* how far Halo Custom Edition's tag cache is from where its maps' tags are
+linked (0x40440000 for 0x01700000 bytes: cache_file_formats.h's
+CUSTOM_EDITION_TAG_CACHE_ADDRESS and _BYTES): 0, unless on Android the Java
+runtime holds that range (its large object space can) and the tag cache was
+put elsewhere (port/linux/src/xbox_memory.c). The host keeps the window, the
+image and its memory pools out of the range, so nothing of the game's is
+ever in it while the tag cache is elsewhere */
+#ifdef HALO_ANDROID
+extern unsigned long platform_custom_edition_shift;
+#define PORT_CUSTOM_EDITION_SHIFT (platform_custom_edition_shift)
+#else
+#define PORT_CUSTOM_EDITION_SHIFT 0UL
+#endif
+
+#define PORT_CUSTOM_EDITION_IS_LINKED(address) \
+	((unsigned long)(address) - 0x40440000UL < 0x01700000UL)
+
+/* an address the game data was written with, moved to where the window (or
+a Custom Edition map's tag cache) actually is. A value that is not one
+(already moved, or a count) is left alone, so this can be done where the
+value is used even if that happens more than once for the same field */
 #define PORT_WINDOW_REBASE(address) \
-	(PORT_WINDOW_IS_LINKED(address) ? PORT_WINDOW_MOVE(address) : (void *)(address))
+	(PORT_WINDOW_IS_LINKED(address) ? PORT_WINDOW_MOVE(address) : \
+	 PORT_CUSTOM_EDITION_SHIFT && PORT_CUSTOM_EDITION_IS_LINKED(address) ? \
+		(void *)((byte *)(address) + PORT_CUSTOM_EDITION_SHIFT) : (void *)(address))
 
 #endif /* __HALO_PORT_WINDOW_H */
