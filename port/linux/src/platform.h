@@ -229,6 +229,8 @@ address in it is at least the window's size and every offset is less. */
 reserved at start-up when the game.custom_edition setting is on, else NULL
 (also declared for the game in halo_linux_source_fixups.h). */
 void *halo_custom_edition_tag_cache(void);
+/* why it is NULL ("" when it is not), for debug.txt */
+const char *halo_custom_edition_tag_cache_problem(void);
 /* which textures hold their channels where Halo PC keeps them
 (xbox_textures.c; also declared for the game there) */
 void halo_custom_edition_texels_channels(const void *texels, unsigned char channel_order);

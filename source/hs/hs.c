@@ -2843,6 +2843,7 @@ symbols in this file:
 #include "units/units.h"
 #include "units/vehicles.h"
 #include "coop_scripts.h" /* port: port/linux/game/coop_scripts.c */
+#include "custom_edition_cache.h" /* port: map_name in a Custom Edition map's scripts */
 #ifdef HALO_PROFILE
 #include "profile_console.h" /* port: port/linux/game/profile_console.c */
 #endif
@@ -13025,8 +13026,14 @@ static short hs_syntax_node_refusal(
 		return _hs_node_refusal_damaged;
 	function = hs_function_get(function_index);
 	*name = function->name;
-	if (!hs_function_allowed_in_maps[function_index])
+	/* port: map_name too in a Custom Edition map's (not a downloaded one's),
+	which goes on only to a map in its own folder (main_script_set_map_name):
+	a campaign of several maps, Lumoria's, goes from each to the next */
+	if (!hs_function_allowed_in_maps[function_index] &&
+		!(function->evaluate == main_set_map_name_evaluate && !hs_scenario_downloaded && custom_edition_cache_tags_loaded()))
+	{
 		return _hs_node_refusal_function;
+	}
 	/* port: a downloaded map's (hs_functions_denied_to_downloaded_maps) */
 	if (hs_scenario_downloaded && hs_name_listed(function->name, hs_functions_denied_to_downloaded_maps))
 		return _hs_node_refusal_downloaded_function;
@@ -15089,7 +15096,8 @@ HS_EVALUATE_RETURN_BOOLEAN_NO_ARGUMENTS(player_control_action_test_move_relative
 /* port: in network co-op, also for the players the scripts can't name (coop_scripts.c) */
 HS_EVALUATE_VOID_FROM_ARGUMENTS(player_add_equipment_evaluate, struct hs_arguments_long_word_boolean, (coop_scripts_player_add_equipment(arguments->value0, arguments->value1, arguments->value2)))
 HS_EVALUATE_VOID_FROM_ARGUMENTS(debug_player_teleport_evaluate, struct hs_arguments_short_word, (debug_player_teleport(arguments->value0, arguments->value1)))
-HS_EVALUATE_VOID_STRING(main_set_map_name_evaluate, main_set_map_name)
+/* port: a Custom Edition map's goes on only to a map in its own folder (main.c) */
+HS_EVALUATE_VOID_STRING(main_set_map_name_evaluate, main_script_set_map_name)
 HS_EVALUATE_VOID_STRING(main_set_multiplayer_map_name_evaluate, main_set_multiplayer_map_name)
 HS_EVALUATE_VOID_UNSIGNED_SHORT(main_set_difficulty_evaluate, main_set_difficulty)
 /* port: a campaign script still switches, and so does a player walking

@@ -8,6 +8,7 @@ game. The platform layer cannot see the game's types, so it asks here
 
 #include "cseries.h"
 #include "game/game.h"
+#include "game/players.h"
 #include "cutscene/cinematics.h"
 #include "input/input.h"
 #include "input/input_abstraction.h"
@@ -24,11 +25,15 @@ int touch_game_cinematic_skippable(void)
 		cinematic_can_be_skipped();
 }
 
-/* asks whether a cinematic is playing, skippable or not: the player has no
-controls, so the on-screen touch controls hide (touch_input.c) */
+/* asks whether a cinematic is playing, skippable or not, with the player's
+input off: the player has no controls, so the on-screen touch controls hide
+(touch_input.c). A map's script can give the input back before it stops its
+cinematic (Lumoria's first level lets the player walk out of the drop pod
+under the letterbox), and then the controls show */
 int touch_game_cinematic_playing(void)
 {
-	return cinematic_globals && game_in_progress() && cinematic_in_progress();
+	return cinematic_globals && game_in_progress() && cinematic_in_progress() &&
+		!player_input_enabled();
 }
 
 /* asks whether a game is being played: not while the game starts, nor

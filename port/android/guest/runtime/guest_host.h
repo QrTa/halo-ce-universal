@@ -140,6 +140,13 @@ void host_android_path(int which, char *buffer, unsigned int size);
 in pixels of the current orientation, into insets[4]; all 0 when unknown */
 void host_gesture_insets(int *insets);
 
+/* Settings > Gameplay's CUSTOM MAPS FOLDER (menu_functions.c): Android's
+folder picker opened, 1, else 0; then, asked each frame, 0 while it is open,
+1 with the folder chosen (a path, NUL terminated) in buffer, or -1 when it
+was left without one */
+int host_folder_pick_begin(void);
+int host_folder_pick_result(char *buffer, unsigned int size);
+
 /* ---------- the on-screen touch controls (host_touch.c, android_imports.list) */
 
 /* the overlay's controller: the SDL axes (left x, y, right x, y, left

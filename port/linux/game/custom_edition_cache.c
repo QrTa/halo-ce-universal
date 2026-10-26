@@ -318,6 +318,11 @@ static boolean maps_folder_hashed_name(
 	return count == 1;
 }
 
+/* the file a map's script went on to with map_name
+(custom_edition_map_beside_loaded): that map's level name finds it before a
+map of its name in another folder */
+static char custom_edition_script_map_path[MAP_PATH_SIZE];
+
 /* the file the map `map_name` names (a level name or a file name), in a
 maps folder or one subfolder of it, whatever version a network game is on
 (custom_edition_map_file_named) */
@@ -329,6 +334,18 @@ static boolean custom_edition_map_named(
 	char hashed[MAP_PATH_SIZE];
 	short folder;
 
+	if (custom_edition_script_map_path[0])
+	{
+		char const *script_name = tag_name_strip_path(custom_edition_script_map_path);
+		size_t length = strlen(name);
+
+		if (!_strnicmp(script_name, name, length) && !csstrcasecmp(script_name + length, MAP_FILE_EXTENSION) &&
+			file_path_exists(custom_edition_script_map_path))
+		{
+			strcpy(path, custom_edition_script_map_path);
+			return TRUE;
+		}
+	}
 	for (folder = 0; folder < NUMBER_OF_MAPS_FOLDERS; folder++)
 	{
 		if (maps_folder_has(maps_folder(folder), name, MAP_FILE_EXTENSION, path) ||
@@ -1081,6 +1098,36 @@ char const *custom_edition_cache_loaded_path(
 	return custom_edition_cache_globals.map.stream ? custom_edition_cache_globals.map_path : NULL;
 }
 
+boolean custom_edition_map_beside_loaded(
+	char const *map_name,
+	char *level_name,
+	short level_name_size)
+{
+	char const *loaded = custom_edition_cache_loaded_path();
+	char const *name = tag_name_strip_path(map_name);
+	char folder[MAP_PATH_SIZE];
+	char path[MAP_PATH_SIZE];
+	char const *separator;
+
+	if (!custom_edition_cache_globals.tags_loaded || !loaded || !*name ||
+		strchr(name, ':') || strchr(name, '/') || strstr(name, "..") ||
+		csstrlen(CUSTOM_EDITION_LEVEL_NAME_PREFIX) + strlen(name) >= (size_t)level_name_size)
+	{
+		return FALSE;
+	}
+	separator = strrchr(loaded, '\\');
+	if (!separator || separator - loaded + 1 >= (long)sizeof(folder))
+		return FALSE;
+	memcpy(folder, loaded, (size_t)(separator - loaded + 1));
+	folder[separator - loaded + 1] = 0;
+	if (!maps_folder_has(folder, name, MAP_FILE_EXTENSION, path))
+		return FALSE;
+	strcpy(custom_edition_script_map_path, path);
+	sprintf(level_name, "%s%s", CUSTOM_EDITION_LEVEL_NAME_PREFIX, name);
+
+	return TRUE;
+}
+
 boolean custom_edition_map_file_present(
 	char const *map_name)
 {
@@ -1259,6 +1306,11 @@ struct cache_file_tag_header *custom_edition_cache_tags_load(
 		memcpy((byte *)header + CACHE_FILE_HEADER_FILE_LENGTH_OFFSET, &file_length, sizeof(file_length));
 	}
 	error(_error_silent, "custom edition: loading '%s' (build %s)", path, identity.build);
+	if ((unsigned long)tag_cache != CUSTOM_EDITION_TAG_CACHE_ADDRESS)
+	{
+		error(_error_silent, "custom edition: its tags go to %08lx, %08lx being taken; their addresses are moved there",
+			(unsigned long)tag_cache, (unsigned long)CUSTOM_EDITION_TAG_CACHE_ADDRESS);
+	}
 
 	if (!custom_edition_cache_resource_maps_open())
 	{
@@ -1318,7 +1370,10 @@ boolean custom_edition_structure_bsp_reference_valid(
 {
 	struct custom_edition_cache_globals *globals = &custom_edition_cache_globals;
 	unsigned long address = (unsigned long)reference->base_address;
-	unsigned long top = CUSTOM_EDITION_TAG_CACHE_ADDRESS + globals->tag_cache_bytes;
+	/* (where the tag cache is: the address cache_files.c has already moved
+	there where it is not where the map was linked, PORT_WINDOW_REBASE) */
+	unsigned long base = (unsigned long)globals->tag_cache;
+	unsigned long top = base + globals->tag_cache_bytes;
 
 	/* (in the map's cache data, read to the top of its tag cache, above its
 	tags, as its loader found them) */
@@ -1327,7 +1382,7 @@ boolean custom_edition_structure_bsp_reference_valid(
 		reference->file_size < 0x18 ||
 		(unsigned long)reference->file_offset > globals->file_length ||
 		(unsigned long)reference->file_size > globals->file_length - (unsigned long)reference->file_offset ||
-		address < CUSTOM_EDITION_TAG_CACHE_ADDRESS + globals->loaded_bytes ||
+		address < base + globals->loaded_bytes ||
 		address > top ||
 		(unsigned long)reference->file_size > top - address)
 	{

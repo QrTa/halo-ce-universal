@@ -778,6 +778,16 @@ static void custom_edition_maps_look_for(
 	globals->looked_for = TRUE;
 	if (!halo_custom_edition_tag_cache())
 	{
+		/* (said once: the lists stay empty without it, and its reason is
+		otherwise only in the platform's log, which a phone keeps in logcat) */
+		static boolean told;
+
+		if (!told)
+		{
+			told = TRUE;
+			error(_error_silent, "custom edition: no maps are listed, as Custom Edition maps cannot run: %s",
+				halo_custom_edition_tag_cache_problem());
+		}
 		return;
 	}
 

@@ -1,14 +1,19 @@
 package com.halo.decomp;
 
+import android.Manifest;
 import android.app.AlertDialog;
 import android.annotation.TargetApi;
 import android.content.Context;
 import android.content.Intent;
+import android.content.pm.PackageManager;
 import android.graphics.Insets;
 import android.net.Uri;
 import android.net.wifi.WifiManager;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Environment;
+import android.provider.DocumentsContract;
+import android.provider.Settings;
 import android.view.Display;
 import android.view.View;
 import android.view.ViewGroup;
@@ -18,6 +23,7 @@ import android.view.WindowManager;
 import android.widget.Toast;
 
 import java.io.ByteArrayOutputStream;
+import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -42,6 +48,15 @@ public class HaloActivity extends SDLActivity {
     private TouchControls touchControls;
     private static final int EXPORT_LAYOUT = 401, IMPORT_LAYOUT = 402;
     private String pendingLayoutExport;
+    private static final int PICK_MAPS_FOLDER = 403, MAPS_FOLDER_ACCESS = 404;
+    /** the custom maps folder chosen, while its storage access is asked for */
+    private String pendingMapsFolder;
+    /**
+     * the custom maps folder's pick, for the game (takeCustomMapsFolder):
+     * null while the picker is open, "" when it ended without a folder, else
+     * the folder's path
+     */
+    private volatile String mapsFolderAnswer = "";
 
     @Override
     protected String[] getLibraries() {
@@ -51,8 +66,10 @@ public class HaloActivity extends SDLActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        if (savedInstanceState != null)
+        if (savedInstanceState != null) {
             pendingLayoutExport = savedInstanceState.getString("pending-layout-export");
+            pendingMapsFolder = savedInstanceState.getString("pending-maps-folder");
+        }
         if (mLayout != null) {
             touchControls = new TouchControls(this);
             mLayout.addView(touchControls, new ViewGroup.LayoutParams(
@@ -98,10 +115,19 @@ public class HaloActivity extends SDLActivity {
     protected void onSaveInstanceState(Bundle state) {
         super.onSaveInstanceState(state);
         state.putString("pending-layout-export", pendingLayoutExport);
+        state.putString("pending-maps-folder", pendingMapsFolder);
     }
 
     @Override
     protected void onActivityResult(int request, int result, Intent data) {
+        if (request == PICK_MAPS_FOLDER) {
+            mapsFolderPicked(result == RESULT_OK && data != null ? data.getData() : null);
+            return;
+        }
+        if (request == MAPS_FOLDER_ACCESS) {
+            mapsFolderAccessAnswered();
+            return;
+        }
         if (request != EXPORT_LAYOUT && request != IMPORT_LAYOUT) {
             super.onActivityResult(request, result, data);
             return;
@@ -169,6 +195,188 @@ public class HaloActivity extends SDLActivity {
         new AlertDialog.Builder(this)
             .setTitle("Touch layout file")
             .setMessage("The operation did not complete: " + error.getMessage())
+            .setPositiveButton("OK", null)
+            .show();
+    }
+
+    /* ---------- the custom maps folder (Settings > Gameplay's CUSTOM MAPS FOLDER) */
+
+    /**
+     * Android's folder picker, for the folder Custom Edition maps are read
+     * from and downloaded to (game.custom_maps.path). The game reads it by
+     * its path, so it must be a folder of the phone's storage or of an SD
+     * card, and the app needs access to it: all files access from Android
+     * 11 (a settings page), storage permission on 9 and 10, none for a
+     * folder of the app's own. What does not do is said here, in a dialog;
+     * the game asks for the answer each frame (takeCustomMapsFolder). The
+     * game's native code calls this through JNI by name and signature
+     * (host_main.c's host_folder_pick_begin, "pickCustomMapsFolder", "()V"),
+     * on its own thread, so it must not be renamed, retyped or removed as
+     * unused
+     */
+    public void pickCustomMapsFolder() {
+        mapsFolderAnswer = null;
+        runOnUiThread(() -> {
+            Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
+            try {
+                startActivityForResult(intent, PICK_MAPS_FOLDER);
+            } catch (android.content.ActivityNotFoundException e) {
+                mapsFolderError("This device has no folder picker.");
+            }
+        });
+    }
+
+    /**
+     * the custom maps folder's pick, once it is over (and only once): ""
+     * when it ended without a folder, else the folder's path; null while it
+     * goes on. Called through JNI by name and signature (host_main.c's
+     * host_folder_pick_result, "takeCustomMapsFolder",
+     * "()Ljava/lang/String;"), on the game's thread
+     */
+    public synchronized String takeCustomMapsFolder() {
+        String answer = mapsFolderAnswer;
+
+        if (answer != null)
+            mapsFolderAnswer = "";
+        return answer;
+    }
+
+    private synchronized void mapsFolderAnswer(String answer) {
+        mapsFolderAnswer = answer;
+    }
+
+    private void mapsFolderPicked(Uri tree) {
+        if (tree == null) {
+            mapsFolderAnswer("");
+            return;
+        }
+        String path = treePath(tree);
+        if (path == null) {
+            mapsFolderError("Choose a folder of the phone's storage or of an SD card: the game cannot read "
+                + "Custom Edition maps from this one.");
+            return;
+        }
+        pendingMapsFolder = path;
+        if (mapsFolderAccessible(path)) {
+            mapsFolderAccessAnswered();
+            return;
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            new AlertDialog.Builder(this)
+                .setTitle("Custom maps folder")
+                .setMessage("To read and download maps in " + path + ", the game needs access to all files. "
+                    + "Turn on \"Allow access to manage all files\" on the next page, then come back.")
+                .setCancelable(false)
+                .setNegativeButton("Cancel", (dialog, which) -> {
+                    pendingMapsFolder = null;
+                    mapsFolderAnswer("");
+                })
+                .setPositiveButton("Continue", (dialog, which) -> requestAllFilesAccess())
+                .show();
+        } else {
+            requestPermissions(new String[] { Manifest.permission.WRITE_EXTERNAL_STORAGE }, MAPS_FOLDER_ACCESS);
+        }
+    }
+
+    @TargetApi(Build.VERSION_CODES.R)
+    private void requestAllFilesAccess() {
+        Intent intent = new Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
+            Uri.parse("package:" + getPackageName()));
+        try {
+            startActivityForResult(intent, MAPS_FOLDER_ACCESS);
+        } catch (android.content.ActivityNotFoundException e) {
+            try {
+                startActivityForResult(new Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION),
+                    MAPS_FOLDER_ACCESS);
+            } catch (android.content.ActivityNotFoundException again) {
+                pendingMapsFolder = null;
+                mapsFolderError("This device has no page to allow the game access to all files.");
+            }
+        }
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int request, String[] permissions, int[] results) {
+        if (request != MAPS_FOLDER_ACCESS) {
+            super.onRequestPermissionsResult(request, permissions, results);
+            return;
+        }
+        mapsFolderAccessAnswered();
+    }
+
+    /** the folder chosen, once its access is asked for: taken if the game can read it */
+    private void mapsFolderAccessAnswered() {
+        String path = pendingMapsFolder;
+
+        pendingMapsFolder = null;
+        if (path == null) {
+            mapsFolderAnswer("");
+            return;
+        }
+        if (!mapsFolderAccessible(path)) {
+            mapsFolderError("The game was not allowed access to " + path + ", so it cannot read maps there. "
+                + "The custom maps folder is unchanged.");
+            return;
+        }
+        File folder = new File(path);
+        if (!folder.isDirectory() || folder.list() == null) {
+            mapsFolderError("The game cannot read " + path + ". The custom maps folder is unchanged.");
+            return;
+        }
+        if (!folder.canWrite())
+            Toast.makeText(this, "The game can read this folder but not write to it: maps cannot be "
+                + "downloaded there.", Toast.LENGTH_LONG).show();
+        mapsFolderAnswer(path);
+    }
+
+    /** whether the app may read and write path: its own folders always, else as the system allows */
+    private boolean mapsFolderAccessible(String path) {
+        File own = getExternalFilesDir(null);
+        if (own != null && own.getParentFile() != null && path.startsWith(own.getParentFile().getPath() + "/"))
+            return true;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R)
+            return Environment.isExternalStorageManager();
+        return checkSelfPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED;
+    }
+
+    /**
+     * a folder the picker chose (a tree of the external storage provider's,
+     * or of the downloads provider's naming a path), as a path; null for
+     * one of another provider's (a cloud drive's), which has no path
+     */
+    private static String treePath(Uri tree) {
+        String id;
+
+        try {
+            id = DocumentsContract.getTreeDocumentId(tree);
+        } catch (IllegalArgumentException e) {
+            return null;
+        }
+        if (id == null)
+            return null;
+        if ("com.android.providers.downloads.documents".equals(tree.getAuthority()))
+            return id.startsWith("raw:/") ? id.substring(4) : null;
+        if (!"com.android.externalstorage.documents".equals(tree.getAuthority()))
+            return null;
+        // ("primary:Download/Maps", the phone's own storage; "1A2B-3C4D:Maps", an SD card's)
+        int colon = id.indexOf(':');
+        if (colon <= 0)
+            return null;
+        String volume = id.substring(0, colon), relative = id.substring(colon + 1);
+        String root = "primary".equalsIgnoreCase(volume)
+            ? Environment.getExternalStorageDirectory().getPath() : "/storage/" + volume;
+        while (relative.endsWith("/"))
+            relative = relative.substring(0, relative.length() - 1);
+        return relative.isEmpty() ? root : root + "/" + relative;
+    }
+
+    private void mapsFolderError(String message) {
+        mapsFolderAnswer("");
+        if (isFinishing() || isDestroyed())
+            return;
+        new AlertDialog.Builder(this)
+            .setTitle("Custom maps folder")
+            .setMessage(message)
             .setPositiveButton("OK", null)
             .show();
     }

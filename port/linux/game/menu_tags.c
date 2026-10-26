@@ -422,6 +422,8 @@ static char const *const port_function_names[] =
 	"port daily settings init", "port daily server edit", "port field back",
 	/* (the challenge's screen's BACK, to Campaign's menu, and RANDOM RUN) */
 	"port daily back", "port daily random",
+	/* (Settings > Gameplay's CUSTOM MAPS FOLDER, Android's) */
+	"port custom maps init", "port custom maps pick",
 };
 
 /* the PC version's game data functions that the Xbox's have not, from
@@ -461,6 +463,8 @@ static char const *const port_game_data_input_names[] =
 	"port daily update", "port history update", "port daily connection update", "port daily settings update",
 	/* (the gametype editor's description, with OPENCE OPTIONS' row) */
 	"port playlist edit desc",
+	/* (Settings > Gameplay's CUSTOM MAPS FOLDER: its folder, and the one chosen) */
+	"port custom maps update",
 };
 
 static struct
