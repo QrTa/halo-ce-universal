@@ -1472,6 +1472,25 @@ boolean main_menu_is_loaded(
 }
 #endif
 
+/* port: a Custom Edition map that could not load (main_new_map): the old
+map was disposed of before it, and nothing of the new one was made, so the
+main menu's map is loaded without disposing of one again */
+static boolean main_map_load_failed = FALSE;
+
+/* port: says `text` (ASCII) when the main menu loads, and goes back to it */
+static void main_return_to_menu_saying(
+	char const *text)
+{
+	wchar_t wide[512];
+	short index;
+
+	for (index = 0; text[index] && index < NUMBEROF(wide) - 1; index++)
+		wide[index] = (wchar_t)(unsigned char)text[index];
+	wide[index] = 0;
+	display_error_text_when_main_menu_loaded(wide);
+	main_goto_main_menu();
+}
+
 static void main_new_map(
 	struct game_options *options)
 {
@@ -1479,6 +1498,32 @@ static void main_new_map(
 	if (game_load(options))
 	{
 		game_initialize_for_new_map();
+	}
+	/* port: a Custom Edition map whose tags were refused (debug.txt says
+	why: custom_edition_cache.c) is not played, and the game goes back to
+	the main menu, saying so, rather than stopping */
+	else if (custom_edition_level_name(options->map_name))
+	{
+		char text[160];
+
+		snprintf(text, sizeof(text),
+			"The map %.64s could not be loaded. It may use something this version of the game does not support.",
+			tag_name_strip_path(options->map_name));
+		error(_error_silent, "custom edition: '%s' could not be loaded; back to the main menu", options->map_name);
+		main_map_load_failed = TRUE;
+		main_globals.reset_map = FALSE;
+		main_globals.defer_map_change = FALSE;
+		main_globals.revert_map = FALSE;
+		main_globals.skip_cinematic = FALSE;
+		main_globals.saving_map = FALSE;
+		main_globals.won_map = FALSE;
+		main_globals.lost_map = FALSE;
+		main_globals.respawn = FALSE;
+		main_globals.save_core = FALSE;
+		main_globals.load_core = FALSE;
+		main_globals.load_core_at_startup = FALSE;
+		main_return_to_menu_saying(text);
+		return;
 	}
 	else
 	{
@@ -1919,7 +1964,10 @@ void main_load_ui_scenario(
 	csstrncpy(options.map_name, "levels\\ui\\ui", NUMBEROF(options.map_name) - 1);
 	options.map_name[NUMBEROF(options.map_name) - 1] = 0;
 	game_precache_new_map(options.map_name, TRUE);
-	game_dispose_from_old_map();
+	/* port: (not again after a map that could not load: main_new_map) */
+	if (!main_map_load_failed)
+		game_dispose_from_old_map();
+	main_map_load_failed = FALSE;
 	game_unload();
 	game_engine_dispose();
 	game_set_game_variant(NULL);
@@ -2460,6 +2508,43 @@ static void main_won_map_private(
 		player_profile_save_level_completed(local_player_index);
 	ui_set_next_level(level);
 	return;
+}
+
+/* port: a script's map_name. A Custom Edition map's goes on to the map it
+names in its own folder (Lumoria's levels each name the next), and to no
+other: one not there, or one that then cannot load (main_new_map), is not
+played, and the game goes back to the main menu saying so. Any other map's
+scripts may not call it (hs.c's hs_function_allowed_in_maps), so this is the
+console's there, as before */
+void main_script_set_map_name(
+	char const *map_name)
+{
+	char level_name[NUMBEROF(main_globals.soloplayer_map_name)];
+
+	if (!custom_edition_cache_tags_loaded())
+	{
+		main_set_map_name(map_name);
+		return;
+	}
+	if (main_globals.connection != _game_connection_local)
+	{
+		error(_error_silent, "custom edition: the map's scripts go on to '%s', which only a game on this device can", map_name);
+		return;
+	}
+	if (!custom_edition_map_beside_loaded(map_name, level_name, (short)sizeof(level_name)))
+	{
+		char text[160];
+
+		snprintf(text, sizeof(text),
+			"The map goes on to %.64s, which is not in its folder. Put %.64s.map beside it to keep playing.",
+			tag_name_strip_path(map_name), tag_name_strip_path(map_name));
+		error(_error_silent, "custom edition: the map's scripts go on to '%s', which is not beside '%s'",
+			map_name, custom_edition_cache_loaded_path() ? custom_edition_cache_loaded_path() : "?");
+		main_return_to_menu_saying(text);
+		return;
+	}
+	error(_error_silent, "custom edition: the map's scripts go on to '%s'", level_name);
+	main_set_map_name(level_name);
 }
 
 void main_set_map_name(

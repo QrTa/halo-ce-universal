@@ -139,6 +139,10 @@ void main_set_multiplayer_map_name(
 void main_set_map_name(
 	char const *map_name);
 
+/* port: a script's map_name (main.c) */
+void main_script_set_map_name(
+	char const *map_name);
+
 void main_set_difficulty(
 	short difficulty);
 

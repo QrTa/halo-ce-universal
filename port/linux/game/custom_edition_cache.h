@@ -129,6 +129,15 @@ unsigned long custom_edition_map_resource_maps_needed(
 /* the file of the Custom Edition map loaded, or NULL */
 char const *custom_edition_cache_loaded_path(
 	void);
+/* Whether the map `map_name` names (a map's script's map_name: a file name,
+without its .map) is in the folder of the Custom Edition map loaded: then its
+level name (custom_maps\<name>, `level_name_size` characters) is in
+`level_name`, and that level loads that file. FALSE with no Custom Edition
+map loaded, or none of the name beside it. */
+boolean custom_edition_map_beside_loaded(
+	char const *map_name,
+	char *level_name,
+	short level_name_size);
 /* Whether this machine can play the level `level_name` (custom_maps\<name>),
 as a network game's client must: a file of it of the host's version
 (`version`, custom_edition_map_version's on the host; 0 for any), a Custom
