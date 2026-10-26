@@ -6768,15 +6768,17 @@ static void news_update(struct widget_instance *screen)
 		text[row] = 0;
 		text_set(named(screen, "news_title", 0), text);
 	}
-	/* (the buttons as the console's pictures of them: the menus' %-codes) */
+	/* (the scroll arrows and "Scroll" while there is more than the panel
+	holds) */
+	{
+		boolean scrolls = news_screen.count > NEWS_ROWS;
+
+		visible_set(named(screen, "news_scroll_up", 0), scrolls);
+		visible_set(named(screen, "news_scroll_down", 0), scrolls);
+		visible_set(named(screen, "news_scroll_text", 0), scrolls);
+	}
 	if (!news_screen.count)
-		usnprintf(text, NUMBEROF(text) - 1, L"No news in this build.   %%b-button Back");
-	else if (news_screen.count <= NEWS_ROWS)
-		usnprintf(text, NUMBEROF(text) - 1, L"%%b-button Back");
-	else
-		usnprintf(text, NUMBEROF(text) - 1, L"%%dpad-up%%dpad-down Scroll   %%b-button Back");
-	text[NUMBEROF(text) - 1] = 0;
-	text_set_length(named(screen, "news_footer", 0), text, NEWS_LINE_LENGTH);
+		text_set_length(named(screen, "news_line", 0), L"No news in this build.", NEWS_LINE_LENGTH);
 }
 
 /* "port news close" (B, Back, X): back to the main menu */

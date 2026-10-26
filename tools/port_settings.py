@@ -2113,8 +2113,10 @@ def _map_kind() -> list:
 def _news_screen() -> list:
     """the news window: its title over a panel (bitmaps/controller_border)
     of NEWS_ROWS lines of the notes, and under it the buttons that scroll
-    and close it as the console's pictures of them (the menus' %-codes); the
-    texts menu_functions.c's alone, which makes them as long as it needs.
+    (the menus' scroll arrows, shown while there is more than the panel
+    holds) and close it (B as the console's picture of it: the menus'
+    %-codes); the title's and the lines' texts menu_functions.c's alone,
+    which makes them as long as it needs.
     Up and down (the D-pad, the sticks, the mouse wheel) scroll a line, left
     and right a page, B, Back or X again close it. And the main menu's hint
     that X opens it (WIDGET_PATCHES)"""
@@ -2131,7 +2133,16 @@ def _news_screen() -> list:
                      f'<child widget="{base}/news_title" x="{left}" y="{top - 34}"/>',
                      *[f'<child widget="{base}/news_line" x="{left + 16}" y="{top + 12 + 18 * row}"/>'
                        for row in range(NEWS_ROWS)],
-                     f'<child widget="{base}/news_footer" x="{left}" y="{top + 245 + 8}"/>'])
+                     # (under the panel, the buttons left to right from a little
+                     # left of its middle: the scroll arrows, "Scroll", B's
+                     # picture and "Back"; widgets of their own, which the
+                     # menus' centring of a text with pictures in it put
+                     # apart; no picture of the D-pad is drawn in text, so the
+                     # menus' own scroll arrows)
+                     f'<child widget="{base}/news_scroll_up" x="{left + 164}" y="{top + 253 + 2}"/>',
+                     f'<child widget="{base}/news_scroll_down" x="{left + 182}" y="{top + 253 + 2}"/>',
+                     f'<child widget="{base}/news_scroll_text" x="{left + 204}" y="{top + 253}"/>',
+                     f'<child widget="{base}/news_back_text" x="{left + 274}" y="{top + 253}"/>'])
     lines += _widget(f"{base}/news_panel", [("width", 640), ("height", 480), ("bitmap", "bitmaps/controller_border")],
                      [])
     lines += _widget(f"{base}/news_title", [("type", "text"), ("controller", 1), ("width", 507), ("height", 30),
@@ -2139,9 +2150,13 @@ def _news_screen() -> list:
     lines += _widget(f"{base}/news_line", [("type", "text"), ("controller", 1), ("width", 475), ("height", 18),
                                           ("font", "ui\\small_ui"), ("color", "#FFFFFFFF"),
                                           ("text_flags", "no_focus_test")], [])
-    lines += _widget(f"{base}/news_footer", [("type", "text"), ("controller", 1), ("width", 507), ("height", 20),
-                                            ("font", "ui\\small_ui"), ("color", "#FFFFFFFF"), ("align", "center"),
-                                            ("text_flags", "no_focus_test")], [])
+    for name in ("up", "down"):
+        lines += _widget(f"{base}/news_scroll_{name}", [("width", 16), ("height", 16),
+                                                        ("bitmap", f"bitmaps/arrow_sm_{name}")], [])
+    for name, text, width in (("scroll", "Scroll", 64), ("back", "%b-button Back", 120)):
+        lines += _widget(f"{base}/news_{name}_text", [("type", "text"), ("controller", 1), ("width", width),
+                                                      ("height", 20), ("text", text), ("font", "ui\\small_ui"),
+                                                      ("color", "#FFFFFFFF"), ("text_flags", "no_focus_test")], [])
     lines += _widget(f"{base}/news_hint", [("type", "text"), ("controller", 1), ("width", 150), ("height", 20),
                                           ("text", "%x-button NEWS"), ("font", "ui\\small_ui"),
                                           ("color", "#FFCCCCCC"), ("text_flags", "no_focus_test")], [])
