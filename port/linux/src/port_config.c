@@ -571,6 +571,15 @@ static const struct config_setting config_settings[] =
 	{ "bots.teams", _config_string, "\"even\"", "HALO_BOT_TEAMS", _environment_value, _platform_all,
 		"In team games: \"even\" puts the bots on both teams, evening them with\n"
 		"the players; \"against\" puts them all on the team the players are not on." },
+	{ "bots.vehicles", _config_integer, "1", "HALO_BOT_VEHICLES", _environment_value, _platform_all,
+		"1: the bots drive and ride the map's vehicles (Warthogs, Ghosts and\n"
+		"Scorpions) to goals a long way off, and man its turrets; 0: they stay\n"
+		"on foot." },
+	{ "bots.routes", _config_string, "\"direct\"", "HALO_BOT_ROUTES", _environment_value, _platform_all,
+		"The ways the bots go to their goals (port/linux/game/bots_routes.c):\n"
+		"\"direct\" (everyone the shortest way, down the middle into one fight),\n"
+		"\"lanes\" (the attackers spread over the map's side lanes, flanking) or\n"
+		"\"mixed\" (most direct, a few on the side lanes)." },
 	{ "display.viewmodel_shield", _config_boolean, "false", "HALO_VIEWMODEL_SHIELD", _environment_value, _platform_all,
 		"The energy shield's flare on the first-person arms too, as on the body\n"
 		"(the stock game draws it on the body only)." },
@@ -2299,6 +2308,7 @@ static const struct
 	{ "game.console_log", { "important", "all", "none", NULL }, NULL },
 	{ "game.language", { "", "ja", "de", "fr", "es", "it", NULL }, NULL },
 	{ "network.text_chat", { "on", "links", "off", NULL }, NULL },
+	{ "bots.routes", { "direct", "lanes", "mixed", NULL }, "\"direct\"'s" },
 	{ "server.chat_filter", { "off", "censor", "block", NULL }, NULL },
 	{ "server.chat_filter_slurs", { "off", "severe", "strong", "mild", NULL }, NULL },
 	{ "server.chat_filter_swearing", { "off", "severe", "strong", "mild", NULL }, NULL },
