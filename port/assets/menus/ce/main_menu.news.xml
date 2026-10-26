@@ -29,11 +29,11 @@
 		<child widget="main_menu/news/news_line" x="82" y="292"/>
 		<child widget="main_menu/news/news_line" x="82" y="310"/>
 		<child widget="main_menu/news/news_line" x="82" y="328"/>
-		<child widget="main_menu/news/news_scroll_up" x="230" y="378"/>
-		<child widget="main_menu/news/news_scroll_down" x="248" y="378"/>
-		<child widget="main_menu/news/news_scroll_text" x="270" y="371"/>
-		<child widget="main_menu/news/b_butn_news_back" x="340" y="371"/>
-		<child widget="main_menu/news/news_back_text" x="340" y="371"/>
+		<child widget="main_menu/news/dpad_up_butn_news" x="230" y="378"/>
+		<child widget="main_menu/news/news_scroll_text" x="264" y="371"/>
+		<child widget="main_menu/news/dpad_down_butn_news" x="320" y="378"/>
+		<child widget="main_menu/news/b_butn_news_back" x="366" y="371"/>
+		<child widget="main_menu/news/news_back_text" x="366" y="371"/>
 	</widget>
 	<widget name="main_menu/news/news_panel" width="640" height="480" bitmap="bitmaps/controller_border">
 	</widget>
@@ -41,11 +41,11 @@
 	</widget>
 	<widget name="main_menu/news/news_line" type="text" controller="1" width="475" height="18" font="ui\small_ui" color="#FFFFFFFF" text_flags="no_focus_test">
 	</widget>
-	<widget name="main_menu/news/news_scroll_up" width="16" height="16" bitmap="bitmaps/arrow_sm_up">
+	<widget name="main_menu/news/dpad_up_butn_news" width="16" height="16" bitmap="bitmaps/arrow_sm_up">
 	</widget>
-	<widget name="main_menu/news/news_scroll_down" width="16" height="16" bitmap="bitmaps/arrow_sm_down">
+	<widget name="main_menu/news/dpad_down_butn_news" width="16" height="16" bitmap="bitmaps/arrow_sm_down">
 	</widget>
-	<widget name="main_menu/news/news_scroll_text" type="text" controller="1" width="64" height="20" text="Scroll" font="ui\small_ui" color="#FFFFFFFF" text_flags="no_focus_test">
+	<widget name="main_menu/news/news_scroll_text" type="text" controller="1" width="48" height="20" text="Scroll" font="ui\small_ui" color="#FFFFFFFF" text_flags="no_focus_test">
 	</widget>
 	<widget name="main_menu/news/news_back_text" type="text" controller="1" width="120" height="20" text="%b-button Back" font="ui\small_ui" color="#FFFFFFFF" text_flags="no_focus_test">
 	</widget>

@@ -2136,19 +2136,22 @@ def _news_screen() -> list:
                      *[f'<child widget="{base}/news_line" x="{left + 16}" y="{top + 12 + 18 * row}"/>'
                        for row in range(NEWS_ROWS)],
                      # (under the panel, the buttons left to right from a little
-                     # left of its middle: the scroll arrows, "Scroll", B's
-                     # picture and "Back"; widgets of their own, which the
-                     # menus' centring of a text with pictures in it put
-                     # apart; no picture of the D-pad is drawn in text, so the
-                     # menus' own scroll arrows)
-                     # (the arrows' pictures sit high in their 16 texels: 7 down
-                     # puts their middles at the text's)
-                     f'<child widget="{base}/news_scroll_up" x="{left + 164}" y="{top + 253 + 7}"/>',
-                     f'<child widget="{base}/news_scroll_down" x="{left + 182}" y="{top + 253 + 7}"/>',
-                     f'<child widget="{base}/news_scroll_text" x="{left + 204}" y="{top + 253}"/>',
+                     # left of its middle: the up arrow, "Scroll", the down
+                     # arrow, B's picture and "Back"; widgets of their own,
+                     # which the menus' centring of a text with pictures in it
+                     # put apart; no picture of the D-pad is drawn in text, so
+                     # the menus' own scroll arrows. The arrows are the d-pad's
+                     # up and down to a tap or a click (a key's icon by their
+                     # names: ui_widget.c's ui_mouse_key_button), each further
+                     # than a key's label from "Scroll", so that it is neither's.
+                     # Their pictures sit high in their 16 texels: 7 down puts
+                     # their middles at the text's)
+                     f'<child widget="{base}/dpad_up_butn_news" x="{left + 164}" y="{top + 253 + 7}"/>',
+                     f'<child widget="{base}/news_scroll_text" x="{left + 198}" y="{top + 253}"/>',
+                     f'<child widget="{base}/dpad_down_butn_news" x="{left + 254}" y="{top + 253 + 7}"/>',
                      # (Back's tap and click: B's, as the hint's is X's)
-                     f'<child widget="{base}/b_butn_news_back" x="{left + 274}" y="{top + 253}"/>',
-                     f'<child widget="{base}/news_back_text" x="{left + 274}" y="{top + 253}"/>'])
+                     f'<child widget="{base}/b_butn_news_back" x="{left + 300}" y="{top + 253}"/>',
+                     f'<child widget="{base}/news_back_text" x="{left + 300}" y="{top + 253}"/>'])
     lines += _widget(f"{base}/news_panel", [("width", 640), ("height", 480), ("bitmap", "bitmaps/controller_border")],
                      [])
     lines += _widget(f"{base}/news_title", [("type", "text"), ("controller", 1), ("width", 507), ("height", 30),
@@ -2157,9 +2160,9 @@ def _news_screen() -> list:
                                           ("font", "ui\\small_ui"), ("color", "#FFFFFFFF"),
                                           ("text_flags", "no_focus_test")], [])
     for name in ("up", "down"):
-        lines += _widget(f"{base}/news_scroll_{name}", [("width", 16), ("height", 16),
-                                                        ("bitmap", f"bitmaps/arrow_sm_{name}")], [])
-    for name, text, width in (("scroll", "Scroll", 64), ("back", "%b-button Back", 120)):
+        lines += _widget(f"{base}/dpad_{name}_butn_news", [("width", 16), ("height", 16),
+                                                           ("bitmap", f"bitmaps/arrow_sm_{name}")], [])
+    for name, text, width in (("scroll", "Scroll", 48), ("back", "%b-button Back", 120)):
         lines += _widget(f"{base}/news_{name}_text", [("type", "text"), ("controller", 1), ("width", width),
                                                       ("height", 20), ("text", text), ("font", "ui\\small_ui"),
                                                       ("color", "#FFFFFFFF"), ("text_flags", "no_focus_test")], [])

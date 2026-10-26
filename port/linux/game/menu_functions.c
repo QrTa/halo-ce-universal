@@ -6773,8 +6773,8 @@ static void news_update(struct widget_instance *screen)
 	{
 		boolean scrolls = news_screen.count > NEWS_ROWS;
 
-		visible_set(named(screen, "news_scroll_up", 0), scrolls);
-		visible_set(named(screen, "news_scroll_down", 0), scrolls);
+		visible_set(named(screen, "dpad_up_butn_news", 0), scrolls);
+		visible_set(named(screen, "dpad_down_butn_news", 0), scrolls);
 		visible_set(named(screen, "news_scroll_text", 0), scrolls);
 	}
 	if (!news_screen.count)
