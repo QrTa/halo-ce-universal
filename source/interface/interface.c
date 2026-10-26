@@ -395,6 +395,8 @@ void interface_draw_fullscreen_overlays(
 	terminal_draw();
 	main_framerate_render();
 	render_debug_profile();
+	/* port: the overlay menu, over everything (port/linux/game/overlay_menu.c) */
+	overlay_menu_draw();
 
 	return;
 }

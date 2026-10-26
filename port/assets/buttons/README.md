@@ -131,9 +131,10 @@ port/assets/buttons/
   triggers; the Switch's B (the bottom button) for A, A for B, Y for X, X for
   Y, R and L, ZL and ZR.
 - **Embedding.** `hud_assets_build` passes a port that has a folder to
-  `embed_assets.py --platform <port>`, which embeds its PNGs in place of
-  the common ones, each with its contexts (`hud_hires.h`: where its
-  buttons are right; 0, everywhere).
+  `embed_assets.py --platform <port>`, which embeds its PNGs beside the
+  common ones, each with its contexts (`hud_hires.h`: where its buttons are
+  right, and whose art it is). The game draws the port's, or with
+  `display.xbox_buttons = true` the common Xbox ones (from the next map).
 
 ### The Switch
 

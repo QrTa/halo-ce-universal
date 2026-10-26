@@ -487,6 +487,19 @@ static const struct config_setting config_settings[] =
 		"pastes an invite link for the console to join; nothing is served\n"
 		"otherwise. false: none." },
 #endif
+	{ "game.overlay_menu", _config_boolean, "true", "HALO_OVERLAY_MENU", _environment_value, _platform_all,
+		"Holding L and R and pressing the d-pad's down opens the game's overlay\n"
+		"menu, and closes it: cheats, the game's speed, the HUD, the camera and\n"
+		"the renderer's switches, in a panel at the left of the screen (on\n"
+		"Android also three fingers on the screen together). While it is open\n"
+		"the game gets no input; it is not paused.\n"
+		"false: the buttons do not open it." },
+#if defined(HALO_SWITCH) || defined(HALO_PS5)
+	{ "display.xbox_buttons", _config_boolean, "false", "HALO_XBOX_BUTTONS", _environment_value, _platform_all,
+		"Draw the controller's buttons as the Xbox's (the green A, the red B...)\n"
+		"in the menus, the game's prompts and the text, instead of this\n"
+		"console's own. Changes at the next map (or the next start)." },
+#endif
 #ifdef HALO_SWITCH
 	{ "controls.nintendo_menu_buttons", _config_boolean, "true", "HALO_NINTENDO_MENU_BUTTONS", _environment_value,
 		_platform_all,
@@ -496,15 +509,6 @@ static const struct config_setting config_settings[] =
 		"and the right one goes back. A game's controls are the same either\n"
 		"way. The buttons change at once; the menus' button pictures at the\n"
 		"next map (or the next start)." },
-	{ "game.overlay_commands", _config_boolean, "true", "HALO_OVERLAY_COMMANDS", _environment_value, _platform_all,
-		"Take commands from /switch/.packages/halo/overlay/command.txt, once a\n"
-		"second: a console command (cheat_deathless_player true, map_name a10)\n"
-		"or config <setting> <value>, run and the file deleted; result.txt\n"
-		"beside it says what came of it, and the folder's flags has an empty\n"
-		"file for each true/false command that is on (cheat_infinite_ammo,\n"
-		"display.vsync). For an Ultrahand overlay to control the game, and\n"
-		"only with its package installed (that overlay folder there when the\n"
-		"game starts). Changes at once." },
 #endif
 	{ "game.console_log", _config_string, "\"important\"", "HALO_CONSOLE_LOG", _environment_value, _platform_all,
 		"What the game's console shows on screen of what it logs: \"important\"\n"
@@ -3166,22 +3170,9 @@ int config_write_boolean(const char *name, int value)
 	return index >= 0 && config_settings[index].type == _config_boolean && config_write(name, value ? "true" : "false");
 }
 
-/* the index'th setting, if it is a boolean this platform has: 1 with its name and value, 0 for one that is not, -1
-past the last (the Switch's overlay flags: port/linux/game/overlay_commands.c) */
-int config_boolean_setting(unsigned index, const char **name, int *value)
-{
-	if (index >= NUMBER_OF_CONFIG_SETTINGS)
-		return -1;
-	if (config_settings[index].type != _config_boolean || !(config_settings[index].platforms & CONFIG_PLATFORM))
-		return 0;
-	*name = config_settings[index].name;
-	*value = config_boolean(*name);
-	return 1;
-}
-
 /* sets a setting as config_write does, from its value as config.toml writes it ("true", "4096", "1.5", "\"900\"": a
-string in double quotes, or bare); 0, with why in error, for no such setting or a value not of its type (the overlay's
-commands: port/linux/game/overlay_commands.c) */
+string in double quotes, or bare); 0, with why in error, for no such setting or a value not of its type (the overlay
+menu's "config <setting> <value>": port/linux/game/overlay_menu.c) */
 int config_set_text(const char *name, const char *value, char *error, size_t error_size)
 {
 	long index = config_setting_index(name);

@@ -82,6 +82,16 @@ public final class TouchControls extends View implements SensorEventListener, In
     private static final long SHOW_DELAY_MS = 200;
     private static final long VIBRATION_MS = 110;
     private static final long VIBRATION_RENEW_MS = 70;
+    /**
+     * three fingers down together (the third within MENU_TAP_MS of the first)
+     * open the game's overlay menu (port/linux/game/overlay_menu.c): a press
+     * held this long in the buttons the game reads (port/linux/src/
+     * touch_input.c's TOUCH_OVERLAY_BUTTON_BIT: past SDL's 15)
+     */
+    private static final int MENU_BIT = 15;
+    private static final int MENU_FINGERS = 3;
+    private static final long MENU_TAP_MS = 250;
+    private static final long MENU_PRESS_MS = 150;
 
     /** the game's HALO_TOUCH_SCENE bits (port/linux/src/touch_input.c) */
     private static final int SCENE_KNOWN = 1;
@@ -184,6 +194,10 @@ public final class TouchControls extends View implements SensorEventListener, In
     /** each finger on a toolbar item: {x, y, item}; the item acts when it lifts there */
     private final SparseArray<float[]> toolbarFingers = new SparseArray<>();
     private final int[] axes = new int[6];
+    /** until when the three fingers' press is sent (0: it is not) */
+    private long menuPressedUntil;
+    /** the fingers that opened the overlay, ignored until all are lifted */
+    private boolean menuFingersDown;
     private int lookPointer = -1;
     private float lookX;
     private float lookY;
@@ -234,6 +248,11 @@ public final class TouchControls extends View implements SensorEventListener, In
             updateShowing();
             readBindings();
             updateRumble();
+            // (the three fingers' press let go of once it has been sent a while)
+            if (menuPressedUntil != 0 && SystemClock.uptimeMillis() >= menuPressedUntil) {
+                menuPressedUntil = 0;
+                publish();
+            }
             postDelayed(this, POLL_MS);
         }
     };
@@ -472,6 +491,8 @@ public final class TouchControls extends View implements SensorEventListener, In
             if (kind.trigger >= 0)
                 axes[kind.trigger] = 32767;
         }
+        if (menuPressedUntil != 0 && SystemClock.uptimeMillis() < menuPressedUntil)
+            bits |= 1 << MENU_BIT;
         nativeState(axes[0], axes[1], axes[2], axes[3], axes[4], axes[5], bits);
     }
 
@@ -585,7 +606,27 @@ public final class TouchControls extends View implements SensorEventListener, In
     private void gameTouch(MotionEvent event) {
         int index = event.getActionIndex();
         int id = event.getPointerId(index);
-        switch (event.getActionMasked()) {
+        int action = event.getActionMasked();
+        // three fingers down together open the overlay menu: the controls they
+        // held let go, and the fingers do nothing more until all are lifted
+        if (action == MotionEvent.ACTION_POINTER_DOWN && event.getPointerCount() == MENU_FINGERS
+                && event.getEventTime() - event.getDownTime() <= MENU_TAP_MS) {
+            reset();
+            menuFingersDown = true;
+            menuPressedUntil = SystemClock.uptimeMillis() + MENU_PRESS_MS;
+            publish();
+            return;
+        }
+        // (a first finger is a new touch: the three were lifted, perhaps while
+        // the overlay hid the controls and the fingers went to the game)
+        if (action == MotionEvent.ACTION_DOWN)
+            menuFingersDown = false;
+        if (menuFingersDown) {
+            if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL)
+                menuFingersDown = false;
+            return;
+        }
+        switch (action) {
             case MotionEvent.ACTION_DOWN:
             case MotionEvent.ACTION_POINTER_DOWN:
                 fingerDown(id, event.getX(index), event.getY(index));
