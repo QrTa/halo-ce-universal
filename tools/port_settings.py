@@ -1058,6 +1058,13 @@ OVERRIDE_ORIGINALS = {
 # CUSTOM MULTIPLAYER maps (_map_kind)
 MAP_KIND_CHOOSER = "main_menu/new_select/list_item_0_map_kind"
 
+# the main menu's news: the latest release's notes (tools/embed_assets.py's
+# news_text) in a window the main menu's X opens (WIDGET_PATCHES), its lines
+# filled and scrolled by menu_functions.c's news screen ("port news ...")
+NEWS = "main_menu/news"
+NEWS_ROWS = 17
+
+
 # changes to the PC version's widgets (by our names): attributes set, all
 # their handlers replaced, children added, game data inputs added
 WIDGET_PATCHES = {
@@ -1068,7 +1075,11 @@ WIDGET_PATCHES = {
     }},
     # (the main menu's MODS, before Quit: _mods)
     "main_menu/main_menu_select_list": {"insert_before": {"main_menu/main_menu_item_quit_game": [
-        f'<child widget="main_menu/main_menu_item_mods" x="{MODS_ITEM_PLACE[0]}" y="{MODS_ITEM_PLACE[1]}"/>']}},
+        f'<child widget="main_menu/main_menu_item_mods" x="{MODS_ITEM_PLACE[0]}" y="{MODS_ITEM_PLACE[1]}"/>']},
+        # (the main menu's X - the west face button: Y on a Switch, Square on
+        # a PS5 - opens the news, the latest release's notes: _news_screen;
+        # on the main menu alone)
+        "handlers": ['<on event="down"/>', f'<on event="x" open="{NEWS}/news_screen"/>']},
     f"{PLAYER_EDIT}/player_options_menu": {"insert_before": {
         f"{PLAYER_EDIT}/player_button_bar": [
             f'<child widget="{PLAYER_EDIT}/op_aim_assist" x="54" y="289"/>',
@@ -2092,6 +2103,36 @@ def _map_kind() -> list:
     return lines
 
 
+def _news_screen() -> list:
+    """the news window: its title, NEWS_ROWS lines of the notes (their texts
+    menu_functions.c's alone, which makes them as long as it needs) (each its
+    line of the wrapped text from the top line shown), and how to scroll and
+    leave; up and down (the D-pad, the sticks, the mouse wheel) scroll a
+    line, left and right a page, B, Back or X again close it"""
+    base = NEWS
+    close = ['<on event="b" run="port news close"/>', '<on event="back" run="port news close"/>',
+             '<on event="x" run="port news close"/>']
+    scroll = [f'<on event="{event}" run="port news up"/>' for event in ("up", "stick_up", "right_stick_up")]
+    scroll += [f'<on event="{event}" run="port news down"/>' for event in ("down", "stick_down", "right_stick_down")]
+    scroll += ['<on event="left" run="port news page up"/>', '<on event="right" run="port news page down"/>']
+    lines = _widget(f"{base}/news_screen", [("width", 640), ("height", 480), ("bitmap", "bitmaps/gradient")],
+                    ['<data input="port news update"/>', '<on event="created" run="port news init"/>', *close,
+                     *scroll, f'<child widget="{base}/news_title"/>',
+                     *[f'<child widget="{base}/news_line" x="40" y="{64 + 18 * row}"/>' for row in range(NEWS_ROWS)],
+                     f'<child widget="{base}/news_footer"/>'])
+    lines += _widget(f"{base}/news_title", [("type", "text"), ("controller", 1), ("left", 35), ("top", 24),
+                                           ("width", 570), ("height", 30),
+                                           ("font", "ui\\large_ui"), ("color", "#FF2896FF")], [])
+    lines += _widget(f"{base}/news_line", [("type", "text"), ("controller", 1), ("width", 560), ("height", 18),
+                                          ("font", "ui\\small_ui"), ("color", "#FFFFFFFF"),
+                                          ("text_flags", "no_focus_test")], [])
+    lines += _widget(f"{base}/news_footer", [("type", "text"), ("controller", 1), ("left", 40), ("top", 410),
+                                            ("width", 560), ("height", 18), ("font", "ui\\small_ui"),
+                                            ("color", "#FF2896FF"), ("align", "center"),
+                                            ("text_flags", "no_focus_test")], [])
+    return lines
+
+
 def _invite_qr_screen() -> list:
     """(the Switch's) Server Setup's invite link as a QR code, for a phone
     to read: its own screen, opened by the invite row's A (menu_functions.c's
@@ -2126,6 +2167,8 @@ def multiplayer_files() -> dict:
         f"{MT}/lobby".replace("/", ".") + ".xml": head + _lobby() + ["</menus>", ""],
         f"{MT}/coop".replace("/", ".") + ".xml": head + _coop() + ["</menus>", ""],
         "main_menu/new_select".replace("/", ".") + ".port.xml": head + _map_kind() + ["</menus>", ""],
+        # (and the main menu's news)
+        NEWS.replace("/", ".") + ".xml": head + _news_screen() + ["</menus>", ""],
         "main_menu/settings_select/multiplayer_setup/item_options_edit".replace("/", ".") + ".port.xml": head + _item_options_extras() + ["</menus>", ""],
         PLAYER_EDIT.replace("/", ".") + ".port.xml": head + _player_options_extras() + ["</menus>", ""],
         TEAMPLAY_EDIT.replace("/", ".") + ".port.xml": head + _teamplay_options_extras() + ["</menus>", ""],

@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- The port's multiplayer screens, in the PC version's style (tools/port_settings.py) -->
+<menus>
+	<widget name="main_menu/news/news_screen" width="640" height="480" bitmap="bitmaps/gradient">
+		<data input="port news update"/>
+		<on event="created" run="port news init"/>
+		<on event="b" run="port news close"/>
+		<on event="back" run="port news close"/>
+		<on event="x" run="port news close"/>
+		<on event="up" run="port news up"/>
+		<on event="stick_up" run="port news up"/>
+		<on event="right_stick_up" run="port news up"/>
+		<on event="down" run="port news down"/>
+		<on event="stick_down" run="port news down"/>
+		<on event="right_stick_down" run="port news down"/>
+		<on event="left" run="port news page up"/>
+		<on event="right" run="port news page down"/>
+		<child widget="main_menu/news/news_title"/>
+		<child widget="main_menu/news/news_line" x="40" y="64"/>
+		<child widget="main_menu/news/news_line" x="40" y="82"/>
+		<child widget="main_menu/news/news_line" x="40" y="100"/>
+		<child widget="main_menu/news/news_line" x="40" y="118"/>
+		<child widget="main_menu/news/news_line" x="40" y="136"/>
+		<child widget="main_menu/news/news_line" x="40" y="154"/>
+		<child widget="main_menu/news/news_line" x="40" y="172"/>
+		<child widget="main_menu/news/news_line" x="40" y="190"/>
+		<child widget="main_menu/news/news_line" x="40" y="208"/>
+		<child widget="main_menu/news/news_line" x="40" y="226"/>
+		<child widget="main_menu/news/news_line" x="40" y="244"/>
+		<child widget="main_menu/news/news_line" x="40" y="262"/>
+		<child widget="main_menu/news/news_line" x="40" y="280"/>
+		<child widget="main_menu/news/news_line" x="40" y="298"/>
+		<child widget="main_menu/news/news_line" x="40" y="316"/>
+		<child widget="main_menu/news/news_line" x="40" y="334"/>
+		<child widget="main_menu/news/news_line" x="40" y="352"/>
+		<child widget="main_menu/news/news_footer"/>
+	</widget>
+	<widget name="main_menu/news/news_title" type="text" controller="1" left="35" top="24" width="570" height="30" font="ui\large_ui" color="#FF2896FF">
+	</widget>
+	<widget name="main_menu/news/news_line" type="text" controller="1" width="560" height="18" font="ui\small_ui" color="#FFFFFFFF" text_flags="no_focus_test">
+	</widget>
+	<widget name="main_menu/news/news_footer" type="text" controller="1" left="40" top="410" width="560" height="18" font="ui\small_ui" color="#FF2896FF" align="center" text_flags="no_focus_test">
+	</widget>
+</menus>

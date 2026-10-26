@@ -29,7 +29,9 @@ operands (it keeps .ascii strings as they are, but once garbled them).
 """
 
 import json
+import re
 import struct
+import subprocess
 import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -147,6 +149,53 @@ def hud_configure_inputs() -> List[Path]:
     return inputs
 
 
+# the release notes are a Build N commit's message (its subject "Build N")
+NEWS_SUBJECT = re.compile(r"^Build \d+$")
+# what is typed in commit messages that the game's fonts have not, and what
+# is drawn instead
+NEWS_ASCII = {"\u2018": "'", "\u2019": "'", "\u201c": '"', "\u201d": '"', "\u2013": "-", "\u2014": "-",
+              "\u2026": "...", "\u00a0": " ", "\u2192": "->", "\u00b7": "-"}
+
+
+def _git(*arguments: str) -> str:
+    try:
+        return subprocess.run(["git", *arguments], cwd=ROOT, capture_output=True, text=True, timeout=30,
+                              check=False).stdout
+    except (OSError, subprocess.SubprocessError):
+        return ""
+
+
+def news_text() -> str:
+    """The main menu's news (menu_functions.c's news screen): the latest
+    release's notes, the message of the newest Build N commit the checkout
+    has (a release's build is of that commit; a shallow clone of another has
+    only its own commit, whose message is taken then), its trailers
+    (Co-Authored-By...) left out, in ASCII; "" outside a git checkout"""
+    message = ""
+    for line in _git("log", "-200", "--format=%H %s").splitlines():
+        commit, _, subject = line.partition(" ")
+        if NEWS_SUBJECT.match(subject.strip()):
+            message = _git("log", "-1", "--format=%B", commit)
+            break
+    if not message:
+        message = _git("log", "-1", "--format=%B")
+    lines = message.replace("\r", "").split("\n")
+    while lines and (not lines[-1].strip() or re.match(r"^[A-Za-z-]+: .+$", lines[-1].strip())):
+        lines.pop()
+    text = "\n".join(lines).strip()
+    for typed, drawn in NEWS_ASCII.items():
+        text = text.replace(typed, drawn)
+    return "".join(character if " " <= character < "\x7f" or character == "\n" else "?" for character in text)
+
+
+def news_inputs() -> List[Path]:
+    """What the news is made again for: the checkout's commits (its HEAD's
+    log), when there is one"""
+    git_directory = _git("rev-parse", "--absolute-git-dir").strip()
+    log = Path(git_directory) / "logs" / "HEAD" if git_directory else None
+    return [log] if log and log.is_file() else []
+
+
 def words(data: bytes) -> List[str]:
     """data as lines of 32-bit words (padded with zeros)."""
     padded = data + b"\0" * (-len(data) % 4)
@@ -166,7 +215,8 @@ def hud_assets_build(n: Any, prefix: str, output: Path) -> List[Path]:
         command="$python tools/embed_assets.py " + (f"--platform {platform} " if platform else "") + "$out",
         description=f"{prefix.upper()} EMBED $out",
     )
-    n.build(outputs=output, rule=f"{prefix}_embed_assets", implicit=[Path("tools/embed_assets.py"), *inputs])
+    n.build(outputs=output, rule=f"{prefix}_embed_assets",
+            implicit=[Path("tools/embed_assets.py"), *inputs, *news_inputs()])
     return [output]
 
 
@@ -299,6 +349,15 @@ def main() -> None:
         lines.append("\t{ 0 },")
     lines.append("};")
     lines.append(f"const unsigned int menu_files_embedded_count = {len(menus)};")
+    lines.append("")
+    # the main menu's news (news_text.h): the latest release's notes, ASCII
+    # ending in a NUL
+    data = news_text().encode("ascii") + b"\0"
+    lines.append("")
+    lines.append("const unsigned int halo_news_words[] = {")
+    lines.extend(words(data))
+    lines.append("};")
+    lines.append(f"const unsigned int halo_news_size = {len(data) - 1};")
     lines.append("")
     # SMAA's shader, as text a GLSL compiler takes (ASCII, ending in a NUL),
     # and its lookup textures (xgpu_post.c); each of size 0 that the

@@ -56,6 +56,7 @@
 	<widget name="main_menu/main_menu_select_list" type="column_list" width="640" height="480" flags="pass_unhandled_to_focused_child up_down_tabs_items" description="main_menu/main_menu_list_ext_desc">
 		<data input="main menu fake animate"/>
 		<on event="down"/>
+		<on event="x" open="main_menu/news/news_screen"/>
 		<child widget="main_menu/main_menu_item_load_camp" x="194" y="247"/>
 		<child widget="main_menu/main_menu_item_multiplayer" x="192" y="283"/>
 		<child widget="main_menu/main_menu_item_profile" x="192" y="319"/>
