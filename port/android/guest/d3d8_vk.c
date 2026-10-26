@@ -1121,6 +1121,13 @@ void xgpu_gl_state_invalidate(void)
 {
 }
 
+/* (the dedicated server's question, whose renderer may be none: this one is
+always up, and those callers' GL does nothing here, as before they asked) */
+int xgpu_gl_ready(void)
+{
+	return 1;
+}
+
 /* ---------- debug.vk_self_test: the data a draw reads is copied at the draw (phase 3)
 
 A buffer of three vertices in the game's memory, a red triangle that covers the target,

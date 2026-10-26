@@ -898,12 +898,18 @@ def generate_android_build(n: Writer, sln: Any) -> None:
         host_objects.append(obj)
     # internet play's DTLS with browsers (posix_dtls.c, with
     # port/third_party/mbedtls), as the other posix_*.c in the host
-    mbedtls_cflags = " ".join([host_cflags, f"-I{MBEDTLS_DIR / 'include'}", f"-I{MBEDTLS_DIR / 'library'}"])
-    for source in [LINUX_DIR / "src" / "posix_dtls.c", *sorted((MBEDTLS_DIR / "library").glob("*.c"))]:
+    # (with its locks: internet play's thread and the server browser's master
+    # servers' both use it, as on Linux)
+    mbedtls_cflags = " ".join([host_cflags, f"-I{MBEDTLS_DIR / 'include'}", f"-I{MBEDTLS_DIR / 'library'}",
+                               "-DMBEDTLS_THREADING_C", "-DMBEDTLS_THREADING_PTHREAD"])
+    # (and the server browser's requests to the master servers: posix_update.c's,
+    # host_https.c)
+    for source in [LINUX_DIR / "src" / "posix_dtls.c", LINUX_DIR / "src" / "posix_update.c",
+                   *sorted((MBEDTLS_DIR / "library").glob("*.c"))]:
         obj = host_obj_dir / ("mbedtls_" + source.name + ".o" if source.parent.parent == MBEDTLS_DIR
                               else source.name + ".o")
         n.build(outputs=obj, rule="android_host_cc", inputs=source,
-                variables={"cflags": mbedtls_cflags + (" -w" if source.name != "posix_dtls.c" else "")})
+                variables={"cflags": mbedtls_cflags + (" -w" if source.parent.parent == MBEDTLS_DIR else "")})
         host_objects.append(obj)
     # the port's zlib, its names z_ (zlib_prefixed.h), for the Vulkan renderer's high-res HUD sheets the host decodes
     # (host_vk_hud.c), as the guest has its own
