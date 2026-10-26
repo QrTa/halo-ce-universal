@@ -1084,8 +1084,10 @@ WIDGET_PATCHES = {
         # a PS5 - opens the news, the latest release's notes: _news_screen;
         # on the main menu alone)
         "handlers": ['<on event="down"/>', f'<on event="x" open="{NEWS}/news_screen"/>']},
-    # (and the hint that X opens it, over the build number)
+    # (and the hint that X opens it, over the build number: a tap or a click
+    # on it presses X, its picture a key's icon to the pointer, x_butn_news)
     "main_menu/main_menu": {"insert_before": {"main_menu/build_number": [
+        f'<child widget="{NEWS}/x_butn_news" x="450" y="380"/>',
         f'<child widget="{NEWS}/news_hint" x="450" y="380"/>']}},
     f"{PLAYER_EDIT}/player_options_menu": {"insert_before": {
         f"{PLAYER_EDIT}/player_button_bar": [
@@ -2144,6 +2146,8 @@ def _news_screen() -> list:
                      f'<child widget="{base}/news_scroll_up" x="{left + 164}" y="{top + 253 + 7}"/>',
                      f'<child widget="{base}/news_scroll_down" x="{left + 182}" y="{top + 253 + 7}"/>',
                      f'<child widget="{base}/news_scroll_text" x="{left + 204}" y="{top + 253}"/>',
+                     # (Back's tap and click: B's, as the hint's is X's)
+                     f'<child widget="{base}/b_butn_news_back" x="{left + 274}" y="{top + 253}"/>',
                      f'<child widget="{base}/news_back_text" x="{left + 274}" y="{top + 253}"/>'])
     lines += _widget(f"{base}/news_panel", [("width", 640), ("height", 480), ("bitmap", "bitmaps/controller_border")],
                      [])
@@ -2159,6 +2163,11 @@ def _news_screen() -> list:
         lines += _widget(f"{base}/news_{name}_text", [("type", "text"), ("controller", 1), ("width", width),
                                                       ("height", 20), ("text", text), ("font", "ui\\small_ui"),
                                                       ("color", "#FFFFFFFF"), ("text_flags", "no_focus_test")], [])
+    # (the hint's tap and click: a widget named as a screen key's icon is X's
+    # to the pointer, and the text beside it its label, ui_widget.c's
+    # ui_mouse_key_button; nothing of it drawn, the hint's own picture is)
+    lines += _widget(f"{base}/x_butn_news", [("width", 16), ("height", 20)], [])
+    lines += _widget(f"{base}/b_butn_news_back", [("width", 16), ("height", 20)], [])
     lines += _widget(f"{base}/news_hint", [("type", "text"), ("controller", 1), ("width", 150), ("height", 20),
                                           ("text", "%x-button NEWS"), ("font", "ui\\small_ui"),
                                           ("color", "#FFCCCCCC"), ("text_flags", "no_focus_test")], [])

@@ -19,6 +19,7 @@
 		<on event="b" open="main_menu/quit_select/quit_screen" platform="desktop android web"/>
 		<child widget="main_menu/halo_logo" y="28"/>
 		<child widget="main_menu/main_menu_select_list"/>
+		<child widget="main_menu/news/x_butn_news" x="450" y="380"/>
 		<child widget="main_menu/news/news_hint" x="450" y="380"/>
 		<child widget="main_menu/build_number" x="450" y="400"/>
 		<child widget="main_menu/renderer" x="450" y="420"/>

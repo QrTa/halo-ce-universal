@@ -32,6 +32,7 @@
 		<child widget="main_menu/news/news_scroll_up" x="230" y="378"/>
 		<child widget="main_menu/news/news_scroll_down" x="248" y="378"/>
 		<child widget="main_menu/news/news_scroll_text" x="270" y="371"/>
+		<child widget="main_menu/news/b_butn_news_back" x="340" y="371"/>
 		<child widget="main_menu/news/news_back_text" x="340" y="371"/>
 	</widget>
 	<widget name="main_menu/news/news_panel" width="640" height="480" bitmap="bitmaps/controller_border">
@@ -47,6 +48,10 @@
 	<widget name="main_menu/news/news_scroll_text" type="text" controller="1" width="64" height="20" text="Scroll" font="ui\small_ui" color="#FFFFFFFF" text_flags="no_focus_test">
 	</widget>
 	<widget name="main_menu/news/news_back_text" type="text" controller="1" width="120" height="20" text="%b-button Back" font="ui\small_ui" color="#FFFFFFFF" text_flags="no_focus_test">
+	</widget>
+	<widget name="main_menu/news/x_butn_news" width="16" height="20">
+	</widget>
+	<widget name="main_menu/news/b_butn_news_back" width="16" height="20">
 	</widget>
 	<widget name="main_menu/news/news_hint" type="text" controller="1" width="150" height="20" text="%x-button NEWS" font="ui\small_ui" color="#FFCCCCCC" text_flags="no_focus_test">
 	</widget>
