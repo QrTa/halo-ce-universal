@@ -64,6 +64,7 @@ replay's, returns to the main menu a few seconds later.
 #include "zlib.h" /* source/memory/zlib */
 
 FILE *platform_fopen_host(char const *path, char const *mode);
+int config_boolean(char const *name);
 void network_distributed_handle_message(long machine_index, word const *message, word size);
 void network_connection_port_set_last_read_unreliable(boolean unreliable);
 boolean network_game_client_port_replay_begin(struct network_game const *game);
@@ -753,6 +754,49 @@ struct observer_result const *network_replay_camera(
 	return playback.playing && playback.camera_valid ? &playback.camera : NULL;
 }
 
+/* a button's name as the controller in hand has it printed: the Switch's
+(its A and B the engine's swapped, as in its menus: xinput_sdl.c's
+menu_buttons_swapped, which a playback is one of; its X and Y where the
+Xbox's Y and X are), the PS5's (or the Xbox's, display.xbox_buttons), else
+the Xbox's */
+static wchar_t const *playback_button_name(
+	short button)
+{
+#if defined(HALO_SWITCH)
+	boolean swapped = config_boolean("controls.nintendo_menu_buttons") != 0;
+
+	switch (button)
+	{
+	case FIRST_GAMEPAD_ANALOG_BUTTON + _gamepad_analog_button_a: return swapped ? L"A" : L"B";
+	case FIRST_GAMEPAD_ANALOG_BUTTON + _gamepad_analog_button_b: return swapped ? L"B" : L"A";
+	case FIRST_GAMEPAD_ANALOG_BUTTON + _gamepad_analog_button_x: return L"Y";
+	case FIRST_GAMEPAD_ANALOG_BUTTON + _gamepad_analog_button_y: return L"X";
+	case _gamepad_binary_button_back: return L"-";
+	}
+#elif defined(HALO_PS5)
+	if (!config_boolean("display.xbox_buttons"))
+	{
+		switch (button)
+		{
+		case FIRST_GAMEPAD_ANALOG_BUTTON + _gamepad_analog_button_a: return L"CROSS";
+		case FIRST_GAMEPAD_ANALOG_BUTTON + _gamepad_analog_button_b: return L"CIRCLE";
+		case FIRST_GAMEPAD_ANALOG_BUTTON + _gamepad_analog_button_x: return L"SQUARE";
+		case FIRST_GAMEPAD_ANALOG_BUTTON + _gamepad_analog_button_y: return L"TRIANGLE";
+		case _gamepad_binary_button_back: return L"CREATE";
+		}
+	}
+#endif
+	switch (button)
+	{
+	case FIRST_GAMEPAD_ANALOG_BUTTON + _gamepad_analog_button_a: return L"A";
+	case FIRST_GAMEPAD_ANALOG_BUTTON + _gamepad_analog_button_b: return L"B";
+	case FIRST_GAMEPAD_ANALOG_BUTTON + _gamepad_analog_button_x: return L"X";
+	case FIRST_GAMEPAD_ANALOG_BUTTON + _gamepad_analog_button_y: return L"Y";
+	case _gamepad_binary_button_back: return L"BACK";
+	}
+	return L"?";
+}
+
 /* the line at the bottom: who is watched, the view, the speed and the
 buttons; and with Back held, the scores */
 void network_replay_playback_draw(
@@ -793,8 +837,13 @@ void network_replay_playback_draw(
 	else
 	{
 		usnprintf(text, NUMBEROF(text) - 1,
-			L"%.12s   %s   %s\r\nA/X: PLAYER   Y: VIEW   UP/DOWN: SPEED   BACK: SCORES   B: LEAVE",
-			playback.view == _replay_view_free || !player ? L"REPLAY" : player->name, view_names[playback.view], speed);
+			L"%.12s   %s   %s\r\n%s/%s: PLAYER   %s: VIEW   UP/DOWN: SPEED   %s: SCORES   %s: LEAVE",
+			playback.view == _replay_view_free || !player ? L"REPLAY" : player->name, view_names[playback.view], speed,
+			playback_button_name(FIRST_GAMEPAD_ANALOG_BUTTON + _gamepad_analog_button_a),
+			playback_button_name(FIRST_GAMEPAD_ANALOG_BUTTON + _gamepad_analog_button_x),
+			playback_button_name(FIRST_GAMEPAD_ANALOG_BUTTON + _gamepad_analog_button_y),
+			playback_button_name(_gamepad_binary_button_back),
+			playback_button_name(FIRST_GAMEPAD_ANALOG_BUTTON + _gamepad_analog_button_b));
 	}
 	text[NUMBEROF(text) - 1] = 0;
 	font = font_definition_get(font_index);
