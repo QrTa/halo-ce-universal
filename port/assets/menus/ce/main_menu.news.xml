@@ -13,10 +13,14 @@
 		<on event="down" run="port news down"/>
 		<on event="stick_down" run="port news down"/>
 		<on event="right_stick_down" run="port news down"/>
-		<on event="left" run="port news page up"/>
-		<on event="right" run="port news page down"/>
+		<on event="left" run="port news newer"/>
+		<on event="right" run="port news older"/>
 		<child widget="main_menu/news/news_panel" x="17" y="14"/>
-		<child widget="main_menu/news/news_title" x="66" y="84"/>
+		<child widget="main_menu/news/news_title" x="66" y="50"/>
+		<child widget="main_menu/news/news_title_small" x="66" y="56"/>
+		<child widget="main_menu/news/news_title_2" x="66" y="76"/>
+		<child widget="main_menu/news/news_title_2_small" x="66" y="82"/>
+		<child widget="main_menu/news/news_subtitle" x="66" y="102"/>
 		<child widget="main_menu/news/news_line" x="82" y="130"/>
 		<child widget="main_menu/news/news_line" x="82" y="148"/>
 		<child widget="main_menu/news/news_line" x="82" y="166"/>
@@ -29,21 +33,41 @@
 		<child widget="main_menu/news/news_line" x="82" y="292"/>
 		<child widget="main_menu/news/news_line" x="82" y="310"/>
 		<child widget="main_menu/news/news_line" x="82" y="328"/>
-		<child widget="main_menu/news/dpad_up_butn_news" x="230" y="378"/>
-		<child widget="main_menu/news/news_scroll_text" x="264" y="371"/>
-		<child widget="main_menu/news/dpad_down_butn_news" x="320" y="378"/>
-		<child widget="main_menu/news/b_butn_news_back" x="366" y="371"/>
-		<child widget="main_menu/news/news_back_text" x="366" y="371"/>
+		<child widget="main_menu/news/news_build" x="66" y="371"/>
+		<child widget="main_menu/news/dpad_left_butn_news" x="82" y="400"/>
+		<child widget="main_menu/news/news_page_text" x="106" y="393"/>
+		<child widget="main_menu/news/dpad_right_butn_news" x="178" y="400"/>
+		<child widget="main_menu/news/dpad_up_butn_news" x="230" y="400"/>
+		<child widget="main_menu/news/news_scroll_text" x="264" y="393"/>
+		<child widget="main_menu/news/dpad_down_butn_news" x="320" y="400"/>
+		<child widget="main_menu/news/b_butn_news_back" x="366" y="393"/>
+		<child widget="main_menu/news/news_back_text" x="366" y="393"/>
 	</widget>
 	<widget name="main_menu/news/news_panel" width="640" height="480" bitmap="bitmaps/controller_border">
 	</widget>
-	<widget name="main_menu/news/news_title" type="text" controller="1" width="507" height="30" font="ui\large_ui" color="#FF2896FF">
+	<widget name="main_menu/news/news_title" type="text" controller="1" width="507" height="30" font="ui\large_ui" color="#FF2896FF" align="center" text_flags="no_focus_test">
+	</widget>
+	<widget name="main_menu/news/news_title_small" type="text" controller="1" width="507" height="20" font="ui\small_ui" color="#FF2896FF" align="center" text_flags="no_focus_test">
+	</widget>
+	<widget name="main_menu/news/news_title_2" type="text" controller="1" width="507" height="30" font="ui\large_ui" color="#FF2896FF" align="center" text_flags="no_focus_test">
+	</widget>
+	<widget name="main_menu/news/news_title_2_small" type="text" controller="1" width="507" height="20" font="ui\small_ui" color="#FF2896FF" align="center" text_flags="no_focus_test">
+	</widget>
+	<widget name="main_menu/news/news_subtitle" type="text" controller="1" width="507" height="18" font="ui\small_ui" color="#FFCCCCCC" align="center" text_flags="no_focus_test">
+	</widget>
+	<widget name="main_menu/news/news_build" type="text" controller="1" width="507" height="18" font="ui\small_ui" color="#FFCCCCCC" align="center" text_flags="no_focus_test">
 	</widget>
 	<widget name="main_menu/news/news_line" type="text" controller="1" width="475" height="18" font="ui\small_ui" color="#FFFFFFFF" text_flags="no_focus_test">
 	</widget>
 	<widget name="main_menu/news/dpad_up_butn_news" width="16" height="16" bitmap="bitmaps/arrow_sm_up">
 	</widget>
 	<widget name="main_menu/news/dpad_down_butn_news" width="16" height="16" bitmap="bitmaps/arrow_sm_down">
+	</widget>
+	<widget name="main_menu/news/dpad_left_butn_news" width="16" height="16" bitmap="bitmaps/arrow_sm_left">
+	</widget>
+	<widget name="main_menu/news/dpad_right_butn_news" width="16" height="16" bitmap="bitmaps/arrow_sm_right">
+	</widget>
+	<widget name="main_menu/news/news_page_text" type="text" controller="1" width="64" height="20" font="ui\small_ui" color="#FFFFFFFF" align="center" text_flags="no_focus_test">
 	</widget>
 	<widget name="main_menu/news/news_scroll_text" type="text" controller="1" width="48" height="20" text="Scroll" font="ui\small_ui" color="#FFFFFFFF" text_flags="no_focus_test">
 	</widget>

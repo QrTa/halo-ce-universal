@@ -47,6 +47,13 @@ told apart by; NULL for the install's). A ticket (1 or more), or 0 when
 offline, with no server's address, or when too many are being asked already */
 int community_net_send(const char *path, const char *body, const char *player);
 
+/* a GET of url, a whole https:// address of another server (the main
+menu's news: GitHub's releases), with headers ("Name: value\r\n" lines, NULL
+for none) and none of the community server's: whether community.enabled is on
+or not. Its answer is kept up to answer_maximum bytes (NUL included), and
+picked up with community_net_poll as any other's. A ticket, or 0 */
+int community_net_get(const char *url, const char *headers, int answer_maximum);
+
 /* the ticket's answer: _community_net_waiting; _community_net_answered, with
 its HTTP status and up to size - 1 bytes of its body in answer; or
 _community_net_failed (no answer came: the server is down, or this machine is

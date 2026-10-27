@@ -45,6 +45,7 @@ nothing here waits on the network. The answers are JSON ({"data": ...} or
 #include "../src/community_net.h"
 #include "../src/port_config.h"
 
+#include <ctype.h>
 #include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -1982,10 +1983,396 @@ static void submit_poll(void)
 
 /* ---------- each frame */
 
+/* ---------- the main menu's news (menu_functions.c): this fork's releases
+on GitHub (the repository its updaters ask, port/linux/src/updater.c's
+UPDATE_REPOSITORY), asked for once the main menu first shows and again,
+at most once a minute, while no answer came; their notes' Markdown made the
+menus' plain text. Nothing is shown of them until they came */
+
+#define NEWS_URL "https://api.github.com/repos/Watanoge/open-ce-ultimate-campaign/releases?per_page=30"
+#define NEWS_HEADERS "Accept: application/vnd.github+json\r\n"
+/* (each release's assets are most of an answer: some 15 KB a release) */
+#define NEWS_ANSWER_MAXIMUM (1024 * 1024)
+#define NEWS_MAXIMUM_RELEASES 30
+#define NEWS_RETRY_MILLISECONDS 60000UL
+
+/* (tools/embed_assets.py's) */
+extern const int halo_build_number;
+
+struct community_news_release
+{
+	char name[96];
+	char tag[48];
+	char date[11];
+	long build;
+	/* the notes as the menus' text, NULL for none */
+	char *text;
+};
+
+static struct
+{
+	int ticket;
+	/* the answer's room, while it is waited on */
+	char *answer;
+	boolean asked;
+	unsigned long asked_at;
+	short count;
+	long latest_build;
+	struct community_news_release releases[NEWS_MAXIMUM_RELEASES];
+} community_news = { 0, NULL, FALSE, 0, 0, NONE };
+
+/* what the menus' fonts have not of a UTF-8 character at text (its length in
+*length), as ASCII: NULL for none, dropped */
+static char const *news_ascii(unsigned char const *text, long *length)
+{
+	static struct
+	{
+		unsigned long character;
+		char const *ascii;
+	} const characters[] =
+	{
+		{ 0x2018, "'" }, { 0x2019, "'" }, { 0x201C, "\"" }, { 0x201D, "\"" }, { 0x2013, "-" }, { 0x2014, "-" },
+		{ 0x2026, "..." }, { 0x00A0, " " }, { 0x2192, "->" }, { 0x00B7, "-" }, { 0x2022, "-" }, { 0x00D7, "x" },
+	};
+	unsigned long character = text[0];
+	short index;
+
+	*length = 1;
+	/* (past the basic plane, emoji: none) */
+	if (character >= 0xF0)
+	{
+		while ((text[*length] & 0xC0) == 0x80)
+			(*length)++;
+		return NULL;
+	}
+	if (character >= 0xE0 && (text[1] & 0xC0) == 0x80 && (text[2] & 0xC0) == 0x80)
+	{
+		character = ((character & 0x0F) << 12) | ((text[1] & 0x3F) << 6) | (text[2] & 0x3F);
+		*length = 3;
+	}
+	else if (character >= 0xC0 && (text[1] & 0xC0) == 0x80)
+	{
+		character = ((character & 0x1F) << 6) | (text[1] & 0x3F);
+		*length = 2;
+	}
+	else
+	{
+		while (character >= 0xC0 && (text[*length] & 0xC0) == 0x80)
+			(*length)++;
+		return NULL;
+	}
+	/* (an escaped emoji's halves, json_text's) */
+	if (character >= 0xD800 && character < 0xE000)
+		return NULL;
+	for (index = 0; index < NUMBEROF(characters); index++)
+	{
+		if (characters[index].character == character)
+			return characters[index].ascii;
+	}
+	return "?";
+}
+
+/* where an HTML tag at text ends (past its '>', whose attributes' quotes
+may hold others: <img alt="a > b">), NULL for none */
+static char const *news_tag_end(char const *text, char const *end)
+{
+	char quote = 0;
+
+	for (text++; text < end; text++)
+	{
+		if (quote)
+			quote = *text == quote ? 0 : quote;
+		else if (*text == '"' || *text == '\'')
+			quote = *text;
+		else if (*text == '>')
+			return text + 1;
+	}
+	return NULL;
+}
+
+/* a line's text from Markdown's inline marks: **bold** and `code` as their
+text, [a link](address) as its words, ~~struck out~~ text, ![an image]
+(address) and HTML tags (<br>, <img ...>) not at all, <address> as the
+address; written at out, its end returned */
+static char *news_inline(char const *text, char const *end, char *out)
+{
+	while (text < end)
+	{
+		char const *close;
+
+		if (text[0] == '~' && text + 1 < end && text[1] == '~')
+		{
+			for (close = text + 2; close + 1 < end && (close[0] != '~' || close[1] != '~'); close++)
+				;
+			text = close + 1 < end ? close + 2 : end;
+			continue;
+		}
+		if ((text[0] == '*' && text + 1 < end && text[1] == '*') || (text[0] == '_' && text + 1 < end && text[1] == '_'))
+		{
+			text += 2;
+			continue;
+		}
+		if (text[0] == '`' || (text[0] == '*' && (text + 1 >= end || text[1] != ' ')))
+		{
+			text++;
+			continue;
+		}
+		if ((text[0] == '[' || (text[0] == '!' && text + 1 < end && text[1] == '[')) &&
+			(close = memchr(text, ']', (size_t)(end - text))) != NULL && close + 1 < end && close[1] == '(')
+		{
+			char const *address_end = memchr(close, ')', (size_t)(end - close));
+
+			if (address_end)
+			{
+				if (text[0] == '[')
+					out = news_inline(text + 1, close, out);
+				text = address_end + 1;
+				continue;
+			}
+		}
+		if (text[0] == '<' && !strncmp(text + 1, "http", 4) && (close = memchr(text, '>', (size_t)(end - text))) != NULL)
+		{
+			memcpy(out, text + 1, (size_t)(close - text - 1));
+			out += close - text - 1;
+			text = close + 1;
+			continue;
+		}
+		if (text[0] == '<' && text + 1 < end && (isalpha((unsigned char)text[1]) || text[1] == '/') &&
+			(close = news_tag_end(text, end)) != NULL)
+		{
+			text = close;
+			continue;
+		}
+		if ((unsigned char)text[0] >= 0x80)
+		{
+			long length;
+			char const *ascii = news_ascii((unsigned char const *)text, &length);
+
+			if (ascii)
+			{
+				strcpy(out, ascii);
+				out += strlen(ascii);
+			}
+			text += MIN(length, (long)(end - text));
+			continue;
+		}
+		*out++ = *text++;
+	}
+	return out;
+}
+
+/* the notes (Markdown, UTF-8) as the menus' text, at text (as long as the
+notes at most: nothing grows): headings as their words, any list's items
+"- ...", quotes and code as their text, rules and fences not at all, blank
+lines one at most; lines ended by "\n" */
+static void news_plain(char const *markdown, char *text)
+{
+	char *out = text;
+	boolean blank = TRUE;
+
+	while (*markdown)
+	{
+		char const *line = markdown;
+		char const *end = strchr(markdown, '\n');
+		char *line_out;
+
+		if (!end)
+			end = markdown + strlen(markdown);
+		markdown = *end ? end + 1 : end;
+		while (end > line && (end[-1] == '\r' || end[-1] == ' '))
+			end--;
+		while (line < end && (*line == ' ' || *line == '\t'))
+			line++;
+		if (line == end)
+		{
+			if (!blank)
+				*out++ = '\n';
+			blank = TRUE;
+			continue;
+		}
+		/* (fences, and rules: ---, ***, ___) */
+		if (!strncmp(line, "```", 3) || (end - line >= 3 && strspn(line, "-*_ ") == (size_t)(end - line)))
+			continue;
+		while (line < end && (*line == '#' || *line == '>'))
+			line++;
+		while (line < end && *line == ' ')
+			line++;
+		line_out = out;
+		if (end - line >= 2 && (*line == '-' || *line == '*' || *line == '+') && line[1] == ' ')
+		{
+			*out++ = '-';
+			*out++ = ' ';
+			line += 2;
+		}
+		out = news_inline(line, end, out);
+		if (out == line_out)
+			continue;
+		*out++ = '\n';
+		blank = FALSE;
+	}
+	while (out > text && out[-1] == '\n')
+		out--;
+	*out = 0;
+}
+
+static void news_forget(void)
+{
+	short index;
+
+	for (index = 0; index < community_news.count; index++)
+		free(community_news.releases[index].text);
+	community_news.count = 0;
+	community_news.latest_build = NONE;
+}
+
+/* the releases of an answer (a JSON array), newest first; drafts left out */
+static void news_read(char const *answer)
+{
+	char const *element;
+	short index, other;
+
+	news_forget();
+	for (element = json_next(answer, NULL); element && community_news.count < NEWS_MAXIMUM_RELEASES;
+		element = json_next(answer, element))
+	{
+		struct community_news_release *release = &community_news.releases[community_news.count];
+		char const *body = json_member(element, "body");
+		char const *body_end = body ? json_skip(body) : NULL;
+		char published[32];
+
+		if (json_boolean(json_member(element, "draft")))
+			continue;
+		json_text(json_member(element, "tag_name"), release->tag, sizeof(release->tag));
+		json_text(json_member(element, "name"), release->name, sizeof(release->name));
+		json_text(json_member(element, "published_at"), published, sizeof(published));
+		snprintf(release->date, sizeof(release->date), "%.10s", published);
+		if (!release->name[0])
+			snprintf(release->name, sizeof(release->name), "%s", release->tag);
+		release->build = !strncmp(release->tag, "build-", 6) && release->tag[6] >= '0' && release->tag[6] <= '9' ?
+			strtol(release->tag + 6, NULL, 10) : NONE;
+		release->text = NULL;
+		if (body_end)
+		{
+			size_t size = (size_t)(body_end - body) + 1;
+			char *markdown = malloc(size);
+
+			release->text = malloc(size);
+			if (markdown && release->text)
+			{
+				json_text(body, markdown, size);
+				news_plain(markdown, release->text);
+			}
+			free(markdown);
+		}
+		{
+			/* (the name's own marks and characters too) */
+			char name[sizeof(release->name)];
+
+			*news_inline(release->name, release->name + strlen(release->name), name) = 0;
+			snprintf(release->name, sizeof(release->name), "%s", name);
+		}
+		if (release->build != NONE && release->build > community_news.latest_build)
+			community_news.latest_build = release->build;
+		community_news.count++;
+	}
+	/* (newest first: GitHub lists them by when each was made, not
+	published) */
+	for (index = 1; index < community_news.count; index++)
+	{
+		struct community_news_release release = community_news.releases[index];
+
+		for (other = index; other > 0 && strcmp(community_news.releases[other - 1].date, release.date) < 0; other--)
+			community_news.releases[other] = community_news.releases[other - 1];
+		community_news.releases[other] = release;
+	}
+	platform_log("community: news: %d releases, the newest build %ld (this is build %d)", community_news.count,
+		community_news.latest_build, halo_build_number);
+}
+
+static void news_poll(boolean main_menu)
+{
+	int status = 0;
+	int result;
+
+	if (!community_news.ticket)
+	{
+		if (main_menu && !community_news.count &&
+			(!community_news.asked || system_milliseconds() - community_news.asked_at > NEWS_RETRY_MILLISECONDS))
+		{
+			community_news.asked = TRUE;
+			community_news.asked_at = system_milliseconds();
+			community_news.answer = malloc(NEWS_ANSWER_MAXIMUM);
+			if (community_news.answer)
+				community_news.ticket = community_net_get(NEWS_URL, NEWS_HEADERS, NEWS_ANSWER_MAXIMUM);
+			if (!community_news.ticket)
+			{
+				free(community_news.answer);
+				community_news.answer = NULL;
+			}
+		}
+		return;
+	}
+	result = community_net_poll(community_news.ticket, &status, community_news.answer, NEWS_ANSWER_MAXIMUM);
+	if (result == _community_net_waiting)
+		return;
+	community_news.ticket = 0;
+	if (result == _community_net_answered && status == 200)
+		news_read(community_news.answer);
+	else if (result == _community_net_answered)
+		platform_log("community: news: GitHub answered %d", status);
+	free(community_news.answer);
+	community_news.answer = NULL;
+}
+
+short community_news_count(void)
+{
+	return community_news.count;
+}
+
+static struct community_news_release const *news_release(short index)
+{
+	static struct community_news_release const none = { "", "", "", NONE, NULL };
+
+	return index >= 0 && index < community_news.count ? &community_news.releases[index] : &none;
+}
+
+char const *community_news_name(short index)
+{
+	return news_release(index)->name;
+}
+
+char const *community_news_date(short index)
+{
+	return news_release(index)->date;
+}
+
+long community_news_build(short index)
+{
+	return news_release(index)->build;
+}
+
+char const *community_news_text(short index)
+{
+	char const *text = news_release(index)->text;
+
+	return text ? text : "";
+}
+
+long community_news_latest_build(void)
+{
+	return community_news.latest_build;
+}
+
+long community_build_number(void)
+{
+	return halo_build_number;
+}
+
 void community_update(boolean main_menu)
 {
 	char const *data;
 
+	news_poll(main_menu);
 	if (request_poll(&community.daily, &data) && data)
 		challenge_read(data);
 	if (request_poll(&community.history, &data) && data)

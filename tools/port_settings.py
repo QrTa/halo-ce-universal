@@ -1966,9 +1966,10 @@ LEADERBOARD_COLUMNS = [
 # CUSTOM MULTIPLAYER maps (_map_kind)
 MAP_KIND_CHOOSER = "main_menu/new_select/list_item_0_map_kind"
 
-# the main menu's news: the latest release's notes (tools/embed_assets.py's
-# news_text) in a window the main menu's X opens (WIDGET_PATCHES), its lines
-# filled and scrolled by menu_functions.c's news screen ("port news ...")
+# the main menu's news: this fork's releases' notes, from GitHub (community.c),
+# in a window the main menu's X opens once they came (WIDGET_PATCHES), its
+# lines filled, scrolled and turned by menu_functions.c's news screen ("port
+# news ...")
 NEWS = "main_menu/news"
 NEWS_ROWS = 12
 # the window's panel (bitmaps/controller_border, drawn a texel a unit from
@@ -1989,9 +1990,10 @@ WIDGET_PATCHES = {
     "main_menu/main_menu_select_list": {"insert_before": {"main_menu/main_menu_item_quit_game": [
         f'<child widget="main_menu/main_menu_item_mods" x="{MODS_ITEM_PLACE[0]}" y="{MODS_ITEM_PLACE[1]}"/>']},
         # (the main menu's X - the west face button: Y on a Switch, Square on
-        # a PS5 - opens the news, the latest release's notes: _news_screen;
-        # on the main menu alone)
-        "handlers": ['<on event="down"/>', f'<on event="x" open="{NEWS}/news_screen"/>']},
+        # a PS5 - opens the news, the releases' notes: _news_screen; on the
+        # main menu alone, once they came, and its hint shown only then)
+        "inputs": ["port news hint update"],
+        "handlers": ['<on event="down"/>', '<on event="x" run="port news open"/>']},
     # (and the hint that X opens it, over the build number: a tap or a click
     # on it presses X, its picture a key's icon to the pointer, x_butn_news)
     "main_menu/main_menu": {"insert_before": {"main_menu/build_number": [
@@ -3466,28 +3468,47 @@ def _daily_connection() -> list:
 
 
 def _news_screen() -> list:
-    """the news window: its title over a panel (bitmaps/controller_border)
-    of NEWS_ROWS lines of the notes, and under it the buttons that scroll
-    (the menus' scroll arrows, shown while there is more than the panel
-    holds) and close it (B as the console's picture of it: the menus'
-    %-codes); the title's and the lines' texts menu_functions.c's alone,
-    which makes them as long as it needs.
+    """the news window: a release's name in two rows, its title and, after
+    its " - ", its description (each in the small font when the large one's
+    is too wide; a name of one part in the second row), and under it its day
+    and build, centred over a panel
+    (bitmaps/controller_border) of NEWS_ROWS lines of its notes; under the
+    panel this build's number and whether it is the latest, and under that
+    the buttons that
+    turn to the newer and the older releases (the menus' arrows either side
+    of which release it is), scroll (the menus' scroll arrows, shown while
+    there is more than the panel holds) and close it (B as the console's
+    picture of it: the menus' %-codes); the title's, the lines' and the
+    release's texts menu_functions.c's alone, which makes them as long as it
+    needs.
     Up and down (the D-pad, the sticks, the mouse wheel) scroll a line, left
-    and right a page, B, Back or X again close it. And the main menu's hint
-    that X opens it (WIDGET_PATCHES)"""
+    and right go to the newer and the older release, B, Back or X again close
+    it. And the main menu's hint that X opens it (WIDGET_PATCHES)"""
     base = NEWS
     left, top = NEWS_PANEL[0] + 49, NEWS_PANEL[1] + 104
     close = ['<on event="b" run="port news close"/>', '<on event="back" run="port news close"/>',
              '<on event="x" run="port news close"/>']
     scroll = [f'<on event="{event}" run="port news up"/>' for event in ("up", "stick_up", "right_stick_up")]
     scroll += [f'<on event="{event}" run="port news down"/>' for event in ("down", "stick_down", "right_stick_down")]
-    scroll += ['<on event="left" run="port news page up"/>', '<on event="right" run="port news page down"/>']
+    scroll += ['<on event="left" run="port news newer"/>', '<on event="right" run="port news older"/>']
     lines = _widget(f"{base}/news_screen", [("width", 640), ("height", 480), ("bitmap", "bitmaps/gradient_big")],
                     ['<data input="port news update"/>', '<on event="created" run="port news init"/>', *close,
                      *scroll, f'<child widget="{base}/news_panel" x="{NEWS_PANEL[0]}" y="{NEWS_PANEL[1]}"/>',
-                     f'<child widget="{base}/news_title" x="{left}" y="{top - 34}"/>',
+                     f'<child widget="{base}/news_title" x="{left}" y="{top - 68}"/>',
+                     f'<child widget="{base}/news_title_small" x="{left}" y="{top - 62}"/>',
+                     f'<child widget="{base}/news_title_2" x="{left}" y="{top - 42}"/>',
+                     f'<child widget="{base}/news_title_2_small" x="{left}" y="{top - 36}"/>',
+                     f'<child widget="{base}/news_subtitle" x="{left}" y="{top - 16}"/>',
                      *[f'<child widget="{base}/news_line" x="{left + 16}" y="{top + 12 + 18 * row}"/>'
                        for row in range(NEWS_ROWS)],
+                     # (just under the panel, over the buttons)
+                     f'<child widget="{base}/news_build" x="{left}" y="{top + 253}"/>',
+                     # (under the panel at its left, the release's arrows
+                     # either side of which release it is, d-pad left and
+                     # right to a tap or a click, as the scroll arrows below)
+                     f'<child widget="{base}/dpad_left_butn_news" x="{left + 16}" y="{top + 275 + 7}"/>',
+                     f'<child widget="{base}/news_page_text" x="{left + 40}" y="{top + 275}"/>',
+                     f'<child widget="{base}/dpad_right_butn_news" x="{left + 112}" y="{top + 275 + 7}"/>',
                      # (under the panel, the buttons left to right from a little
                      # left of its middle: the up arrow, "Scroll", the down
                      # arrow, B's picture and "Back"; widgets of their own,
@@ -3499,22 +3520,30 @@ def _news_screen() -> list:
                      # than a key's label from "Scroll", so that it is neither's.
                      # Their pictures sit high in their 16 texels: 7 down puts
                      # their middles at the text's)
-                     f'<child widget="{base}/dpad_up_butn_news" x="{left + 164}" y="{top + 253 + 7}"/>',
-                     f'<child widget="{base}/news_scroll_text" x="{left + 198}" y="{top + 253}"/>',
-                     f'<child widget="{base}/dpad_down_butn_news" x="{left + 254}" y="{top + 253 + 7}"/>',
+                     f'<child widget="{base}/dpad_up_butn_news" x="{left + 164}" y="{top + 275 + 7}"/>',
+                     f'<child widget="{base}/news_scroll_text" x="{left + 198}" y="{top + 275}"/>',
+                     f'<child widget="{base}/dpad_down_butn_news" x="{left + 254}" y="{top + 275 + 7}"/>',
                      # (Back's tap and click: B's, as the hint's is X's)
-                     f'<child widget="{base}/b_butn_news_back" x="{left + 300}" y="{top + 253}"/>',
-                     f'<child widget="{base}/news_back_text" x="{left + 300}" y="{top + 253}"/>'])
+                     f'<child widget="{base}/b_butn_news_back" x="{left + 300}" y="{top + 275}"/>',
+                     f'<child widget="{base}/news_back_text" x="{left + 300}" y="{top + 275}"/>'])
     lines += _widget(f"{base}/news_panel", [("width", 640), ("height", 480), ("bitmap", "bitmaps/controller_border")],
                      [])
-    lines += _widget(f"{base}/news_title", [("type", "text"), ("controller", 1), ("width", 507), ("height", 30),
-                                           ("font", "ui\\large_ui"), ("color", "#FF2896FF")], [])
+    for name, font, height, color in (("title", "large", 30, "#FF2896FF"), ("title_small", "small", 20, "#FF2896FF"),
+                                      ("title_2", "large", 30, "#FF2896FF"),
+                                      ("title_2_small", "small", 20, "#FF2896FF"),
+                                      ("subtitle", "small", 18, "#FFCCCCCC"), ("build", "small", 18, "#FFCCCCCC")):
+        lines += _widget(f"{base}/news_{name}", [("type", "text"), ("controller", 1), ("width", 507),
+                                                 ("height", height), ("font", f"ui\\{font}_ui"), ("color", color),
+                                                 ("align", "center"), ("text_flags", "no_focus_test")], [])
     lines += _widget(f"{base}/news_line", [("type", "text"), ("controller", 1), ("width", 475), ("height", 18),
                                           ("font", "ui\\small_ui"), ("color", "#FFFFFFFF"),
                                           ("text_flags", "no_focus_test")], [])
-    for name in ("up", "down"):
+    for name in ("up", "down", "left", "right"):
         lines += _widget(f"{base}/dpad_{name}_butn_news", [("width", 16), ("height", 16),
                                                            ("bitmap", f"bitmaps/arrow_sm_{name}")], [])
+    lines += _widget(f"{base}/news_page_text", [("type", "text"), ("controller", 1), ("width", 64), ("height", 20),
+                                               ("font", "ui\\small_ui"), ("color", "#FFFFFFFF"), ("align", "center"),
+                                               ("text_flags", "no_focus_test")], [])
     for name, text, width in (("scroll", "Scroll", 48), ("back", "%b-button Back", 120)):
         lines += _widget(f"{base}/news_{name}_text", [("type", "text"), ("controller", 1), ("width", width),
                                                       ("height", 20), ("text", text), ("font", "ui\\small_ui"),

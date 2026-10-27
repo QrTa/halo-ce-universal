@@ -214,4 +214,21 @@ yet; cleared as the next level is won */
 wchar_t const *community_result_text(short slot);
 void community_result_clear(void);
 
+/* ---------- the main menu's news: this fork's releases on GitHub, newest
+first, once they came (0 until then, and when they could not be had: the
+news is not shown) */
+
+short community_news_count(void);
+/* a release's name, its day ("2026-10-27"), its build (build-<n>'s number,
+NONE for a release of another tag) and its notes as the menus' text (ASCII,
+lines ended by "\n"; "" for none) */
+char const *community_news_name(short index);
+char const *community_news_date(short index);
+long community_news_build(short index);
+char const *community_news_text(short index);
+/* the newest build released (NONE: no release is a build-<n>) */
+long community_news_latest_build(void);
+/* this build's number, 0 for one made without (tools/embed_assets.py) */
+long community_build_number(void);
+
 #endif

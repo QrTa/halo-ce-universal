@@ -11358,19 +11358,21 @@ static void invite_qr_draw(rectangle2d const *line)
 
 /* ---------- the main menu's news
 
-The latest release's notes (tools/embed_assets.py's news_text: the newest
-Build N commit's message), in a window the main menu's X opens (the west face
-button: Y on a Switch, Square on a PS5; tools/port_settings.py's
-_news_screen), on the main menu alone. The notes are wrapped to the window's
-lines, measured in the font they are drawn in once one has been drawn
-(menu_functions_text_box_drawn), and shown NEWS_ROWS lines at a time from the
-top line, which up and down move a line and left and right a page; B, Back
-or X close it. */
+This fork's releases' notes, from GitHub (community.c's community_news_...:
+asked for once the main menu shows; until they came, or when they could not
+be had, the main menu's hint is not shown and its X opens nothing), in a
+window the main menu's X opens (the west face button: Y on a Switch, Square
+on a PS5; tools/port_settings.py's _news_screen). It opens on the newest
+release, and left and right go to the newer and the older ones. A release's
+name is its title, in two rows when it has a " - " (its title, then its
+description; each in the small font when the large one's is too wide), its
+day and build under it, and its notes are wrapped to the window's lines,
+measured in the font they are drawn in once one has been drawn
+(menu_functions_text_box_drawn), and shown NEWS_ROWS lines at a time from
+the top line, which up and down move; under the panel, this build's number
+and whether a newer one is out. B, Back or X close it. */
 
-/* (tools/embed_assets.py's: the notes, ASCII ending in a NUL, and their size) */
-extern const unsigned int halo_news_words[];
-extern const unsigned int halo_news_size;
-
+#define NEWS_NAME "pc\\main_menu\\news\\news_screen"
 /* the window's rows (port_settings.py's NEWS_ROWS), the most wrapped lines
 kept, and the longest */
 #define NEWS_ROWS 12
@@ -11381,29 +11383,27 @@ kept, and the longest */
 
 static struct
 {
-	/* the wrapped lines, and the font and width they were wrapped to (NONE
-	before one was drawn) */
+	/* the wrapped lines, and the font, width and release they were wrapped
+	to (NONE before one was drawn) */
 	char lines[NEWS_MAXIMUM_LINES][NEWS_LINE_LENGTH];
 	long count;
 	long wrapped_font;
 	short wrapped_width;
-	/* the rows' font and width as last drawn */
+	short wrapped_release;
+	/* the rows' font and width as last drawn, and the title's (the large
+	one's: NONE before it was drawn) */
 	long font;
 	short width;
-	/* the top line shown */
+	long title_font;
+	short title_width;
+	/* the release shown (0 the newest), and its top line shown */
+	short release;
 	long first;
-	/* the title: the release's (its first line) */
-	char title[64];
-} news_screen = { { { 0 } }, 0, NONE, 0, NONE, 0, 0, { 0 } };
+} news_screen = { { { 0 } }, 0, NONE, 0, NONE, NONE, 0, NONE, 0, 0, 0 };
 
-/* the notes as text */
-static char const *news_text(void)
-{
-	return (char const *)halo_news_words;
-}
-
-/* whether `count` characters of text fit across a row */
-static boolean news_fits(char const *text, long count)
+/* whether `count` characters of text fit across a text box of the font and
+width (unknown, NONE: as many as a row holds) */
+static boolean news_text_fits(long font, short width, char const *text, long count)
 {
 	static real_argb_color const white = { 1.0f, 1.0f, 1.0f, 1.0f };
 	wchar_t wide[NEWS_LINE_LENGTH];
@@ -11412,7 +11412,7 @@ static boolean news_fits(char const *text, long count)
 
 	if (count >= NEWS_LINE_LENGTH)
 		return FALSE;
-	if (news_screen.font == NONE || news_screen.width <= 0)
+	if (font == NONE || width <= 0)
 		return count <= NEWS_LINE_CHARACTERS;
 	for (index = 0; index < count; index++)
 		wide[index] = (wchar_t)(unsigned char)text[index];
@@ -11421,9 +11421,15 @@ static boolean news_fits(char const *text, long count)
 	bounds.y0 = 0;
 	bounds.x1 = 0x3FFF;
 	bounds.y1 = 480;
-	draw_string_set_draw_mode(news_screen.font, NONE, 0, 0, &white);
+	draw_string_set_draw_mode(font, NONE, 0, 0, &white);
 	draw_unicode_string_compute_bounds(&bounds, wide, &text_bounds, &cursor);
-	return MAX(text_bounds.x1, cursor.x0) - bounds.x0 <= news_screen.width - MOD_TEXT_MARGIN;
+	return MAX(text_bounds.x1, cursor.x0) - bounds.x0 <= width - MOD_TEXT_MARGIN;
+}
+
+/* whether `count` characters of text fit across a row */
+static boolean news_fits(char const *text, long count)
+{
+	return news_text_fits(news_screen.font, news_screen.width, text, count);
 }
 
 static void news_add_line(char const *text, long count)
@@ -11436,20 +11442,14 @@ static void news_add_line(char const *text, long count)
 	news_screen.count++;
 }
 
-/* the notes wrapped to the rows: their first line the title, each other a
-paragraph wrapped at its spaces, a list item's ("- ...") lines after its
-first indented under its text */
-static void news_wrap(void)
+/* text's lines added, wrapped to the rows: each a paragraph wrapped at its
+spaces, a list item's ("- ...") lines after its first indented under its
+text */
+static void news_add_text(char const *text)
 {
-	char const *text = news_text();
-	char const *end = text + halo_news_size;
+	char const *end = text + strlen(text);
 	char const *line_end;
-	boolean first = TRUE;
 
-	news_screen.count = 0;
-	news_screen.title[0] = 0;
-	news_screen.wrapped_font = news_screen.font;
-	news_screen.wrapped_width = news_screen.width;
 	for (; text < end; text = line_end + (line_end < end))
 	{
 		char const *paragraph = text;
@@ -11459,18 +11459,6 @@ static void news_wrap(void)
 		line_end = memchr(text, '\n', (size_t)(end - text));
 		if (!line_end)
 			line_end = end;
-		if (first)
-		{
-			long length = MIN((long)(line_end - text), (long)sizeof(news_screen.title) - 1);
-
-			memcpy(news_screen.title, text, (size_t)length);
-			news_screen.title[length] = 0;
-			first = FALSE;
-			continue;
-		}
-		/* (the blank line after the title) */
-		if (!news_screen.count && line_end == text)
-			continue;
 		if (line_end == text)
 		{
 			news_add_line("", 0);
@@ -11507,6 +11495,18 @@ static void news_wrap(void)
 	}
 }
 
+/* the release shown's notes, wrapped */
+static void news_wrap(void)
+{
+	short release = news_screen.release;
+
+	news_screen.count = 0;
+	news_screen.wrapped_font = news_screen.font;
+	news_screen.wrapped_width = news_screen.width;
+	news_screen.wrapped_release = release;
+	news_add_text(community_news_text(release)[0] ? community_news_text(release) : "No notes for this release.");
+}
+
 /* the top line, kept within the lines */
 static void news_scroll(long by)
 {
@@ -11515,12 +11515,110 @@ static void news_scroll(long by)
 	news_screen.first = PIN(news_screen.first + by, 0, last);
 }
 
-/* "port news init" */
-static boolean news_initialize(void)
+/* another release (by: -1 the newer, 1 the older), from its top */
+static boolean news_turn(short by)
 {
+	short release = (short)PIN(news_screen.release + by, 0, MAX(0, community_news_count() - 1));
+
+	if (release == news_screen.release)
+		return FALSE;
+	news_screen.release = release;
 	news_screen.first = 0;
 	news_wrap();
 	return TRUE;
+}
+
+/* "port news open" (the main menu's X): the window, once there is news */
+static boolean news_open(struct widget_instance *widget, boolean *widget_deleted)
+{
+	if (!community_news_count())
+		return FALSE;
+	return ui_widget_port_open(widget, NEWS_NAME, widget_deleted);
+}
+
+/* "port news hint update" (the main menu's list): the hint that X opens the
+news, while there is news */
+static void news_hint_update(struct widget_instance *list)
+{
+	struct widget_instance *screen = screen_of(list);
+	boolean shown = community_news_count() > 0;
+
+	visible_set(named(screen, "news_hint", 0), shown);
+	visible_set(named(screen, "x_butn_news", 0), shown);
+}
+
+/* "port news init" */
+static boolean news_initialize(void)
+{
+	news_screen.release = 0;
+	news_screen.first = 0;
+	news_wrap();
+	return TRUE;
+}
+
+/* an ASCII text into a text box */
+static void news_text_set(struct widget_instance *text_box, char const *text)
+{
+	wchar_t wide[NEWS_LINE_LENGTH];
+	long index;
+
+	for (index = 0; text[index] && index < NEWS_LINE_LENGTH - 1; index++)
+		wide[index] = (wchar_t)(unsigned char)text[index];
+	wide[index] = 0;
+	text_set(text_box, wide);
+}
+
+/* a row of the title (row: "news_title", "news_title_2"), in the large font,
+else (too wide) the small one */
+static void news_title_row_set(struct widget_instance *screen, char const *row, char const *text)
+{
+	boolean large = news_text_fits(news_screen.title_font, news_screen.title_width, text, (long)strlen(text));
+	char small[32];
+
+	snprintf(small, sizeof(small), "%s_small", row);
+	news_text_set(named(screen, row, 0), large ? text : "");
+	news_text_set(named(screen, small, 0), large ? "" : text);
+}
+
+/* the release's name ("Side Release V0.1.11" over "Update with upstream"),
+its day and build ("Released 2026-10-27 - Build 111 (latest)"), and this
+build's number and whether a newer one is out */
+static void news_heading_update(struct widget_instance *screen)
+{
+	short release = news_screen.release;
+	char const *name = community_news_name(release);
+	char const *dash = strstr(name, " - ");
+	long build = community_news_build(release);
+	long current = community_build_number();
+	long latest = community_news_latest_build();
+	char text[160];
+
+	if (dash)
+	{
+		snprintf(text, sizeof(text), "%.*s", (int)(dash - name), name);
+		news_title_row_set(screen, "news_title", text);
+		news_title_row_set(screen, "news_title_2", dash + 3);
+	}
+	else
+	{
+		news_title_row_set(screen, "news_title", "");
+		news_title_row_set(screen, "news_title_2", name);
+	}
+	if (build != NONE)
+	{
+		snprintf(text, sizeof(text), "Released %s - Build %ld%s", community_news_date(release), build,
+			build == latest ? " (latest)" : "");
+	}
+	else
+		snprintf(text, sizeof(text), "Released %s", community_news_date(release));
+	news_text_set(named(screen, "news_subtitle", 0), text);
+	if (current <= 0)
+		snprintf(text, sizeof(text), "Development build");
+	else if (latest == NONE)
+		snprintf(text, sizeof(text), "Current build %ld", current);
+	else
+		snprintf(text, sizeof(text), "Current build %ld, %s", current, current >= latest ? "up to date" : "update needed");
+	news_text_set(named(screen, "news_build", 0), text);
 }
 
 /* "port news update": wrapped again once the rows' font is known, then the
@@ -11530,7 +11628,8 @@ static void news_update(struct widget_instance *screen)
 	wchar_t text[NEWS_LINE_LENGTH];
 	long row;
 
-	if (news_screen.font != news_screen.wrapped_font || news_screen.width != news_screen.wrapped_width)
+	if (news_screen.font != news_screen.wrapped_font || news_screen.width != news_screen.wrapped_width ||
+		news_screen.release != news_screen.wrapped_release)
 	{
 		news_wrap();
 		news_scroll(0);
@@ -11552,29 +11651,27 @@ static void news_update(struct widget_instance *screen)
 		}
 		text_set_length(line, text, NEWS_LINE_LENGTH);
 	}
-	{
-		char title[96];
-
-		if (news_screen.title[0])
-			snprintf(title, sizeof(title), "NEWS: %s", news_screen.title);
-		else
-			snprintf(title, sizeof(title), "NEWS");
-		for (row = 0; title[row] && row < (long)NUMBEROF(text) - 1; row++)
-			text[row] = (wchar_t)toupper((unsigned char)title[row]);
-		text[row] = 0;
-		text_set(named(screen, "news_title", 0), text);
-	}
+	news_heading_update(screen);
 	/* (the scroll arrows and "Scroll" while there is more than the panel
-	holds) */
+	holds; the release arrows and which release it is of how many, while
+	there is more than one, each arrow while there is one that way) */
 	{
 		boolean scrolls = news_screen.count > NEWS_ROWS;
+		short count = community_news_count();
+		char page[32];
 
 		visible_set(named(screen, "dpad_up_butn_news", 0), scrolls);
 		visible_set(named(screen, "dpad_down_butn_news", 0), scrolls);
 		visible_set(named(screen, "news_scroll_text", 0), scrolls);
+		visible_set(named(screen, "dpad_left_butn_news", 0), news_screen.release > 0);
+		visible_set(named(screen, "dpad_right_butn_news", 0), news_screen.release < count - 1);
+		visible_set(named(screen, "news_page_text", 0), count > 1);
+		snprintf(page, sizeof(page), "%d of %d", news_screen.release + 1, count);
+		for (row = 0; page[row] && row < (long)NUMBEROF(text) - 1; row++)
+			text[row] = (wchar_t)page[row];
+		text[row] = 0;
+		text_set(named(screen, "news_page_text", 0), text);
 	}
-	if (!news_screen.count)
-		text_set_length(named(screen, "news_line", 0), L"No news in this build.", NEWS_LINE_LENGTH);
 }
 
 /* "port news close" (B, Back, X): back to the main menu */
@@ -11599,11 +11696,18 @@ void menu_functions_text_box_drawn(struct widget_instance *widget, rectangle2d c
 	if (widget->name && !strcmp(widget->name, "invite_qr_text"))
 		invite_qr_draw(bounds);
 #endif
-	/* (the news's rows: the font and width its notes are wrapped to) */
+	/* (the news's rows: the font and width its notes are wrapped to; and
+	its title's, which a release's name is measured in) */
 	if (widget->name && !strcmp(widget->name, "news_line"))
 	{
 		news_screen.font = draw_string_get_font();
 		news_screen.width = (short)(bounds->x1 - bounds->x0);
+		return;
+	}
+	if (widget->name && (!strcmp(widget->name, "news_title") || !strcmp(widget->name, "news_title_2")))
+	{
+		news_screen.title_font = draw_string_get_font();
+		news_screen.title_width = (short)(bounds->x1 - bounds->x0);
 		return;
 	}
 	/* (the Mods screen's texts: the fonts and widths their lines are
@@ -13181,13 +13285,18 @@ boolean pc_menu_event_function_invoke(
 		{
 			return news_close(widget, widget_deleted);
 		}
-		else if (!strcmp(name, "port news up") || !strcmp(name, "port news down") ||
-			!strcmp(name, "port news page up") || !strcmp(name, "port news page down"))
+		else if (!strcmp(name, "port news open"))
 		{
-			long by = strstr(name, "page") ? NEWS_ROWS - 1 : 1;
-
-			news_scroll(strstr(name, "up") ? -by : by);
+			return news_open(widget, widget_deleted);
+		}
+		else if (!strcmp(name, "port news up") || !strcmp(name, "port news down"))
+		{
+			news_scroll(strstr(name, "up") ? -1 : 1);
 			return TRUE;
+		}
+		else if (!strcmp(name, "port news newer") || !strcmp(name, "port news older"))
+		{
+			return news_turn(strstr(name, "newer") ? -1 : 1);
 		}
 		else if (!strcmp(name, "ss start game"))
 		{
@@ -13526,6 +13635,8 @@ void pc_menu_game_data_function_invoke(
 		server_settings_update(widget);
 	else if (!strcmp(name, "port news update"))
 		news_update(widget);
+	else if (!strcmp(name, "port news hint update"))
+		news_hint_update(widget);
 	else if (!strcmp(name, "port password update"))
 		password_screen_update(widget);
 	else if (!strcmp(name, "port leaderboard update"))

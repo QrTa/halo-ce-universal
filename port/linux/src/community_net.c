@@ -45,6 +45,7 @@ struct community_net_slot
 	char headers[160];
 	char *body;
 	char *answer;
+	int answer_size;
 	char error[256];
 };
 
@@ -154,7 +155,7 @@ static void *community_net_thread(void *context)
 {
 	struct community_net_slot *slot = context;
 	int status = update_request(slot->body ? "POST" : "GET", slot->url, slot->headers, slot->body, slot->answer,
-		COMMUNITY_NET_ANSWER_MAXIMUM, slot->error, sizeof(slot->error));
+		slot->answer_size, slot->error, sizeof(slot->error));
 
 	pthread_mutex_lock(&community_net_lock);
 	slot->status = status;
@@ -166,20 +167,14 @@ static void *community_net_thread(void *context)
 	return NULL;
 }
 
-int community_net_send(const char *path, const char *body, const char *player)
+/* a request in a free slot, on a thread of its own: its ticket, 0 for none */
+static int community_net_start(const char *url, const char *headers, const char *body, int answer_size)
 {
-	char server[COMMUNITY_NET_URL_MAXIMUM];
-	char key[160];
 	struct community_net_slot *slot = NULL;
 	pthread_t thread;
 	int index;
 	int ticket;
 
-	if (!community_net_enabled() || !community_net_server(server, sizeof(server)) ||
-		!community_net_key(key, sizeof(key)))
-	{
-		return 0;
-	}
 	pthread_mutex_lock(&community_net_lock);
 	for (index = 0; index < COMMUNITY_NET_SLOTS && !slot; index++)
 	{
@@ -189,10 +184,11 @@ int community_net_send(const char *path, const char *body, const char *player)
 	if (!slot)
 	{
 		pthread_mutex_unlock(&community_net_lock);
-		platform_log("community: too many requests at once; %s not sent", path);
+		platform_log("community: too many requests at once; %s not sent", url);
 		return 0;
 	}
-	slot->answer = malloc(COMMUNITY_NET_ANSWER_MAXIMUM);
+	slot->answer = malloc((size_t)answer_size);
+	slot->answer_size = answer_size;
 	slot->body = body ? strdup(body) : NULL;
 	if (!slot->answer || (body && !slot->body))
 	{
@@ -201,11 +197,8 @@ int community_net_send(const char *path, const char *body, const char *player)
 		return 0;
 	}
 	slot->answer[0] = 0;
-	snprintf(slot->url, sizeof(slot->url), "%s%s", server, path);
-	/* (a profile's own: the install's key and the profile's, as the server
-	tells players apart) */
-	snprintf(slot->headers, sizeof(slot->headers), "%sX-Halo-Key: %s%s%.16s\r\n",
-		body ? "Content-Type: application/json\r\n" : "", key, player && player[0] ? "-" : "", player ? player : "");
+	snprintf(slot->url, sizeof(slot->url), "%s", url);
+	snprintf(slot->headers, sizeof(slot->headers), "%s", headers);
 	ticket = slot->ticket = community_net_next_ticket++;
 	if (community_net_next_ticket <= 0)
 		community_net_next_ticket = 1;
@@ -220,6 +213,31 @@ int community_net_send(const char *path, const char *body, const char *player)
 	pthread_detach(thread);
 	pthread_mutex_unlock(&community_net_lock);
 	return ticket;
+}
+
+int community_net_send(const char *path, const char *body, const char *player)
+{
+	char server[COMMUNITY_NET_URL_MAXIMUM];
+	char url[COMMUNITY_NET_URL_MAXIMUM];
+	char headers[160];
+	char key[160];
+
+	if (!community_net_enabled() || !community_net_server(server, sizeof(server)) ||
+		!community_net_key(key, sizeof(key)))
+	{
+		return 0;
+	}
+	snprintf(url, sizeof(url), "%s%s", server, path);
+	/* (a profile's own: the install's key and the profile's, as the server
+	tells players apart) */
+	snprintf(headers, sizeof(headers), "%sX-Halo-Key: %s%s%.16s\r\n",
+		body ? "Content-Type: application/json\r\n" : "", key, player && player[0] ? "-" : "", player ? player : "");
+	return community_net_start(url, headers, body, COMMUNITY_NET_ANSWER_MAXIMUM);
+}
+
+int community_net_get(const char *url, const char *headers, int answer_maximum)
+{
+	return answer_maximum > 0 ? community_net_start(url, headers ? headers : "", NULL, answer_maximum) : 0;
 }
 
 static struct community_net_slot *community_net_slot_of(int ticket)

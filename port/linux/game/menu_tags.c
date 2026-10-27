@@ -425,8 +425,8 @@ static char const *const port_function_names[] =
 	/* (Settings > Gameplay's CUSTOM MAPS FOLDER, Android's) */
 	"port custom maps init", "port custom maps pick",
 	/* (the main menu's news: menu_functions.c) */
-	"port news init", "port news close", "port news up", "port news down", "port news page up",
-	"port news page down",
+	"port news init", "port news close", "port news up", "port news down", "port news newer", "port news older",
+	"port news open",
 };
 
 /* the PC version's game data functions that the Xbox's have not, from
@@ -468,8 +468,8 @@ static char const *const port_game_data_input_names[] =
 	"port playlist edit desc",
 	/* (Settings > Gameplay's CUSTOM MAPS FOLDER: its folder, and the one chosen) */
 	"port custom maps update",
-	/* (the main menu's news) */
-	"port news update",
+	/* (the main menu's news, and its hint) */
+	"port news update", "port news hint update",
 };
 
 static struct
