@@ -2471,6 +2471,7 @@ int port_tag_profiles_tag_set_option(long profile, long tag, char const *key, ch
 int port_tag_profiles_tag_remove(long profile, long tag);
 /* (port/linux/src/port_tag_mp_profiles.c's: port_tag_mp_profiles.h) */
 long port_tag_mp_profiles_scan(void);
+long port_tag_profiles_shared_import_all(void);
 long port_tag_mp_profiles_count(void);
 unsigned long port_tag_mp_profiles_scans(void);
 char const *port_tag_mp_profiles_name(long profile);
@@ -6932,6 +6933,20 @@ static boolean tags_screen_reset(boolean opening)
 	}
 	if (!opening)
 		return TRUE;
+	/* (the profiles downloaded from hosts, copied as the player's own: those
+	not copied as they came) */
+	{
+		long copied = port_tag_profiles_shared_import_all();
+
+		if (copied)
+		{
+			char text[sizeof(tags_screen.message)];
+
+			snprintf(text, sizeof(text), "Copied %ld profile%s downloaded from network games into TAG PROFILES "
+				"(and their multiplayer profiles): yours to change.", copied, copied == 1 ? "" : "s");
+			tags_message(text);
+		}
+	}
 	port_tag_profiles_scan();
 	port_tag_mp_profiles_scan();
 	tag_injector_maps_find();

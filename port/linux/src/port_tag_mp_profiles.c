@@ -596,3 +596,68 @@ int port_tag_mp_profiles_manual_set(long profile, const char *key, const char *p
 	port_tag_mp_profiles.scans++;
 	return profile_write(found);
 }
+
+void port_tag_mp_profiles_path(long profile, char *path, unsigned long size)
+{
+	if (profile_get(profile))
+		profile_path(profile_get(profile), path, (size_t)size);
+	else if (size)
+		path[0] = 0;
+}
+
+long port_tag_mp_profiles_import(const char *path, const char *suffix, const char *profile)
+{
+	char folder[MAXIMUM_PATH_LENGTH];
+	char file[MAXIMUM_FILE_LENGTH];
+	char base[MAXIMUM_FILE_LENGTH - 8];
+	const char *slash = path ? strrchr(path, '/') : NULL;
+	size_t length;
+	struct mp_profile read;
+	char name[MAXIMUM_NAME_LENGTH];
+	int suffix_number;
+
+	/* (read as a profile of its folder is: its name without .toml) */
+	if (!slash || (size_t)(slash - path) >= sizeof(folder))
+		return -1;
+	snprintf(folder, sizeof(folder), "%.*s", (int)(slash - path), path);
+	length = strlen(slash + 1);
+	if (length <= strlen(MP_EXTENSION) || length - strlen(MP_EXTENSION) >= sizeof(file) ||
+		strcmp(slash + 1 + length - strlen(MP_EXTENSION), MP_EXTENSION))
+		return -1;
+	snprintf(file, sizeof(file), "%.*s", (int)(length - strlen(MP_EXTENSION)), slash + 1);
+	if (!profile_read(&read, folder, file))
+		return -1;
+	/* (its name the host's and the suffix, its file a new one, playing the
+	profile given) */
+	snprintf(name, sizeof(name), "%.*s%s", (int)(sizeof(name) - strlen(suffix ? suffix : "") - 1), read.name,
+		suffix ? suffix : "");
+	value_copy(read.name, sizeof(read.name), name);
+	value_copy(read.options[option_index("profile")], MAXIMUM_VALUE_LENGTH, profile);
+	snprintf(base, sizeof(base), "%s", name);
+	if (!file_name_clean(base))
+		snprintf(base, sizeof(base), "online");
+	folder_path(folder, sizeof(folder));
+	for (suffix_number = 1; suffix_number < 1000; suffix_number++)
+	{
+		char made[MAXIMUM_PATH_LENGTH];
+		struct posix_file_information information;
+
+		if (suffix_number == 1)
+			snprintf(read.file, sizeof(read.file), "%s", base);
+		else
+			snprintf(read.file, sizeof(read.file), "%s %d", base, suffix_number);
+		profile_path(&read, made, sizeof(made));
+		if (posix_stat(made, &information) != 0)
+			break;
+	}
+	if (suffix_number == 1000 || !profile_write(&read))
+	{
+		profile_dispose(&read);
+		return -1;
+	}
+	snprintf(file, sizeof(file), "%s", read.file);
+	profile_dispose(&read);
+	port_tag_mp_profiles_scan();
+	platform_log("tag injector: copied the multiplayer profile %s, playing %s", name, profile);
+	return port_tag_mp_profiles_find(file);
+}

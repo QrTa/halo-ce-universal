@@ -45,5 +45,12 @@ long port_tag_mp_profiles_manual_count(long profile, const char *key);
 const char *port_tag_mp_profiles_manual(long profile, const char *key, long entry);
 int port_tag_mp_profiles_manual_has(long profile, const char *key, const char *path);
 int port_tag_mp_profiles_manual_set(long profile, const char *key, const char *path, int on);
+/* the path of a profile's file (shared with a network game's players:
+port_tag_profiles_shared_build), "" past them */
+void port_tag_mp_profiles_path(long profile, char *path, unsigned long size);
+/* a copy of the profile of the file at `path` (a share's multiplayer.toml),
+named as it is with `suffix` after, in a file of its own, playing the
+profile of the folder `profile`: its index, or -1 */
+long port_tag_mp_profiles_import(const char *path, const char *suffix, const char *profile);
 
 #endif

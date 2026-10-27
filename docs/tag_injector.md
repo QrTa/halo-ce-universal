@@ -409,20 +409,35 @@ right the next multiplayer profile, left the one before, NONE among them
 (`game.multiplayer_tag_profile`). It needs Custom Edition maps on
 (`game.custom_edition`) on every machine.
 
-- **The share.** A moment after TAG PROFILE settles, outside a game, the
-  host copies the profile's weapons on, with their settings (their HUD,
-  REPLACE ORIGINAL, their names), into a profile of its own in
-  `tag_injector/.shared` (kept as a profile's tags are), and writes that
-  folder as one file, its archive (`<id>.tagshare` beside it), both named
-  for the archive's hash (its first 16 hexadecimal digits). A share of the
-  same weapons is not made again for the next game. The host tells each
+- **The share.** As the game is hosted (and a moment after TAG PROFILE
+  changes, outside a level), the host writes the profile's weapons on as
+  one file, its archive (`tag_injector/.shared/<id>.tagshare`, named for
+  its hash's first 16 hexadecimal digits): their tag files and the
+  profile's pack and index as they are, nothing compressed again (the pack
+  has its AI's pixels and samples too), and a `profile.toml` of the weapons
+  alone, with their settings (their HUD, REPLACE ORIGINAL, their names),
+  and the multiplayer profile played (`multiplayer.toml`).
+  It plays the archive unpacked into `.shared/host`, as each player plays
+  its own copy. A share of the same weapons is not made again for the next
+  game; a level loading before the share was made (a lobby a moment long)
+  makes it then. The host tells each
   of its players the hash (`_distributed_message_tag_share`), in the lobby
   too, and a player without that share downloads its archive as a Custom
   Edition map is downloaded (`port/linux/NETCODE.md`, "Map sharing": from
   the host and the other players), and makes it the share's folder again.
-  The player's game waits for it as for a map. One that cannot download it
+  The player's game waits for it as for a map, whose download bar says
+  "Downloading the host's tag profile". One that cannot download it
   (`network.map_download` or `game.custom_edition` off) leaves the game,
   saying why.
+- **A copy of one's own.** A share downloaded is copied, once, into the
+  player's TAG PROFILES as the host's profile's name and " (online)" (its
+  weapons, their settings and its pack), and its multiplayer profile into
+  MULTIPLAYER PROFILES, named so too and playing that copy: they are the
+  player's to change, play alone or host with. The game itself plays the
+  share as it came, whatever is done to the copy. A share downloaded before
+  copies were made is copied as the Tag Injector's menu opens (without a
+  multiplayer profile, which those shares did not carry). A marker beside
+  the share (`<id>.imported`) keeps a copy deleted from coming back.
 - **The level.** As the map loads, every machine adds the share's tags to
   it as a profile's are added to a campaign level ("In a level", above:
   the stock HUDs its weapons are drawn with copied from the campaign maps
@@ -449,8 +464,7 @@ reads otherwise (a texture its renderer cannot draw), makes that player's
 level differ from the host's.
 
 Not built yet: Custom Edition maps and the campaign; a profile's AI or
-equipment; a downloaded share listed as a map is, to take its tags into a
-profile of one's own. Downloaded shares stay in `tag_injector/.shared`
+equipment. Downloaded shares stay in `tag_injector/.shared`
 until deleted by hand.
 
 ## The game's log

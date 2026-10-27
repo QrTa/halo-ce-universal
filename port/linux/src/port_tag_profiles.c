@@ -72,6 +72,7 @@ beginning with a dot).
 
 #include "platform.h"
 #include "port_config.h"
+#include "port_tag_mp_profiles.h"
 #include "port_tag_profiles.h"
 #include "port_tag_store.h"
 #include "posix.h"
@@ -115,6 +116,11 @@ in, and an archive's magic, most files and largest file */
 #define ARCHIVE_MAGIC_LENGTH 8
 #define MAXIMUM_ARCHIVE_FILES (MAXIMUM_PROFILE_TAGS + 8)
 #define MAXIMUM_ARCHIVE_FILE_SIZE 0x40000000UL
+/* the host's multiplayer profile in its share, and what a client's copy of
+a share it downloaded is named (after the host's names) */
+#define SHARED_MULTIPLAYER_FILE "multiplayer.toml"
+#define SHARED_IMPORTED_EXTENSION ".imported"
+#define SHARED_COPY_SUFFIX " (online)"
 
 /* ---------- structures */
 
@@ -519,19 +525,18 @@ static int profile_read(struct tag_profile *profile, const char *root, const cha
 	return 1;
 }
 
-/* writes a profile's profile.toml; 0 if it cannot be */
-static int profile_write(const struct tag_profile *profile)
+/* a profile's profile.toml, as text (the caller's to free); NULL if there is
+no room */
+static char *profile_text(const struct tag_profile *profile)
 {
 	size_t capacity = 256 + (size_t)profile->tag_count * (256 + (MAXIMUM_TAG_NAME_LENGTH + MAXIMUM_MAP_NAME_LENGTH +
 		MAXIMUM_FILE_NAME_LENGTH + TAG_OPTION_COUNT * MAXIMUM_OPTION_LENGTH) * TOML_CHARACTER_LENGTH);
-	char path[MAXIMUM_PATH_LENGTH];
 	char *text = malloc(capacity);
 	long index;
 	int format = TAG_PROFILES_BUNDLES_FORMAT;
-	int written;
 
 	if (!text)
-		return 0;
+		return NULL;
 	for (index = 0; index < profile->tag_count; index++)
 	{
 		if (profile->tags[index].stored)
@@ -570,6 +575,18 @@ static int profile_write(const struct tag_profile *profile)
 			snprintf(text + strlen(text), capacity - strlen(text), "\"\n");
 		}
 	}
+	return text;
+}
+
+/* writes a profile's profile.toml; 0 if it cannot be */
+static int profile_write(const struct tag_profile *profile)
+{
+	char path[MAXIMUM_PATH_LENGTH];
+	char *text = profile_text(profile);
+	int written;
+
+	if (!text)
+		return 0;
 	profile_path(profile, "profile.toml", path, sizeof(path));
 	written = file_write(path, text, (unsigned long)strlen(text));
 	if (!written)
@@ -818,7 +835,8 @@ long port_tag_profiles_duplicate(long profile, const char *name)
 
 		snprintf(from, sizeof(from), "%s/%s", from_folder, file);
 		snprintf(to, sizeof(to), "%s/%s", to_folder, file);
-		if (file[0] == '.' || !strcmp(file, "profile.toml") || posix_stat(from, &information) != 0 ||
+		if (file[0] == '.' || !strcmp(file, "profile.toml") || !strcmp(file, SHARED_MULTIPLAYER_FILE) ||
+			posix_stat(from, &information) != 0 ||
 			(information.flags & _posix_file_is_directory))
 			continue;
 		copied = file_copy(from, to);
@@ -1323,35 +1341,6 @@ long port_tag_profiles_shared_open(const char *id)
 	return SHARED_PROFILE;
 }
 
-long port_tag_profiles_shared_create(const char *id, const char *name)
-{
-	char root[MAXIMUM_PATH_LENGTH];
-	char path[MAXIMUM_PATH_LENGTH];
-	struct tag_profile profile;
-
-	port_tag_profiles_shared_close();
-	if (!shared_id_valid(id))
-		return -1;
-	posix_make_directory(profiles_root(root, sizeof(root)));
-	shared_root(path, sizeof(path));
-	posix_make_directory(path);
-	port_tag_profiles_shared_path(id, path, sizeof(path));
-	folder_delete(path);
-	if (posix_make_directory(path) != 0)
-	{
-		platform_log("tag injector: the folder %s cannot be made", path);
-		return -1;
-	}
-	memset(&profile, 0, sizeof(profile));
-	snprintf(profile.folder, sizeof(profile.folder), "%s/%s", SHARED_FOLDER, id);
-	text_copy(profile.name, sizeof(profile.name), name && name[0] ? name : id);
-	if (!profile_write(&profile))
-		return -1;
-	port_tag_profiles.profiles[SHARED_PROFILE] = profile;
-	port_tag_profiles.shared_open = 1;
-	return SHARED_PROFILE;
-}
-
 int port_tag_profiles_shared_remove(const char *name)
 {
 	char path[MAXIMUM_PATH_LENGTH];
@@ -1373,20 +1362,6 @@ int port_tag_profiles_shared_delete(const char *id)
 		port_tag_profiles_shared_close();
 	port_tag_profiles_shared_path(id, path, sizeof(path));
 	return folder_delete(path);
-}
-
-int port_tag_profiles_shared_rename(const char *from, const char *to)
-{
-	char from_path[MAXIMUM_PATH_LENGTH];
-	char to_path[MAXIMUM_PATH_LENGTH];
-
-	if (!shared_id_valid(from) || !shared_id_valid(to))
-		return 0;
-	port_tag_profiles_shared_close();
-	port_tag_profiles_shared_path(from, from_path, sizeof(from_path));
-	port_tag_profiles_shared_path(to, to_path, sizeof(to_path));
-	folder_delete(to_path);
-	return file_replace(from_path, to_path);
 }
 
 static void archive_long(unsigned char *bytes, unsigned long value)
@@ -1414,58 +1389,35 @@ static int archive_name_valid(const char *name)
 	return file_name_clean(clean) && !strcmp(clean, name);
 }
 
-static int archive_names_compare(const void *first, const void *second)
+/* a file an archive is written with: its name, and its bytes in memory
+(`bytes`) or in a file (`path`) */
+struct archive_entry
 {
-	return strcmp(*(const char *const *)first, *(const char *const *)second);
+	char name[MAXIMUM_FILE_NAME_LENGTH];
+	char path[MAXIMUM_PATH_LENGTH];
+	const char *bytes;
+	unsigned long size;
+};
+
+static int archive_entries_compare(const void *first, const void *second)
+{
+	return strcmp(((const struct archive_entry *)first)->name, ((const struct archive_entry *)second)->name);
 }
 
-int port_tag_profiles_shared_archive(const char *id, const char *archive)
+/* writes an archive of the entries (by name: the same files are the same
+archive) to a file beside `archive`, then in its place; 0 if it cannot be */
+static int archive_write(struct archive_entry *entries, long count, const char *archive)
 {
-	char folder[MAXIMUM_PATH_LENGTH];
 	char temporary[MAXIMUM_PATH_LENGTH];
-	char name[256];
-	char *names[MAXIMUM_ARCHIVE_FILES];
-	unsigned long sizes[MAXIMUM_ARCHIVE_FILES];
 	unsigned char header[8];
-	long count = 0;
 	long index;
-	void *directory;
 	FILE *stream;
-	int written = 1;
+	int written;
 
-	if (!shared_id_valid(id) || snprintf(temporary, sizeof(temporary), "%s.new", archive) >= (int)sizeof(temporary))
+	if (snprintf(temporary, sizeof(temporary), "%s.new", archive) >= (int)sizeof(temporary))
 		return 0;
-	port_tag_profiles_shared_path(id, folder, sizeof(folder));
-	directory = posix_directory_open(folder);
-	if (!directory)
-		return 0;
-	while (posix_directory_next(directory, name, sizeof(name)))
-	{
-		char path[MAXIMUM_PATH_LENGTH];
-		struct posix_file_information information;
-
-		snprintf(path, sizeof(path), "%s/%s", folder, name);
-		if (!archive_name_valid(name) || posix_stat(path, &information) != 0 ||
-			(information.flags & _posix_file_is_directory))
-			continue;
-		if (count == MAXIMUM_ARCHIVE_FILES || information.size_high || information.size_low > MAXIMUM_ARCHIVE_FILE_SIZE)
-		{
-			written = 0;
-			break;
-		}
-		names[count] = malloc(strlen(name) + 1);
-		if (!names[count])
-		{
-			written = 0;
-			break;
-		}
-		strcpy(names[count], name);
-		count++;
-	}
-	posix_directory_close(directory);
-	/* (by name: the same folder is the same archive) */
-	qsort(names, (size_t)count, sizeof(names[0]), archive_names_compare);
-	stream = written ? fopen(temporary, "wb") : NULL;
+	qsort(entries, (size_t)count, sizeof(entries[0]), archive_entries_compare);
+	stream = fopen(temporary, "wb");
 	written = stream != NULL;
 	if (written)
 	{
@@ -1475,25 +1427,24 @@ int port_tag_profiles_shared_archive(const char *id, const char *archive)
 	}
 	for (index = 0; written && index < count; index++)
 	{
-		char path[MAXIMUM_PATH_LENGTH];
-		struct posix_file_information information;
-		size_t length = strlen(names[index]);
+		size_t length = strlen(entries[index].name);
 
-		snprintf(path, sizeof(path), "%s/%s", folder, names[index]);
-		sizes[index] = posix_stat(path, &information) == 0 ? information.size_low : 0;
 		archive_long(header, (unsigned long)length);
-		archive_long(header + 4, sizes[index]);
-		written = fwrite(header, 1, 4, stream) == 4 && fwrite(names[index], 1, length, stream) == length &&
+		archive_long(header + 4, entries[index].size);
+		written = fwrite(header, 1, 4, stream) == 4 && fwrite(entries[index].name, 1, length, stream) == length &&
 			fwrite(header + 4, 1, 4, stream) == 4;
 	}
 	for (index = 0; written && index < count; index++)
 	{
-		char path[MAXIMUM_PATH_LENGTH];
 		FILE *source;
-		unsigned long left = sizes[index];
+		unsigned long left = entries[index].size;
 
-		snprintf(path, sizeof(path), "%s/%s", folder, names[index]);
-		source = fopen(path, "rb");
+		if (entries[index].bytes)
+		{
+			written = fwrite(entries[index].bytes, 1, entries[index].size, stream) == entries[index].size;
+			continue;
+		}
+		source = fopen(entries[index].path, "rb");
 		written = source != NULL;
 		while (written && left)
 		{
@@ -1506,8 +1457,6 @@ int port_tag_profiles_shared_archive(const char *id, const char *archive)
 		if (source)
 			fclose(source);
 	}
-	for (index = 0; index < count; index++)
-		free(names[index]);
 	if (stream)
 		written = fclose(stream) == 0 && written;
 	written = written && file_replace(temporary, archive);
@@ -1519,10 +1468,105 @@ int port_tag_profiles_shared_archive(const char *id, const char *archive)
 	return written;
 }
 
+/* an entry for a file, named `name` in the archive, if it is there */
+static int archive_entry_path(struct archive_entry *entry, const char *name, const char *path)
+{
+	struct posix_file_information information;
+
+	memset(entry, 0, sizeof(*entry));
+	text_copy(entry->name, sizeof(entry->name), name);
+	text_copy(entry->path, sizeof(entry->path), path);
+	if (!archive_name_valid(name) || posix_stat(entry->path, &information) != 0 ||
+		(information.flags & _posix_file_is_directory) || information.size_high ||
+		information.size_low > MAXIMUM_ARCHIVE_FILE_SIZE)
+		return 0;
+	entry->size = information.size_low;
+	return 1;
+}
+
+/* ... a file of a profile's folder */
+static int archive_entry_file(struct archive_entry *entry, const struct tag_profile *profile, const char *file)
+{
+	char path[MAXIMUM_PATH_LENGTH];
+
+	profile_path(profile, file, path, sizeof(path));
+	return archive_entry_path(entry, file, path);
+}
+
+long port_tag_profiles_shared_build(long profile, unsigned long group, const char *multiplayer, const char *archive)
+{
+	struct tag_profile *found = profile_get(profile);
+	struct tag_profile shared;
+	struct archive_entry *entries;
+	char *text = NULL;
+	long count = 0;
+	long index;
+	int written;
+
+	if (!found || profile == SHARED_PROFILE)
+		return 0;
+	/* (its tags on of the group, their files there, each as it is: on, and
+	not failed) */
+	memset(&shared, 0, sizeof(shared));
+	text_copy(shared.name, sizeof(shared.name), found->name);
+	shared.tags = calloc((size_t)(found->tag_count ? found->tag_count : 1), sizeof(*shared.tags));
+	entries = calloc((size_t)found->tag_count + 4, sizeof(*entries));
+	if (!shared.tags || !entries)
+	{
+		free(shared.tags);
+		free(entries);
+		return 0;
+	}
+	for (index = 0; index < found->tag_count; index++)
+	{
+		struct tag_profile_tag *tag = &found->tags[index];
+		long other;
+
+		if (!tag->enabled || (group && tag->group != group) || !tag->size ||
+			!archive_entry_file(&entries[count], found, tag->file))
+			continue;
+		/* (a file two tags name, once) */
+		for (other = 0; other < count && strcmp(entries[other].name, tag->file); other++)
+		{
+		}
+		if (other == count)
+			count++;
+		shared.tags[shared.tag_count] = *tag;
+		shared.tags[shared.tag_count].enabled = 1;
+		shared.tags[shared.tag_count].options[tag_option_index("failed")][0] = 0;
+		shared.tag_count++;
+	}
+	/* (and the pack they share, with its index, as they are: none of it
+	compressed again) */
+	if (shared.tag_count)
+	{
+		count += archive_entry_file(&entries[count], found, "tags.pack");
+		count += archive_entry_file(&entries[count], found, "tags.index");
+		/* (and the multiplayer profile played, which a client takes a copy of) */
+		if (multiplayer && multiplayer[0])
+			count += archive_entry_path(&entries[count], SHARED_MULTIPLAYER_FILE, multiplayer);
+		text = profile_text(&shared);
+	}
+	written = text != NULL;
+	if (written)
+	{
+		memset(&entries[count], 0, sizeof(entries[count]));
+		text_copy(entries[count].name, sizeof(entries[count].name), "profile.toml");
+		entries[count].bytes = text;
+		entries[count].size = (unsigned long)strlen(text);
+		count++;
+		written = archive_write(entries, count, archive);
+	}
+	free(text);
+	free(entries);
+	free(shared.tags);
+	return written ? shared.tag_count : 0;
+}
+
 int port_tag_profiles_shared_unpack(const char *archive, const char *id)
 {
+	char root[MAXIMUM_PATH_LENGTH];
 	char folder[MAXIMUM_PATH_LENGTH];
-	char building[SHARED_ID_LENGTH + 8];
 	unsigned char header[ARCHIVE_MAGIC_LENGTH + 4];
 	char *names[MAXIMUM_ARCHIVE_FILES];
 	unsigned long sizes[MAXIMUM_ARCHIVE_FILES];
@@ -1532,7 +1576,7 @@ int port_tag_profiles_shared_unpack(const char *archive, const char *id)
 	FILE *stream;
 	int unpacked;
 
-	if (!shared_id_valid(id) || strlen(id) + 2 > SHARED_ID_LENGTH)
+	if (!shared_id_valid(id))
 		return 0;
 	stream = fopen(archive, "rb");
 	if (!stream)
@@ -1575,12 +1619,16 @@ int port_tag_profiles_shared_unpack(const char *archive, const char *id)
 	{
 	}
 	unpacked = unpacked && index < count;
-	/* (into a folder of its own, put in the id's place once whole) */
-	snprintf(building, sizeof(building), "%sx", id);
-	if (unpacked && port_tag_profiles_shared_create(building, NULL) < 0)
-		unpacked = 0;
-	port_tag_profiles_shared_close();
-	port_tag_profiles_shared_path(building, folder, sizeof(folder));
+	/* (into the id's folder, made anew: deleted again unless it is whole) */
+	if (port_tag_profiles.shared_open &&
+		!strcmp(port_tag_profiles.profiles[SHARED_PROFILE].folder + strlen(SHARED_FOLDER) + 1, id))
+		port_tag_profiles_shared_close();
+	posix_make_directory(profiles_root(root, sizeof(root)));
+	shared_root(folder, sizeof(folder));
+	posix_make_directory(folder);
+	port_tag_profiles_shared_path(id, folder, sizeof(folder));
+	folder_delete(folder);
+	unpacked = unpacked && posix_make_directory(folder) == 0;
 	for (index = 0; unpacked && index < count; index++)
 	{
 		char path[MAXIMUM_PATH_LENGTH];
@@ -1606,11 +1654,89 @@ int port_tag_profiles_shared_unpack(const char *archive, const char *id)
 	fclose(stream);
 	for (index = 0; index < count; index++)
 		free(names[index]);
-	unpacked = unpacked && port_tag_profiles_shared_rename(building, id);
 	if (!unpacked)
 	{
-		port_tag_profiles_shared_delete(building);
+		folder_delete(folder);
 		platform_log("tag injector: the archive %s is not one", archive);
 	}
 	return unpacked;
+}
+
+/* the marker beside a share a client took a copy of (the copy's folder in
+it), so that the copy is made once, however often it is played or deleted */
+static void shared_imported_path(const char *id, char *path, size_t size)
+{
+	char name[SHARED_ID_LENGTH + sizeof(SHARED_IMPORTED_EXTENSION)];
+
+	snprintf(name, sizeof(name), "%s%s", id, SHARED_IMPORTED_EXTENSION);
+	port_tag_profiles_shared_path(name, path, (unsigned long)size);
+}
+
+long port_tag_profiles_shared_import(const char *id)
+{
+	char path[MAXIMUM_PATH_LENGTH];
+	char name[MAXIMUM_NAME_LENGTH];
+	char folder[MAXIMUM_FOLDER_LENGTH];
+	struct posix_file_information information;
+	long shared;
+	long copy;
+
+	if (!shared_id_valid(id) || !strcmp(id, "host") || !port_tag_profiles_shared_present(id))
+		return -1;
+	shared_imported_path(id, path, sizeof(path));
+	if (posix_stat(path, &information) == 0)
+		return -1;
+	shared = port_tag_profiles_shared_open(id);
+	if (shared < 0)
+		return -1;
+	snprintf(name, sizeof(name), "%.*s%s", (int)(sizeof(name) - sizeof(SHARED_COPY_SUFFIX)),
+		port_tag_profiles.profiles[SHARED_PROFILE].name, SHARED_COPY_SUFFIX);
+	copy = port_tag_profiles_duplicate(shared, name);
+	port_tag_profiles_shared_close();
+	if (copy < 0)
+	{
+		platform_log("tag injector: the shared profile %s cannot be copied into the profiles", id);
+		return -1;
+	}
+	text_copy(folder, sizeof(folder), port_tag_profiles_folder(copy));
+	/* (the host's multiplayer profile, playing the copy) */
+	{
+		char multiplayer[MAXIMUM_PATH_LENGTH];
+
+		port_tag_profiles_shared_path(id, multiplayer, sizeof(multiplayer));
+		snprintf(multiplayer + strlen(multiplayer), sizeof(multiplayer) - strlen(multiplayer), "/%s",
+			SHARED_MULTIPLAYER_FILE);
+		if (posix_stat(multiplayer, &information) == 0)
+			port_tag_mp_profiles_import(multiplayer, SHARED_COPY_SUFFIX, folder);
+	}
+	if (!file_write(path, folder, (unsigned long)strlen(folder)))
+		platform_log("tag injector: %s cannot be written: the share may be copied again", path);
+	platform_log("tag injector: copied the shared profile %s into the profiles as %s", id, folder);
+	return port_tag_profiles_find(folder);
+}
+
+long port_tag_profiles_shared_import_all(void)
+{
+	char root[MAXIMUM_PATH_LENGTH];
+	char name[256];
+	void *directory;
+	long imported = 0;
+
+	shared_root(root, sizeof(root));
+	directory = posix_directory_open(root);
+	while (directory && posix_directory_next(directory, name, sizeof(name)))
+	{
+		char path[MAXIMUM_PATH_LENGTH];
+		struct posix_file_information information;
+
+		/* (the folders of the downloads: their hashes' digits) */
+		snprintf(path, sizeof(path), "%s/%s", root, name);
+		if (strlen(name) != 16 || strspn(name, "0123456789abcdef") != 16 || posix_stat(path, &information) != 0 ||
+			!(information.flags & _posix_file_is_directory))
+			continue;
+		imported += port_tag_profiles_shared_import(name) >= 0;
+	}
+	if (directory)
+		posix_directory_close(directory);
+	return imported;
 }

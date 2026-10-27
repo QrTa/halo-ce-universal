@@ -7,10 +7,12 @@ can play a multiplayer profile (Server Setup's TAG PROFILE:
 game.multiplayer_tag_profile), which names a profile of the Tag Injector's
 and how the game plays its weapons (port_tag_mp_profiles.c).
 
-- The share. The host copies the profile's weapons on into a shared
-  profile of its own (tag_injector/.shared: tag_injector_profile_export),
-  writes its folder as one file (its archive, <id>.tagshare), and names
-  both by the archive's hash, as map sharing hashes a map. It tells each
+- The share. The host writes the profile's weapons on as one file (its
+  archive, tag_injector/.shared/<id>.tagshare, named for its hash as map
+  sharing hashes a map: port_tag_profiles_shared_build), their tag files
+  and the profile's pack as they are (nothing compressed again), and
+  unpacks it into its own shared profile's folder (.shared/host), which it
+  plays, as its clients play theirs. It tells each
   client the hash (_distributed_message_tag_share, reliably, in the lobby
   too), and a client without the share downloads the archive as it would a
   map (map_share.c's _map_share_file_tags: from the host and the other
@@ -82,15 +84,12 @@ char const *port_tag_profiles_tag_name(long profile, long tag);
 int port_tag_profiles_tag_enabled(long profile, long tag);
 unsigned long port_tag_profiles_tag_size(long profile, long tag);
 long port_tag_profiles_shared_open(char const *id);
-long port_tag_profiles_shared_create(char const *id, char const *name);
-void port_tag_profiles_shared_close(void);
 int port_tag_profiles_shared_present(char const *id);
-int port_tag_profiles_shared_delete(char const *id);
 int port_tag_profiles_shared_remove(char const *name);
 int port_tag_profiles_shared_folder_make(void);
-int port_tag_profiles_shared_rename(char const *from, char const *to);
 void port_tag_profiles_shared_path(char const *name, char *path, unsigned long size);
-int port_tag_profiles_shared_archive(char const *id, char const *archive);
+long port_tag_profiles_shared_build(long profile, unsigned long group, char const *multiplayer, char const *archive);
+long port_tag_profiles_shared_import(char const *id);
 int port_tag_profiles_shared_unpack(char const *archive, char const *id);
 int port_tag_profiles_file_replace(char const *from, char const *to);
 long port_tag_mp_profiles_scan(void);
@@ -101,6 +100,7 @@ char const *port_tag_mp_profiles_name(long profile);
 char const *port_tag_mp_profiles_option(long profile, char const *key);
 long port_tag_mp_profiles_manual_count(long profile, char const *key);
 char const *port_tag_mp_profiles_manual(long profile, char const *key, long entry);
+void port_tag_mp_profiles_path(long profile, char *path, unsigned long size);
 unsigned long network_game_server_machine_address(long machine_index);
 boolean network_distributed_server_send_to_machine_reliably(long machine_index, void *message, word size);
 boolean network_connection_last_read_was_unreliable(void);
@@ -129,6 +129,8 @@ enum
 };
 
 #define TAG_SHARE_BUILDING "building"
+/* the host's own share's folder (a client's is named for its hash) */
+#define TAG_SHARE_HOST "host"
 #define TAG_SHARE_DIRECTORY "d:\\tag_injector\\.shared\\"
 #define TAG_SHARE_EXTENSION ".tagshare"
 
@@ -407,6 +409,20 @@ static unsigned long share_signature(
 	count = port_tag_profiles_tag_count(*profile);
 	for (text = port_tag_profiles_name(*profile); *text; text++)
 		value = (value ^ (unsigned char)*text) * 16777619UL & 0xFFFFFFFFUL;
+	/* (and the multiplayer profile's settings, which the share carries: its
+	file's bytes) */
+	{
+		char path[1024];
+		FILE *stream;
+		int character;
+
+		port_tag_mp_profiles_path(mp_profile, path, sizeof(path));
+		stream = path[0] ? platform_fopen_host(path, "rb") : NULL;
+		while (stream && (character = fgetc(stream)) != EOF)
+			value = (value ^ (unsigned long)character) * 16777619UL & 0xFFFFFFFFUL;
+		if (stream)
+			fclose(stream);
+	}
 	for (tag = 0; tag < count; tag++)
 	{
 		unsigned long size = port_tag_profiles_tag_size(*profile, tag);
@@ -424,36 +440,38 @@ static unsigned long share_signature(
 	return weapons ? value | 1 : 0;
 }
 
-/* (the host) its share made of the multiplayer profile chosen's weapons,
-named for its archive's hash, and registered with map sharing; FALSE if
-it cannot be (logged) */
+/* (the host) its share made of the multiplayer profile chosen's weapons
+(their archive, named for its hash, and its folder, .shared/host), and
+registered with map sharing; FALSE if it cannot be (logged) */
 static boolean share_build(
+	long mp_profile,
 	long profile)
 {
 	struct share *hosted = &tag_multiplayer.hosted;
 	char building[1024];
 	char final_path[1024];
 	char xbox_path[MAP_SHARE_PATH_SIZE];
-	long tags[MAXIMUM_SHARED_WEAPONS][2];
-	long into;
-	long exported;
+	char name[TAG_MULTIPLAYER_ID_DIGITS + sizeof(TAG_SHARE_EXTENSION)];
+	char multiplayer[1024];
+	long shared;
 	byte *piece_hashes = NULL;
 	long piece_count = 0;
 	unsigned long started = system_milliseconds();
 
 	csmemset(hosted, 0, sizeof(*hosted));
-	into = port_tag_profiles_shared_create(TAG_SHARE_BUILDING, port_tag_profiles_name(profile));
-	if (into == NONE)
-		return FALSE;
-	exported = tag_injector_profile_export(profile, into, 'weap', tags, MAXIMUM_SHARED_WEAPONS);
-	port_tag_profiles_shared_close();
-	share_host_path(TAG_SHARE_BUILDING, building, sizeof(building));
-	if (!exported || !port_tag_profiles_shared_archive(TAG_SHARE_BUILDING, building) ||
-		!share_hash(building, hosted->hash, &hosted->size, &piece_hashes, &piece_count))
+	if (!port_tag_profiles_shared_folder_make())
 	{
-		error(_error_silent, "tag multiplayer: the weapons of %s cannot be shared (%ld of them copied)",
-			port_tag_profiles_name(profile), exported);
-		port_tag_profiles_shared_delete(TAG_SHARE_BUILDING);
+		error(_error_silent, "tag multiplayer: the Tag Injector's shared folder cannot be made");
+		return FALSE;
+	}
+	share_host_path(TAG_SHARE_BUILDING, building, sizeof(building));
+	/* (its weapons, and the multiplayer profile, which a client takes a copy
+	of with them) */
+	port_tag_mp_profiles_path(mp_profile, multiplayer, sizeof(multiplayer));
+	shared = port_tag_profiles_shared_build(profile, WEAPON_DEFINITION_TAG, multiplayer, building);
+	if (!shared || !share_hash(building, hosted->hash, &hosted->size, &piece_hashes, &piece_count))
+	{
+		error(_error_silent, "tag multiplayer: the weapons of %s cannot be shared", port_tag_profiles_name(profile));
 		port_tag_profiles_shared_remove(TAG_SHARE_BUILDING TAG_SHARE_EXTENSION);
 		free(piece_hashes);
 		csmemset(hosted, 0, sizeof(*hosted));
@@ -461,16 +479,15 @@ static boolean share_build(
 	}
 	share_id(hosted->hash, hosted->id);
 	share_host_path(hosted->id, final_path, sizeof(final_path));
-	{
-		char name[TAG_MULTIPLAYER_ID_DIGITS + sizeof(TAG_SHARE_EXTENSION)];
-
-		snprintf(name, sizeof(name), "%s%s", hosted->id, TAG_SHARE_EXTENSION);
-		port_tag_profiles_shared_remove(name);
-	}
-	if (!port_tag_profiles_shared_rename(TAG_SHARE_BUILDING, hosted->id) ||
-		!port_tag_profiles_file_replace(building, final_path))
+	snprintf(name, sizeof(name), "%s%s", hosted->id, TAG_SHARE_EXTENSION);
+	port_tag_profiles_shared_remove(name);
+	/* (the archive in its place, and the folder played made of it, as a
+	client's is) */
+	if (!port_tag_profiles_file_replace(building, final_path) ||
+		!port_tag_profiles_shared_unpack(final_path, TAG_SHARE_HOST))
 	{
 		error(_error_silent, "tag multiplayer: the share %s cannot be put in its place", hosted->id);
+		port_tag_profiles_shared_remove(TAG_SHARE_BUILDING TAG_SHARE_EXTENSION);
 		free(piece_hashes);
 		csmemset(hosted, 0, sizeof(*hosted));
 		return FALSE;
@@ -481,9 +498,16 @@ static boolean share_build(
 	free(piece_hashes);
 	hosted->active = TRUE;
 	tag_multiplayer.hosted_serial++;
-	error(_error_silent, "tag multiplayer: shared %ld weapons of %s as %s, %lu bytes, in %lu ms", exported,
+	error(_error_silent, "tag multiplayer: shared %ld weapons of %s as %s, %lu bytes, in %lu ms", shared,
 		port_tag_profiles_name(profile), hosted->id, hosted->size, system_milliseconds() - started);
 	return TRUE;
+}
+
+/* whether this machine plays a level (the main menu's is a game too) */
+static boolean playing(
+	void)
+{
+	return game_in_progress() && !main_menu_is_active();
 }
 
 /* the scenario of the level loading (its tags are there; the game's
@@ -522,6 +546,32 @@ static boolean hosting(
 	return global_network_game_server_get() != NULL;
 }
 
+/* (the host) whether its share is to be made (again): not made yet, what it
+is made of changed, or its folder went; with Custom Edition maps on (the
+Tag Injector's bundles are theirs) */
+static boolean host_build_pending(
+	void)
+{
+	return halo_custom_edition_tag_cache() && tag_multiplayer.checked &&
+		(!tag_multiplayer.built || tag_multiplayer.wanted_signature != tag_multiplayer.built_signature ||
+		(tag_multiplayer.hosted.active && !port_tag_profiles_shared_present(TAG_SHARE_HOST)));
+}
+
+static void host_build(
+	void)
+{
+	long mp_profile = tag_multiplayer_profile_chosen();
+	long profile;
+
+	tag_multiplayer.built = TRUE;
+	tag_multiplayer.built_signature = share_signature(mp_profile, &profile);
+	tag_multiplayer.wanted_signature = tag_multiplayer.built_signature;
+	csmemset(&tag_multiplayer.hosted, 0, sizeof(tag_multiplayer.hosted));
+	tag_multiplayer.hosted_serial++;
+	if (tag_multiplayer.built_signature)
+		share_build(mp_profile, profile);
+}
+
 /* (the host) the share made again when what it is made of changed (a
 setting written, or the first time), and told each client machine */
 static void host_update(
@@ -547,30 +597,22 @@ static void host_update(
 		tag_multiplayer.checked = TRUE;
 		port_tag_mp_profiles_scan();
 		signature = share_signature(tag_multiplayer_profile_chosen(), &profile);
+		/* (the first time at once; a change a moment after it settles) */
 		if (signature != tag_multiplayer.wanted_signature)
 		{
 			tag_multiplayer.wanted_signature = signature;
-			tag_multiplayer.wanted_at = system_milliseconds();
+			tag_multiplayer.wanted_at = system_milliseconds() -
+				(tag_multiplayer.built ? 0 : TAG_SHARE_SETTLE_MILLISECONDS);
 		}
 	}
 	/* (made again a moment after that changed, or when its folder went; on
 	the game's own multiplayer maps, with Custom Edition maps on (the Tag
 	Injector's bundles are theirs), and never while a game is played, its
 	clients downloading it then) */
-	if ((!tag_multiplayer.built || tag_multiplayer.wanted_signature != tag_multiplayer.built_signature ||
-		(hosted->active && !port_tag_profiles_shared_present(hosted->id))) &&
-		elapsed(tag_multiplayer.wanted_at, system_milliseconds(), TAG_SHARE_SETTLE_MILLISECONDS) &&
-		takes && !game_in_progress() && halo_custom_edition_tag_cache())
+	if (host_build_pending() && elapsed(tag_multiplayer.wanted_at, system_milliseconds(), TAG_SHARE_SETTLE_MILLISECONDS) &&
+		takes && !playing())
 	{
-		long profile;
-
-		tag_multiplayer.built = TRUE;
-		tag_multiplayer.built_signature = share_signature(tag_multiplayer_profile_chosen(), &profile);
-		tag_multiplayer.wanted_signature = tag_multiplayer.built_signature;
-		csmemset(hosted, 0, sizeof(*hosted));
-		tag_multiplayer.hosted_serial++;
-		if (tag_multiplayer.built_signature)
-			share_build(profile);
+		host_build();
 	}
 	/* (the one made stays the game's until another is made: every machine
 	plays it alike meanwhile) */
@@ -638,7 +680,7 @@ static void client_update(
 	/* (not while this machine plays a game: a share the host made since is
 	for its next) */
 	if (!remote->active || !game || !game->map.name[0] || !tag_multiplayer_map_takes(game->map.name) ||
-		game_in_progress() || port_tag_profiles_shared_present(remote->id) ||
+		playing() || port_tag_profiles_shared_present(remote->id) ||
 		!strcmp(tag_multiplayer.asked_id, remote->id))
 		return;
 	snprintf(tag_multiplayer.asked_id, sizeof(tag_multiplayer.asked_id), "%s", remote->id);
@@ -816,7 +858,7 @@ boolean tag_multiplayer_share_file(
 {
 	struct share const *share = hosting() ? &tag_multiplayer.hosted : &tag_multiplayer.remote;
 
-	if (!share->active || (!hosting() && !port_tag_profiles_shared_present(share->id)))
+	if (!share->active || !port_tag_profiles_shared_present(hosting() ? TAG_SHARE_HOST : share->id))
 		return FALSE;
 	if (path)
 		tag_multiplayer_share_archive_path(share->hash, path, path_size);
@@ -854,6 +896,10 @@ boolean tag_multiplayer_share_downloaded(
 		return FALSE;
 	}
 	error(_error_silent, "tag multiplayer: downloaded the host's weapons (%s)", id);
+	/* (and a copy of them, and of its multiplayer profile, the player's own
+	to play and change: once) */
+	if (port_tag_profiles_shared_import(id) != NONE)
+		error(_error_silent, "tag multiplayer: the host's profile is in TAG PROFILES now, as yours");
 	return TRUE;
 }
 
@@ -862,19 +908,30 @@ long tag_multiplayer_level_profile(
 {
 	struct network_game *game = network_game_get_game();
 	struct share const *share;
+	char const *folder;
 
 	if (!game || game->variant.game_engine_index == game_engine_none || !tag_multiplayer_map_takes(scenario_name))
 		return NONE;
+	/* (the host's level loading before its share was made, its lobby a
+	moment long: made now, though its clients, if any, have not heard of it) */
+	if (hosting() && host_build_pending())
+	{
+		error(_error_silent, "tag multiplayer: the game started before its weapons were shared: sharing them now");
+		host_build();
+	}
 	share = hosting() ? &tag_multiplayer.hosted : network_game_distributed_client() ? &tag_multiplayer.remote : NULL;
 	if (!share || !share->active)
 		return NONE;
-	if (!port_tag_profiles_shared_present(share->id))
+	folder = hosting() ? TAG_SHARE_HOST : share->id;
+	if (!port_tag_profiles_shared_present(folder))
 	{
 		error(_error_silent, "tag multiplayer: this machine has not got the host's weapons (%s): the level is "
 			"played without them, and will not match the host's", share->id);
 		return NONE;
 	}
-	return port_tag_profiles_shared_open(share->id);
+	error(_error_silent, "tag multiplayer: %s plays the host's weapons (%s)", tag_name_strip_path(scenario_name),
+		share->id);
+	return port_tag_profiles_shared_open(folder);
 }
 
 void tag_multiplayer_level_loaded(

@@ -1406,6 +1406,24 @@ static void download_fail(
 	network_game_abort();
 }
 
+/* what the download is, as its failures say it: the map, or the host's
+Tag Injector profile (its shared weapons) */
+static char const *download_noun(
+	void)
+{
+	return map_share_globals.download.wanted == FLAG(_map_share_file_tags) ? "tag profile" : "map";
+}
+
+/* the download failed, said with what it is ("%s" in `format`) */
+static void download_fail_about(
+	char const *format)
+{
+	char text[256];
+
+	snprintf(text, sizeof(text), format, download_noun());
+	download_fail(text);
+}
+
 static void download_report(
 	byte state)
 {
@@ -1632,12 +1650,12 @@ static void download_offered(
 		return;
 	if (offer->result == _offer_off)
 	{
-		download_fail("The host does not share its maps.");
+		download_fail_about("The host does not share its %ss.");
 		return;
 	}
 	if (offer->result != _offer_ok || !offer->file_count || offer->file_count > MAXIMUM_FILES)
 	{
-		download_fail("The host cannot share this map.");
+		download_fail_about("The host cannot share this %s.");
 		return;
 	}
 	download->in_progress = TEST_FLAG(offer->flags, _offer_in_progress_bit);
@@ -1664,7 +1682,7 @@ static void download_offered(
 			(file->kind == _map_share_file_tags && csmemcmp(file->hash, download->tags_hash, MAP_SHARE_HASH_BYTES)))
 		{
 			download->file_count = index;
-			download_fail("The host's offer was not of this map.");
+			download_fail_about("The host's offer was not of this %s.");
 			return;
 		}
 		offered |= (byte)FLAG(file->kind);
@@ -1696,7 +1714,7 @@ static void download_offered(
 		if (!file->have || !file->asked)
 		{
 			download->file_count = index + 1;
-			download_fail("There is not enough memory to download the map.");
+			download_fail_about("There is not enough memory to download the %s.");
 			return;
 		}
 		download->total_bytes += file->size;
@@ -1865,7 +1883,7 @@ static void download_piece_had(
 	if (!file->stream || fseek(file->stream, (long)offset, SEEK_SET) != 0 ||
 		fwrite(data, 1, bytes, file->stream) != bytes)
 	{
-		download_fail("The map could not be written (is the disk full?).");
+		download_fail_about("The %s could not be written (is the disk full?).");
 		return;
 	}
 	file->have[piece >> 3] |= (byte)(1 << (piece & 7));
@@ -2064,7 +2082,7 @@ static void download_finish(
 		if (!tag_multiplayer_share_downloaded(download->files[0].final_path, download->files[0].hash))
 		{
 			download_unfinish(download->file_count);
-			download_fail("The host's weapons were downloaded, but cannot be played.");
+			download_fail("The host's tag profile was downloaded, but cannot be played.");
 			return;
 		}
 	}
@@ -2565,7 +2583,7 @@ static void frame_hashes(
 	file->piece_hashes = file->hashes_coming;
 	file->hashes_coming = NULL;
 	if (!download_file_open(file, connection->download_file[body[0]]))
-		download_fail("The map could not be written to custom_maps.");
+		download_fail_about("The %s could not be written.");
 }
 
 /* the frames read in, handled */
@@ -3017,7 +3035,7 @@ static void download_update(
 	if (download->state == _download_asking)
 	{
 		if (elapsed(download->asked_at, now, OFFER_TIMEOUT))
-			download_fail("The host did not answer the request for the map.");
+			download_fail_about("The host did not answer the request for the %s.");
 		return;
 	}
 	for (index = 0; index < download->file_count; index++)
@@ -3057,7 +3075,7 @@ static void download_update(
 			/* (unreadable, or changed meanwhile: made anew) */
 			else if (!download_file_create(file))
 			{
-				download_fail("The map could not be written to custom_maps.");
+				download_fail_about("The %s could not be written.");
 				return;
 			}
 			download->progress_at = now;
@@ -3079,7 +3097,7 @@ static void download_update(
 	}
 	if (elapsed(download->progress_at, now, STALL_TIMEOUT))
 	{
-		download_fail("The download stopped: no player sent any of the map for a minute.");
+		download_fail_about("The download stopped: no player sent any of the %s for a minute.");
 		return;
 	}
 	download_reach_sources();
@@ -3622,6 +3640,7 @@ void map_share_render(
 	real_argb_color color = { 1.0f, 1.0f, 1.0f, 1.0f };
 	rectangle2d bounds;
 	char text[160];
+	char what[96];
 	char const *name;
 	short base_length;
 	long percent;
@@ -3633,9 +3652,14 @@ void map_share_render(
 		return;
 	name = tag_name_strip_path(download->level_name);
 	base_length = map_share_name_base_length(name);
+	/* (the host's shared weapons, its Tag Injector profile's, or the map) */
+	if (download->wanted == FLAG(_map_share_file_tags))
+		snprintf(what, sizeof(what), "the host's tag profile");
+	else
+		snprintf(what, sizeof(what), "the map %.*s", (int)base_length, name);
 	if (download->state == _download_asking)
 	{
-		snprintf(text, sizeof(text), "Asking the host for the map %.*s...", (int)base_length, name);
+		snprintf(text, sizeof(text), "Asking the host for %s...", what);
 	}
 	else
 	{
@@ -3651,9 +3675,9 @@ void map_share_render(
 			sources += connection->used && connection->state == _connection_open && connection->hello_heard;
 		}
 		percent = download->total_bytes ? (long)(download->done_bytes / (download->total_bytes / 100 + 1)) : 0;
-		snprintf(text, sizeof(text), "Downloading the map %.*s: %ld%% of %lu MB from %d player%s, %lu KB/s",
-			(int)base_length, name, MIN(percent, 100), (download->total_bytes + 0x80000) >> 20, (int)sources,
-			sources == 1 ? "" : "s", rate >> 10);
+		snprintf(text, sizeof(text), "Downloading %s: %ld%% of %lu MB from %d player%s, %lu KB/s", what,
+			MIN(percent, 100), (download->total_bytes + 0x80000) >> 20, (int)sources, sources == 1 ? "" : "s",
+			rate >> 10);
 	}
 	/* (at the top of the screen, above the menus' safe area, where the
 	lobby's title is) */
