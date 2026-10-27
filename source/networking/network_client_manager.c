@@ -2165,6 +2165,10 @@ boolean network_game_client_address_matches_server(
 	struct transport_address server_unreliable_address;
 	boolean address_matches;
 
+	/* port: a replay's playback's messages are all the host's, and come
+	from no address (port/linux/game/network_replay_playback.c) */
+	if (network_replay_playing())
+		return TRUE;
 	match_assert(
 		"c:\\halo\\SOURCE\\networking\\network_client_manager.c",
 		0x2D2,
