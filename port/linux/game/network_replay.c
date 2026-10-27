@@ -46,8 +46,11 @@ void main_build_identity(long *number, char *flavor, size_t flavor_size, char *r
 
 /* the file's header (REPLAY.md, "The file"): its first bytes, and its format */
 #define REPLAY_MAGIC "OCREPLAY"
-#define REPLAY_FORMAT 0
-#define REPLAY_HEADER_SIZE 216
+#define REPLAY_FORMAT 1
+#define REPLAY_HEADER_SIZE 280
+/* the build's version text, at the header's end (format 0's 32 bytes cut
+"OpenCE Android | local build (<commit>)" short) */
+#define REPLAY_VERSION_SIZE 96
 /* a record's header: its kind, a byte left 0, its size and the tick */
 #define REPLAY_RECORD_HEADER_SIZE 8
 /* the file written out this often (ticks): what a crash loses */
@@ -118,7 +121,7 @@ static boolean replay_start(
 	char map[0x80] = "";
 	char map_for_name[48];
 	char variant[16] = "";
-	char flavor[32], repository[64], version[32];
+	char flavor[32], repository[64], version[REPLAY_VERSION_SIZE];
 	char when[32] = "unknown";
 	char const *base_name;
 	long number = 0;
@@ -162,7 +165,7 @@ static boolean replay_start(
 	replay_put_long(header + 36, (unsigned long)((unsigned long long)now >> 32));
 	csmemcpy(header + 40, map, MIN(sizeof(map), 128));
 	csmemcpy(header + 168, variant, sizeof(variant));
-	replay_printable((char *)header + 184, 32, version, FALSE);
+	replay_printable((char *)header + 184, REPLAY_VERSION_SIZE, version, FALSE);
 	if (fwrite(header, sizeof(header), 1, replay.file) != 1)
 	{
 		error(_error_log, "replay: could not write to %s", replay.path);

@@ -13,7 +13,7 @@ game's end) are bit-packed by network_messages.c and counted only as a
 whole.
 
 The file (port/linux/game/network_replay.c): a header of REPLAY_HEADER_SIZE
-bytes, then records, each a kind byte, a zero byte, its size (16 bits) and
+bytes (216 in format 0, 280 from format 1), then records, each a kind byte, a zero byte, its size (16 bits) and
 the host's tick (32 bits), little-endian, then that many bytes.
 """
 
@@ -92,9 +92,10 @@ def parse(data: bytes) -> Replay:
     fmt, network_version, build, ticks, start, header_size, low, high = struct.unpack_from("<8I", data, 8)
     if header_size < 216 or header_size > len(data):
         raise ValueError(f"a header of {header_size} bytes")
+    # (the version text runs to the header's end: format 0's 32 bytes, 1's 96)
     header = Header(fmt, network_version, build, ticks or 30, struct.unpack("<i", struct.pack("<I", start))[0],
                     header_size, low | (high << 32), _text(data[40:168]), _text(data[168:184]),
-                    _text(data[184:216]))
+                    _text(data[184:header_size]))
     replay = Replay(header, data)
     offset = header_size
     while offset < len(data):

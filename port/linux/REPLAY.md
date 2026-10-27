@@ -93,7 +93,13 @@ bot taking it moves it. It has no players, so:
 - the moving objects (`network_objects.c`), what units carry, and the
   actors (`network_actors.c`) go to it as often as they are near any
   player, as to a client whose players are dead;
-- every damage event goes to it (`distributed_event_goes_to`).
+- every damage event goes to it (`distributed_event_goes_to`);
+- an object at rest goes to it only when its state differs from the last
+  it was sent. A client is sent each object at rest again and again (as it
+  comes to rest, and four a tick round them all), in case a datagram was
+  lost; the recorder loses none. `network_objects.c` keeps a checksum of
+  each object's last state sent to the recorder (4 bytes an object), not
+  the state itself (44 bytes, for up to 8192 objects).
 
 The loops that decide what each client is sent take it through
 `distributed_viewing_machines`, which is `distributed_client_machines`
@@ -115,21 +121,22 @@ tick to the host's work and nothing to the network.
 
 ### The file
 
-Little-endian. A header of 216 bytes:
+Little-endian. A header of 280 bytes (format 1; format 0's was 216, its
+version text 32 bytes, too few for `OpenCE Android | local build (<commit>)`):
 
 | Offset | Size | What |
 | --- | --- | --- |
 | 0 | 8 | `OCREPLAY` |
-| 8 | 4 | The format, 0 |
+| 8 | 4 | The format, 1 |
 | 12 | 4 | The network version (`HALO_PORT_NETWORK_VERSION`) |
 | 16 | 4 | The build's number |
 | 20 | 4 | Ticks a second (30) |
 | 24 | 4 | The host's tick at the start |
-| 28 | 4 | The header's size (216): records start there |
+| 28 | 4 | The header's size (280): records start there |
 | 32 | 8 | When it started, seconds since 1970 |
 | 40 | 128 | The map's path, as the game names it (`levels\test\bloodgulch\bloodgulch`) |
 | 168 | 16 | The game variant's name |
-| 184 | 32 | The build's version text |
+| 184 | 96 | The build's version text (to the header's end) |
 
 Then records to the end of the file: a byte for the kind (1 to 4, the
 table above), a byte 0, the size (16 bits), the host's tick (32 bits), then
@@ -172,10 +179,30 @@ runs; with 15 bots it is a game of 16 players. Copy the file from
 
 ### Results
 
-Not measured yet. Phase 0 builds for Android, the Switch and the PS5, and
-`tools/replay_stats.py` is tested on files made the way the game writes
-them, but no game has been recorded: the desktop builds, where it would be
-quickest, do not build at the moment (the 64-bit Linux build's guest link
-lacks the dedicated server's `posix_server_*` functions, and the Windows
-build's game sources cannot find `pthread.h`), so the first recording
-comes from a phone or a console.
+The first recording, from Android (format 0, before objects at rest were
+left out): a Slayer game on Beaver Creek, three players (a player and two
+bots added at ticks 145 and 171), 50 seconds. Every one of its 1,512 ticks
+has its datagram, and the file was closed when the map was unloaded.
+
+| | 50 seconds | A minute | 10 minutes |
+| --- | --- | --- | --- |
+| Raw | 594 KB | 707 KB | 6.9 MB |
+| zlib, level 1 | 135 KB | 161 KB | 1.6 MB |
+| zlib, level 9 | 121 KB | 144 KB | 1.4 MB |
+
+zlib takes it to a fifth, and its fastest level is nearly as good as its
+best: compressing in the game (phase 3) can be cheap.
+
+| Message | Share | |
+| --- | --- | --- |
+| object_states | 50% | about four a tick, 44 bytes each: most were objects at rest, sent again in their turn (now left out) |
+| unit_states | 26% | the players: with their input, about 58 bytes a player a tick |
+| relayed_actions | 12% | the players' input |
+| the rest | 12% | the batches' and records' headers, inventories, objects made and deleted, statistics, the game type's state, damage |
+
+What grows with the players is about 58 bytes a player a tick: 16 players
+would be about 17 MB raw in ten minutes for them alone, about 3.5 MB
+zlibbed, beside what the objects take. Getting a 16-player game well under
+that needs what is particular to these messages (phase 3): states as their
+difference from the last one of the same object or player, and the
+messages split by type before they are compressed.

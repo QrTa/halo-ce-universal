@@ -7,13 +7,15 @@ from tools import replay_stats
 NAMES = {2: "unit_states", 6: "object_states", 5: "object_changes"}
 
 
-def header(start_tick=100):
-    data = bytearray(216)
+def header(start_tick=100, fmt=1):
+    size = 280 if fmt else 216
+    data = bytearray(size)
     data[:8] = b"OCREPLAY"
-    struct.pack_into("<8I", data, 8, 0, 39, 125, 30, start_tick, 216, 1761600000, 0)
+    struct.pack_into("<8I", data, 8, fmt, 39, 125, 30, start_tick, size, 1761600000, 0)
     data[40:40 + 10] = b"bloodgulch"
     data[168:168 + 6] = b"Slayer"
-    data[184:184 + 5] = b"1.125"
+    version = b"OpenCE Android | local build (0123456789ab)" if fmt else b"1.125"
+    data[184:184 + len(version)] = version
     return bytes(data)
 
 
@@ -66,8 +68,20 @@ def test_measure():
     assert stats.types["object_changes (reliable)"] == [1, 1, 8 + len(reliable)]
     assert stats.types["(batch and record headers)"] == [1, 0, 8 + 8]
     # every byte counted once
-    assert sum(row[2] for row in stats.types.values()) == stats.raw - 216
+    assert sum(row[2] for row in stats.types.values()) == stats.raw - 280
     assert set(stats.zlib) == {1, 6, 9}
+
+
+def test_format_0():
+    data = header(fmt=0) + record(1, 100, batch((2, 1, b"\x01" * 35)))
+    replay = replay_stats.parse(data)
+    assert replay.header.format == 0 and replay.header.version == "1.125"
+    assert len(replay.records) == 1
+
+
+def test_version_whole():
+    data, _, _ = replay_bytes()
+    assert replay_stats.parse(data).header.version == "OpenCE Android | local build (0123456789ab)"
 
 
 def test_cut_short():
