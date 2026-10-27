@@ -121,13 +121,14 @@ tick to the host's work and nothing to the network.
 
 ### The file
 
-Little-endian. A header of 280 bytes (format 1; format 0's was 216, its
-version text 32 bytes, too few for `OpenCE Android | local build (<commit>)`):
+Little-endian. A header of 280 bytes (formats 1 and 2; format 0's was
+216, its version text 32 bytes, too few for `OpenCE Android | local build
+(<commit>)`):
 
 | Offset | Size | What |
 | --- | --- | --- |
 | 0 | 8 | `OCREPLAY` |
-| 8 | 4 | The format, 1 |
+| 8 | 4 | The format, 2 (1 had no game record; 0 a 216-byte header) |
 | 12 | 4 | The network version (`HALO_PORT_NETWORK_VERSION`) |
 | 16 | 4 | The build's number |
 | 20 | 4 | Ticks a second (30) |
@@ -138,8 +139,11 @@ version text 32 bytes, too few for `OpenCE Android | local build (<commit>)`):
 | 168 | 16 | The game variant's name |
 | 184 | 96 | The build's version text (to the header's end) |
 
-Then records to the end of the file: a byte for the kind (1 to 4, the
-table above), a byte 0, the size (16 bits), the host's tick (32 bits), then
+Then records to the end of the file. From format 2 the first is the
+game (kind 5): `struct network_game` as the host had it at its first
+tick, its map, game type, players, random seed and PC options, which a
+playback loads the game from. Each record is a byte for the kind (1 to 5,
+the table above and the game), a byte 0, the size (16 bits), the host's tick (32 bits), then
 the bytes as they would have been sent, before the transport swaps their
 header. A distributed message is its 8-byte header (`struct
 distributed_message_header`: the message header, the type, the count, the
@@ -223,3 +227,41 @@ zlibbed, beside what the objects take. Getting a 16-player game well under
 that needs what is particular to these messages (phase 3): states as their
 difference from the last one of the same object or player, and the
 messages split by type before they are compressed.
+
+## Phase 1: playback
+
+The Theater's WATCH plays the replay chosen with left and right (the
+newest first; the panel says what it is, or why it cannot be played: a
+replay from before format 2, or of another network version).
+`port/linux/game/network_replay_playback.c`:
+
+- **As a client with no player and no host.** The file is read whole.
+  The global client is made one joined to the game of its first record
+  (`network_game_client_port_replay_begin`, `network_client_manager.c`),
+  with no machine of its own, and its next idle loads that game as a
+  client loads the game it joins (`network_game_client_game_has_started`).
+  Its clock starts at the replay's first tick, released at once: no host
+  sends the first game update it waits for.
+- **The records, at their ticks.** Each frame, before its ticks, the
+  records of the ticks the clock has reached go where a client's reads
+  of its host go: the datagrams and the reliable messages to
+  `network_distributed_handle_message`, marked as having come unreliably
+  or not (`network_connection_port_set_last_read_unreliable`), and the
+  game's own to `network_game_client_handle_message`. Once the first
+  tick's are handed over (the host's objects, all of them) the client is
+  synchronized, as a client the host has told them all is. The client
+  sends nothing: `network_game_client_write` drops it, and the in-game
+  idle asks for no connection.
+- **The view.** The game has no local player, so the frame's first
+  window takes the playback's camera (`main.c`): behind the player
+  watched (or the vehicle they ride), where the frame draws them (render
+  interpolation), turning round behind them, kept this side of walls. A
+  (or right) watches the next player alive, X (or left) the one before;
+  one who dies is watched again when they spawn. A line at the bottom
+  says who (`interface_draw_fullscreen_overlays`).
+- **The end.** B (or Back) leaves; the replay's end, or the game's,
+  returns to the main menu four seconds later (`network_game_abort`).
+
+Not yet: sound follows no listener (none is local), there is no free
+camera or seeking (phase 2), and co-op levels' scripts have not been
+tried.

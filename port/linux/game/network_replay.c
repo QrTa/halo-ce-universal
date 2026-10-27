@@ -46,7 +46,7 @@ void main_build_identity(long *number, char *flavor, size_t flavor_size, char *r
 
 /* the file's header (REPLAY.md, "The file"): its first bytes, and its format */
 #define REPLAY_MAGIC "OCREPLAY"
-#define REPLAY_FORMAT 1
+#define REPLAY_FORMAT 2
 #define REPLAY_HEADER_SIZE 280
 /* the build's version text, at the header's end (format 0's 32 bytes cut
 "OpenCE Android | local build (<commit>)" short) */
@@ -78,6 +78,13 @@ static struct
 	unsigned long total_bytes;
 	char buffer[REPLAY_BUFFER_SIZE];
 } replay;
+
+static unsigned long replay_get_long(
+	byte const *source)
+{
+	return (unsigned long)source[0] | (unsigned long)source[1] << 8 | (unsigned long)source[2] << 16 |
+		(unsigned long)source[3] << 24;
+}
 
 static void replay_put_long(
 	byte *destination,
@@ -178,6 +185,10 @@ static boolean replay_start(
 	csmemset(replay.records, 0, sizeof(replay.records));
 	csmemset(replay.bytes, 0, sizeof(replay.bytes));
 	replay.total_bytes = REPLAY_HEADER_SIZE;
+	/* (format 2: the game itself first, which a playback loads) */
+	network_replay_record(_network_replay_game, game, sizeof(*game));
+	if (!replay.file)
+		return FALSE;
 	error(_error_log, "replay: recording %s (%s) to %s", map, variant, replay.path);
 	return TRUE;
 }
@@ -220,6 +231,101 @@ void network_replay_summary(
 	}
 	if (directory)
 		posix_directory_close(directory);
+}
+
+long network_replay_list(
+	char (*names)[NETWORK_REPLAY_NAME_SIZE],
+	long maximum)
+{
+	char folder[REPLAY_PATH_SIZE];
+	char name[256];
+	void *directory;
+	long count = 0;
+
+	network_replay_folder(folder, sizeof(folder));
+	directory = posix_directory_open(folder);
+	while (directory && posix_directory_next(directory, name, sizeof(name)))
+	{
+		size_t length = strlen(name);
+		long place;
+
+		if (length >= NETWORK_REPLAY_NAME_SIZE || length <= strlen(REPLAY_EXTENSION) ||
+			strcmp(name + length - strlen(REPLAY_EXTENSION), REPLAY_EXTENSION))
+		{
+			continue;
+		}
+		/* (in order, newest first: an insertion, the folder's few) */
+		for (place = count; place > 0 && strcmp(names[place - 1], name) < 0; place--)
+		{
+			if (place < maximum)
+				strcpy(names[place], names[place - 1]);
+		}
+		if (place < maximum)
+		{
+			strcpy(names[place], name);
+			if (count < maximum)
+				count++;
+		}
+	}
+	if (directory)
+		posix_directory_close(directory);
+	return count;
+}
+
+boolean network_replay_describe(
+	char const *name,
+	char *text,
+	long size)
+{
+	char path[REPLAY_PATH_SIZE + NETWORK_REPLAY_NAME_SIZE];
+	byte header[REPLAY_HEADER_SIZE];
+	struct posix_file_information information;
+	unsigned long long bytes = 0;
+	unsigned long format, network_version, header_size;
+	char map[0x80], variant[16];
+	char const *base_name;
+	FILE *file;
+	size_t read;
+
+	network_replay_folder(path, sizeof(path));
+	snprintf(path + strlen(path), sizeof(path) - strlen(path), "/%s", name);
+	if (posix_stat(path, &information) == 0)
+		bytes = ((unsigned long long)information.size_high << 32) | information.size_low;
+	file = platform_fopen_host(path, "rb");
+	read = file ? fread(header, 1, sizeof(header), file) : 0;
+	if (file)
+		fclose(file);
+	if (read < 216 || memcmp(header, REPLAY_MAGIC, 8))
+	{
+		snprintf(text, (size_t)size, "%s\nNot a replay.", name);
+		return FALSE;
+	}
+	format = replay_get_long(header + 8);
+	network_version = replay_get_long(header + 12);
+	header_size = replay_get_long(header + 28);
+	csmemcpy(map, header + 40, sizeof(map));
+	map[sizeof(map) - 1] = 0;
+	csmemcpy(variant, header + 168, sizeof(variant));
+	variant[sizeof(variant) - 1] = 0;
+	base_name = strrchr(map, '\\');
+	base_name = base_name ? base_name + 1 : map;
+	/* (when: the name's first fifteen characters, YYYYMMDD-HHMMSS) */
+	snprintf(text, (size_t)size, "%s, %s\n%.4s-%.2s-%.2s %.2s:%.2s\n%llu KB", base_name, variant[0] ? variant : "?",
+		name, name + 4, name + 6, name + 9, name + 11, bytes / 1024);
+	if (format < 2 || header_size < 216)
+	{
+		snprintf(text + strlen(text), (size_t)size - strlen(text),
+			"\nRecorded before replays could be played back: it cannot be watched.");
+		return FALSE;
+	}
+	if (network_version != HALO_PORT_NETWORK_VERSION)
+	{
+		snprintf(text + strlen(text), (size_t)size - strlen(text),
+			"\nRecorded by a build of network version %lu: this one plays %d.", network_version,
+			HALO_PORT_NETWORK_VERSION);
+		return FALSE;
+	}
+	return TRUE;
 }
 
 boolean network_replay_recording(

@@ -3091,6 +3091,46 @@ says how many there are, how large, and where */
 /* the characters a line of the panel takes (its text box is the Mods
 panel's, mod_text_box_characters' _mod_details_text) */
 #define THEATER_LINE_CHARACTERS 30
+/* the replays WATCH chooses among (the newest), and how often the folder is
+looked at again while the screen is open (milliseconds) */
+#define THEATER_REPLAYS 64
+#define THEATER_REFRESH_MILLISECONDS 2000
+
+static struct
+{
+	char names[THEATER_REPLAYS][NETWORK_REPLAY_NAME_SIZE];
+	long count;
+	/* the one chosen (0 the newest), its name (kept across a refresh),
+	and when the folder was last looked at */
+	long chosen;
+	char chosen_name[NETWORK_REPLAY_NAME_SIZE];
+	unsigned long refreshed;
+	boolean listed;
+	/* why the last WATCH could not play its replay, until another is
+	chosen */
+	char why[160];
+} theater;
+
+/* the folder's replays, again when it is time, the one chosen kept */
+static void theater_refresh(void)
+{
+	unsigned long now = system_milliseconds();
+	long index;
+
+	if (theater.listed && now - theater.refreshed < THEATER_REFRESH_MILLISECONDS)
+		return;
+	theater.listed = TRUE;
+	theater.refreshed = now;
+	theater.count = network_replay_list(theater.names, THEATER_REPLAYS);
+	theater.chosen = 0;
+	for (index = 0; index < theater.count; index++)
+	{
+		if (!strcmp(theater.names[index], theater.chosen_name))
+			theater.chosen = index;
+	}
+	if (theater.count)
+		strcpy(theater.chosen_name, theater.names[theater.chosen]);
+}
 
 #if defined(HALO_ANDROID) && !defined(HALO_SWITCH)
 /* (the app's folder picker, which copies the folder's replays to the folder
@@ -3150,6 +3190,7 @@ static void theater_update(struct widget_instance *list)
 	unsigned long long bytes;
 	long count;
 
+	theater_refresh();
 	for (row = list->child; row; row = row->next)
 	{
 		if (strncmp(row->name, "op_theater_", 11))
@@ -3157,6 +3198,23 @@ static void theater_update(struct widget_instance *list)
 		row->animation.current_frame_index = row == focused ? 1 : 0;
 		if (!strcmp(row->name, "op_theater_record"))
 			text_set(named(row, "theater_value", 0), recording ? L"ON" : L"OFF");
+		else if (!strcmp(row->name, "op_theater_watch"))
+		{
+			/* (the chosen one by its map and when: <when>_<map>.ocreplay) */
+			char const *name = theater.count ? theater.names[theater.chosen] : NULL;
+			char const *map = name ? strchr(name, '_') : NULL;
+			char shown[64];
+
+			if (!name)
+				snprintf(shown, sizeof(shown), "NONE");
+			else
+			{
+				snprintf(shown, sizeof(shown), "%.*s %.2s-%.2s", map ? (int)(strcspn(map + 1, ".")) : 0,
+					map ? map + 1 : "", name + 4, name + 6);
+			}
+			mods_wide_text(shown, wide, ROW_TEXT_LENGTH);
+			text_set(named(row, "theater_replay", 0), wide);
+		}
 	}
 	if (!details)
 		return;
@@ -3170,6 +3228,29 @@ static void theater_update(struct widget_instance *list)
 		snprintf(line, sizeof(line), "No replays yet");
 	theater_append_wrapped(text, sizeof(text), line);
 	theater_append_wrapped(text, sizeof(text), " ");
+	if (theater.count)
+	{
+		char description[THEATER_TEXT_LENGTH];
+		char const *part;
+
+		snprintf(line, sizeof(line), "Replay %ld of %ld:", theater.chosen + 1, theater.count);
+		theater_append_wrapped(text, sizeof(text), line);
+		network_replay_describe(theater.names[theater.chosen], description, sizeof(description));
+		/* (line by line, each wrapped) */
+		for (part = description; *part;)
+		{
+			size_t length = strcspn(part, "\n");
+
+			snprintf(line, sizeof(line), "%.*s", (int)length, part);
+			theater_append_wrapped(text, sizeof(text), line);
+			part += length;
+			if (*part)
+				part++;
+		}
+		if (theater.why[0])
+			theater_append_wrapped(text, sizeof(text), theater.why);
+		theater_append_wrapped(text, sizeof(text), " ");
+	}
 	theater_append_wrapped(text, sizeof(text), recording ?
 		"The games you host are recorded, from the next one on." :
 		"Turn RECORD REPLAYS on to record the games you host, from the next one on.");
@@ -3181,10 +3262,38 @@ static void theater_update(struct widget_instance *list)
 	network_replay_folder(line, sizeof(line));
 	theater_append_wrapped(text, sizeof(text), line);
 #endif
-	theater_append_wrapped(text, sizeof(text), " ");
-	theater_append_wrapped(text, sizeof(text), "Watching them comes in a later version.");
 	mods_wide_text(text, wide, NUMBEROF(wide));
 	text_set_length(named(details, "theater_details_text", 0), wide, NUMBEROF(wide));
+}
+
+/* "port theater next" and "port theater previous" (right and left on
+WATCH): an older replay chosen, or a newer, wrapping round */
+static boolean theater_choose(long by)
+{
+	theater_refresh();
+	if (!theater.count)
+		return TRUE;
+	theater.chosen = (theater.chosen + by + theater.count) % theater.count;
+	strcpy(theater.chosen_name, theater.names[theater.chosen]);
+	theater.why[0] = 0;
+	return TRUE;
+}
+
+/* "port theater watch" (A on WATCH): the chosen replay played
+(network_replay_playback.c: its game loads at the next frame, and the menus
+close with it); why not, in the panel */
+static boolean theater_watch(void)
+{
+	char path[THEATER_TEXT_LENGTH + NETWORK_REPLAY_NAME_SIZE];
+
+	theater_refresh();
+	if (!theater.count)
+		return TRUE;
+	network_replay_folder(path, THEATER_TEXT_LENGTH);
+	snprintf(path + strlen(path), sizeof(path) - strlen(path), "/%s", theater.names[theater.chosen]);
+	if (!network_replay_watch(path, theater.why, sizeof(theater.why)))
+		platform_log("theater: %s: %s", path, theater.why);
+	return TRUE;
 }
 
 /* "port theater record" (A, left or right on RECORD REPLAYS) */
@@ -8468,6 +8577,14 @@ boolean pc_menu_event_function_invoke(
 		else if (!strcmp(name, "port theater record"))
 		{
 			return theater_record();
+		}
+		else if (!strcmp(name, "port theater watch"))
+		{
+			return theater_watch();
+		}
+		else if (!strcmp(name, "port theater next") || !strcmp(name, "port theater previous"))
+		{
+			return theater_choose(!strcmp(name, "port theater next") ? 1 : -1);
 		}
 		else if (!strcmp(name, "port theater export"))
 		{

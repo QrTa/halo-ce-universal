@@ -30,8 +30,8 @@ from typing import Dict, List, Optional, Tuple
 MAGIC = b"OCREPLAY"
 RECORD_HEADER = struct.Struct("<BBHi")
 # network_replay.h's record kinds
-KINDS = {1: "datagram", 2: "reliable", 3: "reliable to the recorder", 4: "game message"}
-DATAGRAM, RELIABLE, RELIABLE_TO_MACHINE, GAME_MESSAGE = 1, 2, 3, 4
+KINDS = {1: "datagram", 2: "reliable", 3: "reliable to the recorder", 4: "game message", 5: "the game"}
+DATAGRAM, RELIABLE, RELIABLE_TO_MACHINE, GAME_MESSAGE, GAME = 1, 2, 3, 4, 5
 # a distributed message's header: the message header (16 bits), its type,
 # its count, its tick; a batch's message: its length (16 bits), then the
 # header past the message header and its entries
@@ -163,7 +163,8 @@ def measure(replay: Replay, names: Optional[Dict[int, str]] = None) -> Stats:
             row[1] += payload[3]
             row[2] += RECORD_HEADER.size + len(payload)
         else:
-            row = types["(game messages)" if kind == GAME_MESSAGE else f"(kind {kind})"]
+            row = types["(game messages)" if kind == GAME_MESSAGE else "(the game: struct network_game)"
+                        if kind == GAME else f"(kind {kind})"]
             row[0] += 1
             row[2] += RECORD_HEADER.size + len(payload)
     return Stats(seconds, len(replay.data), {level: len(zlib.compress(replay.data, level)) for level in (1, 6, 9)},

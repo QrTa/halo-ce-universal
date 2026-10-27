@@ -2416,12 +2416,15 @@ def _mods() -> list:
 # ---------- the Theater (port/linux/REPLAY.md): the main menu's THEATER,
 # the replays a host records (port/linux/game/network_replay.c), laid out as
 # the Mods screen is: its rows on the left, and in the lobby's frame on the
-# right how many replays there are, how large, and where (menu_functions.c's
-# "port theater" functions). RECORD REPLAYS turns network.record_replays on
-# or off; EXPORT REPLAYS (Android's alone: the app's folder picker,
+# right how many replays there are, how large, where, and the one WATCH has
+# chosen (menu_functions.c's "port theater" functions). WATCH plays the
+# replay chosen with left and right, the newest first
+# (network_replay_playback.c); RECORD REPLAYS turns network.record_replays
+# on or off; EXPORT REPLAYS (Android's alone: the app's folder picker,
 # HaloActivity.exportReplays) copies them to a folder the player chooses
 
-THEATER_ROWS = [("record", "RECORD REPLAYS", None), ("export", "EXPORT REPLAYS", "android")]
+THEATER_ROWS = [("watch", "WATCH", None), ("record", "RECORD REPLAYS", None),
+                ("export", "EXPORT REPLAYS", "android")]
 
 
 def _theater() -> list:
@@ -2450,10 +2453,15 @@ def _theater() -> list:
         handlers = [f'<on event="a" run="{run}"/>', f'<on event="start" run="{run}"/>']
         if key == "record":
             handlers += [f'<on event="left" run="{run}"/>', f'<on event="right" run="{run}"/>']
+        if key == "watch":
+            handlers += ['<on event="left" run="port theater previous"/>',
+                         '<on event="right" run="port theater next"/>']
         handlers += ['<on event="left_mouse" run="mouse emit accept event"/>',
                      f'<child widget="{base}/theater_label_{key}" x="12"/>']
         if key == "record":
             handlers.append(f'<child widget="{base}/theater_value" x="318"/>')
+        if key == "watch":
+            handlers.append(f'<child widget="{base}/theater_replay" x="104"/>')
         lines += _widget(f"{base}/op_theater_{key}",
                          [("width", 390), ("height", 28), ("flags", "pass_unhandled_to_focused_child"),
                           ("bitmap", "bitmaps/sel_list_item_bkd_top" if index == 0 else "bitmaps/sel_list_item_bkd"),
@@ -2461,6 +2469,10 @@ def _theater() -> list:
         lines += _widget(f"{base}/theater_label_{key}",
                          [("type", "text"), ("controller", 1), ("width", 300), ("height", 22), ("text", text),
                           ("font", "ui\\large_ui"), ("color", "#FF2896FF"), ("text_y", 4)], [])
+    # (WATCH's replay: its map and when, menu_functions.c's theater_update)
+    lines += _widget(f"{base}/theater_replay",
+                     [("type", "text"), ("controller", 1), ("width", 280), ("height", 22), ("font", "ui\\large_ui"),
+                      ("color", "#FF2896FF"), ("align", "right"), ("text_y", 4), ("text_flags", "no_focus_test")], [])
     lines += _widget(f"{base}/theater_value",
                      [("type", "text"), ("controller", 1), ("width", 66), ("height", 22), ("font", "ui\\large_ui"),
                       ("color", "#FF2896FF"), ("align", "center"), ("text_y", 4), ("text_flags", "no_focus_test")], [])
