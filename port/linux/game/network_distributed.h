@@ -160,6 +160,10 @@ enum
 	fingerprint: randomizer.c), to a client when it is ready, which says so
 	when its own differ (port/linux/game/skulls.c) */
 	_distributed_message_mod_tags = 162,
+	/* a modded multiplayer game's shared weapons (port/linux/game/tag_multiplayer.c):
+	the hash and size of the host's share (or none), to each client, reliably,
+	in the lobby too, when it changes and every ten seconds */
+	_distributed_message_tag_share = 163,
 
 	NUMBER_OF_DISTRIBUTED_MESSAGES
 };

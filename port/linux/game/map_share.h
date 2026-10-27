@@ -40,6 +40,9 @@ enum
 	_map_share_file_bitmaps,
 	_map_share_file_sounds,
 	_map_share_file_locale,
+	/* the host's shared weapons, a multiplayer game's on one of the game's
+	own maps (tag_multiplayer.c: its archive) */
+	_map_share_file_tags,
 	NUMBER_OF_MAP_SHARE_FILE_KINDS,
 	/* a path of the platform's (d:\custom_maps\...) */
 	MAP_SHARE_PATH_SIZE = 256,
@@ -120,6 +123,15 @@ boolean map_share_download_begin(
 	char const *level_name,
 	unsigned long version,
 	char const *message);
+/* A client of a game playing the host's shared weapons (tag_multiplayer.c)
+on the level `level_name` that this machine has not got (their archive's
+hash and size, as the host told them): TRUE if it asks the host for them,
+as map_share_download_begin asks for a map (network.map_download on), the
+download held as a map's is (map_share_downloading). */
+boolean map_share_tags_download_begin(
+	char const *level_name,
+	byte const *hash,
+	unsigned long size);
 /* the version of the map the network game this machine is in is on, if it
 is on the level `level_name` (or a map of its name: custom_edition_cache.c
 takes the file of that version) */

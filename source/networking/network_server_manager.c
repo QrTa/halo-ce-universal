@@ -1550,12 +1550,13 @@ static void network_game_server_list(
 	/* port: (and its OpenCE gametype's kind: port/linux/game/game_modes.c) */
 	{
 		extern int randomizer_show_prefix(void);
+		extern boolean tag_multiplayer_hosted(void);
 
 		/* (a modded game, listed only to builds with the mod: p2p_lobby.c) */
 		p2p_set_game_listing(name, tag_name_strip_path(game->map.name), gametype, game->variant.game_engine_index,
 			game_modes_kind(&game->variant, &game->variant_options), open, in_progress,
 			game->variant.universal_variant.teams, randomizer_show_prefix(),
-			randomizer_show_prefix() || skulls_hosted());
+			randomizer_show_prefix() || skulls_hosted() || tag_multiplayer_hosted());
 	}
 }
 
@@ -2137,8 +2138,9 @@ boolean network_game_server_start_network_game(
 		waits until the level is about to load */
 		{
 			extern int randomizer_show_prefix(void);
+			extern boolean tag_multiplayer_hosted(void);
 
-			if (randomizer_show_prefix() || skulls_hosted())
+			if (randomizer_show_prefix() || skulls_hosted() || tag_multiplayer_hosted())
 			{
 				long machine_index;
 

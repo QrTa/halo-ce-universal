@@ -98,6 +98,7 @@ enum _distributed_message_shield_effects 91
 enum _distributed_message_skulls_outbreak_burst 161
 enum _distributed_message_skulls_state 160
 enum _distributed_message_structure_bsp 65
+enum _distributed_message_tag_share 163
 enum _distributed_message_unit_states 2
 enum _distributed_message_vehicle_prediction 12
 enum _distributed_message_voice_config 82

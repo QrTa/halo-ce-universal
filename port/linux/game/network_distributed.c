@@ -80,6 +80,7 @@ machine (their datum identifiers need not be).
 #include "network_aim_assist.h"
 #include "network_shield_effects.h"
 #include "map_share.h"
+#include "tag_multiplayer.h"
 #include "latency_meter.h"
 #include "profile_sections.h"
 #include "server_director.h"
@@ -4695,6 +4696,14 @@ void network_distributed_handle_message(
 	if (map_share_handles_message(message, size))
 	{
 		map_share_handle_message(machine_index, message, size, machine_index != NONE ?
+			distributed_handling_stream_message : !network_connection_last_read_was_unreliable());
+		return;
+	}
+	/* (the host's shared weapons, in the lobby too, over its connection
+	alone: tag_multiplayer.c) */
+	if (tag_multiplayer_handles_message(message, size))
+	{
+		tag_multiplayer_handle_message(machine_index, message, size, machine_index != NONE ?
 			distributed_handling_stream_message : !network_connection_last_read_was_unreliable());
 		return;
 	}

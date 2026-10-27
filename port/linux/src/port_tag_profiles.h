@@ -94,4 +94,32 @@ was), and puts a file in another's place; 0 if it cannot */
 int port_tag_profiles_file_write(const char *path, const void *bytes, unsigned long size);
 int port_tag_profiles_file_replace(const char *from, const char *to);
 
+/* A network game's shared profile (port/linux/game/tag_multiplayer.c): a
+folder of tag_injector/.shared named for its id (lowercase hexadecimal
+digits, or letters while it is built), opened alone into a slot of its own
+that no scan lists or forgets: the index the functions above take it by,
+or -1. _create makes it anew, empty, named `name` (its id when NULL);
+_close lets go of the slot; _present says whether a folder of that id has a
+profile.toml; _delete deletes the folder; _rename puts one in another's
+place. The path of a file of the shared folder (an archive: <id>.tagshare)
+into `path`. */
+long port_tag_profiles_shared_open(const char *id);
+long port_tag_profiles_shared_create(const char *id, const char *name);
+void port_tag_profiles_shared_close(void);
+int port_tag_profiles_shared(long profile);
+int port_tag_profiles_shared_present(const char *id);
+int port_tag_profiles_shared_delete(const char *id);
+/* the shared folder made, if it is not there (a download is written into
+it); 0 if it cannot be */
+int port_tag_profiles_shared_folder_make(void);
+/* deletes a file of the shared folder (an archive); 0 if it cannot */
+int port_tag_profiles_shared_remove(const char *name);
+int port_tag_profiles_shared_rename(const char *from, const char *to);
+void port_tag_profiles_shared_path(const char *name, char *path, unsigned long size);
+/* A shared profile's folder in one file, `archive` (its files by name, as
+port_tag_profiles.c says), and an archive made a shared profile's folder
+again (whole, or not at all); 0 if it cannot be. */
+int port_tag_profiles_shared_archive(const char *id, const char *archive);
+int port_tag_profiles_shared_unpack(const char *archive, const char *id);
+
 #endif

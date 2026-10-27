@@ -837,6 +837,13 @@ static const struct config_setting config_settings[] =
 		_platform_all,
 		"The Tag Injector's profile the menu's maps add tags to: its folder's\n"
 		"name in the data root's tag_injector folder. Written by the menu." },
+	{ "game.multiplayer_tag_profile", _config_string, "\"\"", "HALO_MULTIPLAYER_TAG_PROFILE", _environment_value,
+		_platform_all,
+		"The Tag Injector multiplayer profile a multiplayer game hosted here plays\n"
+		"on the game's own multiplayer maps (Server Setup's TAG PROFILE): its\n"
+		"file's name, without .toml, in the data root's tag_injector/.multiplayer\n"
+		"folder; \"\" none. Its clients download its weapons from the host\n"
+		"(docs/tag_injector.md, \"In multiplayer\")." },
 	{ "game.tag_injection_textures", _config_string, "\"auto\"", "HALO_TAG_INJECTION_TEXTURES", _environment_value,
 		_platform_all,
 		"How large the bitmaps of a profile's tags are drawn in a level: \"full\"\n"

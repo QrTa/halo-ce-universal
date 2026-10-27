@@ -294,8 +294,9 @@ arrays differ from it.
 
 A randomized campaign (`port/linux/game/randomizer.c`), a campaign game
 with skulls, or one whose enemies drop the host's locked skulls to be found
-(`port/linux/game/skulls.c`) is a modded game: only a build with the mod can
-play it. The network version stays the one builds without the
+(`port/linux/game/skulls.c`), and a multiplayer game playing the host's
+Tag Injector weapons (`port/linux/game/tag_multiplayer.c`) is a modded
+game: only a build with the mod can play it. The network version stays the one builds without the
 mod have, so that plain games are played with them as before; a modded game
 is told apart by a signature of its own instead (`halo_port_limits.h`):
 
@@ -342,8 +343,23 @@ is told apart by a signature of its own instead (`halo_port_limits.h`):
   every client plays. Scarab's rocket or fuel rod is fired in a weapon's
   shot's place on every machine, and the host takes a client's hits with
   it as that weapon's, at its rate of fire (`network_damage.c`).
+- Tag Injector weapons (mod version 4; `docs/tag_injector.md`, "In
+  multiplayer"): a game on one of the game's own multiplayer maps whose
+  host plays a multiplayer profile advertises it
+  (`HALO_PORT_ADVERTISED_TAG_SHARE_FLAG`, 0x40 of the flags). The host
+  tells each client the hash and size of its share, the profile's weapons
+  in one archive (`_distributed_message_tag_share`, 163, reliably over the
+  connection, in the lobby too, when it changes and every ten seconds; a
+  share of none when the game plays none), and a client without it
+  downloads it as map sharing downloads a map (below: the file kind
+  `_map_share_file_tags`). Every machine adds the share's tags to the level
+  before its own menus' and mods', so they are at the same indices on each;
+  the host checks each client's table as for co-op
+  (`_distributed_message_mod_tags`). The host swaps the map's weapons and
+  gives the loadouts: they are its objects, which its clients have.
 
-Turned off (no swaps, no skulls, no drops), the game is a plain one again: its
+Turned off (no swaps, no skulls, no drops, no Tag Injector weapons), the
+game is a plain one again: its
 advertisement and listing are those of every build, and any build joins.
 
 A client plays by its host's rules: in another's game (searching for it,
@@ -696,6 +712,17 @@ its name alone beside it, has its name given back as the map lists find it.
   A download that brings nothing for a minute, or a host that does not
   answer in 30 seconds, leaves the game, saying why.
 - The download's progress is drawn at the top of the screen.
+- **Tag Injector weapons.** A modded multiplayer game's shared weapons
+  (above, "Modded games") are a fifth kind of file, `_map_share_file_tags`
+  (bit 4 of a request's files), whatever the game's map: a client whose
+  host told it a share it lacks asks for that alone, for the game's level,
+  and the host offers its archive (1 GiB at most), whose hash the client
+  checks against the one the host told. It is written to
+  `tag_injector/.shared/<id>.tagshare` (its hash's first 16 digits), and
+  made the share's folder beside it once whole (`port_tag_profiles.c`: its
+  files, each named as a profile's folder's are, else it is deleted and the
+  game left). The game is held for it as for a map, and a player that has
+  it sends it on.
 
 ## Stages
 

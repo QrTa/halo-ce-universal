@@ -2494,6 +2494,7 @@ def _server_settings() -> list:
                                              ("font", "ui\\large_ui"), ("color", "#FF2896FF"), ("text_x", 13),
                                              ("text_y", 4)], [])
     rows.append((f"{base}/op_{key}", None, SETUP_OPTIONS_PLACE - 1))
+    # (BOTS' row above; TAG PROFILE's, after the gametype's rows, is below)
     # co-op's options, in the place of the gametype's rows, which co-op hides
     # as multiplayer hides co-op's (menu_functions.c's server_settings_update):
     # rows opening their screens, as the gametype's options' do
@@ -2547,6 +2548,30 @@ def _server_settings() -> list:
                                                  ("font", "ui\\small_ui"), ("color", "#FF2896FF"), ("align", "center"),
                                                  ("text_y", 5), ("text_flags", "no_focus_test")], [])
         rows.append((f"{base}/op_{key}", None, SETUP_OPTIONS_PLACE + index))
+    # TAG PROFILE (a multiplayer game's on the game's own maps:
+    # port/linux/game/tag_multiplayer.c), last: A and right the next of the
+    # Tag Injector's multiplayer profiles, left the one before; its value
+    # the one chosen, or NONE. menu_functions.c's server_settings_update
+    # shows it and packs the rows shown (TAG_PROFILE_SETUP)
+    key = TAG_PROFILE_SETUP[0]
+    extra += _widget(f"{base}/op_{key}", [("width", 512), ("height", 28),
+                                         ("flags", "pass_unhandled_to_focused_child"),
+                                         ("bitmap", "bitmaps/option_bkds"), ("color", "#FF2896FF")],
+                     ['<on event="a" run="ss tag profile next"/>', '<on event="start" run="ss tag profile next"/>',
+                      '<on event="right" run="ss tag profile next"/>',
+                      '<on event="left" run="ss tag profile previous"/>',
+                      '<on event="left_mouse" run="mouse emit accept event"/>',
+                      f'<child widget="{base}/{key}_label"/>', f'<child widget="{base}/{key}_value" x="230" y="1"/>'])
+    extra += _widget(f"{base}/{key}_value", [("type", "text"), ("controller", 1), ("width", 280), ("height", 22),
+                                             ("font", "ui\\small_ui"), ("color", "#FF2896FF"), ("align", "center"),
+                                             ("text_y", 5), ("text_flags", "no_focus_test")], [])
+    extra += _widget(f"{base}/{key}_label", [("type", "text"), ("controller", 1), ("width", 230), ("height", 22),
+                                             ("string_list", f"{base}/labels"),
+                                             ("string_index", 13 + len(COOP_SETUP_SCREENS) +
+                                              len(CAMPAIGN_SETUP_SCREENS)),
+                                             ("font", "ui\\large_ui"), ("color", "#FF2896FF"), ("text_x", 13),
+                                             ("text_y", 4)], [])
+    rows.append((f"{base}/op_{key}", None, SETUP_OPTIONS_PLACE + len(SETUP_OPTION_SCREENS)))
     extra += _button(f"{base}/button_defaults", 3, [])
     extra += _widget(f"{base}/button_ok", [("type", "text"), ("width", 128), ("height", 24),
                                            ("bitmap", "bitmaps/text_button_background"), ("text", "START GAME"),
@@ -2561,7 +2586,7 @@ def _server_settings() -> list:
                                          *(f"{title}:" for _, title, _, _ in COOP_SETUP_SCREENS), "PASSWORD:",
                                          f"{MAP_SHARE_SETUP[1]}:",
                                          *(f"{title}:" for _, title, _ in CAMPAIGN_SETUP_SCREENS),
-                                         f"{BOTS_SETUP[1]}:"])
+                                         f"{BOTS_SETUP[1]}:", f"{TAG_PROFILE_SETUP[1]}:"])
     extra += _strings(f"{base}/help_strings", [
         "",
         "The name the game shows in the lists of games.\\nEnter changes it.",
@@ -2589,6 +2614,8 @@ def _server_settings() -> list:
         # (LISTING's PUBLIC, on a machine with a publisher key: menu_functions.c's
         # server_settings_update)
         "Listed for everyone through the brokers, and on\\nthe master servers with your publisher key.",
+        # (TAG PROFILE's: TAG_PROFILE_SETUP)
+        TAG_PROFILE_SETUP[2],
     ])
     lines = _screen(base, spec, rows, ["server settings update"],
                     ['<on event="created" run="server settings init"/>'], extra)
@@ -2717,6 +2744,12 @@ BOTS_SETUP = ("bots_options", "BOTS",
         "In a team game, every bot is on the team the\\nplayers are not on.",
     ]),
 ])
+# Server Setup's TAG PROFILE (port/linux/game/tag_multiplayer.c, the setting
+# game.multiplayer_tag_profile), a multiplayer game's on one of the game's own
+# maps: the Tag Injector's multiplayer profile it plays (its key, its title
+# and its row's help)
+TAG_PROFILE_SETUP = ("tag_profile", "TAG PROFILE",
+                     "Weapons from a Tag Injector multiplayer profile:\\nplayers download them from you.")
 # (Server Setup's place of its options' rows, co-op's or the gametype's: after
 # MAP SHARING's)
 SETUP_OPTIONS_PLACE = 6

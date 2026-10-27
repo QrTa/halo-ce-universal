@@ -1842,11 +1842,19 @@ static boolean network_game_server_handle_message_client_broadcast_game_search(
 			/* port: a campaign game's skulls, which its clients play with
 			(port/linux/game/skulls.c) */
 			skulls_advertisement(advertisement.reserved);
-			/* port: either makes the game a modded one, which builds without
-			the mod cannot play: its own signature in the version's place,
-			and the version after the mod's bytes (halo_port_limits.h) */
+			/* port: a multiplayer game playing the host's Tag Injector
+			weapons (port/linux/game/tag_multiplayer.c) */
+			{
+				extern void tag_multiplayer_advertisement(unsigned char *reserved);
+
+				tag_multiplayer_advertisement(advertisement.reserved);
+			}
+			/* port: any of them makes the game a modded one, which builds
+			without the mod cannot play: its own signature in the version's
+			place, and the version after the mod's bytes (halo_port_limits.h) */
 			if (advertisement.reserved[HALO_PORT_ADVERTISED_FLAGS_OFFSET] &
-				(HALO_PORT_ADVERTISED_RANDOMIZER_FLAG | HALO_PORT_ADVERTISED_SKULLS_FLAG))
+				(HALO_PORT_ADVERTISED_RANDOMIZER_FLAG | HALO_PORT_ADVERTISED_SKULLS_FLAG |
+				HALO_PORT_ADVERTISED_TAG_SHARE_FLAG))
 			{
 				advertisement.reserved[HALO_PORT_ADVERTISED_VERSION_OFFSET] =
 					(byte)(HALO_PORT_ADVERTISED_MODDED_VERSION & 0xFF);

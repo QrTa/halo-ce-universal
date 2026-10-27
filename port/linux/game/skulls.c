@@ -2701,9 +2701,10 @@ void skulls_send_tags(long machine_index)
 {
 	struct mod_tags_message message;
 	extern int randomizer_show_prefix(void);
+	extern boolean tag_multiplayer_hosted(void);
 
 	if (game_connection() != _game_connection_network_server || machine_index == NONE ||
-		!(randomizer_show_prefix() || skulls_hosted()))
+		!(randomizer_show_prefix() || skulls_hosted() || tag_multiplayer_hosted()))
 	{
 		return;
 	}

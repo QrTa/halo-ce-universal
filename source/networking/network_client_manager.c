@@ -1076,7 +1076,8 @@ boolean network_game_client_port_advertised_modded(
 {
 	return game_index >= 0 && game_index < MAXIMUM_NETWORK_ADVERTISED_GAMES &&
 		(network_game_client_advertised_versions[game_index].flags &
-			(HALO_PORT_ADVERTISED_RANDOMIZER_FLAG | HALO_PORT_ADVERTISED_SKULLS_FLAG)) != 0;
+			(HALO_PORT_ADVERTISED_RANDOMIZER_FLAG | HALO_PORT_ADVERTISED_SKULLS_FLAG |
+			HALO_PORT_ADVERTISED_TAG_SHARE_FLAG)) != 0;
 }
 
 boolean network_game_client_advertised_game_is_valid(

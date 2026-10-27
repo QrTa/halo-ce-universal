@@ -539,6 +539,7 @@ symbols in this file:
 #include "cseries.h"
 #include "game_modes.h" /* port: port/linux/game/game_modes.c */
 #include "infection.h" /* port: port/linux/game/infection.c */
+#include "tag_multiplayer.h" /* port: port/linux/game/tag_multiplayer.c */
 #include "cseries_windows.h"
 #include "errors.h"
 #include "aim_assist.h"
@@ -9338,6 +9339,10 @@ static void game_engine_update_item_spawn(
 				struct object_placement_data placement_data;
 				long object_index;
 
+				/* port: the map's weapons swapped for the host's Tag
+				Injector multiplayer profile's (tag_multiplayer.c) */
+				definition_index = tag_multiplayer_netgame_item(equipment_index, definition_index);
+
 				/* port: the gametype's no weapons on the map */
 				if (definition_index != NONE && game_variant_options_get()->no_map_weapons &&
 					object_definition_get(definition_index)->object.type == _object_type_weapon)
@@ -9573,8 +9578,13 @@ void game_engine_postspawn_player_update(
 			fragmentation_grenade_count;
 		long starting_plasma_grenade_count = 0;
 
-		/* port: a custom loadout's weapons (game_variant_options) */
-		if (game_variant_options_get()->loadout == _loadout_custom)
+		/* port: the host's Tag Injector multiplayer profile's loadout
+		(tag_multiplayer.c), else a custom loadout's weapons
+		(game_variant_options) */
+		if (tag_multiplayer_give_loadout(unit_index))
+		{
+		}
+		else if (game_variant_options_get()->loadout == _loadout_custom)
 		{
 			game_engine_give_loadout(unit_index);
 		}

@@ -29,6 +29,8 @@ first leaves. Its first list has:
   (`game.tag_injection`). A, left or right turns it on or off.
 - **TAG PROFILES**: the profiles, each with the size of its folder (what
   its tags share counted once; EMPTY without any).
+- **MULTIPLAYER PROFILES**: how a multiplayer game plays a profile's
+  weapons (below, "In multiplayer").
 - **MAPS**: the Custom Edition maps.
 
 **TAG PROFILES**: A on a profile lists its tags' kinds, as a map's are
@@ -118,6 +120,38 @@ PROFILE**, which, pressed twice, deletes it and its tags; and in MAPS'
 lists NEW PROFILE and **VIEW <name> PROFILE**, which shows the profile MAPS
 adds to as A on it in TAG PROFILES does, B from there going back to the list
 it was pressed in (a map's weapons, still open).
+
+**MULTIPLAYER PROFILES** lists the multiplayer profiles, each with the
+profile whose weapons it plays; **NEW PROFILE** asks for a name and makes
+one playing the profile shown last in TAG PROFILES. A on one opens its
+settings:
+
+- **NAME**: the name the menus and Server Setup show it by, which A types.
+- **TAG PROFILE**: the profile whose weapons on it plays (its AI and
+  equipment are not played). A, left and right choose another.
+- **ROTATION**: **ADD TO MAP'S**, the profile's weapons join the map's, so
+  that a weapon of the map may stay the map's; **PROFILE'S ONLY**, the
+  map's weapons are all swapped for the profile's.
+- **REPLACEMENT**: how the map's weapons are swapped. **FULLY RANDOM**: a
+  weapon at random each time one spawns. **ONCE PER POSITION**: each place
+  a weapon spawns rolls one the first time, and spawns it all game.
+  **ONCE PER WEAPON**: each of the map's weapons rolls one the first time
+  it spawns, and every one of it is that (every shotgun the same).
+  **MANUAL**: below it, a row for each of the map's weapons (ASSAULT
+  RIFLE, PISTOL, SNIPER RIFLE, ROCKET LAUNCHER, SHOTGUN, FLAMETHROWER,
+  PLASMA RIFLE, PLASMA PISTOL, NEEDLER), with how many weapons are chosen
+  for it (AS IT IS: none, and it stays the map's); A on one lists
+  **ORIGINAL** (the map's own) and the profile's weapons on, each turned on
+  or off by A, left or right. One of those on spawns at random each time.
+  With ADD TO MAP'S, the original is among them whether or not it is on.
+- **LOADOUT**: the weapons each player spawns with. **GAMETYPE'S**: as the
+  gametype gives them. **RANDOM**: two different weapons of those the map's
+  are swapped for, each spawn. **SET**: **PRIMARY** and **SECONDARY**
+  below it, each NONE, one of the map's weapons (MAP'S PISTOL: when the map
+  has it) or one of the profile's.
+
+In a multiplayer profile's lists the button bar has **DELETE PROFILE**,
+which, pressed twice, deletes the multiplayer profile (not its profile).
 
 Under the details of a map's tag (a kind's list in MAPS) and of a
 profile's (a kind's list in TAG PROFILES), the frame shows the tag's model,
@@ -257,6 +291,31 @@ where the profile is played, and the game's log says why.
 
 Limits: 64 profiles, 256 tags a profile.
 
+The multiplayer profiles are files of `tag_injector/.multiplayer` (64 at
+most), each its name, the folder of its profile and its settings:
+
+```toml
+name = "Shotgun Madness"
+profile = "Brutes"
+rotation = "add"
+replace = "manual"
+loadout = "set"
+primary = "cmt\\weapons\\covenant\\carbine\\carbine"
+secondary = "stock:pistol"
+
+[manual]
+shotgun = ["original", "cmt\\weapons\\covenant\\carbine\\carbine"]
+```
+
+`rotation` is `"add"` or `"only"`; `replace` `"random"`, `"position"`,
+`"weapon"` or `"manual"`; `loadout` `"map"`, `"random"` or `"set"`;
+`primary` and `secondary` a weapon of the profile by its path, one of the
+map's as `"stock:"` and its key, or `""` for none; `[manual]` the weapons
+chosen for each of the map's by its key (`assault_rifle`, `pistol`,
+`sniper_rifle`, `rocket_launcher`, `shotgun`, `flamethrower`,
+`plasma_rifle`, `plasma_pistol`, `needler`), `"original"` the map's own. A
+setting left out is the first of its values.
+
 ## In a level
 
 With **TAG INJECTION** on, the difficulty of a campaign level the randomizer
@@ -330,16 +389,69 @@ left out; when the tags would not fit in the level's table, none are added.
 
 Only a level played alone adds them: a network game's machines must have
 the same tags, and the profile is this machine's (Server Setup's randomizer
-has none of the TAG INJECTOR choices, and a setting of one is taken as ANY).
+has none of the TAG INJECTOR choices, and a setting of one is taken as ANY;
+a multiplayer game shares its host's weapons instead: "In multiplayer",
+below).
 A daily challenge, or a random run, never adds them: they are the same for
 everyone. A saved game is loaded with the tags the setup gives the level
 then, as the randomizer's are: one saved with a profile's tags expects the
 same profile.
 
-Next: sharing the host's profile with a network game's players as Custom
-Edition maps are shared (`port/linux/NETCODE.md`), so that they need neither
-the maps nor the profile; a profile downloaded is listed as a map is, to
-take its tags into a profile of one's own.
+A multiplayer game plays a profile's weapons another way (below).
+
+## In multiplayer
+
+A multiplayer game hosted on one of the game's own multiplayer maps (not a
+campaign level, nor a Custom Edition map) can play the weapons of a
+profile, as a multiplayer profile says (`port/linux/game/tag_multiplayer.c`).
+Server Setup's **TAG PROFILE** (shown for such a game) chooses it: A or
+right the next multiplayer profile, left the one before, NONE among them
+(`game.multiplayer_tag_profile`). It needs Custom Edition maps on
+(`game.custom_edition`) on every machine.
+
+- **The share.** A moment after TAG PROFILE settles, outside a game, the
+  host copies the profile's weapons on, with their settings (their HUD,
+  REPLACE ORIGINAL, their names), into a profile of its own in
+  `tag_injector/.shared` (kept as a profile's tags are), and writes that
+  folder as one file, its archive (`<id>.tagshare` beside it), both named
+  for the archive's hash (its first 16 hexadecimal digits). A share of the
+  same weapons is not made again for the next game. The host tells each
+  of its players the hash (`_distributed_message_tag_share`), in the lobby
+  too, and a player without that share downloads its archive as a Custom
+  Edition map is downloaded (`port/linux/NETCODE.md`, "Map sharing": from
+  the host and the other players), and makes it the share's folder again.
+  The player's game waits for it as for a map. One that cannot download it
+  (`network.map_download` or `game.custom_edition` off) leaves the game,
+  saying why.
+- **The level.** As the map loads, every machine adds the share's tags to
+  it as a profile's are added to a campaign level ("In a level", above:
+  the stock HUDs its weapons are drawn with copied from the campaign maps
+  when the map has not got them), before its menus' and mods' own tags, so
+  that they are at the same indices on every machine. A share's tag a
+  machine could not play is not turned off in it (it is the host's), but
+  that machine's level then differs from the host's: the host checks each
+  player's tags as it does a modded co-op game's, and the player's HUD says
+  so.
+- **The weapons.** The host alone spawns the map's weapons and gives its
+  players theirs (the players have the host's objects). Each of the map's
+  weapons it spawns (its netgame equipment's; not the flag, the ball,
+  grenades or powerups) is swapped as REPLACEMENT says, among the share's
+  weapons, and the map's with ADD TO MAP'S (those its netgame equipment
+  spawns). Each player spawning is given LOADOUT's weapons, its others
+  taken away, unless it is GAMETYPE'S; grenades are the gametype's. The
+  gametype's NO WEAPONS ON MAP spawns none of them. A gametype that gives
+  its weapons itself (Gun Game, Infection) keeps its own.
+
+A game playing a multiplayer profile is a modded game
+(`port/linux/NETCODE.md`, "Modded games"): only a build with the mod joins
+it. A profile's tag of a later Tag Injector, or a bundle a player's build
+reads otherwise (a texture its renderer cannot draw), makes that player's
+level differ from the host's.
+
+Not built yet: Custom Edition maps and the campaign; a profile's AI or
+equipment; a downloaded share listed as a map is, to take its tags into a
+profile of one's own. Downloaded shares stay in `tag_injector/.shared`
+until deleted by hand.
 
 ## The game's log
 

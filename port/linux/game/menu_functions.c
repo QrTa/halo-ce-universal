@@ -125,6 +125,7 @@ their handlers open opens.
 #include "custom_edition_cache.h"
 #include "custom_edition_maps.h"
 #include "tag_injector.h"
+#include "tag_multiplayer.h"
 #include "tag_preview.h"
 #include "campaign_score.h"
 #include "community.h"
@@ -2468,6 +2469,21 @@ int port_tag_profiles_tag_set_enabled(long profile, long tag, int enabled);
 char const *port_tag_profiles_tag_option(long profile, long tag, char const *key);
 int port_tag_profiles_tag_set_option(long profile, long tag, char const *key, char const *value);
 int port_tag_profiles_tag_remove(long profile, long tag);
+/* (port/linux/src/port_tag_mp_profiles.c's: port_tag_mp_profiles.h) */
+long port_tag_mp_profiles_scan(void);
+long port_tag_mp_profiles_count(void);
+unsigned long port_tag_mp_profiles_scans(void);
+char const *port_tag_mp_profiles_name(long profile);
+char const *port_tag_mp_profiles_file(long profile);
+long port_tag_mp_profiles_find(char const *file);
+long port_tag_mp_profiles_create(char const *name, char const *profile);
+int port_tag_mp_profiles_delete(long profile);
+int port_tag_mp_profiles_rename(long profile, char const *name);
+char const *port_tag_mp_profiles_option(long profile, char const *key);
+int port_tag_mp_profiles_set_option(long profile, char const *key, char const *value);
+long port_tag_mp_profiles_manual_count(long profile, char const *key);
+int port_tag_mp_profiles_manual_has(long profile, char const *key, char const *path);
+int port_tag_mp_profiles_manual_set(long profile, char const *key, char const *path, int on);
 
 /* a size as the Tag Injector's menus show it */
 static void tags_size_text(unsigned long size, char *text, size_t text_size)
@@ -5496,7 +5512,12 @@ made with a name typed (tag_injector_profiles_poll) and deleted with DELETE
 PROFILE, twice, which TAG PROFILES has; elsewhere the button is VIEW
 PROFILE, the profile tags are added to shown from any list (B going back
 there). A profile's tag can be given a name of its own (NAME), which the
-menus show it by: a protected map's tags have names made for them. */
+menus show it by: a protected map's tags have names made for them.
+MULTIPLAYER PROFILES lists the multiplayer profiles (port_tag_mp_profiles.c,
+tag_multiplayer.c): each a profile whose weapons a multiplayer game plays,
+and how (its settings' list; MANUAL's weapons a list of their own, the
+profile's weapons on and ORIGINAL each turned on or off), made with NEW
+PROFILE and deleted with DELETE PROFILE, twice. */
 
 #define TAG_ROWS MOD_ROWS
 #define TAG_PROFILE_NAME 24
@@ -5521,6 +5542,11 @@ enum
 	_tags_list_folder,
 	_tags_list_categories,
 	_tags_list_tags,
+	/* MULTIPLAYER PROFILES, one's settings, and MANUAL's weapons for one of
+	the map's */
+	_tags_list_mp_profiles,
+	_tags_list_mp_profile,
+	_tags_list_mp_manual,
 	NUMBER_OF_TAGS_LISTS
 };
 
@@ -5529,6 +5555,7 @@ enum
 {
 	_tags_top_injection,
 	_tags_top_profiles,
+	_tags_top_multiplayer,
 	_tags_top_maps,
 	NUMBER_OF_TAGS_TOP_ROWS
 };
@@ -5565,7 +5592,24 @@ enum
 	_tags_naming_profile,
 	_tags_naming_custom_type,
 	_tags_naming_tag_name,
-	_tags_naming_duplicate
+	_tags_naming_duplicate,
+	/* a new multiplayer profile's, and the one shown's */
+	_tags_naming_mp_profile,
+	_tags_naming_mp_name
+};
+
+/* a multiplayer profile's settings' rows (tags_mp_setting_of: MANUAL's
+weapons a row each of the map's, SET's two weapons) */
+enum
+{
+	_tags_mp_setting_name,
+	_tags_mp_setting_profile,
+	_tags_mp_setting_rotation,
+	_tags_mp_setting_replace,
+	_tags_mp_setting_weapon,
+	_tags_mp_setting_loadout,
+	_tags_mp_setting_primary,
+	_tags_mp_setting_secondary
 };
 
 /* a setting's values as port_tag_profiles.c keeps them ("": AUTO, the
@@ -5602,6 +5646,14 @@ static struct tags_choice const tags_weapon_huds[] =
 	{ "needler", "NEEDLER" },
 };
 static struct tags_choice const tags_replace_choices[] = { { "", "OFF" }, { "true", "ON" } };
+/* a multiplayer profile's settings' values (tag_multiplayer.c's) */
+static struct tags_choice const tags_mp_rotations[] = { { "add", "ADD TO MAP'S" }, { "only", "PROFILE'S ONLY" } };
+static struct tags_choice const tags_mp_replaces[] =
+{
+	{ "random", "FULLY RANDOM" }, { "position", "ONCE PER POSITION" }, { "weapon", "ONCE PER WEAPON" },
+	{ "manual", "MANUAL" },
+};
+static struct tags_choice const tags_mp_loadouts[] = { { "map", "GAMETYPE'S" }, { "random", "RANDOM" }, { "set", "SET" } };
 
 static struct
 {
@@ -5642,6 +5694,11 @@ static struct
 	char buttons_shown[64];
 	/* each row's whether it is of what failed to load (tags_row_failed) */
 	boolean row_failed[TAG_ROWS];
+	/* the multiplayer profile shown, the map's weapon MANUAL's list is of,
+	and DELETE PROFILE pressed once for that profile (NONE) */
+	long mp_profile;
+	short mp_weapon;
+	long mp_deleting;
 } tags_screen = { 0, NONE, NONE, NONE, FALSE, FALSE, "", NONE, NONE, { 0 }, { 0 }, _tags_naming_none, { 0 }, NONE, NONE,
 	NONE, "", 0, "", { { 0 } }, "" };
 
@@ -5870,6 +5927,260 @@ static long tags_profile_tag_of(short place)
 	return NONE;
 }
 
+/* ---- the multiplayer profiles */
+
+static void upper_copy(char *destination, size_t size, char const *source);
+
+/* the profile the multiplayer profile shown plays (NONE: none, or not found) */
+static long tags_mp_base(void)
+{
+	return port_tag_profiles_find(port_tag_mp_profiles_option(tags_screen.mp_profile, "profile"));
+}
+
+/* the weapons on of the profile it plays (those it shares): how many, and
+the profile's tag of one */
+static long tags_mp_weapon_count(void)
+{
+	long base = tags_mp_base();
+	long count = port_tag_profiles_tag_count(base);
+	long found = 0;
+	long tag;
+
+	for (tag = 0; tag < count; tag++)
+		found += port_tag_profiles_tag_group(base, tag) == 'weap' && port_tag_profiles_tag_enabled(base, tag);
+	return found;
+}
+
+static long tags_mp_weapon_tag(long weapon)
+{
+	long base = tags_mp_base();
+	long count = port_tag_profiles_tag_count(base);
+	long tag;
+
+	for (tag = 0; tag < count; tag++)
+	{
+		if (port_tag_profiles_tag_group(base, tag) == 'weap' && port_tag_profiles_tag_enabled(base, tag) && !weapon--)
+			return tag;
+	}
+	return NONE;
+}
+
+/* the settings' rows of the multiplayer profile shown: how many (MANUAL's
+weapons with MANUAL, SET's with SET), and of each its setting and, of
+MANUAL's, the map's weapon */
+static short tags_mp_setting_rows(short *rows, short *weapons)
+{
+	short count = 0;
+	short weapon;
+
+	rows[count++] = _tags_mp_setting_name;
+	rows[count++] = _tags_mp_setting_profile;
+	rows[count++] = _tags_mp_setting_rotation;
+	rows[count++] = _tags_mp_setting_replace;
+	if (!strcmp(port_tag_mp_profiles_option(tags_screen.mp_profile, "replace"), "manual"))
+	{
+		for (weapon = 0; weapon < TAG_MULTIPLAYER_STOCK_WEAPONS; weapon++)
+		{
+			weapons[count] = weapon;
+			rows[count++] = _tags_mp_setting_weapon;
+		}
+	}
+	rows[count++] = _tags_mp_setting_loadout;
+	if (!strcmp(port_tag_mp_profiles_option(tags_screen.mp_profile, "loadout"), "set"))
+	{
+		rows[count++] = _tags_mp_setting_primary;
+		rows[count++] = _tags_mp_setting_secondary;
+	}
+	return count;
+}
+
+#define MAXIMUM_TAGS_MP_SETTING_ROWS (8 + TAG_MULTIPLAYER_STOCK_WEAPONS)
+
+static short tags_mp_setting_of(short place, short *weapon)
+{
+	short rows[MAXIMUM_TAGS_MP_SETTING_ROWS];
+	short weapons[MAXIMUM_TAGS_MP_SETTING_ROWS];
+	short count = tags_mp_setting_rows(rows, weapons);
+
+	*weapon = NONE;
+	if (place < 0 || place >= count)
+		return NONE;
+	if (rows[place] == _tags_mp_setting_weapon)
+		*weapon = weapons[place];
+	return rows[place];
+}
+
+/* a setting's key and choices (NULL for one of none) */
+static struct tags_choice const *tags_mp_setting_choices(short setting, char const **key, short *count)
+{
+	*key = NULL;
+	*count = 0;
+	switch (setting)
+	{
+	case _tags_mp_setting_rotation:
+		*key = "rotation";
+		*count = (short)NUMBEROF(tags_mp_rotations);
+		return tags_mp_rotations;
+	case _tags_mp_setting_replace:
+		*key = "replace";
+		*count = (short)NUMBEROF(tags_mp_replaces);
+		return tags_mp_replaces;
+	case _tags_mp_setting_loadout:
+		*key = "loadout";
+		*count = (short)NUMBEROF(tags_mp_loadouts);
+		return tags_mp_loadouts;
+	}
+	return NULL;
+}
+
+static short tags_mp_setting_value(short setting)
+{
+	char const *key;
+	short count;
+	struct tags_choice const *choices = tags_mp_setting_choices(setting, &key, &count);
+	char const *value = key ? port_tag_mp_profiles_option(tags_screen.mp_profile, key) : "";
+	short index;
+
+	for (index = 0; choices && index < count; index++)
+	{
+		if (!strcmp(choices[index].value, value))
+			return index;
+	}
+	return 0;
+}
+
+/* SET's weapons' choices: NONE, the map's (stock:<key>), then the profile's
+weapons on (by their paths): how many, and of one its value and the name it
+is shown by */
+static long tags_mp_loadout_count(void)
+{
+	return 1 + TAG_MULTIPLAYER_STOCK_WEAPONS + tags_mp_weapon_count();
+}
+
+static void tags_mp_loadout_choice(long choice, char *value, size_t value_size, char *shown, size_t shown_size)
+{
+	value[0] = 0;
+	snprintf(shown, shown_size, "NONE");
+	if (choice >= 1 && choice <= TAG_MULTIPLAYER_STOCK_WEAPONS)
+	{
+		snprintf(value, value_size, "stock:%s", tag_multiplayer_stock_key((short)(choice - 1)));
+		snprintf(shown, shown_size, "MAP'S %s", tag_multiplayer_stock_name((short)(choice - 1)));
+	}
+	else if (choice > TAG_MULTIPLAYER_STOCK_WEAPONS)
+	{
+		long tag = tags_mp_weapon_tag(choice - 1 - TAG_MULTIPLAYER_STOCK_WEAPONS);
+		char name[256];
+
+		if (tag == NONE)
+			return;
+		snprintf(value, value_size, "%s", port_tag_profiles_tag_name(tags_mp_base(), tag));
+		tag_injector_tag_display_name(tags_mp_base(), tag, name, sizeof(name));
+		upper_copy(shown, shown_size, name);
+	}
+}
+
+/* the choice a SET weapon has (0, NONE, for one not among them) */
+static long tags_mp_loadout_value(char const *key)
+{
+	char const *value = port_tag_mp_profiles_option(tags_screen.mp_profile, key);
+	long count = tags_mp_loadout_count();
+	long choice;
+
+	for (choice = 1; value[0] && choice < count; choice++)
+	{
+		char option[256];
+		char shown[ROW_TEXT_LENGTH];
+
+		tags_mp_loadout_choice(choice, option, sizeof(option), shown, sizeof(shown));
+		if (!csstrcasecmp(option, value))
+			return choice;
+	}
+	return 0;
+}
+
+/* MANUAL's list's row: ORIGINAL (0), or the profile's weapon's path and
+the name it is shown by */
+static char const *tags_mp_manual_path(short place, char *shown, size_t shown_size)
+{
+	long tag;
+
+	if (place == 0)
+	{
+		snprintf(shown, shown_size, "ORIGINAL (MAP'S %s)", tag_multiplayer_stock_name(tags_screen.mp_weapon));
+		return "original";
+	}
+	tag = tags_mp_weapon_tag(place - 1);
+	if (tag == NONE)
+	{
+		shown[0] = 0;
+		return NULL;
+	}
+	tag_injector_tag_display_name(tags_mp_base(), tag, shown, (long)shown_size);
+	return port_tag_profiles_tag_name(tags_mp_base(), tag);
+}
+
+/* a setting of the multiplayer profile shown, its value before or after */
+static void tags_mp_setting_step(short setting, short step)
+{
+	char const *key;
+	short count;
+	struct tags_choice const *choices = tags_mp_setting_choices(setting, &key, &count);
+	boolean written = TRUE;
+
+	if (setting == _tags_mp_setting_profile)
+	{
+		long profiles = port_tag_profiles_count();
+		long base = tags_mp_base();
+
+		if (!profiles)
+		{
+			tags_message("No profiles: TAG PROFILES' NEW PROFILE makes one.");
+			ui_play_audio_feedback_sound(SOUND_ERROR);
+			return;
+		}
+		base = base == NONE ? 0 : (base + step + profiles) % profiles;
+		written = port_tag_mp_profiles_set_option(tags_screen.mp_profile, "profile", port_tag_profiles_folder(base));
+	}
+	else if (setting == _tags_mp_setting_primary || setting == _tags_mp_setting_secondary)
+	{
+		char const *key_name = setting == _tags_mp_setting_primary ? "primary" : "secondary";
+		long choices_count = tags_mp_loadout_count();
+		char value[256];
+		char shown[ROW_TEXT_LENGTH];
+
+		tags_mp_loadout_choice((tags_mp_loadout_value(key_name) + step + choices_count) % choices_count, value,
+			sizeof(value), shown, sizeof(shown));
+		written = port_tag_mp_profiles_set_option(tags_screen.mp_profile, key_name, value);
+	}
+	else if (choices)
+	{
+		written = port_tag_mp_profiles_set_option(tags_screen.mp_profile, key,
+			choices[(tags_mp_setting_value(setting) + step + count) % count].value);
+	}
+	else
+	{
+		return;
+	}
+	if (!written)
+		tags_message("The multiplayer profile cannot be written (the log says why).");
+	ui_play_audio_feedback_sound(SOUND_CURSOR);
+}
+
+/* MANUAL's weapon of a row turned on or off for the map's weapon shown */
+static void tags_mp_manual_toggle(short place)
+{
+	char shown[ROW_TEXT_LENGTH];
+	char const *path = tags_mp_manual_path(place, shown, sizeof(shown));
+	char const *key = tag_multiplayer_stock_key(tags_screen.mp_weapon);
+
+	if (!path)
+		return;
+	if (!port_tag_mp_profiles_manual_set(tags_screen.mp_profile, key, path,
+		!port_tag_mp_profiles_manual_has(tags_screen.mp_profile, key, path)))
+		tags_message("The multiplayer profile cannot be written (the log says why).");
+	ui_play_audio_feedback_sound(SOUND_CURSOR);
+}
+
 /* how many rows the list shown has */
 static short tags_count(void)
 {
@@ -5894,6 +6205,17 @@ static short tags_count(void)
 		return map_browse_count(tags_screen.campaign, tags_browse_folder());
 	case _tags_list_categories:
 		return NUMBER_OF_TAG_INJECTOR_CATEGORIES;
+	case _tags_list_mp_profiles:
+		return (short)port_tag_mp_profiles_count();
+	case _tags_list_mp_profile:
+	{
+		short mp_rows[MAXIMUM_TAGS_MP_SETTING_ROWS];
+		short weapons[MAXIMUM_TAGS_MP_SETTING_ROWS];
+
+		return tags_mp_setting_rows(mp_rows, weapons);
+	}
+	case _tags_list_mp_manual:
+		return (short)MIN(1 + tags_mp_weapon_count(), 0x7FFF);
 	default:
 		return (short)MIN(tag_injector_category_count(tags_screen.category), 0x7FFF);
 	}
@@ -6023,6 +6345,11 @@ static void tags_row_text(short place, char *name, size_t name_size, char *state
 			snprintf(name, name_size, "TAG PROFILES");
 			snprintf(state, state_size, "%ld", port_tag_profiles_count());
 		}
+		else if (place == _tags_top_multiplayer)
+		{
+			snprintf(name, name_size, "MULTIPLAYER PROFILES");
+			snprintf(state, state_size, "%ld", port_tag_mp_profiles_count());
+		}
 		else
 		{
 			snprintf(name, name_size, "MAPS");
@@ -6120,6 +6447,74 @@ static void tags_row_text(short place, char *name, size_t name_size, char *state
 		snprintf(name, name_size, "%s", tag_injector_category_name(place));
 		snprintf(state, state_size, "%ld", tag_injector_category_count(place));
 		break;
+	case _tags_list_mp_profiles:
+	{
+		long base = port_tag_profiles_find(port_tag_mp_profiles_option(place, "profile"));
+
+		snprintf(name, name_size, "%s", port_tag_mp_profiles_name(place));
+		upper_copy(state, state_size, base != NONE ? port_tag_profiles_name(base) : "NO PROFILE");
+		break;
+	}
+	case _tags_list_mp_profile:
+	{
+		short weapon;
+		short setting = tags_mp_setting_of(place, &weapon);
+
+		switch (setting)
+		{
+		case _tags_mp_setting_name:
+			snprintf(name, name_size, "NAME");
+			upper_copy(state, state_size, port_tag_mp_profiles_name(tags_screen.mp_profile));
+			break;
+		case _tags_mp_setting_profile:
+			snprintf(name, name_size, "TAG PROFILE");
+			upper_copy(state, state_size, tags_mp_base() != NONE ? port_tag_profiles_name(tags_mp_base()) : "NONE");
+			break;
+		case _tags_mp_setting_weapon:
+		{
+			long chosen = port_tag_mp_profiles_manual_count(tags_screen.mp_profile, tag_multiplayer_stock_key(weapon));
+
+			snprintf(name, name_size, "  %s", tag_multiplayer_stock_name(weapon));
+			if (chosen)
+				snprintf(state, state_size, "%ld CHOSEN", chosen);
+			else
+				snprintf(state, state_size, "AS IT IS");
+			break;
+		}
+		case _tags_mp_setting_primary:
+		case _tags_mp_setting_secondary:
+		{
+			char value[256];
+			char const *key = setting == _tags_mp_setting_primary ? "primary" : "secondary";
+
+			snprintf(name, name_size, "  %s", setting == _tags_mp_setting_primary ? "PRIMARY" : "SECONDARY");
+			tags_mp_loadout_choice(tags_mp_loadout_value(key), value, sizeof(value), state, state_size);
+			break;
+		}
+		default:
+		{
+			char const *key;
+			short count;
+			struct tags_choice const *choices = tags_mp_setting_choices(setting, &key, &count);
+
+			snprintf(name, name_size, "%s", setting == _tags_mp_setting_rotation ? "ROTATION" :
+				setting == _tags_mp_setting_replace ? "REPLACEMENT" : "LOADOUT");
+			snprintf(state, state_size, "%s", choices ? choices[tags_mp_setting_value(setting)].shown : "");
+			break;
+		}
+		}
+		break;
+	}
+	case _tags_list_mp_manual:
+	{
+		char shown[ROW_TEXT_LENGTH];
+		char const *path = tags_mp_manual_path(place, shown, sizeof(shown));
+
+		upper_copy(name, name_size, shown);
+		snprintf(state, state_size, "%s", path && port_tag_mp_profiles_manual_has(tags_screen.mp_profile,
+			tag_multiplayer_stock_key(tags_screen.mp_weapon), path) ? "ON" : "OFF");
+		break;
+	}
 	default:
 		snprintf(name, name_size, "%s", tag_leaf(tag_injector_category_tag(tags_screen.category, place)));
 		if (tag_injector_category_addable(tags_screen.category) &&
@@ -6187,6 +6582,13 @@ static void tags_details_text(short place, char *title, size_t title_size, char 
 			snprintf(text, text_size, "On: the randomizer can add a profile's weapons and AI to a campaign level played "
 				"alone. A screen before the randomizer's chooses which profile, or none.\n \nA, left or right "
 				"turns it on or off.");
+		}
+		else if (place == _tags_top_multiplayer)
+		{
+			snprintf(title, title_size, "Multiplayer Profiles");
+			snprintf(text, text_size, "How a multiplayer game on the game's own maps plays a profile's weapons: "
+				"swapped for the map's, and as the players' loadouts. Server Setup's TAG PROFILE chooses one for a "
+				"game you host; its players download the weapons from you.\n \nA lists them.");
 		}
 		else if (place == _tags_top_profiles)
 		{
@@ -6376,6 +6778,81 @@ static void tags_details_text(short place, char *title, size_t title_size, char 
 				tags_browse_folder(), profile[0] ? profile : "a profile");
 		break;
 	}
+	case _tags_list_mp_profiles:
+	{
+		long base;
+
+		if (place == NONE)
+		{
+			snprintf(title, title_size, "No multiplayer profiles");
+			snprintf(text, text_size, "NEW PROFILE makes one, playing the weapons of a profile of TAG PROFILES. Each "
+				"is a file of the tag_injector folder's .multiplayer folder.");
+			break;
+		}
+		base = port_tag_profiles_find(port_tag_mp_profiles_option(place, "profile"));
+		snprintf(title, title_size, "%s", port_tag_mp_profiles_name(place));
+		if (base == NONE)
+			snprintf(text, text_size, "Its profile (%s) is not there: A, then TAG PROFILE, chooses another.",
+				port_tag_mp_profiles_option(place, "profile"));
+		else
+			snprintf(text, text_size, "Plays the %ld weapons on of %s.\n \nA opens its settings: there DELETE "
+				"PROFILE, twice, deletes it.", tag_injector_profile_enabled_count(base, 'weap'),
+				port_tag_profiles_name(base));
+		break;
+	}
+	case _tags_list_mp_profile:
+	{
+		short weapon;
+
+		snprintf(title, title_size, "%s", port_tag_mp_profiles_name(tags_screen.mp_profile));
+		switch (tags_mp_setting_of(place, &weapon))
+		{
+		case _tags_mp_setting_name:
+			snprintf(text, text_size, "The name the menus and Server Setup show it by.\n \nA types another.");
+			break;
+		case _tags_mp_setting_profile:
+			snprintf(text, text_size, "The profile whose weapons on it plays (%ld of them): its weapons alone, not its "
+				"AI or equipment. A game you host shares them with its players, who download them from you.\n \n"
+				"A, left and right choose another.", tags_mp_weapon_count());
+			break;
+		case _tags_mp_setting_rotation:
+			snprintf(text, text_size, "ADD TO MAP'S: the profile's weapons join the map's, so a weapon may be either. "
+				"PROFILE'S ONLY: the map's weapons are all the profile's.\n \nWith MANUAL, ADD keeps the map's "
+				"weapon among those chosen for it.\n \nLeft and right choose.");
+			break;
+		case _tags_mp_setting_replace:
+			snprintf(text, text_size, "How the map's weapons are swapped:\nFULLY RANDOM: any weapon, each time one "
+				"spawns.\nONCE PER POSITION: each place rolls once a game.\nONCE PER WEAPON: each of the map's "
+				"weapons rolls once (every shotgun the same).\nMANUAL: the weapons chosen for each.\n \nLeft and "
+				"right choose.");
+			break;
+		case _tags_mp_setting_weapon:
+			snprintf(text, text_size, "The weapons that take the place of the map's %s, one at random each time it "
+				"spawns. None chosen: it stays as it is.\n \nA lists them.", tag_multiplayer_stock_name(weapon));
+			break;
+		case _tags_mp_setting_loadout:
+			snprintf(text, text_size, "The weapons each player spawns with.\nGAMETYPE'S: as the gametype gives them."
+				"\nRANDOM: two of the weapons a map's weapon may be swapped for.\nSET: the two chosen below.\n \n"
+				"Left and right choose.");
+			break;
+		default:
+			snprintf(text, text_size, "A weapon each player spawns with: one of the profile's, or one of the map's "
+				"(when the map has it).\n \nA, left and right choose another.");
+			break;
+		}
+		break;
+	}
+	case _tags_list_mp_manual:
+	{
+		char shown[ROW_TEXT_LENGTH];
+
+		snprintf(title, title_size, "%s", tag_multiplayer_stock_name(tags_screen.mp_weapon));
+		tags_mp_manual_path(place, shown, sizeof(shown));
+		snprintf(text, text_size, "On: %s may take the place of the map's %s, one of those on at random each time it "
+			"spawns.\n \nA, left or right turns it on or off.", place == 0 ? "the map's own" : shown,
+			tag_multiplayer_stock_name(tags_screen.mp_weapon));
+		break;
+	}
 	case _tags_list_categories:
 	{
 		long count = tag_injector_category_count(place);
@@ -6438,6 +6915,9 @@ static boolean tags_screen_reset(boolean opening)
 	tags_screen.deleting = NONE;
 	tags_screen.removing = NONE;
 	tags_screen.viewed_from = NONE;
+	tags_screen.mp_profile = NONE;
+	tags_screen.mp_weapon = 0;
+	tags_screen.mp_deleting = NONE;
 	tags_screen.message[0] = 0;
 	tags_screen.shown[0] = 0;
 	csmemset(tags_screen.row_shown, 0, sizeof(tags_screen.row_shown));
@@ -6453,6 +6933,7 @@ static boolean tags_screen_reset(boolean opening)
 	if (!opening)
 		return TRUE;
 	port_tag_profiles_scan();
+	port_tag_mp_profiles_scan();
 	tag_injector_maps_find();
 	map_browse_forget();
 	tags_screen.profile = port_tag_profiles_find(config_string("game.tag_injection_profile"));
@@ -6591,6 +7072,12 @@ static boolean tags_choose(struct widget_instance *widget)
 			ui_play_audio_feedback_sound(SOUND_FORWARD);
 			tags_list_open(list, _tags_list_profiles, (short)MAX(0, tags_screen.profile));
 		}
+		else if (place == _tags_top_multiplayer)
+		{
+			port_tag_mp_profiles_scan();
+			ui_play_audio_feedback_sound(SOUND_FORWARD);
+			tags_list_open(list, _tags_list_mp_profiles, (short)MAX(0, tags_screen.mp_profile));
+		}
 		else if (!tag_injector_maps_available(reason, sizeof(reason)))
 		{
 			tags_message(reason);
@@ -6716,6 +7203,39 @@ static boolean tags_choose(struct widget_instance *widget)
 		}
 		break;
 	}
+	case _tags_list_mp_profiles:
+		tags_screen.mp_profile = place;
+		tags_screen.mp_deleting = NONE;
+		ui_play_audio_feedback_sound(SOUND_FORWARD);
+		tags_list_open(list, _tags_list_mp_profile, 0);
+		break;
+	case _tags_list_mp_profile:
+	{
+		short weapon;
+		short setting = tags_mp_setting_of(place, &weapon);
+
+		if (setting == _tags_mp_setting_name)
+		{
+			char shown[TAG_PROFILE_NAME + 1];
+
+			snprintf(shown, sizeof(shown), "%s", port_tag_mp_profiles_name(tags_screen.mp_profile));
+			tags_name_ask(_tags_naming_mp_name, shown, TAG_PROFILE_NAME);
+		}
+		else if (setting == _tags_mp_setting_weapon)
+		{
+			tags_screen.mp_weapon = weapon;
+			ui_play_audio_feedback_sound(SOUND_FORWARD);
+			tags_list_open(list, _tags_list_mp_manual, 0);
+		}
+		else
+		{
+			tags_mp_setting_step(setting, 1);
+		}
+		break;
+	}
+	case _tags_list_mp_manual:
+		tags_mp_manual_toggle(place);
+		break;
 	case _tags_list_categories:
 		if (!tag_injector_category_count(place))
 		{
@@ -6822,6 +7342,18 @@ static boolean tags_step(struct widget_instance *widget, short step)
 			return TRUE;
 		tags_profile_choose(tags_screen.profile + step);
 		break;
+	case _tags_list_mp_profile:
+	{
+		short weapon;
+		short setting = tags_mp_setting_of(place, &weapon);
+
+		if (setting != _tags_mp_setting_name && setting != _tags_mp_setting_weapon)
+			tags_mp_setting_step(setting, step);
+		return TRUE;
+	}
+	case _tags_list_mp_manual:
+		tags_mp_manual_toggle(place);
+		return TRUE;
 	default:
 		return TRUE;
 	}
@@ -6857,6 +7389,12 @@ static boolean tags_back(struct widget_instance *widget, boolean *widget_deleted
 		up = tags_browse_list();
 		break;
 	case _tags_list_tags: up = _tags_list_categories; break;
+	case _tags_list_mp_profiles: up = _tags_list_top; break;
+	case _tags_list_mp_profile:
+		tags_screen.mp_deleting = NONE;
+		up = _tags_list_mp_profiles;
+		break;
+	case _tags_list_mp_manual: up = _tags_list_mp_profile; break;
 	default:
 		ui_widget_port_go_back(widget);
 		*widget_deleted = TRUE;
@@ -6877,7 +7415,11 @@ enum
 	_tags_buttons_none,
 	_tags_buttons_profiles,
 	_tags_buttons_profile,
-	_tags_buttons_maps
+	_tags_buttons_maps,
+	/* NEW PROFILE in MULTIPLAYER PROFILES; DELETE PROFILE in a multiplayer
+	profile's lists */
+	_tags_buttons_mp_profiles,
+	_tags_buttons_mp_profile
 };
 
 static short tags_buttons(void)
@@ -6892,6 +7434,11 @@ static short tags_buttons(void)
 	case _tags_list_profile:
 	case _tags_list_tag:
 		return _tags_buttons_profile;
+	case _tags_list_mp_profiles:
+		return _tags_buttons_mp_profiles;
+	case _tags_list_mp_profile:
+	case _tags_list_mp_manual:
+		return _tags_buttons_mp_profile;
 	default:
 		return _tags_buttons_maps;
 	}
@@ -6904,8 +7451,14 @@ static boolean tags_new_profile(void)
 {
 	short buttons = tags_buttons();
 
-	if (tags_screen.naming != _tags_naming_none || buttons == _tags_buttons_none)
+	if (tags_screen.naming != _tags_naming_none || buttons == _tags_buttons_none ||
+		buttons == _tags_buttons_mp_profile)
 		return TRUE;
+	if (buttons == _tags_buttons_mp_profiles)
+	{
+		tags_name_ask(_tags_naming_mp_profile, NULL, TAG_PROFILE_NAME);
+		return TRUE;
+	}
 	if (buttons == _tags_buttons_profile && tags_screen.profile != NONE)
 	{
 		char copy[TAG_PROFILE_NAME + 1];
@@ -6955,6 +7508,37 @@ static boolean tags_profile_button(struct widget_instance *widget)
 	if (tags_buttons() == _tags_buttons_maps)
 	{
 		tags_view_profile(widget);
+		return TRUE;
+	}
+	/* (a multiplayer profile's: once the question, again its file deleted) */
+	if (tags_buttons() == _tags_buttons_mp_profile)
+	{
+		long mp_profile = tags_screen.mp_profile;
+
+		if (tags_screen.mp_deleting != mp_profile)
+		{
+			tags_screen.mp_deleting = mp_profile;
+			snprintf(text, sizeof(text), "DELETE PROFILE again deletes the multiplayer profile %s (not its weapons' "
+				"profile).", port_tag_mp_profiles_name(mp_profile));
+			tags_message(text);
+			ui_play_audio_feedback_sound(SOUND_CURSOR);
+			return TRUE;
+		}
+		snprintf(text, sizeof(text), "Deleted %s.", port_tag_mp_profiles_name(mp_profile));
+		if (!port_tag_mp_profiles_delete(mp_profile))
+		{
+			snprintf(text, sizeof(text), "%s cannot be deleted (the log says why).",
+				port_tag_mp_profiles_name(mp_profile));
+			ui_play_audio_feedback_sound(SOUND_ERROR);
+		}
+		else
+		{
+			ui_play_audio_feedback_sound(SOUND_BACK);
+		}
+		tags_screen.mp_deleting = NONE;
+		tags_screen.mp_profile = NONE;
+		tags_list_open(tags_list_of(widget), _tags_list_mp_profiles, 0);
+		tags_message(text);
 		return TRUE;
 	}
 	if (profile == NONE)
@@ -7028,10 +7612,11 @@ static void tags_buttons_update(struct widget_instance *list)
 	if (!new_button || !profile_button)
 		return;
 	snprintf(tags_screen.buttons_shown, sizeof(tags_screen.buttons_shown), "%s", shown);
-	tags_button_show(new_button, buttons == _tags_buttons_none ? NULL :
+	tags_button_show(new_button, buttons == _tags_buttons_none || buttons == _tags_buttons_mp_profile ? NULL :
 		buttons == _tags_buttons_profile ? L"DUPLICATE PROFILE" : L"NEW PROFILE");
 	mods_wide_text(view, wide, ROW_TEXT_LENGTH);
-	tags_button_show(profile_button, buttons == _tags_buttons_profile ? L"DELETE PROFILE" : view[0] ? wide : NULL);
+	tags_button_show(profile_button, buttons == _tags_buttons_profile || buttons == _tags_buttons_mp_profile ?
+		L"DELETE PROFILE" : view[0] ? wide : NULL);
 }
 
 /* the name typed, once the keyboard has closed: a profile made, and shown,
@@ -7053,6 +7638,34 @@ void tag_injector_profiles_poll(void)
 	name[character] = 0;
 	if (!virtual_keyboard_last_exit_saved_text())
 		return;
+	if (naming == _tags_naming_mp_name)
+	{
+		if (!port_tag_mp_profiles_rename(tags_screen.mp_profile, name))
+			tags_message("A name needs a letter or a digit (the log says why).");
+		tags_screen.shown[0] = 0;
+		csmemset(tags_screen.row_shown, 0, sizeof(tags_screen.row_shown));
+		return;
+	}
+	if (naming == _tags_naming_mp_profile)
+	{
+		/* (playing the profile shown last, else the first) */
+		long base = tags_screen.profile != NONE ? tags_screen.profile : port_tag_profiles_count() ? 0 : NONE;
+
+		profile = port_tag_mp_profiles_create(name, base != NONE ? port_tag_profiles_folder(base) : "");
+		if (profile == NONE)
+		{
+			tags_message("A profile's name needs a letter or a digit (the log says why).");
+			return;
+		}
+		tags_screen.mp_profile = profile;
+		tags_screen.chosen[_tags_list_mp_profiles] = (short)profile;
+		snprintf(text, sizeof(text), "Made %s, playing %s. A opens its settings.", port_tag_mp_profiles_name(profile),
+			base != NONE ? port_tag_profiles_name(base) : "no profile yet");
+		tags_message(text);
+		tags_screen.shown[0] = 0;
+		csmemset(tags_screen.row_shown, 0, sizeof(tags_screen.row_shown));
+		return;
+	}
 	if (naming == _tags_naming_custom_type)
 	{
 		if (!port_tag_profiles_tag_set_option(tags_screen.profile, tags_screen.tag, "custom_type", name))
@@ -7199,6 +7812,15 @@ static void tags_update(struct widget_instance *list)
 		tags_list_show(list, _tags_list_profile);
 	if (tags_screen.list == _tags_list_profile && !tags_profile_category_count(tags_screen.profile_category))
 		tags_list_show(list, _tags_list_profile_categories);
+	/* (a multiplayer profile deleted) */
+	if ((tags_screen.list == _tags_list_mp_profile || tags_screen.list == _tags_list_mp_manual) &&
+		(tags_screen.mp_profile == NONE || tags_screen.mp_profile >= port_tag_mp_profiles_count()))
+		tags_list_show(list, _tags_list_mp_profiles);
+	if (tags_screen.list == _tags_list_mp_manual &&
+		strcmp(port_tag_mp_profiles_option(tags_screen.mp_profile, "replace"), "manual"))
+		tags_list_show(list, _tags_list_mp_profile);
+	if (tags_screen.mp_deleting != NONE && tags_buttons() != _tags_buttons_mp_profile)
+		tags_screen.mp_deleting = NONE;
 	first = &tags_screen.first[tags_screen.list];
 	chosen = &tags_screen.chosen[tags_screen.list];
 	count = tags_count();
@@ -7286,8 +7908,9 @@ static void tags_update(struct widget_instance *list)
 
 		/* (made again only when what they show, or its fonts, change) */
 		needs_state = previewed ? tag_preview_needs(&needs) : _tag_preview_needs_waiting;
-		snprintf(shown, sizeof(shown), "%d %d %d %d %d %ld %ld %d %s %lu %d %ld %ld %s %ld %d %ld %d %d", tags_screen.list,
-			*chosen, count, tags_screen.category, tags_screen.profile_category, tags_screen.profile, tags_screen.tag,
+		snprintf(shown, sizeof(shown), "%d %ld %d %lu %d %d %d %d %ld %ld %d %s %lu %d %ld %ld %s %ld %d %ld %d %d",
+			tags_screen.list, tags_screen.mp_profile, tags_screen.mp_weapon, port_tag_mp_profiles_scans(), *chosen,
+			count, tags_screen.category, tags_screen.profile_category, tags_screen.profile, tags_screen.tag,
 			tags_screen.campaign,
 			tags_screen.folder, port_tag_profiles_scans(), config_boolean("game.tag_injection"), tags_screen.removing,
 			tags_screen.deleting, tags_screen.message, mods_screen.fonts[_mod_details_name],
@@ -8312,6 +8935,13 @@ game's, in MAP SHARING's place: its help */
 /* (LISTING's PUBLIC on a machine with a publisher key: server_master.c), after
 the rows above */
 #define SERVER_LISTING_PUBLISHER_HELP 19
+/* Server Setup's TAG PROFILE row (tools/port_settings.py's TAG_PROFILE_SETUP),
+a multiplayer game's on the game's own maps: its help; and where the rows
+are packed while it is shown (the first's place, and the most rows a
+spacing of SERVER_SETTINGS_ROW_SPACING has above the help) */
+#define TAG_PROFILE_SETUP_HELP 20
+#define SERVER_SETTINGS_FIRST_ROW 73
+#define SERVER_SETTINGS_ROWS 12
 
 /* whether this machine has a publisher key (read as Server Setup opens) */
 static boolean server_settings_publisher;
@@ -8422,6 +9052,8 @@ static boolean server_settings_initialize(struct widget_instance *list)
 	back from an option's screen) */
 	if ((spinner = named(list, "listing_spinner", 0)) != NULL)
 		spinner->parameters.list.selected_index = server_settings_private() ? 1 : 0;
+	/* (TAG PROFILE's: the Tag Injector's multiplayer profiles found again) */
+	port_tag_mp_profiles_scan();
 	p2p_set_hosting_public(multiplayer.mode == _multiplayer_mode_host_internet && !server_settings_private());
 	{
 		unsigned char public_key[SERVER_MASTER_PUBLIC_KEY_SIZE];
@@ -8439,6 +9071,83 @@ static void wide_to_text(wchar_t const *wide, char *text, short size)
 	for (index = 0; wide[index] && index < size - 1; index++)
 		text[index] = wide[index] < 0x80 ? (char)wide[index] : '?';
 	text[index] = 0;
+}
+
+/* whether Server Setup's game plays a Tag Injector multiplayer profile: a
+multiplayer game on one of the game's own maps (tag_multiplayer.c) */
+static boolean server_settings_tag_profile_shown(void)
+{
+	void *server = global_network_game_server_get();
+	struct network_game *game = server ? network_game_server_get_game(server) : NULL;
+
+	return game && !hosting_cooperative() && tag_multiplayer_map_takes(game->map.name);
+}
+
+/* TAG PROFILE: shown for such a game, its value the multiplayer profile
+chosen (NONE), its help; and the rows shown packed, closer together where
+there would be more than the screen's twelve */
+static void server_settings_tag_profile_update(struct widget_instance *list)
+{
+	struct widget_instance *row = named(list, "op_tag_profile", 0);
+	struct widget_instance *help = list->parameters.list.extended_description;
+	struct widget_instance *child;
+	boolean shown = server_settings_tag_profile_shown();
+	short count = 0;
+	short spacing = SERVER_SETTINGS_ROW_SPACING;
+	short place = 0;
+
+	visible_set(row, shown);
+	if (!row || !shown)
+		return;
+	{
+		long profile = tag_multiplayer_profile_chosen();
+		char value[ROW_TEXT_LENGTH];
+
+		/* (the Tag Injector's bundles are Custom Edition maps': game.custom_edition) */
+		if (profile != NONE && !halo_custom_edition_tag_cache())
+			snprintf(value, sizeof(value), "NEEDS CUSTOM EDITION MAPS ON");
+		else if (profile != NONE)
+			upper_copy(value, sizeof(value), port_tag_mp_profiles_name(profile));
+		else if (!port_tag_mp_profiles_count())
+			snprintf(value, sizeof(value), "NONE (MADE IN THE TAG INJECTOR)");
+		else
+			snprintf(value, sizeof(value), "NONE");
+		text_field_show(named(list, "tag_profile_value", 0), value, FALSE);
+	}
+	if (help && list->focused_child == row)
+		help->parameters.text_box.string_list_index = TAG_PROFILE_SETUP_HELP;
+	for (child = list->child; child; child = child->next)
+		count = (short)(count + (!strncmp(child->name, "op_", 3) && child->visible));
+	if (count > SERVER_SETTINGS_ROWS)
+		spacing = (short)(SERVER_SETTINGS_ROW_SPACING * (SERVER_SETTINGS_ROWS - 1) / (count - 1));
+	for (child = list->child; child; child = child->next)
+	{
+		if (strncmp(child->name, "op_", 3) || !child->visible)
+			continue;
+		child->vertical_offset = (short)(SERVER_SETTINGS_FIRST_ROW + place * spacing);
+		place++;
+	}
+}
+
+/* "ss tag profile next" and "ss tag profile previous": TAG PROFILE's
+multiplayer profile the next or the one before, NONE among them */
+static boolean server_settings_tag_profile_step(short step)
+{
+	long count = port_tag_mp_profiles_count();
+	long chosen = tag_multiplayer_profile_chosen();
+
+	if (!server_settings_tag_profile_shown())
+		return TRUE;
+	if (!count)
+	{
+		ui_play_audio_feedback_sound(SOUND_ERROR);
+		return TRUE;
+	}
+	/* (NONE before the first) */
+	chosen = (chosen + 1 + step + count + 1) % (count + 1) - 1;
+	tag_multiplayer_profile_choose(chosen);
+	ui_play_audio_feedback_sound(SOUND_CURSOR);
+	return TRUE;
 }
 
 /* "server settings update" */
@@ -8587,6 +9296,7 @@ static void server_settings_update(struct widget_instance *list)
 		if (help && list->focused_child == row)
 			help->parameters.text_box.string_list_index = SERVER_PASSWORD_HELP;
 	}
+	server_settings_tag_profile_update(list);
 }
 
 static void server_password_done(char const *text)
@@ -13305,6 +14015,10 @@ boolean pc_menu_event_function_invoke(
 		else if (!strcmp(name, "ss randomizer") || !strcmp(name, "ss skulls"))
 		{
 			return server_campaign_screen(widget, !strcmp(name, "ss skulls"), widget_deleted);
+		}
+		else if (!strcmp(name, "ss tag profile next") || !strcmp(name, "ss tag profile previous"))
+		{
+			return server_settings_tag_profile_step(strstr(name, "previous") ? -1 : 1);
 		}
 		else if (!strcmp(name, "single prev cl item activated"))
 		{

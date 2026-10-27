@@ -66,6 +66,7 @@ what it says it has grows.
 #include "custom_edition_cache.h"
 #include "custom_edition_maps.h"
 #include "map_share.h"
+#include "tag_multiplayer.h"
 #include "server_director.h"
 #include "../src/p2p.h"
 
@@ -161,6 +162,8 @@ enum
 	have its players fill their disks */
 	MAXIMUM_MAP_BYTES = 0x30000000,
 	MAXIMUM_RESOURCE_MAP_BYTES = 0x20000000,
+	/* ... and of the host's shared weapons (port_tag_profiles.c's archive) */
+	MAXIMUM_TAGS_BYTES = 0x40000000,
 
 	/* the kilobytes a second a machine sends, at least and at most: the
 	host 20 MB/s, a player helping it 10 MB/s */
@@ -384,6 +387,9 @@ struct download
 	download that fails */
 	char message[256];
 	byte wanted;
+	/* the shared weapons' hash, as the host told it (_map_share_file_tags:
+	the offer's is checked against it) */
+	byte tags_hash[MAP_SHARE_HASH_BYTES];
 	boolean in_progress;
 	short file_count;
 	struct download_file files[MAXIMUM_FILES];
@@ -681,8 +687,11 @@ static boolean map_share_sending(
 {
 	struct network_game *game = map_share_network_game();
 
-	if (!game || !custom_edition_level_name(game->map.name) || network_game_client_get_local_machine_index() == NONE)
+	if (!game || network_game_client_get_local_machine_index() == NONE ||
+		(!custom_edition_level_name(game->map.name) && !tag_multiplayer_share_file(NULL, 0, NULL, NULL)))
+	{
 		return FALSE;
+	}
 	return map_share_host() ? config_boolean("network.map_share") != 0 : config_boolean("network.map_seed") != 0;
 }
 
@@ -733,14 +742,22 @@ static void current_files_update(
 		for (kind = 0; kind < MAXIMUM_FILES; kind++)
 			globals->current_files[kind] = NONE;
 	}
-	if (!hash || !custom_edition_level_name(level_name))
+	if (!hash)
 		return;
 	for (kind = 0; kind < MAXIMUM_FILES; kind++)
 	{
 		char path[MAP_SHARE_PATH_SIZE];
-		boolean present = kind == _map_share_file_map ? custom_edition_map_file_path(level_name, path) :
-			custom_edition_resource_map_file_path(kind, path);
+		boolean present;
 
+		/* (the shared weapons, of whatever map; the map's files, a Custom
+		Edition map's) */
+		if (kind == _map_share_file_tags)
+			present = tag_multiplayer_share_file(path, sizeof(path), NULL, NULL);
+		else if (!custom_edition_level_name(level_name))
+			present = FALSE;
+		else
+			present = kind == _map_share_file_map ? custom_edition_map_file_path(level_name, path) :
+				custom_edition_resource_map_file_path(kind, path);
 		globals->current_files[kind] = present ? map_share_file_hash(path, kind) : NONE;
 	}
 }
@@ -1440,7 +1457,7 @@ static byte files_wanted(
 	{
 		wanted |= FLAG(_map_share_file_map);
 	}
-	for (kind = _map_share_file_bitmaps; kind < MAXIMUM_FILES; kind++)
+	for (kind = _map_share_file_bitmaps; kind <= _map_share_file_locale; kind++)
 	{
 		if (!custom_edition_resource_map_file_path(kind, path))
 			wanted |= FLAG(kind);
@@ -1490,6 +1507,45 @@ boolean map_share_download_begin(
 	download->asked_at = system_milliseconds();
 	download->progress_at = download->asked_at;
 	error(_error_silent, "map sharing: asking the host for %s (files 0x%X)", level_name, (unsigned)wanted);
+	download_ask();
+	return TRUE;
+}
+
+boolean map_share_tags_download_begin(
+	char const *level_name,
+	byte const *hash,
+	unsigned long size)
+{
+	struct download *download = &map_share_globals.download;
+
+	if (!level_name || !level_name[0] || csstrlen(level_name) >= LEVEL_NAME_BYTES || !hash || !size ||
+		size > MAXIMUM_TAGS_BYTES || !config_boolean("network.map_download") || map_share_host() ||
+		!global_network_game_client_get() || !halo_custom_edition_tag_cache())
+	{
+		return FALSE;
+	}
+	if (download->state == _download_asking || download->state == _download_transferring)
+	{
+		if (download->wanted == FLAG(_map_share_file_tags) &&
+			!csmemcmp(download->tags_hash, hash, MAP_SHARE_HASH_BYTES))
+			return TRUE;
+		download_end(FALSE);
+	}
+	{
+		static long serial = 1L << 20;
+
+		csmemset(download, 0, sizeof(*download));
+		download->serial = ++serial;
+	}
+	download->state = _download_asking;
+	level_name_copy(download->level_name, level_name);
+	csstrncpy(download->message, "The host's game plays weapons of its Tag Injector profile, which this machine has "
+		"not got.", sizeof(download->message) - 1);
+	download->wanted = FLAG(_map_share_file_tags);
+	csmemcpy(download->tags_hash, hash, MAP_SHARE_HASH_BYTES);
+	download->asked_at = system_milliseconds();
+	download->progress_at = download->asked_at;
+	error(_error_silent, "map sharing: asking the host for its shared weapons (%lu bytes) of %s", size, level_name);
 	download_ask();
 	return TRUE;
 }
@@ -1603,8 +1659,9 @@ static void download_offered(
 		if (file->kind >= MAXIMUM_FILES || !TEST_FLAG(download->wanted, file->kind) ||
 			TEST_FLAG(offered, file->kind) || !file->size ||
 			file->size > (unsigned long)(file->kind == _map_share_file_map ? MAXIMUM_MAP_BYTES :
-			MAXIMUM_RESOURCE_MAP_BYTES) ||
-			(file->kind == _map_share_file_map && map_share_hash_version(file->hash) != download->version))
+			file->kind == _map_share_file_tags ? MAXIMUM_TAGS_BYTES : MAXIMUM_RESOURCE_MAP_BYTES) ||
+			(file->kind == _map_share_file_map && map_share_hash_version(file->hash) != download->version) ||
+			(file->kind == _map_share_file_tags && csmemcmp(file->hash, download->tags_hash, MAP_SHARE_HASH_BYTES)))
 		{
 			download->file_count = index;
 			download_fail("The host's offer was not of this map.");
@@ -1621,6 +1678,12 @@ static void download_offered(
 				snprintf(file->final_path, sizeof(file->final_path), "%s%s_%s.map", CUSTOM_EDITION_MAP_DIRECTORY, name,
 					digits);
 			}
+		}
+		/* (the shared weapons in the Tag Injector's shared folder, by their
+		hash) */
+		else if (file->kind == _map_share_file_tags)
+		{
+			tag_multiplayer_share_archive_path(file->hash, file->final_path, sizeof(file->final_path));
 		}
 		else
 		{
@@ -1980,6 +2043,10 @@ static void download_finish(
 			fclose(file->stream);
 			file->stream = NULL;
 		}
+		/* (the shared weapons' archive named for its hash: one there is the
+		same, or a part of one) */
+		if (file->kind == _map_share_file_tags)
+			DeleteFileA(file->final_path);
 		if (!MoveFileA(file->part_path, file->final_path))
 		{
 			download_unfinish(index);
@@ -1991,8 +2058,20 @@ static void download_finish(
 		/* (its hash known: its version is not read again) */
 		map_share_map_hash_remember(file->final_path, file->hash);
 	}
-	custom_edition_maps_look_again();
-	if (!custom_edition_cache_present(download->level_name, download->version, message, sizeof(message)))
+	/* (the shared weapons alone: made the share's folder, else deleted) */
+	if (download->wanted == FLAG(_map_share_file_tags))
+	{
+		if (!tag_multiplayer_share_downloaded(download->files[0].final_path, download->files[0].hash))
+		{
+			download_unfinish(download->file_count);
+			download_fail("The host's weapons were downloaded, but cannot be played.");
+			return;
+		}
+	}
+	else
+		custom_edition_maps_look_again();
+	if (download->wanted != FLAG(_map_share_file_tags) &&
+		!custom_edition_cache_present(download->level_name, download->version, message, sizeof(message)))
 	{
 		csstrncpy(download->message, message, sizeof(download->message) - 1);
 		download_unfinish(download->file_count);
@@ -3208,20 +3287,25 @@ static void host_request(
 		return;
 	}
 	/* (the game's map alone, a Custom Edition map's, of the game's version
-	if it is asked for) */
-	if (!game || csstrcmp(game->map.name, request->level_name) || !custom_edition_level_name(request->level_name) ||
+	if it is asked for; or the game's shared weapons alone, whatever its map) */
+	if (!game || csstrcmp(game->map.name, request->level_name) ||
+		(request->wanted != FLAG(_map_share_file_tags) && (!custom_edition_level_name(request->level_name) ||
 		!custom_edition_map_file_path(request->level_name, path) ||
-		(TEST_FLAG(request->wanted, _map_share_file_map) && !game->map.version))
+		(TEST_FLAG(request->wanted, _map_share_file_map) && !game->map.version))))
 	{
 		host_offer(machine_index, _offer_unavailable);
 		return;
 	}
-	needed = custom_edition_map_resource_maps_needed(request->level_name) | FLAG(_map_share_file_map);
+	needed = custom_edition_level_name(request->level_name) ?
+		custom_edition_map_resource_maps_needed(request->level_name) | FLAG(_map_share_file_map) : 0;
+	if (tag_multiplayer_share_file(NULL, 0, NULL, NULL))
+		needed |= FLAG(_map_share_file_tags);
 	for (kind = 0; kind < MAXIMUM_FILES; kind++)
 	{
 		if (!TEST_FLAG(request->wanted, kind) || !TEST_FLAG(needed, kind))
 			continue;
-		if (kind != _map_share_file_map && !custom_edition_resource_map_file_path(kind, path))
+		if (kind == _map_share_file_tags ? !tag_multiplayer_share_file(path, sizeof(path), NULL, NULL) :
+			kind != _map_share_file_map && !custom_edition_resource_map_file_path(kind, path))
 			continue;
 		machine->catalog_files[machine->file_count] = map_share_file_hash(path, kind);
 		machine->file_kinds[machine->file_count] = kind;

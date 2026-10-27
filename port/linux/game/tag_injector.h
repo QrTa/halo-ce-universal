@@ -249,6 +249,18 @@ game.randomizer_tag_profile names (the randomizer's profile screen chooses
 it) has a tag on. Its index, else NONE. */
 long tag_injector_profile_playable(
 	void);
+/* Copies the tags on of the profile `from` (of a group, or of all: 0) into
+the profile `into` (a network game's shared profile: tag_multiplayer.c), in
+its order, each kept as a tag file and its pack's regions, with its
+settings (but whether it failed): how many, and of each its index in
+`from` and in `into` (`tags`, `capacity` at most). A tag whose bundle
+cannot be read is left out (logged). */
+long tag_injector_profile_export(
+	long from,
+	long into,
+	unsigned long group_tag,
+	long (*tags)[2],
+	long capacity);
 /* how many tags of a profile are on: of a group, or of all (0) */
 long tag_injector_profile_enabled_count(
 	long profile,

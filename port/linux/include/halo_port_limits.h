@@ -123,7 +123,14 @@ forms swapped, in tenths (0, one in three, without go crazy) */
 its clients of each dropped and taken, and every player keeps those taken
 by the host's rules (a modded game) */
 #define HALO_PORT_ADVERTISED_SKULL_DROPS_FLAG 0x10
-/* ... a modded game (randomized, or a campaign with skulls), which builds
+/* ... the multiplayer game plays the weapons of the host's Tag Injector
+multiplayer profile (port/linux/game/tag_multiplayer.c): every machine adds
+the host's shared weapons to the level, a client downloading them first
+(map sharing), and the host swaps the map's weapons for them (a modded
+game) */
+#define HALO_PORT_ADVERTISED_TAG_SHARE_FLAG 0x40
+/* ... a modded game (randomized, a campaign with skulls, or a multiplayer
+game playing a Tag Injector multiplayer profile), which builds
 without the mod cannot play: its host advertises in the version's place
 HALO_PORT_ADVERTISED_MODDED_VERSION, which no build without the mod is on
 (it tells its player the host is on a newer version), and its own version
@@ -138,8 +145,10 @@ and the skulls dropped)
 machines send each other, which plain games never carry. Builds before the
 modded signature sent 1 as their capability (network_client_manager.c); 3
 drops skulls in co-op (_distributed_message_skulls_state) and plays Outbreak
-there (_distributed_message_skulls_outbreak_burst) */
-#define HALO_PORT_MOD_NETWORK_VERSION 3
+there (_distributed_message_skulls_outbreak_burst); 4 plays the Tag Injector's
+multiplayer profiles (_distributed_message_tag_share, and map sharing's
+shared weapons) */
+#define HALO_PORT_MOD_NETWORK_VERSION 4
 #define HALO_PORT_MODDED_VERSION_MARK 0xFF00
 #define HALO_PORT_ADVERTISED_MODDED_VERSION (HALO_PORT_MODDED_VERSION_MARK | HALO_PORT_MOD_NETWORK_VERSION)
 

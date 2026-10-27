@@ -85,6 +85,7 @@ void platform_log(char const *format, ...);
 #include "community.h"
 #include "tag_schema.h"
 #include "tag_injector.h"
+#include "tag_multiplayer.h"
 
 #include <xtl.h>
 /* the port's zlib, the same one that unpacks a map while precaching it
@@ -3752,6 +3753,44 @@ void randomizer_tag_table_fingerprint(long *count, unsigned long *hash)
 	*hash = value;
 }
 
+/* a multiplayer level playing the host's shared weapons (tag_multiplayer.c):
+the share's tags added as a profile's are to a campaign level, the stock
+HUDs its weapons want copied first, and its weapons told
+tag_multiplayer.c, which the host swaps the map's for */
+static void multiplayer_tags_loaded(char const *scenario_name, long profile)
+{
+	int index;
+
+	custom_profile = profile;
+	snprintf(map_name_leaf, sizeof(map_name_leaf), "%s", tag_name_strip_path(scenario_name));
+	stock_hud_count = tag_injector_tags_read(custom_profile, stock_huds, STOCK_HUD_MAX);
+	if (stock_hud_count && gather_begin())
+	{
+		gather_stock_huds(map_name_leaf);
+		import_wanted();
+	}
+	custom_root_count = tag_injector_tags_load(custom_profile, custom_roots, custom_root_tags, CUSTOM_ROOT_MAX);
+	tag_multiplayer_level_loaded(custom_profile, custom_roots, custom_root_tags, custom_root_count);
+	donor_reads = 0;
+	donor_misses = 0;
+	donor_logged = 0;
+	donor_saw_bitmap = 0;
+	donor_saw_sound = 0;
+	memset(donor_noted, 0, sizeof(donor_noted));
+	for (index = 0; index < donor_count; index++)
+		error(_error_silent, "randomizer: %s.map keeps %ld pack ranges",
+			donors[index].leaf, donors[index].from_pack ? donors[index].span_count : 0);
+	wanted_free();
+	{
+		long count;
+		unsigned long hash;
+
+		randomizer_tag_table_fingerprint(&count, &hash);
+		error(_error_silent, "tag multiplayer: %s's tag table: %ld tags, fingerprint %08lx", map_name_leaf, count,
+			hash);
+	}
+}
+
 void randomizer_tags_loaded(char const *scenario_name)
 {
 	struct network_game *game = network_game_get_game();
@@ -3764,6 +3803,17 @@ void randomizer_tags_loaded(char const *scenario_name)
 	int scarab;
 
 	randomizer_tags_unloaded();
+	/* (a multiplayer game's shared weapons, on the game's own multiplayer
+	maps) */
+	{
+		long profile = tag_multiplayer_level_profile(scenario_name);
+
+		if (profile != NONE)
+		{
+			multiplayer_tags_loaded(scenario_name, profile);
+			return;
+		}
+	}
 	if (!campaign_leaf(scenario_name, leaf, sizeof(leaf)))
 		return;
 	if (game && game->variant.game_engine_index != game_engine_none)
@@ -3869,6 +3919,7 @@ void randomizer_tags_unloaded(void)
 	if (loaded)
 		placement_roll_ready = 0;
 	tag_injector_tags_unloaded();
+	tag_multiplayer_level_unloaded();
 	custom_root_count = 0;
 	custom_profile = NONE;
 	donors_close();

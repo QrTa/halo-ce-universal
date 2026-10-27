@@ -409,6 +409,9 @@ static char const *const port_function_names[] =
 	/* (Server Setup's RANDOMIZER and SKULLS rows, a co-op game's: the
 	screens above, whose OK comes back to it) */
 	"ss randomizer", "ss skulls",
+	/* (Server Setup's TAG PROFILE, a multiplayer game's on the game's own
+	maps: the Tag Injector's multiplayer profile it plays, tag_multiplayer.c) */
+	"ss tag profile next", "ss tag profile previous",
 	/* (New Game's LEADERBOARD: the level's records, every profile's, or
 	the online leaderboard's) */
 	"port leaderboard init", "port leaderboard view",

@@ -3761,6 +3761,13 @@ static boolean main_loop_iteration(
 			network_shield_effects_update();
 			/* port: map sharing, in the lobby and in game (port/linux/game/map_share.c) */
 			map_share_update();
+			/* port: the host's Tag Injector multiplayer weapons, shared with its
+			clients (port/linux/game/tag_multiplayer.c) */
+			{
+				extern void tag_multiplayer_update(void);
+
+				tag_multiplayer_update();
+			}
 			/* port: the campaign randomizer's profile being named (and the
 			Tag Injector's), and its pack, written at the main menu when it
 			is wanted (port/linux/game/menu_functions.c, randomizer_pack.c) */

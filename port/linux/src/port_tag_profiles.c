@@ -53,6 +53,21 @@ names to a level.
 A folder without profile.toml is not a profile, and a profile made for a
 later format than this build's is not listed. A tag whose bundle is missing
 is listed, and left out where it is played.
+
+A network game's shared profile (port/linux/game/tag_multiplayer.c) is a
+folder of tag_injector/.shared, named for the hash of its archive: the
+host's weapons a multiplayer game plays, made from one of its profiles, and
+a client's download of it. It is no scan's (the menus never list it): it is
+opened alone, into a slot of its own past the profiles found, and kept
+there whatever scans come. Its archive (<id>.tagshare beside it) is its
+folder's files in one, as map sharing sends one file:
+
+	"OCETAGS1", a count (little-endian, 4 bytes), and of each file its
+	name's length (4 bytes), its name and its size (4 bytes); then each
+	file's bytes, in that order
+
+whose names are those of a profile's folder alone (no folder, nor one
+beginning with a dot).
 */
 
 #include "platform.h"
@@ -91,6 +106,15 @@ through on their way into the Xbox's memory, which the renderer watches
 (memory_watch.c: the kernel fails a read into memory it has protected) */
 #define MAXIMUM_OPEN_BUNDLES 64
 #define READ_BOUNCE_SIZE 0x10000
+/* the shared profiles' folder (of tag_injector), the slot the one opened is
+in, and an archive's magic, most files and largest file */
+#define SHARED_FOLDER ".shared"
+#define SHARED_PROFILE MAXIMUM_TAG_PROFILES
+#define SHARED_ID_LENGTH 32
+#define ARCHIVE_MAGIC "OCETAGS1"
+#define ARCHIVE_MAGIC_LENGTH 8
+#define MAXIMUM_ARCHIVE_FILES (MAXIMUM_PROFILE_TAGS + 8)
+#define MAXIMUM_ARCHIVE_FILE_SIZE 0x40000000UL
 
 /* ---------- structures */
 
@@ -128,8 +152,10 @@ struct tag_profile
 
 static struct
 {
-	struct tag_profile profiles[MAXIMUM_TAG_PROFILES];
+	/* the profiles found, then the shared profile opened (SHARED_PROFILE) */
+	struct tag_profile profiles[MAXIMUM_TAG_PROFILES + 1];
 	long profile_count;
+	int shared_open;
 	unsigned long scans;
 	/* the bundles a level reads from, whatever profiles are found meanwhile:
 	a bundle's file, or a tag file's handle (port_tag_store.c), plus one
@@ -554,6 +580,8 @@ static int profile_write(const struct tag_profile *profile)
 
 static struct tag_profile *profile_get(long profile)
 {
+	if (profile == SHARED_PROFILE)
+		return port_tag_profiles.shared_open ? &port_tag_profiles.profiles[SHARED_PROFILE] : NULL;
 	return profile >= 0 && profile < port_tag_profiles.profile_count ? &port_tag_profiles.profiles[profile] : NULL;
 }
 
@@ -818,19 +846,13 @@ long port_tag_profiles_duplicate(long profile, const char *name)
 	return index;
 }
 
-int port_tag_profiles_delete(long profile)
+/* deletes a folder's files, then the folder: only what is in it, and
+nothing below; 0 if the folder is still there */
+static int folder_delete(const char *path)
 {
-	struct tag_profile *found = profile_get(profile);
-	char path[MAXIMUM_PATH_LENGTH];
 	char name[256];
-	void *directory;
-	int deleted;
+	void *directory = posix_directory_open(path);
 
-	if (!found)
-		return 0;
-	/* (its files, then its folder: only what is in it, and nothing below) */
-	profile_path(found, NULL, path, sizeof(path));
-	directory = posix_directory_open(path);
 	while (directory && posix_directory_next(directory, name, sizeof(name)))
 	{
 		char file[MAXIMUM_PATH_LENGTH];
@@ -842,7 +864,19 @@ int port_tag_profiles_delete(long profile)
 	}
 	if (directory)
 		posix_directory_close(directory);
-	deleted = rmdir(path) == 0;
+	return rmdir(path) == 0;
+}
+
+int port_tag_profiles_delete(long profile)
+{
+	struct tag_profile *found = profile_get(profile);
+	char path[MAXIMUM_PATH_LENGTH];
+	int deleted;
+
+	if (!found || profile == SHARED_PROFILE)
+		return 0;
+	profile_path(found, NULL, path, sizeof(path));
+	deleted = folder_delete(path);
 	if (!deleted)
 		platform_log("tag injector: the folder %s cannot be deleted", path);
 	else
@@ -1199,4 +1233,384 @@ void port_tag_profiles_bundle_close(long handle)
 		return;
 	fclose(port_tag_profiles.open_bundles[handle]);
 	port_tag_profiles.open_bundles[handle] = NULL;
+}
+
+/* ---------- shared profiles (a network game's) */
+
+/* whether an id names a shared profile: lowercase hexadecimal digits, or a
+word of them (the host's while it builds one) */
+static int shared_id_valid(const char *id)
+{
+	size_t length = id ? strlen(id) : 0;
+	size_t index;
+
+	if (!length || length > SHARED_ID_LENGTH)
+		return 0;
+	for (index = 0; index < length; index++)
+	{
+		if (!((id[index] >= '0' && id[index] <= '9') || (id[index] >= 'a' && id[index] <= 'z')))
+			return 0;
+	}
+	return 1;
+}
+
+static void shared_root(char *path, size_t size)
+{
+	char root[MAXIMUM_PATH_LENGTH];
+
+	snprintf(path, size, "%s/%s", profiles_root(root, sizeof(root)), SHARED_FOLDER);
+}
+
+void port_tag_profiles_shared_path(const char *name, char *path, unsigned long size)
+{
+	char root[MAXIMUM_PATH_LENGTH];
+
+	shared_root(root, sizeof(root));
+	snprintf(path, (size_t)size, "%s/%s", root, name ? name : "");
+}
+
+int port_tag_profiles_shared_folder_make(void)
+{
+	char root[MAXIMUM_PATH_LENGTH];
+	char path[MAXIMUM_PATH_LENGTH];
+	struct posix_file_information information;
+
+	posix_make_directory(profiles_root(root, sizeof(root)));
+	shared_root(path, sizeof(path));
+	posix_make_directory(path);
+	return posix_stat(path, &information) == 0 && (information.flags & _posix_file_is_directory);
+}
+
+int port_tag_profiles_shared(long profile)
+{
+	return profile == SHARED_PROFILE;
+}
+
+void port_tag_profiles_shared_close(void)
+{
+	if (port_tag_profiles.shared_open)
+		profile_dispose(&port_tag_profiles.profiles[SHARED_PROFILE]);
+	port_tag_profiles.shared_open = 0;
+}
+
+int port_tag_profiles_shared_present(const char *id)
+{
+	char path[MAXIMUM_PATH_LENGTH];
+	struct posix_file_information information;
+
+	if (!shared_id_valid(id))
+		return 0;
+	port_tag_profiles_shared_path(id, path, sizeof(path));
+	snprintf(path + strlen(path), sizeof(path) - strlen(path), "/profile.toml");
+	return posix_stat(path, &information) == 0 && !(information.flags & _posix_file_is_directory);
+}
+
+long port_tag_profiles_shared_open(const char *id)
+{
+	char root[MAXIMUM_PATH_LENGTH];
+	char folder[MAXIMUM_FOLDER_LENGTH];
+	struct tag_profile profile;
+
+	port_tag_profiles_shared_close();
+	if (!shared_id_valid(id))
+		return -1;
+	profiles_root(root, sizeof(root));
+	snprintf(folder, sizeof(folder), "%s/%s", SHARED_FOLDER, id);
+	if (!profile_read(&profile, root, folder))
+		return -1;
+	port_tag_profiles.profiles[SHARED_PROFILE] = profile;
+	port_tag_profiles.shared_open = 1;
+	return SHARED_PROFILE;
+}
+
+long port_tag_profiles_shared_create(const char *id, const char *name)
+{
+	char root[MAXIMUM_PATH_LENGTH];
+	char path[MAXIMUM_PATH_LENGTH];
+	struct tag_profile profile;
+
+	port_tag_profiles_shared_close();
+	if (!shared_id_valid(id))
+		return -1;
+	posix_make_directory(profiles_root(root, sizeof(root)));
+	shared_root(path, sizeof(path));
+	posix_make_directory(path);
+	port_tag_profiles_shared_path(id, path, sizeof(path));
+	folder_delete(path);
+	if (posix_make_directory(path) != 0)
+	{
+		platform_log("tag injector: the folder %s cannot be made", path);
+		return -1;
+	}
+	memset(&profile, 0, sizeof(profile));
+	snprintf(profile.folder, sizeof(profile.folder), "%s/%s", SHARED_FOLDER, id);
+	text_copy(profile.name, sizeof(profile.name), name && name[0] ? name : id);
+	if (!profile_write(&profile))
+		return -1;
+	port_tag_profiles.profiles[SHARED_PROFILE] = profile;
+	port_tag_profiles.shared_open = 1;
+	return SHARED_PROFILE;
+}
+
+int port_tag_profiles_shared_remove(const char *name)
+{
+	char path[MAXIMUM_PATH_LENGTH];
+
+	if (!name || !name[0] || name[0] == '.' || strchr(name, '/') || strchr(name, '\\'))
+		return 0;
+	port_tag_profiles_shared_path(name, path, sizeof(path));
+	return remove(path) == 0;
+}
+
+int port_tag_profiles_shared_delete(const char *id)
+{
+	char path[MAXIMUM_PATH_LENGTH];
+
+	if (!shared_id_valid(id))
+		return 0;
+	if (port_tag_profiles.shared_open &&
+		!strcmp(port_tag_profiles.profiles[SHARED_PROFILE].folder + strlen(SHARED_FOLDER) + 1, id))
+		port_tag_profiles_shared_close();
+	port_tag_profiles_shared_path(id, path, sizeof(path));
+	return folder_delete(path);
+}
+
+int port_tag_profiles_shared_rename(const char *from, const char *to)
+{
+	char from_path[MAXIMUM_PATH_LENGTH];
+	char to_path[MAXIMUM_PATH_LENGTH];
+
+	if (!shared_id_valid(from) || !shared_id_valid(to))
+		return 0;
+	port_tag_profiles_shared_close();
+	port_tag_profiles_shared_path(from, from_path, sizeof(from_path));
+	port_tag_profiles_shared_path(to, to_path, sizeof(to_path));
+	folder_delete(to_path);
+	return file_replace(from_path, to_path);
+}
+
+static void archive_long(unsigned char *bytes, unsigned long value)
+{
+	bytes[0] = (unsigned char)value;
+	bytes[1] = (unsigned char)(value >> 8);
+	bytes[2] = (unsigned char)(value >> 16);
+	bytes[3] = (unsigned char)(value >> 24);
+}
+
+static unsigned long archive_get_long(const unsigned char *bytes)
+{
+	return (unsigned long)bytes[0] | (unsigned long)bytes[1] << 8 | (unsigned long)bytes[2] << 16 |
+		(unsigned long)bytes[3] << 24;
+}
+
+/* whether a name is one an archive may hold: a file of a profile's folder */
+static int archive_name_valid(const char *name)
+{
+	char clean[MAXIMUM_FILE_NAME_LENGTH];
+
+	if (!name[0] || name[0] == '.' || strlen(name) >= sizeof(clean) || strchr(name, '/') || strchr(name, '\\'))
+		return 0;
+	snprintf(clean, sizeof(clean), "%s", name);
+	return file_name_clean(clean) && !strcmp(clean, name);
+}
+
+static int archive_names_compare(const void *first, const void *second)
+{
+	return strcmp(*(const char *const *)first, *(const char *const *)second);
+}
+
+int port_tag_profiles_shared_archive(const char *id, const char *archive)
+{
+	char folder[MAXIMUM_PATH_LENGTH];
+	char temporary[MAXIMUM_PATH_LENGTH];
+	char name[256];
+	char *names[MAXIMUM_ARCHIVE_FILES];
+	unsigned long sizes[MAXIMUM_ARCHIVE_FILES];
+	unsigned char header[8];
+	long count = 0;
+	long index;
+	void *directory;
+	FILE *stream;
+	int written = 1;
+
+	if (!shared_id_valid(id) || snprintf(temporary, sizeof(temporary), "%s.new", archive) >= (int)sizeof(temporary))
+		return 0;
+	port_tag_profiles_shared_path(id, folder, sizeof(folder));
+	directory = posix_directory_open(folder);
+	if (!directory)
+		return 0;
+	while (posix_directory_next(directory, name, sizeof(name)))
+	{
+		char path[MAXIMUM_PATH_LENGTH];
+		struct posix_file_information information;
+
+		snprintf(path, sizeof(path), "%s/%s", folder, name);
+		if (!archive_name_valid(name) || posix_stat(path, &information) != 0 ||
+			(information.flags & _posix_file_is_directory))
+			continue;
+		if (count == MAXIMUM_ARCHIVE_FILES || information.size_high || information.size_low > MAXIMUM_ARCHIVE_FILE_SIZE)
+		{
+			written = 0;
+			break;
+		}
+		names[count] = malloc(strlen(name) + 1);
+		if (!names[count])
+		{
+			written = 0;
+			break;
+		}
+		strcpy(names[count], name);
+		count++;
+	}
+	posix_directory_close(directory);
+	/* (by name: the same folder is the same archive) */
+	qsort(names, (size_t)count, sizeof(names[0]), archive_names_compare);
+	stream = written ? fopen(temporary, "wb") : NULL;
+	written = stream != NULL;
+	if (written)
+	{
+		archive_long(header, (unsigned long)count);
+		written = fwrite(ARCHIVE_MAGIC, 1, ARCHIVE_MAGIC_LENGTH, stream) == ARCHIVE_MAGIC_LENGTH &&
+			fwrite(header, 1, 4, stream) == 4;
+	}
+	for (index = 0; written && index < count; index++)
+	{
+		char path[MAXIMUM_PATH_LENGTH];
+		struct posix_file_information information;
+		size_t length = strlen(names[index]);
+
+		snprintf(path, sizeof(path), "%s/%s", folder, names[index]);
+		sizes[index] = posix_stat(path, &information) == 0 ? information.size_low : 0;
+		archive_long(header, (unsigned long)length);
+		archive_long(header + 4, sizes[index]);
+		written = fwrite(header, 1, 4, stream) == 4 && fwrite(names[index], 1, length, stream) == length &&
+			fwrite(header + 4, 1, 4, stream) == 4;
+	}
+	for (index = 0; written && index < count; index++)
+	{
+		char path[MAXIMUM_PATH_LENGTH];
+		FILE *source;
+		unsigned long left = sizes[index];
+
+		snprintf(path, sizeof(path), "%s/%s", folder, names[index]);
+		source = fopen(path, "rb");
+		written = source != NULL;
+		while (written && left)
+		{
+			size_t chunk = left < sizeof(port_tag_profiles.bounce) ? (size_t)left : sizeof(port_tag_profiles.bounce);
+
+			written = fread(port_tag_profiles.bounce, 1, chunk, source) == chunk &&
+				fwrite(port_tag_profiles.bounce, 1, chunk, stream) == chunk;
+			left -= (unsigned long)chunk;
+		}
+		if (source)
+			fclose(source);
+	}
+	for (index = 0; index < count; index++)
+		free(names[index]);
+	if (stream)
+		written = fclose(stream) == 0 && written;
+	written = written && file_replace(temporary, archive);
+	if (!written)
+	{
+		remove(temporary);
+		platform_log("tag injector: the archive %s cannot be written", archive);
+	}
+	return written;
+}
+
+int port_tag_profiles_shared_unpack(const char *archive, const char *id)
+{
+	char folder[MAXIMUM_PATH_LENGTH];
+	char building[SHARED_ID_LENGTH + 8];
+	unsigned char header[ARCHIVE_MAGIC_LENGTH + 4];
+	char *names[MAXIMUM_ARCHIVE_FILES];
+	unsigned long sizes[MAXIMUM_ARCHIVE_FILES];
+	unsigned long total = 0;
+	long count = 0;
+	long index;
+	FILE *stream;
+	int unpacked;
+
+	if (!shared_id_valid(id) || strlen(id) + 2 > SHARED_ID_LENGTH)
+		return 0;
+	stream = fopen(archive, "rb");
+	if (!stream)
+		return 0;
+	unpacked = fread(header, 1, sizeof(header), stream) == sizeof(header) &&
+		!memcmp(header, ARCHIVE_MAGIC, ARCHIVE_MAGIC_LENGTH);
+	if (unpacked)
+	{
+		count = (long)archive_get_long(header + ARCHIVE_MAGIC_LENGTH);
+		unpacked = count > 0 && count <= MAXIMUM_ARCHIVE_FILES;
+		if (!unpacked)
+			count = 0;
+	}
+	for (index = 0; index < count; index++)
+		names[index] = NULL;
+	for (index = 0; unpacked && index < count; index++)
+	{
+		unsigned char field[4];
+		unsigned long length;
+
+		unpacked = fread(field, 1, 4, stream) == 4;
+		length = unpacked ? archive_get_long(field) : 0;
+		unpacked = unpacked && length > 0 && length < MAXIMUM_FILE_NAME_LENGTH;
+		names[index] = unpacked ? calloc(length + 1, 1) : NULL;
+		unpacked = names[index] && fread(names[index], 1, length, stream) == length && fread(field, 1, 4, stream) == 4 &&
+			archive_name_valid(names[index]);
+		sizes[index] = unpacked ? archive_get_long(field) : 0;
+		unpacked = unpacked && sizes[index] <= MAXIMUM_ARCHIVE_FILE_SIZE && total + sizes[index] >= total;
+		total += sizes[index];
+	}
+	/* (each name once, and a profile among them) */
+	for (index = 0; unpacked && index < count; index++)
+	{
+		long other;
+
+		for (other = 0; unpacked && other < index; other++)
+			unpacked = strcmp(names[index], names[other]) != 0;
+	}
+	for (index = 0; unpacked && index < count && strcmp(names[index], "profile.toml"); index++)
+	{
+	}
+	unpacked = unpacked && index < count;
+	/* (into a folder of its own, put in the id's place once whole) */
+	snprintf(building, sizeof(building), "%sx", id);
+	if (unpacked && port_tag_profiles_shared_create(building, NULL) < 0)
+		unpacked = 0;
+	port_tag_profiles_shared_close();
+	port_tag_profiles_shared_path(building, folder, sizeof(folder));
+	for (index = 0; unpacked && index < count; index++)
+	{
+		char path[MAXIMUM_PATH_LENGTH];
+		FILE *destination;
+		unsigned long left = sizes[index];
+
+		snprintf(path, sizeof(path), "%s/%s", folder, names[index]);
+		destination = fopen(path, "wb");
+		unpacked = destination != NULL;
+		while (unpacked && left)
+		{
+			size_t chunk = left < sizeof(port_tag_profiles.bounce) ? (size_t)left : sizeof(port_tag_profiles.bounce);
+
+			unpacked = fread(port_tag_profiles.bounce, 1, chunk, stream) == chunk &&
+				fwrite(port_tag_profiles.bounce, 1, chunk, destination) == chunk;
+			left -= (unsigned long)chunk;
+		}
+		if (destination)
+			unpacked = fclose(destination) == 0 && unpacked;
+	}
+	/* (nothing after the last file) */
+	unpacked = unpacked && fgetc(stream) == EOF;
+	fclose(stream);
+	for (index = 0; index < count; index++)
+		free(names[index]);
+	unpacked = unpacked && port_tag_profiles_shared_rename(building, id);
+	if (!unpacked)
+	{
+		port_tag_profiles_shared_delete(building);
+		platform_log("tag injector: the archive %s is not one", archive);
+	}
+	return unpacked;
 }

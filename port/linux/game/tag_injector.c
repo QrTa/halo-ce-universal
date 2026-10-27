@@ -402,6 +402,7 @@ int port_tag_profiles_tag_add(long profile, char const *map, unsigned long group
 long port_tag_profiles_bundle_open(long profile, long tag, unsigned long *size);
 int port_tag_profiles_bundle_read_at(long handle, unsigned long offset, void *buffer, unsigned long size);
 void port_tag_profiles_bundle_close(long handle);
+int port_tag_profiles_shared(long profile);
 
 static struct
 {
@@ -2470,6 +2471,66 @@ boolean tag_injector_profile_store_next(
 	return FALSE;
 }
 
+long tag_injector_profile_export(
+	long from,
+	long into,
+	unsigned long group_tag,
+	long (*tags)[2],
+	long capacity)
+{
+	static char const *const settings[] = { "faction", "type", "class", "custom_type", "hud", "replace", "name" };
+	long count = port_tag_profiles_tag_count(from);
+	long exported = 0;
+	long tag;
+
+	for (tag = 0; tag < count; tag++)
+	{
+		char map[64];
+		char name[256];
+		unsigned long group = port_tag_profiles_tag_group(from, tag);
+		unsigned long size = 0;
+		long handle;
+		long added;
+		byte *bytes;
+		boolean read;
+		short setting;
+
+		if (!port_tag_profiles_tag_enabled(from, tag) || (group_tag && group != group_tag) || exported >= capacity)
+			continue;
+		snprintf(map, sizeof(map), "%s", port_tag_profiles_tag_map(from, tag));
+		snprintf(name, sizeof(name), "%s", port_tag_profiles_tag_name(from, tag));
+		handle = port_tag_profiles_bundle_open(from, tag, &size);
+		bytes = handle != NONE && size ? malloc(size) : NULL;
+		read = bytes && port_tag_profiles_bundle_read_at(handle, 0, bytes, size);
+		if (handle != NONE)
+			port_tag_profiles_bundle_close(handle);
+		if (!read || !profile_bundle_add(into, map, group, name, bytes, size))
+		{
+			error(_error_silent, "tag injector: %s of the profile %s cannot be shared: it is left out", name,
+				port_tag_profiles_name(from));
+			if (bytes)
+				free(bytes);
+			continue;
+		}
+		free(bytes);
+		added = port_tag_profiles_tag_find(into, group, name);
+		if (added == NONE)
+			continue;
+		for (setting = 0; setting < NUMBEROF(settings); setting++)
+		{
+			char const *value = port_tag_profiles_tag_option(from, tag, settings[setting]);
+
+			if (value[0] && !port_tag_profiles_tag_set_option(into, added, settings[setting], value))
+				error(_error_silent, "tag injector: %s's %s cannot be shared", name, settings[setting]);
+		}
+		tags[exported][0] = tag;
+		tags[exported][1] = added;
+		exported++;
+	}
+
+	return exported;
+}
+
 long tag_injector_profile_playable(
 	void)
 {
@@ -2744,6 +2805,10 @@ long tag_injector_tags_read(
 		if (!bundle->refused)
 			continue;
 		failed[failed_count++] = bundle->profile_tag;
+		/* (a network game's shared profile is played as the host made it,
+		the same on every machine: tag_multiplayer.c) */
+		if (port_tag_profiles_shared(profile))
+			continue;
 		port_tag_profiles_tag_set_option(profile, bundle->profile_tag, "failed",
 			bundle->failure ? bundle->failure : "unreadable");
 		port_tag_profiles_tag_set_enabled(profile, bundle->profile_tag, FALSE);
