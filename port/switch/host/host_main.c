@@ -396,10 +396,39 @@ relative path and names the device directly:
 
 so the card is mounted by the time main() runs and only the prefix was ever
 missing. The root is therefore an absolute one, and the player can move the
-game anywhere by setting HALO_DATA_ROOT. */
-static void find_executable_root(void)
+game anywhere by setting HALO_DATA_ROOT.
+
+What the loader does say is where the .nro is: the Homebrew Menu and Sphaira
+pass its full path as argv[0] (sdmc:/switch/<folder>/halo.nro), so the root
+is that folder, whatever the player named it - another port sitting in
+sdmc:/switch/halo is left alone. An .nro dropped straight into sdmc:/switch
+gets a folder of its own name rather than sharing switch/ with every other
+program, and a launch that gives no usable path (nxlink sends a bare name)
+falls back to the old fixed folder. */
+static void find_executable_root(const char *program)
 {
-	strcpy(executable_root, "sdmc:/switch/halo");
+	const char *slash = program ? strrchr(program, '/') : NULL;
+	size_t length;
+
+	if (!slash || strncmp(program, "sdmc:/", 6))
+	{
+		strcpy(executable_root, "sdmc:/switch/halo");
+		return;
+	}
+	length = (size_t)(slash - program);
+	if (length >= sizeof(executable_root))
+		length = sizeof(executable_root) - 1;
+	memcpy(executable_root, program, length);
+	executable_root[length] = 0;
+	if (!strcmp(executable_root, "sdmc:") || !strcmp(executable_root, "sdmc:/switch"))
+	{
+		const char *name = slash + 1;
+		const char *dot = strrchr(name, '.');
+		int name_length = dot ? (int)(dot - name) : (int)strlen(name);
+
+		snprintf(executable_root, sizeof(executable_root), "sdmc:/switch/%.*s", name_length, name);
+		mkdir(executable_root, 0755);
+	}
 }
 
 /* the folder the guest image is loaded from (the updater replaces it there) */
@@ -1292,7 +1321,6 @@ static void wait_at_the_top_of_main(void)
 int main(int argc, char *argv[])
 {
 	(void)argc;
-	(void)argv;
 	/* before any thread exists: libnx places their stacks at random, and one
 	in the guest image's range keeps the image from loading (host_memory.c) */
 	host_memory_hold_image_range();
@@ -1368,7 +1396,7 @@ int main(int argc, char *argv[])
 		host_logf(HOST_LOG_INFO, "no nxlink host; output is going to the console and the card only");
 
 	setvbuf(stderr, NULL, _IOLBF, 0);
-	find_executable_root();
+	find_executable_root(argc > 0 ? argv[0] : NULL);
 	{
 		char log_path[PATH_MAX + 32];
 

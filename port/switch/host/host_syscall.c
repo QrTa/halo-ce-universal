@@ -1246,11 +1246,13 @@ static long guest_writev(int fd, uint64_t vector, int count, int64_t offset, int
 		{
 			static int investigated;
 			struct stat information;
+			char control_path[512];
 			int control;
 
 			if (!investigated)
 			{
 				investigated = 1;
+				snprintf(control_path, sizeof(control_path), "%s/wtest_control.tmp", host_executable_root());
 				if (fstat(fd, &information) == 0)
 					host_logf(HOST_LOG_WARN,
 						"  zero-write fd %d: mode 0%o, size %llu, inode %llu",
@@ -1259,8 +1261,7 @@ static long guest_writev(int fd, uint64_t vector, int count, int64_t offset, int
 						(unsigned long long)information.st_ino);
 				else
 					host_logf(HOST_LOG_WARN, "  zero-write fd %d: fstat failed (errno %d)", fd, errno);
-				control = open("sdmc:/switch/halo/wtest_control.tmp",
-					O_WRONLY | O_CREAT | O_TRUNC, 0666);
+				control = open(control_path, O_WRONLY | O_CREAT | O_TRUNC, 0666);
 				if (control >= 0)
 				{
 					char big[6209];

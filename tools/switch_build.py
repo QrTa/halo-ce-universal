@@ -230,8 +230,8 @@ def generate_switch_build(n: Writer, sln: Any) -> None:
     # taken from the environment: $USER on a build machine is whoever's account
     # ran it, which would put a different publisher on every release and on CI
     # whatever the runner happens to be called.
-    nacp_title = "Halo: Combat Evolved"
-    nacp_author = "thelinkin3000"
+    nacp_title = "OpenCE: Campaign Evolution"
+    nacp_author = "thelinkin3000 & Watanoge"
     nacp_version = "1.0.0"
     # The icon does not go in the NACP: it is an asset, embedded by elf2nro
     # below. A 256x256 JPEG, converted from the same master the Android icon
