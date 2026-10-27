@@ -3382,13 +3382,22 @@ static void main_game_render(
 				}
 			}
 
-			window->local_player_index = last_local_player_index;
-			observer = observer_get_camera(window->local_player_index);
-			observer = render_interpolation_camera(window->local_player_index, observer);
-			/* port: a replay's playback has no local player: its own view of
-			the player watched (port/linux/game/network_replay_playback.c) */
+			/* port: a replay's playback has no local player: the window is
+			local player 0's, as film playback's is above, so that it is drawn
+			as a player's, with the playback's own view of the player watched
+			(port/linux/game/network_replay_playback.c) */
 			if (window_index == 0 && network_replay_playing() && network_replay_camera())
+			{
+				last_local_player_index = 0;
+				window->local_player_index = 0;
 				observer = network_replay_camera();
+			}
+			else
+			{
+				window->local_player_index = last_local_player_index;
+				observer = observer_get_camera(window->local_player_index);
+				observer = render_interpolation_camera(window->local_player_index, observer);
+			}
 		}
 		else
 		{
