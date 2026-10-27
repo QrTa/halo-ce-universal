@@ -168,12 +168,21 @@ void host_touch_gyro_mode(int mode);
 
 /* ---------- the server browser's master servers (host_https.c) */
 
-/* a GET of an https:// url (port/linux/src/master_list.c): the answer's
-HTTP status, with its headers ("Name: value" lines) and up to body_capacity
-bytes of its body (its size in body_size); 0 if no answer came, and why in
-headers. (Six arguments: on an x86-64 host a seventh would go on the stack,
-where the x32 guest's pointers are 4 bytes and the host's 8) */
-int host_https_get(const char *url, char *headers, int headers_size, char *body, int body_capacity,
-	int *body_size);
+/* host_https_get's buffers' sizes and its answer, 32-bit members alone (the
+hosts' struct host_https_sizes): a call of nine arguments would put pointers
+on the stack */
+struct host_https_sizes
+{
+	int headers_size;
+	int body_capacity;
+	int error_size;
+	/* the answer: its status, and how much of the body came */
+	int status;
+	int body_size;
+};
+/* a GET of an https:// url (port/linux/src/master_list.c): 1 with the
+status, the headers ("Name: value" lines) and up to body_capacity bytes of
+the body (its size in body_size), else 0 and why in error */
+int host_https_get(const char *url, char *headers, char *body, char *error, struct host_https_sizes *sizes);
 
 #endif

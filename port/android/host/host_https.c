@@ -35,26 +35,23 @@ int host_https_request(int post, const char *url, const char *headers, const cha
 	return status;
 }
 
-int host_https_get(const char *url, char *headers, int headers_size, char *body, int body_capacity,
-	int *body_size)
+int host_https_get(const char *url, char *headers, char *body, char *error, struct host_https_sizes *sizes)
 {
 	struct update_response response;
-	char error[256];
 
-	*body_size = 0;
-	if (!update_https_request("GET", url, NULL, NULL, 0, (unsigned long)body_capacity, &response, error,
-		sizeof(error)))
+	sizes->status = 0;
+	sizes->body_size = 0;
+	if (!update_https_request("GET", url, NULL, NULL, 0, (unsigned long)sizes->body_capacity, &response, error,
+		sizes->error_size))
 	{
-		/* (why, in the headers' room: master_list.c logs it) */
-		snprintf(headers, (size_t)headers_size, "%s", error);
 		return 0;
 	}
-	snprintf(headers, (size_t)headers_size, "%s", response.headers);
-	if (response.body_size > (unsigned long)body_capacity)
-		response.body_size = (unsigned long)body_capacity;
+	sizes->status = response.status;
+	snprintf(headers, (size_t)sizes->headers_size, "%s", response.headers);
+	if (response.body_size > (unsigned long)sizes->body_capacity)
+		response.body_size = (unsigned long)sizes->body_capacity;
 	memcpy(body, response.body, response.body_size);
-	*body_size = (int)response.body_size;
+	sizes->body_size = (int)response.body_size;
 	free(response.body);
-	/* (an answer with no status line's number is still an answer) */
-	return response.status > 0 ? response.status : 1;
+	return 1;
 }

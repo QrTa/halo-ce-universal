@@ -103,6 +103,8 @@ void p2p_set_hosting_public(int public);
 browser (PUBLIC, and network.public_lobby): the text chat is off in one a
 player hosts (a dedicated server's follows network.text_chat) */
 int p2p_hosting_listed(void);
+/* whether the game hosted is offered for internet play, not the local network's alone */
+int p2p_hosting_internet(void);
 /* the password of the game hosted for the internet (Server Setup's
 PASSWORD; NULL or empty: none): its listing lets only those who know it
 join from the server browser (its invite link still joins it). Setting or

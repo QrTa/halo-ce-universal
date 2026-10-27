@@ -488,13 +488,36 @@ static const struct config_setting config_settings[] =
 	{ "controls.team_chat", _config_string, "\"Y\"", "HALO_KEY_TEAM_CHAT", _environment_value, _platform_all,
 		"Network games' text chat: type a line to your team." },
 
+#if defined(HALO_SWITCH) || defined(HALO_PS5)
+	/* (the link page: port/linux/src/link_page.c) */
+	{ "network.link_page", _config_boolean, "true", "HALO_LINK_PAGE", _environment_value, _platform_all,
+		"While Join Game > Direct Link is open, serve a page on the local network\n"
+		"(its QR code and address are on that page) where a phone or a computer\n"
+		"pastes an invite link for the console to join; nothing is served\n"
+		"otherwise. false: none." },
+#endif
+	{ "game.overlay_menu", _config_boolean, "true", "HALO_OVERLAY_MENU", _environment_value, _platform_all,
+		"Holding L and R and pressing the d-pad's down opens the game's overlay\n"
+		"menu, and closes it: cheats, the game's speed, the HUD, the camera and\n"
+		"the renderer's switches, in a panel at the left of the screen (on\n"
+		"Android also three fingers on the screen together). While it is open\n"
+		"the game gets no input; it is not paused.\n"
+		"false: the buttons do not open it." },
+#if defined(HALO_SWITCH) || defined(HALO_PS5)
+	{ "display.xbox_buttons", _config_boolean, "false", "HALO_XBOX_BUTTONS", _environment_value, _platform_all,
+		"Draw the controller's buttons as the Xbox's (the green A, the red B...)\n"
+		"in the menus, the game's prompts and the text, instead of this\n"
+		"console's own. Changes at the next map (or the next start)." },
+#endif
 #ifdef HALO_SWITCH
-	{ "game.overlay_commands", _config_boolean, "true", "HALO_OVERLAY_COMMANDS", _environment_value, _platform_all,
-		"Take commands from overlay/command.txt in the data folder, once a\n"
-		"second: a console command (cheat_deathless_player true, map_name a10)\n"
-		"or config <setting> <value>, run and the file deleted; overlay/\n"
-		"result.txt says what came of it. For an Ultrahand overlay to control\n"
-		"the game. Changes at once." },
+	{ "controls.nintendo_menu_buttons", _config_boolean, "true", "HALO_NINTENDO_MENU_BUTTONS", _environment_value,
+		_platform_all,
+		"The menus' buttons as the Switch's own menus have them: the button\n"
+		"marked A (on the right) chooses and the one marked B (at the bottom)\n"
+		"goes back. false: as on an Xbox controller, the bottom button chooses\n"
+		"and the right one goes back. A game's controls are the same either\n"
+		"way. The buttons change at once; the menus' button pictures at the\n"
+		"next map (or the next start)." },
 #endif
 	{ "game.console_log", _config_string, "\"important\"", "HALO_CONSOLE_LOG", _environment_value, _platform_all,
 		"What the game's console shows on screen of what it logs: \"important\"\n"
@@ -823,9 +846,12 @@ static const struct config_setting config_settings[] =
 		"web build's), else full. Bitmaps without mipmaps (a HUD's) are drawn\n"
 		"as they are." },
 	{ "bots.count", _config_integer, "0", "HALO_BOTS", _environment_value, _platform_all,
-		"Computer players (bots) in a local (split screen) Slayer game: 0 to 63\n"
-		"join its lobby with the players, as far as the game has room. Not in\n"
-		"system link or internet games. 0: none, as in the stock game." },
+		"Computer players (bots) in a Slayer, Capture the Flag or King of the Hill\n"
+		"game hosted here, local (split screen), system link or a private\n"
+		"internet one (not a public one, which the server browser lists): 0 to\n"
+		"63 join its lobby with the players, as far as the game has room. In a\n"
+		"game, the console's add_bot and drop_bot (add_bot_red, drop_bot_blue...)\n"
+		"add or take one. 0: none, as in the stock game." },
 	{ "bots.skill", _config_string, "\"distributed\"", "HALO_BOT_SKILL", _environment_value, _platform_all,
 		"How well the bots play: \"recruit\", \"easy\", \"normal\", \"heroic\",\n"
 		"\"veteran\" or \"legendary\" (how soon they react, how well they aim,\n"
@@ -835,6 +861,15 @@ static const struct config_setting config_settings[] =
 	{ "bots.teams", _config_string, "\"even\"", "HALO_BOT_TEAMS", _environment_value, _platform_all,
 		"In team games: \"even\" puts the bots on both teams, evening them with\n"
 		"the players; \"against\" puts them all on the team the players are not on." },
+	{ "bots.vehicles", _config_integer, "1", "HALO_BOT_VEHICLES", _environment_value, _platform_all,
+		"1: the bots drive and ride the map's vehicles (Warthogs, Ghosts and\n"
+		"Scorpions) to goals a long way off, and man its turrets; 0: they stay\n"
+		"on foot." },
+	{ "bots.routes", _config_string, "\"direct\"", "HALO_BOT_ROUTES", _environment_value, _platform_all,
+		"The ways the bots go to their goals (port/linux/game/bots_routes.c):\n"
+		"\"direct\" (everyone the shortest way, down the middle into one fight),\n"
+		"\"lanes\" (the attackers spread over the map's side lanes, flanking) or\n"
+		"\"mixed\" (most direct, a few on the side lanes)." },
 	{ "display.viewmodel_shield", _config_boolean, "false", "HALO_VIEWMODEL_SHIELD", _environment_value, _platform_all,
 		"The energy shield's flare on the first-person arms too, as on the body\n"
 		"(the stock game draws it on the body only)." },
@@ -2652,6 +2687,7 @@ static const struct
 	{ "game.console_log", { "important", "all", "none", NULL }, NULL },
 	{ "game.language", { "", "ja", "de", "fr", "es", "it", NULL }, NULL },
 	{ "network.text_chat", { "on", "links", "off", NULL }, NULL },
+	{ "bots.routes", { "direct", "lanes", "mixed", NULL }, "\"direct\"'s" },
 	{ "server.chat_filter", { "off", "censor", "block", NULL }, NULL },
 	{ "server.chat_filter_slurs", { "off", "severe", "strong", "mild", NULL }, NULL },
 	{ "server.chat_filter_swearing", { "off", "severe", "strong", "mild", NULL }, NULL },
@@ -2994,6 +3030,7 @@ static void config_load(void)
 #endif
 			config_report_unknown_keys(result.toptab);
 			platform_log("settings: %s", path);
+			/* (a run that only answers its command line writes nothing) */
 			if (!config_answer_only)
 			{
 				completed = config_add_missing(parsed, result.toptab);
@@ -3362,7 +3399,6 @@ static char *config_repair_unreadable_lines(const char *text, const char *messag
 	free(current);
 	return NULL;
 }
-
 /* the longest string config_write takes */
 #define CONFIG_MAXIMUM_WRITTEN_STRING 4096
 
@@ -3511,8 +3547,8 @@ int config_write_boolean(const char *name, int value)
 }
 
 /* sets a setting as config_write does, from its value as config.toml writes it ("true", "4096", "1.5", "\"900\"": a
-string in double quotes, or bare); 0, with why in error, for no such setting or a value not of its type (the overlay's
-commands: port/linux/game/overlay_commands.c) */
+string in double quotes, or bare); 0, with why in error, for no such setting or a value not of its type (the overlay
+menu's "config <setting> <value>": port/linux/game/overlay_menu.c) */
 int config_set_text(const char *name, const char *value, char *error, size_t error_size)
 {
 	long index = config_setting_index(name);

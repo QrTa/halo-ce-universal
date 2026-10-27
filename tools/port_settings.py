@@ -298,7 +298,8 @@ SCREENS = {
              [("DEFAULT", "0"), ("SWAP TRIGGERS", "1"), ("SWAP A, L TRIGGER", "2"), ("SWAP B, L TRIGGER", "3"),
               ("SWAP B, R STICK", "4"),
               # (the port's: the later games' layouts as Halo: CE's controls
-              # go, source/interface/player_ui.c)
+              # go, source/interface/player_ui.c; upstream's Fishsticks and
+              # Recon after this fork's, whose numbers saved profiles keep)
               ("BOXER", "5"), ("GREEN THUMB", "6"), ("BUMPER JUMPER", "7"), ("RECLAIMER", "8"),
               ("FISHSTICKS", "9"), ("RECON", "10")],
              "Which of the controller's buttons does what (not\nthe keyboard's: Controls Setup sets those).", None),
@@ -1965,6 +1966,17 @@ LEADERBOARD_COLUMNS = [
 # CUSTOM MULTIPLAYER maps (_map_kind)
 MAP_KIND_CHOOSER = "main_menu/new_select/list_item_0_map_kind"
 
+# the main menu's news: the latest release's notes (tools/embed_assets.py's
+# news_text) in a window the main menu's X opens (WIDGET_PATCHES), its lines
+# filled and scrolled by menu_functions.c's news screen ("port news ...")
+NEWS = "main_menu/news"
+NEWS_ROWS = 12
+# the window's panel (bitmaps/controller_border, drawn a texel a unit from
+# its widget's corner: the panel is its texels 49 to 556 across and 104 to
+# 349 down), placed in the middle of the screen
+NEWS_PANEL = (17, 14)
+
+
 # changes to the PC version's widgets (by our names): attributes set, all
 # their handlers replaced, children added or removed, game data inputs added
 WIDGET_PATCHES = {
@@ -1975,7 +1987,16 @@ WIDGET_PATCHES = {
     }},
     # (the main menu's MODS, before Quit: _mods)
     "main_menu/main_menu_select_list": {"insert_before": {"main_menu/main_menu_item_quit_game": [
-        f'<child widget="main_menu/main_menu_item_mods" x="{MODS_ITEM_PLACE[0]}" y="{MODS_ITEM_PLACE[1]}"/>']}},
+        f'<child widget="main_menu/main_menu_item_mods" x="{MODS_ITEM_PLACE[0]}" y="{MODS_ITEM_PLACE[1]}"/>']},
+        # (the main menu's X - the west face button: Y on a Switch, Square on
+        # a PS5 - opens the news, the latest release's notes: _news_screen;
+        # on the main menu alone)
+        "handlers": ['<on event="down"/>', f'<on event="x" open="{NEWS}/news_screen"/>']},
+    # (and the hint that X opens it, over the build number: a tap or a click
+    # on it presses X, its picture a key's icon to the pointer, x_butn_news)
+    "main_menu/main_menu": {"insert_before": {"main_menu/build_number": [
+        f'<child widget="{NEWS}/x_butn_news" x="450" y="380"/>',
+        f'<child widget="{NEWS}/news_hint" x="450" y="380"/>']}},
     # (Campaign's DAILY CHALLENGE, before Back: _daily)
     "main_menu/campaign_select/campaign_menu_select_list": {"insert_before": {
         "main_menu/campaign_select/menu_item_back": [
@@ -2678,7 +2699,7 @@ BOTS_SETUP = ("bots_options", "BOTS",
               "Computer players in this game: how many, how\\nwell they play, and their teams. Slayer only.", [
     ("bots_count", "BOTS:", [str(count) if count else "NONE" for count in BOTS_COUNTS],
      ["No bots: only the players on this computer."] +
-     ["Bots join the lobby with you, as far as the game\\nhas room. Slayer gametypes only."] *
+     ["Bots join the lobby with you, as far as the game\\nhas room: Slayer, CTF and King of the Hill."] *
      (len(BOTS_COUNTS) - 1)),
     ("bots_skill", "SKILL:", [skill.upper() for skill in BOTS_SKILL_CHOICES], [
         "Each bot its own level, on a curve: most NORMAL\\nand HEROIC, a few RECRUIT and LEGENDARY.",
@@ -3444,6 +3465,93 @@ def _daily_connection() -> list:
     return lines
 
 
+def _news_screen() -> list:
+    """the news window: its title over a panel (bitmaps/controller_border)
+    of NEWS_ROWS lines of the notes, and under it the buttons that scroll
+    (the menus' scroll arrows, shown while there is more than the panel
+    holds) and close it (B as the console's picture of it: the menus'
+    %-codes); the title's and the lines' texts menu_functions.c's alone,
+    which makes them as long as it needs.
+    Up and down (the D-pad, the sticks, the mouse wheel) scroll a line, left
+    and right a page, B, Back or X again close it. And the main menu's hint
+    that X opens it (WIDGET_PATCHES)"""
+    base = NEWS
+    left, top = NEWS_PANEL[0] + 49, NEWS_PANEL[1] + 104
+    close = ['<on event="b" run="port news close"/>', '<on event="back" run="port news close"/>',
+             '<on event="x" run="port news close"/>']
+    scroll = [f'<on event="{event}" run="port news up"/>' for event in ("up", "stick_up", "right_stick_up")]
+    scroll += [f'<on event="{event}" run="port news down"/>' for event in ("down", "stick_down", "right_stick_down")]
+    scroll += ['<on event="left" run="port news page up"/>', '<on event="right" run="port news page down"/>']
+    lines = _widget(f"{base}/news_screen", [("width", 640), ("height", 480), ("bitmap", "bitmaps/gradient_big")],
+                    ['<data input="port news update"/>', '<on event="created" run="port news init"/>', *close,
+                     *scroll, f'<child widget="{base}/news_panel" x="{NEWS_PANEL[0]}" y="{NEWS_PANEL[1]}"/>',
+                     f'<child widget="{base}/news_title" x="{left}" y="{top - 34}"/>',
+                     *[f'<child widget="{base}/news_line" x="{left + 16}" y="{top + 12 + 18 * row}"/>'
+                       for row in range(NEWS_ROWS)],
+                     # (under the panel, the buttons left to right from a little
+                     # left of its middle: the up arrow, "Scroll", the down
+                     # arrow, B's picture and "Back"; widgets of their own,
+                     # which the menus' centring of a text with pictures in it
+                     # put apart; no picture of the D-pad is drawn in text, so
+                     # the menus' own scroll arrows. The arrows are the d-pad's
+                     # up and down to a tap or a click (a key's icon by their
+                     # names: ui_widget.c's ui_mouse_key_button), each further
+                     # than a key's label from "Scroll", so that it is neither's.
+                     # Their pictures sit high in their 16 texels: 7 down puts
+                     # their middles at the text's)
+                     f'<child widget="{base}/dpad_up_butn_news" x="{left + 164}" y="{top + 253 + 7}"/>',
+                     f'<child widget="{base}/news_scroll_text" x="{left + 198}" y="{top + 253}"/>',
+                     f'<child widget="{base}/dpad_down_butn_news" x="{left + 254}" y="{top + 253 + 7}"/>',
+                     # (Back's tap and click: B's, as the hint's is X's)
+                     f'<child widget="{base}/b_butn_news_back" x="{left + 300}" y="{top + 253}"/>',
+                     f'<child widget="{base}/news_back_text" x="{left + 300}" y="{top + 253}"/>'])
+    lines += _widget(f"{base}/news_panel", [("width", 640), ("height", 480), ("bitmap", "bitmaps/controller_border")],
+                     [])
+    lines += _widget(f"{base}/news_title", [("type", "text"), ("controller", 1), ("width", 507), ("height", 30),
+                                           ("font", "ui\\large_ui"), ("color", "#FF2896FF")], [])
+    lines += _widget(f"{base}/news_line", [("type", "text"), ("controller", 1), ("width", 475), ("height", 18),
+                                          ("font", "ui\\small_ui"), ("color", "#FFFFFFFF"),
+                                          ("text_flags", "no_focus_test")], [])
+    for name in ("up", "down"):
+        lines += _widget(f"{base}/dpad_{name}_butn_news", [("width", 16), ("height", 16),
+                                                           ("bitmap", f"bitmaps/arrow_sm_{name}")], [])
+    for name, text, width in (("scroll", "Scroll", 48), ("back", "%b-button Back", 120)):
+        lines += _widget(f"{base}/news_{name}_text", [("type", "text"), ("controller", 1), ("width", width),
+                                                      ("height", 20), ("text", text), ("font", "ui\\small_ui"),
+                                                      ("color", "#FFFFFFFF"), ("text_flags", "no_focus_test")], [])
+    # (the hint's tap and click: a widget named as a screen key's icon is X's
+    # to the pointer, and the text beside it its label, ui_widget.c's
+    # ui_mouse_key_button; nothing of it drawn, the hint's own picture is)
+    lines += _widget(f"{base}/x_butn_news", [("width", 16), ("height", 20)], [])
+    lines += _widget(f"{base}/b_butn_news_back", [("width", 16), ("height", 20)], [])
+    lines += _widget(f"{base}/news_hint", [("type", "text"), ("controller", 1), ("width", 150), ("height", 20),
+                                          ("text", "%x-button NEWS"), ("font", "ui\\small_ui"),
+                                          ("color", "#FFCCCCCC"), ("text_flags", "no_focus_test")], [])
+    return lines
+
+
+def _invite_qr_screen() -> list:
+    """(the Switch's) Server Setup's invite link as a QR code, for a phone
+    to read: its own screen, opened by the invite row's A (menu_functions.c's
+    invite_copy), which only B closes; the code is drawn above its line of
+    text (menu_functions.c's link_qr_draw)"""
+    base = f"{MT}/server_settings/invite_qr"
+    lines = _widget(f"{base}/invite_qr_screen", [("width", 640), ("height", 480), ("flags", "pause_game"),
+                                                 ("bitmap", "bitmaps/gradient")],
+                    ['<on event="b" run="ss invite qr back"/>',
+                     f'<child widget="{base}/invite_qr_title"/>',
+                     f'<child widget="{base}/invite_qr_text"/>'])
+    lines += _widget(f"{base}/invite_qr_title", [("type", "text"), ("controller", 1), ("left", 35), ("top", 24),
+                                                 ("width", 570), ("height", 30), ("text", "INVITE LINK"),
+                                                 ("font", "ui\\large_ui"), ("color", "#FF2896FF")], [])
+    lines += _widget(f"{base}/invite_qr_text", [("type", "text"), ("controller", 1), ("left", 40), ("top", 410),
+                                                ("width", 560), ("height", 18),
+                                                ("text", "Scan it with your phone for the invite link. B: back"),
+                                                ("font", "ui\\small_ui"), ("color", "#FFFFFFFF"), ("align", "center"),
+                                                ("text_flags", "no_focus_test")], [])
+    return lines
+
+
 def multiplayer_files() -> dict:
     """the port's multiplayer widgets: the browser's additions, the server
     settings, the lobby"""
@@ -3451,13 +3559,16 @@ def multiplayer_files() -> dict:
             "<!-- The port's multiplayer screens, in the PC version's style (tools/port_settings.py) -->", "<menus>"]
     return {
         f"{MT}/join_game".replace("/", ".") + ".port.xml": head + _join_game_extras() + ["</menus>", ""],
-        f"{MT}/server_settings".replace("/", ".") + ".xml": head + _server_settings() + ["</menus>", ""],
+        f"{MT}/server_settings".replace("/", ".") + ".xml": head + _server_settings() + _invite_qr_screen() +
+        ["</menus>", ""],
         f"{MT}/lobby".replace("/", ".") + ".xml": head + _lobby() + ["</menus>", ""],
         f"{MT}/coop".replace("/", ".") + ".xml": head + _coop() + ["</menus>", ""],
         f"{MT}/local".replace("/", ".") + ".xml": head + _create_local() + ["</menus>", ""],
         "main_menu/new_select".replace("/", ".") + ".port.xml": head + _map_kind() + ["</menus>", ""],
         "main_menu/solo_level_select".replace("/", ".") + ".port.xml": head + _level_records() + _leaderboard() +
         ["</menus>", ""],
+        # (and the main menu's news)
+        NEWS.replace("/", ".") + ".xml": head + _news_screen() + ["</menus>", ""],
         "main_menu/settings_select/multiplayer_setup/item_options_edit".replace("/", ".") + ".port.xml": head + _item_options_extras() + ["</menus>", ""],
         PLAYER_EDIT.replace("/", ".") + ".port.xml": head + _player_options_extras() + ["</menus>", ""],
         TEAMPLAY_EDIT.replace("/", ".") + ".port.xml": head + _teamplay_options_extras() + ["</menus>", ""],

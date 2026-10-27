@@ -6035,6 +6035,10 @@ static short ui_mouse_key_button(
 		{ "white_butn", _gamepad_analog_button_white },
 		{ "start_butn", _gamepad_binary_button_start },
 		{ "back_butn", _gamepad_binary_button_back },
+		/* port: the d-pad's up and down, the port's own screens' scroll
+		arrows (the news's: tools/port_settings.py's _news_screen) */
+		{ "dpad_up_butn", _gamepad_binary_button_dpad_up },
+		{ "dpad_down_butn", _gamepad_binary_button_dpad_down },
 	};
 	char const *name = tag_get_name(widget->definition_tag_index);
 	char const *leaf = name ? strrchr(name, '\\') : NULL;
@@ -6948,7 +6952,15 @@ static void ui_widgets_process_mouse(
 	boolean keyboard_active;
 
 	ui_debug_frame++;
-	pointer_active = halo_ui_pointer_update(ui_mouse_menus_active(), &pointer) != 0;
+	/* port: the overlay menu takes the pointer while it is open, over the
+	menus or the game (port/linux/game/overlay_menu.c) */
+	pointer_active = halo_ui_pointer_update(ui_mouse_menus_active() || overlay_menu_open(), &pointer) != 0;
+	if (overlay_menu_open())
+	{
+		if (pointer_active)
+			overlay_menu_pointer(&pointer);
+		pointer_active = FALSE;
+	}
 	if (pointer_active)
 		ui_mouse_pointer_is_touch = pointer.touch != 0;
 	if (pointer_active && ui_debug_targets_enabled())

@@ -147,6 +147,9 @@ int halo_server_debug_echo(void);
 char const *server_director_first_level(void);
 /* the mouse in the menus (source/interface/ui_widget.c) */
 #include "halo_ui_pointer.h"
+/* the overlay menu (port/linux/game/overlay_menu.c): while it is open the
+menus' pointer is its own, and it is drawn over the screen (interface.c) */
+#include "halo_overlay_menu.h"
 /* TRUE when B steps out of a custom-map folder or the Map screen's
 difficulties and the screen stays (port/linux/game/menu_functions.c) */
 unsigned char menu_port_back(void *widget);

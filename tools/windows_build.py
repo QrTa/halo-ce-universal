@@ -429,8 +429,12 @@ def generate_windows_build(n: Writer, sln: Any) -> None:
             if source.as_posix() == "source/main/main.c":
                 flags += " " + updater_defines(getattr(sln, "port_release", False))
             add_object(source, flags)
+        # the port's game units (bots.c's helper thread) reach the POSIX
+        # headers the Windows C runtime lacks (pthread.h, sched.h), searched
+        # after its own so that none of its headers is shadowed
+        port_game_cflags = f"{game_cflags} -idirafter {posix_include}"
         for source in sorted(Path(linux_config["game_sources"]).glob("*.c")):
-            add_object(source, game_cflags)
+            add_object(source, port_game_cflags)
         add_object(STB_VORBIS_SOURCE, game_cflags)
 
         linux_platform = Path(linux_config["platform_sources"])

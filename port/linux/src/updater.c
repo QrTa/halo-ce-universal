@@ -28,6 +28,7 @@ update.h's: posix_update.c on Linux, win32_update.c on Windows.
 #include "platform.h"
 #include "port_config.h"
 #include "update.h"
+#include "server_mode.h"
 
 /* the release's build that this one updates to (halo-<platform>-<release|
 debug>.zip); a build without one never looks for updates */
@@ -734,6 +735,9 @@ void updater_start(void)
 	}
 }
 
+/* (the builds with a dedicated server alone: server_mode.h's HALO_SERVER_BUILD,
+which the PS5's guest is not) */
+#if HALO_SERVER_BUILD
 /* ---------- a dedicated server's (server.auto_update: server_director.c) */
 
 /* looks for a new version on a thread of its own, unless a look is under
@@ -871,6 +875,7 @@ int updater_server_install_poll(char *error, int size)
 	snprintf(error, (size_t)size, "no install was started");
 	return -1;
 }
+#endif
 
 /* whether the game runs under gamescope (the Steam Deck's Game Mode), where
 a system dialog such as SDL's message box crashes the game. gamescope sets

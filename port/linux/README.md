@@ -388,23 +388,49 @@ problem.
 
 ## Bots
 
-Computer players (bots) can play a local multiplayer game with you:
-`bots.count` (1 to 63) of them join the lobby of a Slayer game played on
-this computer, which is Multiplayer > Create Game > LOCAL in the PC
-version's menus, and Multiplayer > Split Screen in the Xbox's
-(`display.menus = "xbox"`). LOCAL is made as LAN is (the map, the gametype,
-Server Setup, the lobby), but no other machine joins it; its Server Setup
-has BOTS in MAP SHARING's place, a screen of how many bots (none to 15),
-their skill and their teams, which writes `bots.count`, `bots.skill` and
-`bots.teams`, so the next game starts with them too. They are players as
-you are: in the scores, the respawns and the game's rules, on the teams
-that `bots.teams` asks for, and they follow the teams' changes in the
-lobby. They look for enemies, aim, fire,
-throw grenades and pick up better weapons, as well as `bots.skill` lets
-them, and walk the paths that the campaign's AI finds on the maps' walkable
-surfaces (`game/bots.c`). They are never in system link or internet games,
-nor in other gametypes (but SWAT, Infection and Gun Game, which are
-Slayer's: below), and nothing that the machines send each other changes.
+Computer players (bots) play multiplayer games with you: `bots.count` (1 to
+63) of them join the lobby of a game hosted here, local (split screen, which
+is Multiplayer > Split Screen in the Xbox's menus), system link, or a private
+internet game (not a public one, which the server browser lists). The host
+plays them and relays their input to the other machines as any player's, so
+nothing that the machines send each other changes. They are players as you
+are: in the scores, the respawns and the game's rules, on the teams that
+`bots.teams` asks for. They look for enemies, aim (at the head with the
+pistol and the sniper rifle, at the feet with rockets), fire, throw grenades
+and pick up better weapons, as well as `bots.skill` lets them
+(`game/bots.c`).
+
+Multiplayer > Create Game > LOCAL, in the PC version's menus, hosts a game
+that no other machine joins. Its Server Setup has BOTS in MAP SHARING's
+place: a screen of how many bots (none to 15), their skill and their teams,
+which writes `bots.count`, `bots.skill` and `bots.teams`, so the next game
+starts with them too.
+
+- **Capture the Flag and King of the Hill** follow Quake III Arena's bots'
+  rules: each team's defenders keep about its flag (or guard the hill's
+  approaches) and its attackers go for the other flag (or the hill); a
+  carrier runs home, and its own flag taken comes first. **Infection's**
+  zombies hunt and strike, its humans keep together; **SWAT's** bots aim at
+  the head.
+- **Paths** are the campaign AI's searches over the maps' walkable surfaces,
+  less what the bots learn is in the way; a goal the surfaces do not reach is
+  gone to through a teleporter, and teleporters are taken as shortcuts when
+  they save a long walk. Ladders are climbed. `bots.routes` spreads each
+  team's attackers over the map's side lanes (`game/bots_routes.c`).
+- **Vantage points**: a bot holding a sniper rifle (or a rocket launcher; a
+  pistol in Slayer) holds a place that sees the map's key places a while,
+  and leaves it when an enemy comes near, it runs low on ammunition or is
+  hurt (`game/bots_vantage.c`, `game/bots_roles.c`). Not in King of the Hill
+  or Infection.
+- **Vehicles**: a bot whose goal is far off drives an empty Warthog, Ghost or
+  Scorpion, or rides as a Warthog's gunner when a teammate drives, and mans a
+  turret near an enemy (`bots.vehicles`).
+- **Health packs**: a hurt bot goes for a health pack, and for an overshield
+  or camouflage near.
+
+The paths, vantage points, routes, vehicles and health packs are from
+[halo-ce-vita](https://github.com/BirchWoodGod/halo-ce-vita)'s bots
+(BirchWoodGod's PS Vita port, GPL-3.0).
 
 `bots.skill` sets six levels, from `"recruit"` (for new players: it reacts
 late, aims loosely and never throws) to `"legendary"`. Each level fights as
@@ -609,9 +635,11 @@ the setting for one start of the game. It has priority over the file.
 | `game.maps.path` | `""` | `HALO_MAPS_PATH` | The folder that the game reads its maps from. Empty: the `maps` folder in the data folder. A relative path is in the data folder. The game reads it once, at the start. The game unpacks a disc image only into the `maps` folder in the data folder, so the folder that this setting names must already hold the maps. On the Switch, a folder that is missing or has no `ui.map` stops the game at the start with an error. |
 | `game.custom_maps.path` | `""` | `HALO_CUSTOM_MAPS_PATH` | The folder that the game reads Custom Edition maps from, and that map sharing downloads maps into. Empty: the `custom_maps` folder in the data folder. A relative path is in the data folder. The game reads it once, at the start. On the Switch, a folder that is missing gets a warning at the start. |
 | `game.unlock_all_levels` | `false` | `HALO_UNLOCK_ALL_LEVELS` | `true`: a profile created afterward starts with all the campaign levels finished on all the difficulties. `false`: a new profile starts at The Pillar of Autumn, and each level opens when you finish the level before it, as on the Xbox. Existing profiles keep their progress. To start a profile over, type `profile_reset_campaign` in the console. |
-| `bots.count` | `0` | `HALO_BOTS` | Computer players (bots) in a local (split screen) Slayer game: `0` to `63` join its lobby with the players, as far as the game has room. Not in system link or internet games. `0`: none, as in the stock game. BOTS in Create Game > LOCAL's Server Setup writes it (and `bots.skill`, `bots.teams`). Refer to "Bots". |
-| `bots.skill` | `"distributed"` | `HALO_BOT_SKILL` | How well the bots play: `"distributed"` (each bot its own level, on a curve, the same on both teams), or `"recruit"`, `"easy"`, `"normal"`, `"heroic"`, `"veteran"` or `"legendary"` for all of them: how soon they react, how far and how wide they see, how large their aim error is and how fast it settles, how fast they turn, and how they fight. `"easy"`, `"normal"`, `"heroic"` and `"legendary"` keep their numbers; `"recruit"` is below `"easy"`, and `"veteran"` halfway from `"heroic"` to `"legendary"`. Refer to "Bots". |
+| `bots.count` | `0` | `HALO_BOTS` | Computer players (bots) in a game hosted here, local (split screen), system link or a private internet game: `0` to `63` join its lobby with the players, as far as the game has room. Not in public internet games. `0`: none, as in the stock game. BOTS in Create Game > LOCAL's Server Setup writes it (and `bots.skill`, `bots.teams`). Refer to "Bots". |
+| `bots.skill` | `"distributed"` | `HALO_BOT_SKILL` | How well the bots play: `"distributed"` (each bot its own level, on a curve, the same on both teams), or `"recruit"`, `"easy"`, `"normal"`, `"heroic"`, `"veteran"` or `"legendary"` for all of them: how soon they react, how far and how wide they see, how large their aim error is and how fast it settles, how fast they turn, how they fight, how often they aim at the head and the feet, and how hurt they are before they go for a health pack. `"easy"`, `"normal"`, `"heroic"` and `"legendary"` keep their numbers; `"recruit"` is below `"easy"`, and `"veteran"` halfway from `"heroic"` to `"legendary"`. Refer to "Bots". |
 | `bots.teams` | `"even"` | `HALO_BOT_TEAMS` | In a team game: `"even"` puts the bots on both teams, evening them with the players; `"against"` puts them all on the team the players are not on. |
+| `bots.vehicles` | `1` | `HALO_BOT_VEHICLES` | `1`: the bots drive and ride the map's vehicles to goals a long way off, and man its turrets. `0`: they stay on foot. |
+| `bots.routes` | `"direct"` | `HALO_BOT_ROUTES` | How the bots go to their goals: `"direct"`, everyone the shortest way; `"lanes"`, each team's attackers spread over the map's side lanes; `"mixed"`, most direct and a few on the side lanes. |
 | `paths.data` | `""` | `HALO_DATA_ROOT` | The data root. Refer to "Start the game". |
 | `paths.saves` | `""` | `HALO_SAVE_ROOT` | The save root. Refer to "Files and folders". |
 | `paths.logs` | `""` | `HALO_LOG_ROOT` | The folder of `debug.txt`, `bans.txt` and `cheaters.txt`. Empty: the data root. With it, the data root can be read-only (a dedicated server's maps mounted so). |

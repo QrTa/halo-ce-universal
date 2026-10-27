@@ -561,6 +561,8 @@ def generate_switch_build(n: Writer, sln: Any) -> None:
     for name in ("xmlparse.c", "xmlrole.c", "xmltok.c"):
         objects.append(guest_object(EXPAT_DIR / name, platform_cflags))
     objects.append(guest_object(KCP_DIR / "ikcp.c", platform_cflags))
+    # the link page's QR code (port/third_party/qrcodegen; port/linux/src/link_page.c)
+    objects.append(guest_object(Path("port/third_party/qrcodegen/qrcodegen.c"), platform_cflags))
     # voice chat's codec (port/third_party/opus), with the guest's ABI and C
     # library, as Android's
     for source in opus_sources():

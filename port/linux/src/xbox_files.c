@@ -351,6 +351,9 @@ void platform_translate_path(const char *xbox_path, char *host_path, unsigned lo
 		}
 		else if (drive == 'd' && translate_elsewhere(cursor + 2, resolved, sizeof(resolved), &cursor))
 		{
+			/* (its folder already where the setting keeps it: game.maps.path
+			and game.custom_maps.path do not move it again) */
+			on_data_root = FALSE;
 			cursor -= 2;
 			/* (no longer the data root: game.maps.path's folders are not
 			looked for under it) */

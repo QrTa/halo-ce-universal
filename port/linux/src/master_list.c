@@ -449,10 +449,18 @@ static int fetch(const char *url, struct fetched *fetched)
 	pthread_mutex_unlock(&one_at_a_time);
 	return fetched_one;
 }
-#elif defined(HALO_ANDROID)
-/* the app's host (port/android/host/host_https.c) */
-int host_https_get(const char *url, char *headers, int headers_size, char *body, int body_capacity,
-	int *body_size);
+#elif defined(HALO_ANDROID) || defined(HALO_PS5)
+/* the app's host (port/android/host/host_https.c; the Switch's,
+port/switch/host/host_https.c), as port/android/guest/runtime/guest_host.h */
+struct host_https_sizes
+{
+	int headers_size;
+	int body_capacity;
+	int error_size;
+	int status;
+	int body_size;
+};
+int host_https_get(const char *url, char *headers, char *body, char *error, struct host_https_sizes *sizes);
 
 static int fetch(const char *url, struct fetched *fetched)
 {
@@ -460,23 +468,22 @@ static int fetch(const char *url, struct fetched *fetched)
 	/* (each call's own: a thread of an earlier opening of the browser's may
 	be fetching too) */
 	char *headers = malloc(HEADERS_SIZE);
-	int body_size = 0;
+	char error[256];
+	struct host_https_sizes sizes = { HEADERS_SIZE, MAXIMUM_ANSWER, (int)sizeof(error), 0, 0 };
 
 	fetched->body = malloc(MAXIMUM_ANSWER + 1);
-	fetched->status = headers && fetched->body ?
-		host_https_get(url, headers, HEADERS_SIZE, fetched->body, MAXIMUM_ANSWER, &body_size) : 0;
-	if (!fetched->status)
+	if (!headers || !fetched->body || !host_https_get(url, headers, fetched->body, error, &sizes))
 	{
-		/* (why, in the headers' room) */
-		if (headers)
-			platform_log("server browser: %s: %s", url, headers);
+		if (headers && fetched->body)
+			platform_log("server browser: %s: %s", url, error);
 		free(headers);
 		free(fetched->body);
 		fetched->body = NULL;
 		return 0;
 	}
-	fetched->body[body_size] = 0;
-	fetched->size = (unsigned long)body_size;
+	fetched->status = sizes.status;
+	fetched->body[sizes.body_size] = 0;
+	fetched->size = (unsigned long)sizes.body_size;
 	header_value(headers, "Signature", fetched->signature, sizeof(fetched->signature));
 	header_value(headers, "Signature-Key", fetched->key, sizeof(fetched->key));
 	free(headers);

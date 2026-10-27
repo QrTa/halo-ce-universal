@@ -93,10 +93,10 @@ LINUX_HOST_DIR = LINUX_DIR / "host"
 TOMLC17_DIR = Path("port/third_party/tomlc17")
 # the Android host library's files the PS5's host uses as they are
 # (port/ps5/PS5.md, phase 2); the rest are replaced by port/ps5/host's
-# (host_https.c: the community server's requests, with posix_update.c's
-# update_request)
-SHARED_HOST_FILES = ("host_arch.c", "host_common.c", "host_https.c", "host_loader.c", "host_thread.c",
-                     "host_watch_hash.c")
+# (and the server browser's requests to the master servers, host_https.c, on
+# posix_update.c's HTTPS as Android's)
+SHARED_HOST_FILES = ("host_arch.c", "host_common.c", "host_loader.c", "host_thread.c", "host_watch_hash.c",
+                     "host_https.c")
 # and the Vulkan renderer's host half (port/ps5/PS5.md, phase 4), less
 # host_vk_driver.c (port/ps5/host/host_vk_driver_ps5.c is the console's) and
 # the probe, host_vk_probe.c
@@ -400,8 +400,12 @@ RELEASE_LICENSES = (
     ("repo", "port/third_party/stb/LICENSE", "licenses/stb-LICENSE.txt", None, "stb_truetype"),
     ("repo", "port/third_party/stb_vorbis/LICENSE", "licenses/stb_vorbis-LICENSE.txt", None, "stb_vorbis"),
     ("repo", "port/third_party/smaa/LICENSE", "licenses/smaa-LICENSE.txt", None, "SMAA"),
+    ("repo", "port/third_party/qrcodegen/LICENSE", "licenses/qrcodegen-LICENSE.txt", None,
+     "QR Code generator (Project Nayuki), Direct Link's QR code"),
     ("repo", "port/assets/fonts/Overpass-OFL.txt", "licenses/Overpass-OFL.txt", None, "Overpass"),
     ("repo", "port/assets/icons/lucide/LICENSE", "licenses/lucide-LICENSE.txt", None, "Lucide's icons"),
+    ("repo", "port/assets/buttons/platforms/Kenney-LICENSE.txt", "licenses/Kenney-LICENSE.txt", None,
+     "Kenney's Input Prompts, the controller buttons' pictures"),
 )
 # the player's README, at the release's top beside the title's folder
 RELEASE_README = PORT_DIR / "release" / "README.txt"
@@ -551,7 +555,9 @@ def _generate(n: Writer, sln: Any, config_path: Path) -> None:
         environment="gnu", platform_defines=["-DHALO_MOVABLE_WINDOW=1", "-DHALO_PS5=1"],
         extra_runtime=[LINUX_HOST_DIR / "guest_desktop.c"], extra_imports=[LINUX_HOST_DIR / "host_imports.list", ANDROID_DIR / "host_imports_vk.list",
                                                          PORT_DIR / "host_imports.list"],
-        updater_cflags=guest_updater_cflags, desktop_gl=True, vulkan=True)
+        updater_cflags=guest_updater_cflags, desktop_gl=True, vulkan=True,
+        # (Direct Link's link page's QR code, as the Switch's: port/linux/src/link_page.c)
+        extra_sources=[Path("port/third_party/qrcodegen/qrcodegen.c")])
 
     # ---------- the toolchain
 

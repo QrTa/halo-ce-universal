@@ -110,6 +110,9 @@ their handlers open opens.
 #include "interface/event_manager.h"
 #include "interface/player_ui.h"
 #include "interface/ui_widget.h"
+#include "bitmaps/bitmap_group.h"
+#include "bitmaps/bitmaps.h"
+#include "rasterizer/xbox/rasterizer_xbox_hardware_bitmaps.h"
 #include "interface/ui_widget_event_handler_functions.h"
 #include "main/main.h"
 #include "networking/network_game_manager.h"
@@ -164,6 +167,17 @@ void halo_input_shown_name(char const *binding, char *shown, unsigned int size);
 short pc_menu_string_index(long definition_index);
 /* cseries_windows.c's */
 unsigned long system_milliseconds(void);
+/* the link page (port/linux/src/link_page.c), the Switch's and the PS5's:
+Direct Link's way in for an invite link, with its QR code */
+#if defined(HALO_SWITCH) || defined(HALO_PS5)
+#define LINK_PAGE 1
+#endif
+void link_page_wanted(void);
+char const *link_page_address(void);
+int link_page_qr_size(void);
+int link_page_qr_dark(int x, int y);
+int link_page_text_qr(char const *text);
+int link_page_text_qr_dark(int x, int y);
 
 /* the game's (port) */
 boolean ui_widget_port_dispatch_event(struct widget_instance *widget, short event_type, short controller_index,
@@ -8447,6 +8461,11 @@ static void server_settings_update(struct widget_instance *list)
 		snprintf(text, sizeof(text), "INTERNET PLAY IS OFF (SETTINGS)");
 	else if (!p2p_invite_link(text, sizeof(text)))
 		snprintf(text, sizeof(text), "MADE WHEN THE GAME STARTS");
+#ifdef LINK_PAGE
+	/* (the Switch and the PS5 show the link as a QR code for a phone instead: invite_copy) */
+	else
+		snprintf(text, sizeof(text), "CLICK TO OPEN A QR WITH THE LINK");
+#endif
 	text_field_show(named(list, "invite_value", 0), text, FALSE);
 	{
 		wchar_t type[ROW_TEXT_LENGTH];
@@ -8974,15 +8993,34 @@ static boolean daily_connection_offline(struct widget_instance *widget, boolean 
 	return daily_connection_back(widget, widget_deleted);
 }
 
-/* "ss copy invite" */
-static boolean invite_copy(void)
+#define INVITE_QR_NAME "pc\\main_menu\\multiplayer_type_select\\server_settings\\invite_qr\\invite_qr_screen"
+
+/* "ss copy invite": the invite link copied; on the Switch and the PS5, whose
+clipboard nothing else reads, its QR code on a screen of its own
+(invite_qr_draw), which only B closes ("ss invite qr back") */
+static boolean invite_copy(struct widget_instance *widget, boolean *widget_deleted)
 {
 	char link[TEXT_FIELD_LENGTH];
 
 	if (!p2p_invite_link(link, sizeof(link)))
 		return campaign_fail();
+#ifdef LINK_PAGE
+	ui_play_audio_feedback_sound(SOUND_FORWARD);
+	return ui_widget_port_open(widget, INVITE_QR_NAME, widget_deleted);
+#else
+	(void)widget;
+	(void)widget_deleted;
 	platform_clipboard_set(link);
 	ui_play_audio_feedback_sound(SOUND_FORWARD);
+	return TRUE;
+#endif
+}
+
+/* "ss invite qr back" (B, the screen's one handler): back to Server Setup */
+static boolean invite_qr_back(struct widget_instance *widget, boolean *widget_deleted)
+{
+	ui_widget_port_go_back(widget);
+	*widget_deleted = TRUE;
 	return TRUE;
 }
 
@@ -9267,7 +9305,13 @@ static boolean browser_initialize(struct widget_instance *screen, struct event_r
 		visible_set(named(screen, unused[index], 0), server_browser && index != 1);
 	if (server_browser && named(screen, "browser_mode_spinner", 0))
 		setting_load(named(screen, "browser_mode_spinner", 0));
+#ifdef LINK_PAGE
+	/* (the Switch's and the PS5's clipboard is the game's own: the link comes from the link page's QR code
+	instead) */
+	visible_set(named(screen, "button_clipboard", 0), FALSE);
+#else
 	visible_set(named(screen, "button_clipboard", 0), multiplayer.mode == _multiplayer_mode_direct_link);
+#endif
 	visible_set(named(screen, "join_game_button_refresh", 0), multiplayer.mode == _multiplayer_mode_server_browser);
 	{
 		struct widget_instance *list = named(screen, "join_game_items_list", 0);
@@ -10661,6 +10705,11 @@ the one chosen's line, the counts over the titles (the PC version's: its
 players, page, servers) */
 static void browser_update(struct widget_instance *list)
 {
+#ifdef LINK_PAGE
+	/* (the link page while Direct Link's page is up: link_page.c) */
+	if (multiplayer.mode == _multiplayer_mode_direct_link)
+		link_page_wanted();
+#endif
 	struct widget_instance *row;
 	struct widget_instance *stats = list->parameters.list.extended_description;
 	short focused = browser_row_index(list->focused_child);
@@ -10710,6 +10759,32 @@ static void browser_update(struct widget_instance *list)
 
 		if (multiplayer.mode == _multiplayer_mode_server_browser)
 			text[0] = 0;
+#ifdef LINK_PAGE
+		/* (Direct Link's way in: the link page, on the local network, and its QR code above this line) */
+		else if (multiplayer.mode == _multiplayer_mode_direct_link && !multiplayer.game_count)
+		{
+			if (link_page_address()[0])
+			{
+				wchar_t address[64];
+				short index;
+
+				for (index = 0; index < NUMBEROF(address) - 1 && link_page_address()[index]; index++)
+					address[index] = (wchar_t)link_page_address()[index];
+				address[index] = 0;
+				usnprintf(text, NUMBEROF(text) - 1, L"Scan with your phone, or open %s",
+					address);
+			}
+			else if (!config_boolean("network.link_page"))
+				usnprintf(text, NUMBEROF(text) - 1, L"%s", L"The link page is off (network.link_page in config.toml)");
+#ifdef HALO_PS5
+			else
+				usnprintf(text, NUMBEROF(text) - 1, L"%s", L"Connect the PS5 to a network to send it an invite link");
+#else
+			else
+				usnprintf(text, NUMBEROF(text) - 1, L"%s", L"Connect the Switch to a network to send it an invite link");
+#endif
+		}
+#endif
 		else if (!multiplayer.game_count)
 		{
 			usnprintf(text, NUMBEROF(text) - 1, L"%s", multiplayer.mode == _multiplayer_mode_direct_link ?
@@ -11169,6 +11244,347 @@ static struct
 	unsigned long updated_at;
 } lobby_icons;
 
+#ifdef LINK_PAGE
+/* The QR codes (link_page.c's encoder): Direct Link's of the link page's
+address, in the games' list while it has none, centred over it and drawn
+from where the ticker line under the list is (UI units: the list's rows from
+y 102 to 357, the ticker's text from x 100 at y 402); and Server Setup's of
+the game's invite link, on its own screen (invite_copy), over its line of
+text. The Switch's and the PS5's. Each picture is made again when its text changes: whole
+texels a module (and the white margin a QR code wants, four modules), in a
+256 by 256 texture */
+enum
+{
+	LINK_QR_TEXTURE = 256,
+	LINK_QR_MARGIN = 4,
+	_link_qr_address = 0,
+	_link_qr_invite,
+	NUMBER_OF_LINK_QRS
+};
+
+static struct
+{
+	struct bitmap_data *bitmap;
+	char text[128];
+	/* the texels the code fills */
+	short texels;
+} link_qrs[NUMBER_OF_LINK_QRS];
+
+static boolean link_qr_make(short which, char const *text)
+{
+	long modules = which == _link_qr_address ? link_page_qr_size() : link_page_text_qr(text);
+	long side = modules + 2 * LINK_QR_MARGIN;
+	long scale = modules ? LINK_QR_TEXTURE / side : 0;
+	unsigned long *pixels;
+	long x, y;
+
+	if (scale < 1)
+		return FALSE;
+	if (!link_qrs[which].bitmap)
+	{
+		link_qrs[which].bitmap = bitmap_2d_new(LINK_QR_TEXTURE, LINK_QR_TEXTURE, 0, 11 /* a8r8g8b8 */);
+		if (link_qrs[which].bitmap && !rasterizer_bitmap_new(link_qrs[which].bitmap))
+		{
+			bitmap_delete(link_qrs[which].bitmap);
+			link_qrs[which].bitmap = NULL;
+		}
+		if (!link_qrs[which].bitmap)
+			return FALSE;
+	}
+	pixels = (unsigned long *)link_qrs[which].bitmap->base_address;
+	for (y = 0; y < LINK_QR_TEXTURE; y++)
+	{
+		for (x = 0; x < LINK_QR_TEXTURE; x++)
+		{
+			long module_x = x / scale - LINK_QR_MARGIN;
+			long module_y = y / scale - LINK_QR_MARGIN;
+			boolean inside = x < side * scale && y < side * scale;
+			boolean dark = inside && module_x >= 0 && module_y >= 0 && module_x < modules && module_y < modules &&
+				(which == _link_qr_address ? link_page_qr_dark((int)module_x, (int)module_y) :
+					link_page_text_qr_dark((int)module_x, (int)module_y));
+
+			pixels[y * LINK_QR_TEXTURE + x] = !inside ? 0 : dark ? 0xFF000000UL : 0xFFFFFFFFUL;
+		}
+	}
+	rasterizer_bitmap_changed(link_qrs[which].bitmap);
+	link_qrs[which].texels = (short)(side * scale);
+	csstrncpy(link_qrs[which].text, text, sizeof(link_qrs[which].text) - 1);
+	return TRUE;
+}
+
+/* the code of text, side UI units square, centred at (centre_x, centre_y) */
+static void link_qr_draw_at(short which, char const *text, short centre_x, short centre_y, short side)
+{
+	rectangle2d square;
+	rectangle2d source;
+
+	if (!text[0])
+		return;
+	if ((!link_qrs[which].bitmap || strcmp(link_qrs[which].text, text)) && !link_qr_make(which, text))
+		return;
+	square.x0 = (short)(centre_x - side / 2);
+	square.y0 = (short)(centre_y - side / 2);
+	square.x1 = (short)(square.x0 + side);
+	square.y1 = (short)(square.y0 + side);
+	source.x0 = source.y0 = 0;
+	source.x1 = source.y1 = link_qrs[which].texels;
+	draw_bitmap_in_rect(link_qrs[which].bitmap, &square, &source, NULL, 0xFFFFFFFFUL, NULL, TRUE);
+}
+
+/* (Direct Link's) over the empty list, from the ticker line */
+static void link_qr_draw(rectangle2d const *ticker)
+{
+	real scale = (real)(ticker->y1 - ticker->y0) / 18.0f;
+
+	if (multiplayer.mode != _multiplayer_mode_direct_link || multiplayer.game_count)
+		return;
+	link_qr_draw_at(_link_qr_address, link_page_address(), (short)(ticker->x0 + (320 - 100) * scale),
+		(short)(ticker->y0 - (402 - (102 + 357) / 2) * scale), (short)(200 * scale));
+}
+
+/* (the invite's screen) over its line of text (UI units: the text from x 40
+at y 410, 560 wide; the code between the title, to y 60, and it) */
+static void invite_qr_draw(rectangle2d const *line)
+{
+	real scale = (real)(line->x1 - line->x0) / 560.0f;
+	char link[TEXT_FIELD_LENGTH];
+
+	if (!p2p_invite_link(link, sizeof(link)))
+		return;
+	link_qr_draw_at(_link_qr_invite, link, (short)(line->x0 + (320 - 40) * scale),
+		(short)(line->y0 - (410 - (60 + 400) / 2) * scale), (short)(320 * scale));
+}
+#endif
+
+/* ---------- the main menu's news
+
+The latest release's notes (tools/embed_assets.py's news_text: the newest
+Build N commit's message), in a window the main menu's X opens (the west face
+button: Y on a Switch, Square on a PS5; tools/port_settings.py's
+_news_screen), on the main menu alone. The notes are wrapped to the window's
+lines, measured in the font they are drawn in once one has been drawn
+(menu_functions_text_box_drawn), and shown NEWS_ROWS lines at a time from the
+top line, which up and down move a line and left and right a page; B, Back
+or X close it. */
+
+/* (tools/embed_assets.py's: the notes, ASCII ending in a NUL, and their size) */
+extern const unsigned int halo_news_words[];
+extern const unsigned int halo_news_size;
+
+/* the window's rows (port_settings.py's NEWS_ROWS), the most wrapped lines
+kept, and the longest */
+#define NEWS_ROWS 12
+#define NEWS_MAXIMUM_LINES 512
+#define NEWS_LINE_LENGTH 128
+/* the characters a line holds until its font is known */
+#define NEWS_LINE_CHARACTERS 80
+
+static struct
+{
+	/* the wrapped lines, and the font and width they were wrapped to (NONE
+	before one was drawn) */
+	char lines[NEWS_MAXIMUM_LINES][NEWS_LINE_LENGTH];
+	long count;
+	long wrapped_font;
+	short wrapped_width;
+	/* the rows' font and width as last drawn */
+	long font;
+	short width;
+	/* the top line shown */
+	long first;
+	/* the title: the release's (its first line) */
+	char title[64];
+} news_screen = { { { 0 } }, 0, NONE, 0, NONE, 0, 0, { 0 } };
+
+/* the notes as text */
+static char const *news_text(void)
+{
+	return (char const *)halo_news_words;
+}
+
+/* whether `count` characters of text fit across a row */
+static boolean news_fits(char const *text, long count)
+{
+	static real_argb_color const white = { 1.0f, 1.0f, 1.0f, 1.0f };
+	wchar_t wide[NEWS_LINE_LENGTH];
+	rectangle2d bounds, text_bounds, cursor;
+	long index;
+
+	if (count >= NEWS_LINE_LENGTH)
+		return FALSE;
+	if (news_screen.font == NONE || news_screen.width <= 0)
+		return count <= NEWS_LINE_CHARACTERS;
+	for (index = 0; index < count; index++)
+		wide[index] = (wchar_t)(unsigned char)text[index];
+	wide[count] = 0;
+	bounds.x0 = 0;
+	bounds.y0 = 0;
+	bounds.x1 = 0x3FFF;
+	bounds.y1 = 480;
+	draw_string_set_draw_mode(news_screen.font, NONE, 0, 0, &white);
+	draw_unicode_string_compute_bounds(&bounds, wide, &text_bounds, &cursor);
+	return MAX(text_bounds.x1, cursor.x0) - bounds.x0 <= news_screen.width - MOD_TEXT_MARGIN;
+}
+
+static void news_add_line(char const *text, long count)
+{
+	if (news_screen.count >= NEWS_MAXIMUM_LINES)
+		return;
+	count = MIN(count, NEWS_LINE_LENGTH - 1);
+	memcpy(news_screen.lines[news_screen.count], text, (size_t)count);
+	news_screen.lines[news_screen.count][count] = 0;
+	news_screen.count++;
+}
+
+/* the notes wrapped to the rows: their first line the title, each other a
+paragraph wrapped at its spaces, a list item's ("- ...") lines after its
+first indented under its text */
+static void news_wrap(void)
+{
+	char const *text = news_text();
+	char const *end = text + halo_news_size;
+	char const *line_end;
+	boolean first = TRUE;
+
+	news_screen.count = 0;
+	news_screen.title[0] = 0;
+	news_screen.wrapped_font = news_screen.font;
+	news_screen.wrapped_width = news_screen.width;
+	for (; text < end; text = line_end + (line_end < end))
+	{
+		char const *paragraph = text;
+		char indent[3] = "";
+		long indent_length = 0;
+
+		line_end = memchr(text, '\n', (size_t)(end - text));
+		if (!line_end)
+			line_end = end;
+		if (first)
+		{
+			long length = MIN((long)(line_end - text), (long)sizeof(news_screen.title) - 1);
+
+			memcpy(news_screen.title, text, (size_t)length);
+			news_screen.title[length] = 0;
+			first = FALSE;
+			continue;
+		}
+		/* (the blank line after the title) */
+		if (!news_screen.count && line_end == text)
+			continue;
+		if (line_end == text)
+		{
+			news_add_line("", 0);
+			continue;
+		}
+		while (paragraph < line_end)
+		{
+			char line[NEWS_LINE_LENGTH];
+			long room = NEWS_LINE_LENGTH - 1 - indent_length;
+			long length = MIN((long)(line_end - paragraph), room);
+			long cut = length;
+
+			memcpy(line, indent, (size_t)indent_length);
+			memcpy(line + indent_length, paragraph, (size_t)length);
+			/* (as much as fits, cut at a space when there is one) */
+			while (cut > 1 && !news_fits(line, indent_length + cut))
+			{
+				long space = cut - 1;
+
+				while (space > 0 && paragraph[space] != ' ')
+					space--;
+				cut = space > 0 ? space : cut - 1;
+			}
+			news_add_line(line, indent_length + cut);
+			if (!indent_length && paragraph == text && paragraph[0] == '-' && paragraph[1] == ' ')
+			{
+				strcpy(indent, "  ");
+				indent_length = 2;
+			}
+			paragraph += cut;
+			while (paragraph < line_end && *paragraph == ' ')
+				paragraph++;
+		}
+	}
+}
+
+/* the top line, kept within the lines */
+static void news_scroll(long by)
+{
+	long last = MAX(0, news_screen.count - NEWS_ROWS);
+
+	news_screen.first = PIN(news_screen.first + by, 0, last);
+}
+
+/* "port news init" */
+static boolean news_initialize(void)
+{
+	news_screen.first = 0;
+	news_wrap();
+	return TRUE;
+}
+
+/* "port news update": wrapped again once the rows' font is known, then the
+rows, the title and the footer from the top line */
+static void news_update(struct widget_instance *screen)
+{
+	wchar_t text[NEWS_LINE_LENGTH];
+	long row;
+
+	if (news_screen.font != news_screen.wrapped_font || news_screen.width != news_screen.wrapped_width)
+	{
+		news_wrap();
+		news_scroll(0);
+	}
+	for (row = 0; row < NEWS_ROWS; row++)
+	{
+		struct widget_instance *line = named(screen, "news_line", row);
+		long index = news_screen.first + row;
+		long character;
+
+		if (!line)
+			continue;
+		text[0] = 0;
+		if (index < news_screen.count)
+		{
+			for (character = 0; news_screen.lines[index][character] && character < NEWS_LINE_LENGTH - 1; character++)
+				text[character] = (wchar_t)(unsigned char)news_screen.lines[index][character];
+			text[character] = 0;
+		}
+		text_set_length(line, text, NEWS_LINE_LENGTH);
+	}
+	{
+		char title[96];
+
+		if (news_screen.title[0])
+			snprintf(title, sizeof(title), "NEWS: %s", news_screen.title);
+		else
+			snprintf(title, sizeof(title), "NEWS");
+		for (row = 0; title[row] && row < (long)NUMBEROF(text) - 1; row++)
+			text[row] = (wchar_t)toupper((unsigned char)title[row]);
+		text[row] = 0;
+		text_set(named(screen, "news_title", 0), text);
+	}
+	/* (the scroll arrows and "Scroll" while there is more than the panel
+	holds) */
+	{
+		boolean scrolls = news_screen.count > NEWS_ROWS;
+
+		visible_set(named(screen, "dpad_up_butn_news", 0), scrolls);
+		visible_set(named(screen, "dpad_down_butn_news", 0), scrolls);
+		visible_set(named(screen, "news_scroll_text", 0), scrolls);
+	}
+	if (!news_screen.count)
+		text_set_length(named(screen, "news_line", 0), L"No news in this build.", NEWS_LINE_LENGTH);
+}
+
+/* "port news close" (B, Back, X): back to the main menu */
+static boolean news_close(struct widget_instance *widget, boolean *widget_deleted)
+{
+	ui_widget_port_go_back(widget);
+	*widget_deleted = TRUE;
+	return TRUE;
+}
+
 /* ui_widget.c's: a text box drawn, at the bounds its text was drawn in
 (its font and justification still set): a lobby row's player talking in
 voice chat (or muted) has a speaker just left of their name
@@ -11177,6 +11593,19 @@ void menu_functions_text_box_drawn(struct widget_instance *widget, rectangle2d c
 {
 	short row;
 
+#ifdef LINK_PAGE
+	if (widget->name && !strcmp(widget->name, "ticker_player_info"))
+		link_qr_draw(bounds);
+	if (widget->name && !strcmp(widget->name, "invite_qr_text"))
+		invite_qr_draw(bounds);
+#endif
+	/* (the news's rows: the font and width its notes are wrapped to) */
+	if (widget->name && !strcmp(widget->name, "news_line"))
+	{
+		news_screen.font = draw_string_get_font();
+		news_screen.width = (short)(bounds->x1 - bounds->x0);
+		return;
+	}
 	/* (the Mods screen's texts: the fonts and widths their lines are
 	measured in, mods_text_fits) */
 	for (row = 0; widget->name && row < NUMBER_OF_MOD_TEXT_BOXES; row++)
@@ -12737,7 +13166,28 @@ boolean pc_menu_event_function_invoke(
 		}
 		else if (!strcmp(name, "ss copy invite"))
 		{
-			return invite_copy();
+			return invite_copy(widget, widget_deleted);
+		}
+		else if (!strcmp(name, "ss invite qr back"))
+		{
+			return invite_qr_back(widget, widget_deleted);
+		}
+		/* (the main menu's news) */
+		else if (!strcmp(name, "port news init"))
+		{
+			return news_initialize();
+		}
+		else if (!strcmp(name, "port news close"))
+		{
+			return news_close(widget, widget_deleted);
+		}
+		else if (!strcmp(name, "port news up") || !strcmp(name, "port news down") ||
+			!strcmp(name, "port news page up") || !strcmp(name, "port news page down"))
+		{
+			long by = strstr(name, "page") ? NEWS_ROWS - 1 : 1;
+
+			news_scroll(strstr(name, "up") ? -by : by);
+			return TRUE;
 		}
 		else if (!strcmp(name, "ss start game"))
 		{
@@ -13074,6 +13524,8 @@ void pc_menu_game_data_function_invoke(
 		gametype_list_update(widget);
 	else if (!strcmp(name, "server settings update"))
 		server_settings_update(widget);
+	else if (!strcmp(name, "port news update"))
+		news_update(widget);
 	else if (!strcmp(name, "port password update"))
 		password_screen_update(widget);
 	else if (!strcmp(name, "port leaderboard update"))

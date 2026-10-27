@@ -675,35 +675,40 @@ int host_https_request(int post, const char *url, const char *headers, const cha
 }
 
 /* ---------- the guest's host_https_get (port/linux/src/master_list.c: the
-server browser's master servers) */
+server browser's master servers, as Android's port/android/host/host_https.c
+has it) */
 
-int host_https_get(const char *url, char *headers, int headers_size, char *body, int body_capacity,
-	int *body_size)
+int host_https_get(const char *url, char *headers, char *body, char *error, struct host_https_sizes *sizes)
 {
 	char host[MAXIMUM_HOST + 1];
-	char error[256] = "";
+	size_t error_size = sizes->error_size > 0 ? (size_t)sizes->error_size : 0;
 	const char *path;
 	struct memory_body memory;
 	int status;
 
-	*body_size = 0;
+	sizes->status = 0;
+	sizes->body_size = 0;
+	if (error_size)
+		error[0] = 0;
 	if (!split_url(url, host, sizeof(host), &path))
 	{
-		snprintf(headers, (size_t)headers_size, "Not an https link: %.80s", url);
+		if (error_size)
+			snprintf(error, error_size, "Not an https link: %.80s", url);
 		return 0;
 	}
 	/* (memory_body keeps a byte for the NUL: body has body_capacity + 1) */
 	memory.response = body;
-	memory.size = (size_t)body_capacity + 1;
+	memory.size = (size_t)(sizes->body_capacity > 0 ? sizes->body_capacity : 0) + 1;
 	memory.length = 0;
-	status = request(host, path, "GET", NULL, NULL, 1, memory_body, &memory, NULL, 0, headers, (size_t)headers_size,
-		error, sizeof(error));
+	status = request(host, path, "GET", NULL, NULL, 1, memory_body, &memory, NULL, 0, headers,
+		sizes->headers_size > 0 ? (size_t)sizes->headers_size : 0, error, error_size);
 	if (status <= 0)
 	{
-		/* (why, in the headers' room: master_list.c logs it) */
-		snprintf(headers, (size_t)headers_size, "%s", error[0] ? error : "no answer");
+		if (error_size && !error[0])
+			snprintf(error, error_size, "no answer");
 		return 0;
 	}
-	*body_size = (int)memory.length;
-	return status;
+	sizes->status = status;
+	sizes->body_size = (int)memory.length;
+	return 1;
 }

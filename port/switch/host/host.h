@@ -401,6 +401,21 @@ followed if follow_redirects, and the last Location seen is copied to location
 either way. Returns the last status, or -1 with error said. */
 int host_https_fetch(const char *url, int follow_redirects, host_https_body body, void *context, char *location,
 	size_t location_size, char *error, size_t error_size);
+/* the guest's GET (port/linux/src/master_list.c's, the master servers'): its
+status, its headers and its body cut to body_capacity, as Android's
+port/android/host/host_https.c; 1 if an answer came. The sizes are the
+guest's struct (port/android/guest/runtime/guest_host.h) */
+struct host_https_sizes
+{
+	int headers_size;
+	int body_capacity;
+	int error_size;
+	/* the answer: its status, and how much of the body came */
+	int status;
+	int body_size;
+};
+typedef char host_https_sizes_size_check[sizeof(struct host_https_sizes) == 20 ? 1 : -1];
+int host_https_get(const char *url, char *headers, char *body, char *error, struct host_https_sizes *sizes);
 /* how many seconds the clock of the servers asked is ahead of this
 console's (behind if negative), from the last answer; 0 if none has come */
 int host_https_clock_offset(long long *seconds);

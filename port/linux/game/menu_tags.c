@@ -360,7 +360,7 @@ static char const *const port_function_names[] =
 	"color picker menu initialize", "color picker menu dispose", "color picker select color",
 	"player profile list initialize", "player profile list dispose", "request del player profile",
 	"final del player profile",
-	"ss copy invite", "join controller to mp game", "mp level list initialize", "mp level list dispose",
+	"ss copy invite", "ss invite qr back", "join controller to mp game", "mp level list initialize", "mp level list dispose",
 	"mp level select", "mp profiles list initialize", "mp profiles list dispose", "mp profile set for game",
 	"port lobby preview join",
 	"port setup edit",
@@ -424,6 +424,9 @@ static char const *const port_function_names[] =
 	"port daily back", "port daily random",
 	/* (Settings > Gameplay's CUSTOM MAPS FOLDER, Android's) */
 	"port custom maps init", "port custom maps pick",
+	/* (the main menu's news: menu_functions.c) */
+	"port news init", "port news close", "port news up", "port news down", "port news page up",
+	"port news page down",
 };
 
 /* the PC version's game data functions that the Xbox's have not, from
@@ -465,6 +468,8 @@ static char const *const port_game_data_input_names[] =
 	"port playlist edit desc",
 	/* (Settings > Gameplay's CUSTOM MAPS FOLDER: its folder, and the one chosen) */
 	"port custom maps update",
+	/* (the main menu's news) */
+	"port news update",
 };
 
 static struct

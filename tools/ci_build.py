@@ -151,6 +151,14 @@ def copy_notices(platform, dist):
         shutil.copy2(ROOT / "deploy/halo-server", dist / "halo-server")
         shutil.copytree(ROOT / "deploy", dist / "deploy", ignore=shutil.ignore_patterns("*.zip", "__pycache__"))
     if platform == "switch":
+        # the controller buttons' pictures, Kenney's Input Prompts
+        # (port/assets/buttons/platforms), CC0: not required, but credited (the
+        # PS5's release has it in licenses/: tools/ps5_build.py)
+        shutil.copy2(ROOT / "port/assets/buttons/platforms/Kenney-LICENSE.txt", dist / "Kenney-LICENSE.txt")
+        # the link page's QR code (port/third_party/qrcodegen, Project
+        # Nayuki's, in the Switch's build alone), whose MIT license asks
+        # copies to carry its notice
+        shutil.copy2(ROOT / "port/third_party/qrcodegen/LICENSE", dist / "qrcodegen-LICENSE.txt")
         # and the Switch's menus' title font (port/switch/host/host_ui.c),
         # under the same license
         shutil.copy2(ROOT / "port/assets/fonts/OpenCE-OFL.txt", dist / "OpenCE-OFL.txt")

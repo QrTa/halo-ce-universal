@@ -52,7 +52,20 @@ struct hud_hires_embedded
 	unsigned int ce_width, ce_height, ce_size, ce_crc;
 	const unsigned int *png;
 	unsigned int png_size;
+	/* where its picture's buttons are right, for a port's own button art drawn twice
+	(tools/button_assets.py platform): HUD_HIRES_CONTEXT_* bits; 0 everywhere */
+	unsigned int contexts;
 };
+
+/* the Switch's menus with the right face button as A (controls.nintendo_menu_buttons), its menus without, a game */
+#define HUD_HIRES_CONTEXT_MENUS_SWAPPED 1u
+#define HUD_HIRES_CONTEXT_MENUS 2u
+#define HUD_HIRES_CONTEXT_GAME 4u
+/* where a port has button art of its own (the Switch's, the PS5's), whose a picture is: the port's, or the Xbox's,
+embedded beside it (display.xbox_buttons chooses); neither, a picture of no port's */
+#define HUD_HIRES_CONTEXT_PLATFORM_ART 8u
+#define HUD_HIRES_CONTEXT_XBOX_ART 16u
+#define HUD_HIRES_CONTEXT_PLACES (HUD_HIRES_CONTEXT_MENUS_SWAPPED | HUD_HIRES_CONTEXT_MENUS | HUD_HIRES_CONTEXT_GAME)
 
 extern const struct hud_hires_embedded hud_hires_embedded[];
 extern const unsigned int hud_hires_embedded_count;

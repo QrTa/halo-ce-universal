@@ -15581,6 +15581,41 @@ static boolean hs_compile_and_evaluate_command(
 			return network_votekick_player_named(name);
 		}
 	}
+	/* port: the bots of a local (split screen) Slayer game in progress, one at
+	a time (network_game_server_port_bot_add, _drop): add_bot and drop_bot in
+	a game without teams, the _red and _blue ones in a team game */
+	{
+		static struct
+		{
+			char const *word;
+			boolean add;
+			long team_index;
+		} const bot_commands[] =
+		{
+			{ "add_bot", TRUE, NONE }, { "add_bot_red", TRUE, 0 }, { "add_bot_blue", TRUE, 1 },
+			{ "drop_bot", FALSE, NONE }, { "drop_bot_red", FALSE, 0 }, { "drop_bot_blue", FALSE, 1 },
+		};
+		short command;
+
+		for (command = 0; command < (short)NUMBEROF(bot_commands); command++)
+		{
+			if (hs_host_player_command(expression, bot_commands[command].word))
+			{
+				char said[128];
+				boolean done = bot_commands[command].add ?
+					network_game_server_port_bot_add(bot_commands[command].team_index, said, (long)sizeof(said)) :
+					network_game_server_port_bot_drop(bot_commands[command].team_index, said, (long)sizeof(said));
+
+				if (done)
+					console_printf(FALSE, "%s", said);
+				else
+					console_warning("%s: %s", bot_commands[command].word, said);
+				/* (and in debug.txt) */
+				error(_error_silent, "%s: %s", bot_commands[command].word, said);
+				return done;
+			}
+		}
+	}
 	/* port: profile_reset_campaign, which clears the first player's
 	profile's campaign progress (player_ui_reset_campaign_progress) once
 	confirmed: "profile_reset_campaign yes" */

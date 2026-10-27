@@ -3293,6 +3293,18 @@ int p2p_peer_reached(const unsigned char *peer_identifier, unsigned long *addres
 	return result;
 }
 
+/* whether the game hosted is offered for internet play (its invite link), not the local network's alone (bots.c:
+bots play in system link games only) */
+int p2p_hosting_internet(void)
+{
+	int hosting;
+
+	pthread_mutex_lock(&p2p_lock);
+	hosting = p2p.hosting && !p2p.hosting_lan_only;
+	pthread_mutex_unlock(&p2p_lock);
+	return hosting;
+}
+
 void p2p_set_hosting_allowed(int allowed)
 {
 	pthread_mutex_lock(&p2p_lock);

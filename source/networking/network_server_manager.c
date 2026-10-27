@@ -1560,15 +1560,17 @@ static void network_game_server_list(
 }
 
 /* port: the bots (port/linux/game/bots.c, the settings' bots.count and
-bots.teams): in the lobby of a local (split screen) Slayer game, as many bot
+bots.teams): in the lobby of a local (split screen) Slayer, CTF or King of the Hill game, as many bot
 players as the settings ask for, as far as the game has room, each the one
 player of a machine of its own (BOTS_FIRST_MACHINE up, which no real machine
 is). In a team game they even the teams with the players or, for bots.teams
 "against", all take the team the players are not on; the players may change
 teams in the lobby, and the bots follow. They leave when the setting asks
 for fewer, or the game is another gametype. Not once the game has been
-started, nor in a game other machines may join (system link and internet
-games: no bots there, which would need the clients told) */
+started (the console's add_bot and drop_bot then: network_game_server_port_bot_add),
+and in a system link game as in a local one (its clients drive the bots
+with the input the host relays: bots.c), and in a private internet game,
+but not in a public one, which the server browser lists (bots_game_allowed) */
 static void network_game_server_port_bots(
 	struct network_game_server *server)
 {
@@ -1582,8 +1584,12 @@ static void network_game_server_port_bots(
 
 	if (server->state != _network_game_server_state_pregame || server->sent_start_game_message)
 		return;
-	if (network_game_is_splitscreen_local() && server->game.variant.game_engine_index == game_engine_slayer)
+	if (bots_game_allowed() && (server->game.variant.game_engine_index == game_engine_slayer ||
+		server->game.variant.game_engine_index == game_engine_ctf ||
+		server->game.variant.game_engine_index == game_engine_king))
+	{
 		wanted = PIN(bots_wanted_count(), 0, BOTS_MAXIMUM);
+	}
 	for (bot_index = 0; bot_index < BOTS_MAXIMUM; bot_index++)
 		slot_of_bot[bot_index] = NONE;
 	for (slot = 0; slot < MAXIMUM_NETWORK_PLAYER_COUNT; slot++)
@@ -1655,6 +1661,178 @@ static void network_game_server_port_bots(
 	}
 	if (changed && !network_game_server_send_game_data_pregame(server))
 		network_event("network_game_server_port_bots() failed to send updated game settings to clients");
+}
+
+/* port: the console's add_bot, add_bot_red, add_bot_blue, drop_bot,
+drop_bot_red and drop_bot_blue (hs.c): one bot joins or leaves a local
+(split screen), system link or private internet Slayer, CTF or King of the Hill game in progress (bots_game_allowed), as a player joining it in progress
+does (every machine of the game told, which spawns it: _message_server_add_player_ingame)
+and as one who quits. team_index: 0 red, 1 blue, NONE for a game without
+teams, which the game must be of. The lobby's own bots are bots.count's
+(network_game_server_port_bots): the next game's lobby has as many as it
+asks for again. What came of it, for the console, in said */
+static struct network_game_server *network_game_server_port_bot_game(
+	long team_index,
+	char *said,
+	long said_size)
+{
+	struct network_game_server *server = global_network_game_server_get();
+
+	/* (a client's: the host decides the game, its bots too, as it does its cheats) */
+	if (!server && global_network_game_client_get())
+	{
+		snprintf(said, said_size, "only the game's host adds and drops bots");
+		return NULL;
+	}
+	if (!server || network_game_server_get_state(server, NULL) != _network_game_server_state_ingame)
+	{
+		snprintf(said, said_size, "bots join a multiplayer game in progress (in its lobby, bots.count sets them)");
+		return NULL;
+	}
+	if (!bots_game_allowed())
+	{
+		snprintf(said, said_size, "bots play only in local, system link and private internet games, not public ones");
+		return NULL;
+	}
+	if (server->game.variant.game_engine_index != game_engine_slayer &&
+		server->game.variant.game_engine_index != game_engine_ctf &&
+		server->game.variant.game_engine_index != game_engine_king)
+	{
+		snprintf(said, said_size, "bots play only Slayer, Capture the Flag and King of the Hill");
+		return NULL;
+	}
+	if (team_index == NONE && game_engine_has_teams())
+	{
+		snprintf(said, said_size, "this is a team game: name the team (red or blue)");
+		return NULL;
+	}
+	if (team_index != NONE && !game_engine_has_teams())
+	{
+		snprintf(said, said_size, "this game has no teams: add_bot and drop_bot, without a team");
+		return NULL;
+	}
+	return server;
+}
+
+static char const *network_game_server_port_team_name(
+	long team_index)
+{
+	return team_index == 0 ? "red" : team_index == 1 ? "blue" : "";
+}
+
+/* (a bot's name, as the console prints it) */
+static void network_game_server_port_bot_name(
+	struct network_player const *player,
+	char *name,
+	long size)
+{
+	long index;
+
+	for (index = 0; index < size - 1 && index < NETWORK_PLAYER_NAME_LENGTH && player->name[index]; index++)
+		name[index] = player->name[index] < 0x80 ? (char)player->name[index] : '?';
+	name[index] = 0;
+}
+
+boolean network_game_server_port_bot_add(
+	long team_index,
+	char *said,
+	long said_size)
+{
+	struct network_game_server *server = network_game_server_port_bot_game(team_index, said, said_size);
+	struct network_player joining;
+	char name[NETWORK_PLAYER_NAME_LENGTH + 1];
+	long bot_index;
+	long slot;
+
+	if (!server)
+		return FALSE;
+	/* (the first bot machine no player of the game is of) */
+	for (bot_index = 0; bot_index < BOTS_MAXIMUM; bot_index++)
+	{
+		for (slot = 0; slot < MAXIMUM_NETWORK_PLAYER_COUNT; slot++)
+		{
+			if (network_player_is_valid(&server->game.players[slot]) &&
+				server->game.players[slot].machine_index == BOTS_FIRST_MACHINE + bot_index)
+			{
+				break;
+			}
+		}
+		if (slot == MAXIMUM_NETWORK_PLAYER_COUNT)
+			break;
+	}
+	if (bot_index == BOTS_MAXIMUM || !network_game_has_free_player_slot(&server->game) ||
+		server->game.player_count >= server->game.maximum_players)
+	{
+		snprintf(said, said_size, "the game is full");
+		return FALSE;
+	}
+	bots_network_player(bot_index, &joining);
+	joining.team_index = (char)(team_index == NONE ? 0 : team_index);
+	joining.primary_color_index = NONE;
+	get_unique_random_color(server, &joining);
+	joining.player_list_index = NONE;
+	if (!network_game_add_player(&server->game, &joining))
+	{
+		snprintf(said, said_size, "the game is full");
+		return FALSE;
+	}
+	if (!network_game_server_send_player_joined_info_ingame(server, &joining))
+		network_event("network_game_server_send_player_joined_info_ingame() failed for bot %ld", bot_index + 1);
+	network_game_server_port_bot_name(&joining, name, (long)sizeof(name));
+	network_event("bots: bot %ld joined the game in progress (team %ld)", bot_index + 1, team_index);
+	snprintf(said, said_size, "%s joined%s%s", name, team_index == NONE ? "" : " ",
+		team_index == NONE ? "" : network_game_server_port_team_name(team_index));
+	return TRUE;
+}
+
+boolean network_game_server_port_bot_drop(
+	long team_index,
+	char *said,
+	long said_size)
+{
+	struct network_game_server *server = network_game_server_port_bot_game(team_index, said, said_size);
+	struct message_server_remove_player_ingame remove_player;
+	struct network_player leaving;
+	char name[NETWORK_PLAYER_NAME_LENGTH + 1];
+	long chosen = NONE;
+	long slot;
+	void *message;
+
+	if (!server)
+		return FALSE;
+	/* (the last to have come: the highest bot machine, on the team named) */
+	for (slot = 0; slot < MAXIMUM_NETWORK_PLAYER_COUNT; slot++)
+	{
+		struct network_player const *player = &server->game.players[slot];
+
+		if (network_player_is_valid(player) && bots_machine_is_bot(player->machine_index) &&
+			(team_index == NONE || player->team_index == team_index) &&
+			(chosen == NONE || player->machine_index > server->game.players[chosen].machine_index))
+		{
+			chosen = slot;
+		}
+	}
+	if (chosen == NONE)
+	{
+		snprintf(said, said_size, "there is no bot to drop%s%s", team_index == NONE ? "" : " on ",
+			team_index == NONE ? "" : network_game_server_port_team_name(team_index));
+		return FALSE;
+	}
+	leaving = server->game.players[chosen];
+	if (!network_game_remove_player(&server->game, &leaving))
+	{
+		snprintf(said, said_size, "the bot could not leave");
+		return FALSE;
+	}
+	remove_player.player = leaving;
+	remove_player.reason = game_time_get() + NETWORK_GAME_PLAYER_QUIT_DELAY;
+	message = create_network_game_message(_message_server_remove_player_ingame, &remove_player, sizeof(remove_player));
+	if (message && !network_game_server_send_message_to_all_machines(server, message))
+		network_event("network_game_server_send_message_to_all_machines() failed for a bot leaving");
+	network_game_server_port_bot_name(&leaving, name, (long)sizeof(name));
+	network_event("bots: bot %ld left the game in progress", leaving.machine_index - BOTS_FIRST_MACHINE + 1);
+	snprintf(said, said_size, "%s left", name);
+	return TRUE;
 }
 
 boolean network_game_server_idle(
@@ -4882,7 +5060,13 @@ static boolean network_game_server_add_new_client(
 	load the game is told so, network_game_server_handle_message_client_join_game_request) */
 	if (TEST_FLAG(server->flags, _network_game_server_game_open_bit))
 	{
-		for (i = 0; i < MAXIMUM_NETWORK_MACHINE_COUNT; i++)
+		/* port: in a game bots may join, a machine's slot is below the bots'
+		machine indices (BOTS_FIRST_MACHINE: bots.h), which the players' 64
+		leave room for */
+		long slots = bots_game_allowed() ? MIN(BOTS_FIRST_MACHINE, MAXIMUM_NETWORK_MACHINE_COUNT) :
+			MAXIMUM_NETWORK_MACHINE_COUNT;
+
+		for (i = 0; i < slots; i++)
 		{
 			if (server->client_machines[i].machine_index == NONE)
 			{
@@ -4967,7 +5151,7 @@ static boolean network_game_server_add_new_client(
 			}
 		}
 
-		if (i == MAXIMUM_NETWORK_MACHINE_COUNT)
+		if (i == slots)
 		{
 			network_event(
 				"failed to find an available machine slot in network_game_server_add_new_client()");

@@ -63,6 +63,7 @@ int hud_hires_sprites_drawable(long asset, unsigned long address, unsigned long 
 void hud_hires_register_placeholder(long asset, unsigned long const *texture);
 int hud_hires_asset_custom_edition(long asset);
 int hud_hires_asset_ce_only(long asset);
+int hud_hires_asset_applies(long asset, int gameplay);
 long hud_hires_ce_stock_count_get(void);
 long hud_hires_ce_stock_find(char const *tag, long bitmap);
 char const *hud_hires_ce_stock_tag(long index);
@@ -122,6 +123,8 @@ static struct
 	boolean drawable;
 } hires_sprite_bitmaps[MAXIMUM_HIRES_SPRITE_BITMAPS];
 static long hires_sprite_bitmap_count = 0;
+/* the map loaded is the main menu's (hud_hires_sprite_bitmap) */
+static boolean hud_hires_main_menu_loaded = FALSE;
 
 /* Original Xbox controller faces, shared with the menu redraws. */
 static struct
@@ -176,6 +179,9 @@ void hud_hires_tags_loaded(
 	long asset_count = hud_hires_asset_count();
 	long asset;
 	long missing = 0;
+	boolean main_menu = scenario_definition_get(scenario_index)->type == _scenario_type_main_menu;
+
+	hud_hires_main_menu_loaded = main_menu;
 
 	hires_bitmap_count = 0;
 	hud_hires_sprite_bitmaps_forget();
@@ -238,6 +244,11 @@ void hud_hires_tags_loaded(
 			(!hud_hires_asset_custom_edition(asset) || !custom_edition_cache_stock_tag(group_index)))
 			continue;
 		if (!custom_edition_cache_tags_loaded() && hud_hires_asset_ce_only(asset))
+			continue;
+		/* (a port's button art drawn twice, for the Switch's menus with their A and B swapped and without: the one
+		right where this map draws it, the menus'; the message icons, in a game's text and its carnage report's,
+		both, chosen as each is drawn: hud_hires_sprite_bitmap) */
+		if (!hud_hires_asset_sprites(asset) && !hud_hires_asset_applies(asset, FALSE))
 			continue;
 
 		if (!bitmap)
@@ -305,6 +316,9 @@ struct bitmap_data const *hud_hires_sprite_bitmap(
 	struct bitmap_data const *bitmap,
 	short sequence_index)
 {
+	/* (the message icons by where they are drawn: a game's text by its buttons' places, the menus' and the carnage
+	report's as the menus' buttons are: game_engine_showing_postgame; xinput_sdl.c swaps them there too) */
+	boolean gameplay = !hud_hires_main_menu_loaded && !game_engine_showing_postgame();
 	long index;
 
 	for (index = 0; index < hires_sprite_bitmap_count; index++)
@@ -314,7 +328,8 @@ struct bitmap_data const *hud_hires_sprite_bitmap(
 		if (sprite_bitmap != bitmap ||
 			sequence_index < 0 ||
 			sequence_index >= 32 ||
-			!(hud_hires_asset_sprites(hires_sprite_bitmaps[index].asset) & (1UL << sequence_index)))
+			!(hud_hires_asset_sprites(hires_sprite_bitmaps[index].asset) & (1UL << sequence_index)) ||
+			!hud_hires_asset_applies(hires_sprite_bitmaps[index].asset, gameplay))
 		{
 			continue;
 		}
@@ -525,6 +540,8 @@ boolean hud_hires_button_draw(struct icon_hud_element_definition const *icon,
 		{
 			if (strcmp(hud_hires_asset_tag(asset), slot >= 6 ? hud_button_control_name(slot) : style == 0 ? classic_names[index] :
 				style == 1 ? gem_names[index] : names[index])) continue;
+			/* (a game's prompt: the buttons by where they sit) */
+			if (!hud_hires_asset_applies(asset, TRUE)) continue;
 			bitmap = bitmap_2d_new(slot >= 6 ? 64 : 32, slot >= 6 ? 64 : 32, 0, 11);
 			if (!bitmap) break;
 			if (!rasterizer_bitmap_new(bitmap))

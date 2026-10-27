@@ -39,13 +39,13 @@ Its Direct3D 8 rendering is translated to **Vulkan** on Android and the PS5
 and to **deko3d**, the Switch's own GPU interface, on the Switch.
 
 > [!TIP]
-> **New on the Switch: cheats and settings from an overlay.** With
-> [OpenCE-Ultrahand](https://github.com/hardran3/OpenCE-Ultrahand), an
-> [Ultrahand Overlay](https://github.com/ppkantorski/Ultrahand-Overlay)
-> package by **hardran3**, you can turn on cheats (god mode, infinite ammo,
-> super jump and more), revert to the last checkpoint, and change VSync,
-> interpolation and the frame-rate display without leaving the game. It
-> needs Build 119 or later, and Ultrahand 2.5.3 or later.
+> **New: the OpenCE overlay.** Hold **L + R** and press **d-pad down** (on
+> Android without a controller, tap the screen with three fingers) for a
+> panel of cheats (god mode, infinite ammo, super jump and more), bots, the
+> game's speed, the HUD, the camera and the renderer's switches, without
+> leaving the game, and entries of your own. No cheats in multiplayer unless
+> you are the host: in a game someone else hosts, the overlay's cheats are
+> refused. See [The OpenCE overlay](#the-opence-overlay).
 
 > [!IMPORTANT]
 > **No game data is included.** You need your own **Xbox** disc image of
@@ -72,7 +72,7 @@ and to **deko3d**, the Switch's own GPU interface, on the Switch.
 - [Campaign upgrades](#campaign-upgrades): [daily challenge](#daily-challenge), [randomizer](#enemy-randomizer), [Tag Injector](#tag-injector), [skulls](#skulls), [multiplayer and co-op](#multiplayer-and-co-op), [settings](#gameplay-settings)
 - [Download](#download) · [Install](#install): [Android](#android), [Nintendo Switch](#nintendo-switch), [PlayStation 5](#playstation-5), [updating](#updating)
 - [Graphics: Vulkan, Turnip and deko3d](#graphics-vulkan-turnip-and-deko3d)
-- [Multiplayer](#multiplayer) · [Controls](#controls)
+- [Multiplayer](#multiplayer) · [Controls](#controls) · [The OpenCE overlay](#the-opence-overlay)
 - [Reporting a problem](#reporting-a-problem)
 - [Building](#building) · [Credits](#credits)
 
@@ -637,6 +637,143 @@ scope) and set its sensitivity and inversion each way. See
 The settings, which are the same on every platform, are described in
 [port/linux/README.md](port/linux/README.md#settings).
 
+## The OpenCE overlay
+
+A panel over the left of the screen with cheats, bots and switches, in the
+menus and in a game, on the Switch, the PS5 and Android.
+
+### Opening it
+
+| | Open and close |
+| --- | --- |
+| Switch | hold **L** and **R**, press **d-pad down** |
+| PS5 | hold **L1** and **R1**, press **d-pad down** |
+| Android, with a controller | hold **L1** and **R1** (LB and RB), press **d-pad down** |
+| Android, touch only | tap the screen with **three fingers** together |
+
+The same buttons close it. While it is open the game gets none of your
+input, but it is not paused.
+
+| Control | Does |
+| --- | --- |
+| d-pad or left stick | move up and down the list (hold to repeat) |
+| A (Cross) | choose: run a command, flip a toggle, open a folder |
+| left / right | flip a toggle; otherwise right opens a folder, left goes back |
+| B (Circle) | back out of a folder; at the top, close |
+| Back / Start (Create / Options) | close |
+| touch or mouse | tap a row to choose it, tap the folder's name to go back, tap outside the panel to close, drag or scroll the wheel to scroll |
+
+A label too long for the panel scrolls while it is chosen, and some entries
+show a note above the panel's foot (for example, "Applies at the next
+restart"). What a command did shows at the foot for a few seconds.
+
+Its folders: **Cheats**, **Bots** (add and drop bots, their difficulty,
+vehicles and routes), **Game Speed**, **HUD**, **Camera** and **System**
+(the frame rate, the renderer's switches and, on the Switch and the PS5,
+Xbox button pictures). `game.overlay_menu = false` in `config.toml` stops the
+buttons from opening it.
+
+### Cheats and multiplayer
+
+The overlay gives no way to cheat in another player's game. It runs the
+same commands as the game's console, and in a game someone else hosts
+(system link or internet) the game refuses every command that changes the
+game: cheats, game speed, spawning, bots, the camera, wireframe, fog and
+the other drawing switches. Cheats, a game speed and drawing switches
+turned on before you joined are put back as soon as you join, and kept so
+while you play. What still works changes only what you see and hear: the
+HUD's parts, the frame rate, sound and your own settings. The host decides the game in any case (damage,
+deaths, pickups and spawns), so nothing a player's machine does changes
+anyone else's game.
+
+The cheats work where the game is yours: the campaign, split screen, and
+games you host.
+
+### Adding your own entries
+
+Your entries are `.toml` files in the `overlay` folder of the game's data
+folder, the one with `maps/` and `config.toml` in it. The game makes the
+folder the first time the overlay opens.
+
+| Device | Folder |
+| --- | --- |
+| Switch | `sdmc:/switch/halo/overlay/` |
+| PS5 | `/data/halo/overlay/` |
+| Android | `/sdcard/Android/data/com.halo.decomp/files/overlay/` (copy files with `adb push`) |
+| Linux and Windows | `overlay/` beside `maps/` |
+
+Each folder in it is a folder of the overlay, and each folder in one of
+those a folder in that, by its name. A folder with the name of one of the
+overlay's own (`Cheats`, `Bots`, `System`, in any case) adds its entries to
+it. Each `.toml` file is one entry:
+
+```
+overlay/
+  Cheats/
+    infinite_grenades.toml   added to the overlay's Cheats
+  Fun/                       a new folder, after the overlay's own
+    big_heads.toml
+    Weather/                 a folder in Fun
+      rain.toml
+```
+
+There are three kinds of entry:
+
+```toml
+# a command, run when it is chosen
+label   = "Spawn All Weapons"
+type    = "command"
+command = "cheat_all_weapons"
+```
+
+```toml
+# a toggle, ON or OFF
+label = "VSync"
+type  = "toggle"
+on    = "config display.vsync true"
+off   = "config display.vsync false"
+state = "config:display.vsync"
+note  = "Takes effect at once"
+```
+
+```toml
+# a choice: one of several in a folder, marked ON while it is the one
+label   = "Half Speed"
+type    = "choice"
+command = "game_speed 0.5"
+state   = "speed=0.5"
+```
+
+| Key | Means |
+| --- | --- |
+| `label` | the entry's name in the list |
+| `type` | `command`, `toggle` or `choice` |
+| `command` | a command's or a choice's: a console command, or `config <setting> <value>` to set and save a setting of `config.toml` |
+| `on`, `off` | a toggle's commands, as `command` |
+| `state` | where a toggle's ON or a choice's being chosen is read (below); a toggle without one shows what it was last set to |
+| `note` | a line shown while the entry is chosen (optional) |
+
+| `state` | ON while |
+| --- | --- |
+| `global:<name>` | the console global is true (`global:cheat_deathless_player`) |
+| `global:<name>=<number>` | the console global has that value (`global:rasterizer_stats=5`) |
+| `config:<setting>` | the setting is true, or a number not 0 (`config:display.vsync`) |
+| `config:<setting>=<word>` | the setting has that value (`config:bots.routes=lanes`) |
+| `speed=<number>` | the game runs at that speed (`speed=2`) |
+| `remembered` | the overlay last turned it on |
+
+A folder lists the overlay's own entries first, then its folders, then its
+files' entries, each in order of name. The files are read again each time
+the overlay opens after one has changed, so an entry copied over FTP shows
+the next time you open it. A file that is not a whole entry shows in red as
+**LABEL: MALFORMED ENTRY** (**MALFORMED ENTRY: NO LABEL** without a label),
+and choosing it says what is wrong; `debug.txt` says so too. Entries from
+files follow the same multiplayer rules as the overlay's own.
+
+The overlay's first entries are those of hardran3's
+[OpenCE-Ultrahand](https://github.com/hardran3/OpenCE-Ultrahand) and
+HaloDrones packages for the Switch's Ultrahand Overlay.
+
 ## Reporting a problem
 
 Open an [issue](https://github.com/thelinkin3000/halo-ce-universal/issues) or ask on
@@ -787,6 +924,8 @@ A profiling build plays with normal builds. It does not use
 - [deko3d](https://github.com/devkitPro/deko3d), [libnx](https://github.com/switchbrew/libnx)
   and devkitPro, for the Switch.
 - [SDL](https://www.libsdl.org/), on both platforms.
+- [Kenney](https://kenney.nl/)'s [Input Prompts](https://kenney.nl/assets/input-prompts)
+  (CC0), the controller buttons' pictures on the Switch and the PS5.
 
 Halo is a trademark of Microsoft. This project is not affiliated with or
 endorsed by Microsoft, Bungie or 343 Industries.
