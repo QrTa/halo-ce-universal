@@ -691,6 +691,11 @@ static const struct config_setting config_settings[] =
 		"drops it (5 to 300; the stock game's 15). Longer keeps players whose\n"
 		"connection stalls (a browser tab in the background) at the cost of\n"
 		"frozen players for longer when one really goes." },
+	{ "network.record_replays", _config_boolean, "false", "HALO_NET_RECORD_REPLAYS", _environment_value,
+		_platform_all,
+		"A host records each network game it hosts to the data folder's\n"
+		"replays/ (what a client that sees everything is sent, for measuring:\n"
+		"nothing plays them back yet; port/linux/REPLAY.md)." },
 	{ "network.allow_upnp", _config_boolean, "true", "HALO_NET_ALLOW_UPNP", _environment_value, _platform_all,
 		"Let internet play ask the router (UPnP) to forward its port, for\n"
 		"networks whose NAT stops connections: when a player joins this\n"

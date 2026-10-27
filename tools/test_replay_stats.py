@@ -1,0 +1,97 @@
+"""tools/replay_stats.py against replays made here, as port/linux/game/network_replay.c writes them."""
+
+import struct
+
+from tools import replay_stats
+
+NAMES = {2: "unit_states", 6: "object_states", 5: "object_changes"}
+
+
+def header(start_tick=100):
+    data = bytearray(216)
+    data[:8] = b"OCREPLAY"
+    struct.pack_into("<8I", data, 8, 0, 39, 125, 30, start_tick, 216, 1761600000, 0)
+    data[40:40 + 10] = b"bloodgulch"
+    data[168:168 + 6] = b"Slayer"
+    data[184:184 + 5] = b"1.125"
+    return bytes(data)
+
+
+def record(kind, tick, payload):
+    return struct.pack("<BBHi", kind, 0, len(payload), tick) + payload
+
+
+def batch(*messages):
+    """A datagram of the batched messages: (type, count, entries)."""
+    data = bytearray(struct.pack("<HBBi", 0, 16, 0, 0))
+    for message_type, count, entries in messages:
+        data += struct.pack("<HBBi", 6 + len(entries), message_type, count, 0) + entries
+    return bytes(data)
+
+
+def replay_bytes():
+    datagram = batch((2, 3, b"\x01" * 105), (6, 2, b"\x02" * 40))
+    reliable = struct.pack("<HBBi", 0, 5, 1, 0) + b"\x03" * 12
+    return (header() + record(1, 100, datagram) + record(2, 101, reliable) + record(4, 129, b"\x04" * 20),
+            datagram, reliable)
+
+
+def test_header_and_records():
+    data, datagram, reliable = replay_bytes()
+    replay = replay_stats.parse(data)
+    assert replay.header.map == "bloodgulch"
+    assert replay.header.variant == "Slayer"
+    assert replay.header.network_version == 39 and replay.header.build == 125
+    assert replay.header.start_tick == 100
+    assert [(kind, tick) for kind, tick, _ in replay.records] == [(1, 100), (2, 101), (4, 129)]
+    assert replay.records[0][2] == datagram and replay.records[1][2] == reliable
+    assert not replay.truncated
+
+
+def test_batch_messages():
+    _, datagram, _ = replay_bytes()
+    assert replay_stats.batch_messages(datagram) == [(2, 3, 2 + 6 + 105), (6, 2, 2 + 6 + 40)]
+
+
+def test_measure():
+    data, datagram, reliable = replay_bytes()
+    stats = replay_stats.measure(replay_stats.parse(data), NAMES)
+    # (ticks 100 to 129: a second)
+    assert stats.seconds == 1.0
+    assert stats.raw == len(data)
+    assert stats.kinds["datagram"] == (1, 8 + len(datagram))
+    assert stats.kinds["game message"] == (1, 8 + 20)
+    assert stats.types["unit_states"] == [1, 3, 113]
+    assert stats.types["object_states"] == [1, 2, 48]
+    assert stats.types["object_changes (reliable)"] == [1, 1, 8 + len(reliable)]
+    assert stats.types["(batch and record headers)"] == [1, 0, 8 + 8]
+    # every byte counted once
+    assert sum(row[2] for row in stats.types.values()) == stats.raw - 216
+    assert set(stats.zlib) == {1, 6, 9}
+
+
+def test_cut_short():
+    data, _, _ = replay_bytes()
+    replay = replay_stats.parse(data[:-5])
+    assert replay.truncated
+    assert len(replay.records) == 2
+
+
+def test_not_a_replay():
+    try:
+        replay_stats.parse(b"not a replay at all" * 4)
+    except ValueError:
+        return
+    raise AssertionError("parsed")
+
+
+def test_names_from_the_header():
+    names = replay_stats.message_names()
+    assert names[2] == "unit_states" and names[16] == "batch" and names[64] == "actor_states"
+
+
+def test_report_runs():
+    data, _, _ = replay_bytes()
+    replay = replay_stats.parse(data)
+    text = replay_stats.report("x.ocreplay", replay, replay_stats.measure(replay, NAMES))
+    assert "bloodgulch (Slayer)" in text and "unit_states" in text

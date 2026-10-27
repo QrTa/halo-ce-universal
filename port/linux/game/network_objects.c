@@ -1369,7 +1369,8 @@ static void distributed_host_find_viewers(
 	struct data_iterator iterator;
 	struct player_datum *player;
 
-	objects_host_viewers.count = distributed_client_machines(objects_host_viewers.indices,
+	/* (and the replay recorder, which has no players: network_replay.c) */
+	objects_host_viewers.count = distributed_viewing_machines(objects_host_viewers.indices,
 		HALO_PORT_MAXIMUM_NETWORK_MACHINES);
 	objects_host_viewers.player_unit_count = 0;
 	data_iterator_new(&iterator, player_data);

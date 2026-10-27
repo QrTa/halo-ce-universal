@@ -264,6 +264,11 @@ boolean distributed_machine_has_player(long machine_index, short player_index);
 void distributed_count_correction(void);
 /* (the host) the client machines in the game, but for its own; their count */
 short distributed_client_machines(long *machine_indices, short maximum);
+/* ... and the replay recorder's machine (network_replay.c), when one is
+recording: the machines a tick's state goes to */
+short distributed_viewing_machines(long *machine_indices, short maximum);
+/* (the host) the replay recorder's machine, NONE when none */
+long distributed_recorder_machine(void);
 /* (the host) how long a message takes that client and its answer back, in
 ticks (and its jitter), as its players' input messages tell */
 real distributed_machine_round_trip_ticks(long machine_index);
