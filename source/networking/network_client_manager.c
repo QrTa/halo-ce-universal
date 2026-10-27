@@ -1863,8 +1863,10 @@ boolean network_game_client_remove_player(
 
 			/* port: a dedicated server's own machine never has a player
 			(port/linux/game/server_director.c): it leaves only when a player
-			of its own goes, which none is */
-			if (network_player_index == MAXIMUM_NUMBER_OF_PLAYERS &&
+			of its own goes, which none is; nor has a replay's playback, which
+			plays on as the game's players leave
+			(port/linux/game/network_replay_playback.c) */
+			if (network_player_index == MAXIMUM_NUMBER_OF_PLAYERS && !network_replay_playing() &&
 				(!halo_server_mode() || player->machine_index == client->machine_index))
 			{
 				network_game_client_all_local_players_have_quit();
