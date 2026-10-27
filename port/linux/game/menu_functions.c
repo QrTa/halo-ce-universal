@@ -3259,8 +3259,9 @@ static void theater_update(struct widget_instance *list)
 		theater_append_wrapped(text, sizeof(text), " ");
 	}
 	theater_append_wrapped(text, sizeof(text), recording ?
-		"The games you host are recorded, from the next one on." :
-		"Turn RECORD REPLAYS on to record the games you host, from the next one on.");
+		"The network games you play are recorded, from the next one on: all of a game you host, "
+		"what your host sends you of one you join." :
+		"Turn RECORD REPLAYS on to record the network games you play, from the next one on.");
 	theater_append_wrapped(text, sizeof(text), " ");
 #if defined(HALO_ANDROID) && !defined(HALO_SWITCH)
 	theater_append_wrapped(text, sizeof(text), "EXPORT REPLAYS copies them to a folder you choose.");

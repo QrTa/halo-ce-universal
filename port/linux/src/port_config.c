@@ -693,10 +693,11 @@ static const struct config_setting config_settings[] =
 		"frozen players for longer when one really goes." },
 	{ "network.record_replays", _config_boolean, "false", "HALO_NET_RECORD_REPLAYS", _environment_value,
 		_platform_all,
-		"A host records each network game it hosts to the data folder's\n"
-		"replays/ (what a client that sees everything is sent), which the main\n"
-		"menu's Theater plays (port/linux/REPLAY.md). Read at a game's start;\n"
-		"the overlay's System folder has it too." },
+		"Each network game is recorded to the data folder's replays/, which\n"
+		"the main menu's Theater plays (port/linux/REPLAY.md): a host's, all of\n"
+		"it (what a client that sees everything is sent); a client's, what its\n"
+		"host sends it (far players less often) and its own input. Read at a\n"
+		"game's start; the overlay's System folder has it too." },
 	{ "network.replays_kept", _config_integer, "30", "HALO_NET_REPLAYS_KEPT", _environment_value, _platform_all,
 		"How many replays the replays/ folder keeps: the oldest are deleted as a\n"
 		"recording starts; 0 keeps them all." },

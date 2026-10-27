@@ -788,6 +788,7 @@ static boolean network_game_client_late_join_clock_pending;
 /* port: a replay's playback (port/linux/game/network_replay_playback.c): a
 client with no connection to anyone, whose messages are the replay's */
 boolean network_replay_playing(void);
+void network_replay_record_received(void const *message, long size, boolean unreliable);
 boolean network_replay_playback_starting(void);
 void network_replay_playback_started(void);
 boolean network_replay_playback_idle(struct network_game_client *client);
@@ -2677,6 +2678,10 @@ static boolean network_game_client_process_messages(
 		&message_packet_size,
 		&source_address))
 	{
+		/* port: into the replay a client records of what it reads of its host
+		(port/linux/game/network_replay.c) */
+		network_replay_record_received(message_packet, message_packet_size,
+			network_connection_last_read_was_unreliable());
 		if (!(success = network_game_client_handle_message(
 			client,
 			message_packet,

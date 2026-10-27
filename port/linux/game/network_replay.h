@@ -27,6 +27,10 @@ enum
 	tick, struct network_game: its map, game type, players and random seed,
 	which a playback loads the game from (network_replay_playback.c) */
 	_network_replay_game,
+	/* (a client's recording) its own players' input of a tick, which the host
+	never sends it: for each, its tick (32 bits) and the action as the host
+	relays a player's (network_distributed.c's network_distributed_own_actions) */
+	_network_replay_own_actions,
 
 	NUMBER_OF_NETWORK_REPLAY_RECORDS
 };
@@ -43,6 +47,16 @@ void network_replay_record(byte kind, void const *data, long size);
 
 /* the recording's end: the map is unloaded (or a new game starts) */
 void network_replay_stop(void);
+
+/* (a client) once a tick: starts the recording of what it reads of its
+host at its first tick when network.record_replays is on (not in a
+replay's playback) */
+void network_replay_client_tick(void);
+/* (a client) whether it is recording */
+boolean network_replay_recording_as_client(void);
+/* (a client) a message it read of its host, as it came: recorded when it
+is recording (network_client_manager.c) */
+void network_replay_record_received(void const *message, long size, boolean unreliable);
 
 /* the folder replays are written to (the data folder's replays/), into
 path */

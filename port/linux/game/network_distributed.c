@@ -2829,6 +2829,74 @@ static void distributed_handle_unit_states(
 
 /* (a client) its own players' input of the tick just run, with the buttons
 of the ticks before it, to the host */
+static word distributed_relayed_action_write(struct distributed_relayed_action const *relayed, byte *buffer);
+static word distributed_relayed_action_read(byte const *buffer, byte const *end, struct distributed_relayed_action *relayed);
+
+/* (a client recording a replay) its player's input of this tick, its tick
+then the action as the host relays a player's (network_replay.c's
+_network_replay_own_actions), which a playback gives the player as the
+host's relayed input (network_distributed_own_actions) */
+static void distributed_record_own_action(
+	short player_index,
+	struct distributed_player_input const *input)
+{
+	struct player_action const *action = &input->action;
+	struct distributed_relayed_action relayed;
+	byte record[sizeof(long) + DISTRIBUTED_RELAYED_ACTION_MAXIMUM_SIZE];
+	real throttle_i = PIN(action->throttle.i, -1.0f, 1.0f);
+	real throttle_j = PIN(action->throttle.j, -1.0f, 1.0f);
+	real trigger = PIN(action->primary_trigger, 0.0f, 1.0f);
+	short history;
+
+	csmemset(&relayed, 0, sizeof(relayed));
+	relayed.player_index = (byte)player_index;
+	relayed.desired_weapon_index = (signed char)action->desired_weapon_index;
+	relayed.desired_grenade_index = (signed char)action->desired_grenade_index;
+	relayed.desired_zoom_level = (signed char)MIN(action->desired_zoom_level, 127);
+	for (history = 0; history < DISTRIBUTED_INPUT_HISTORY; history++)
+		relayed.control_flags[history] = input->control_flags[history];
+	relayed.yaw = distributed_angle_pack(action->desired_facing.yaw);
+	relayed.pitch = distributed_angle_pack(action->desired_facing.pitch);
+	relayed.throttle_i = (signed char)(long)floor(throttle_i * 127.0f + 0.5f);
+	relayed.throttle_j = (signed char)(long)floor(throttle_j * 127.0f + 0.5f);
+	relayed.primary_trigger = (byte)(long)floor(trigger * 255.0f + 0.5f);
+	csmemcpy(record, &input->tick, sizeof(long));
+	network_replay_record(_network_replay_own_actions, record,
+		(long)(sizeof(long) + distributed_relayed_action_write(&relayed, record + sizeof(long))));
+}
+
+void network_distributed_own_actions(
+	byte const *data,
+	long size)
+{
+	byte const *end = data + size;
+	struct distributed_relayed_action relayed;
+	struct player_action action;
+	long tick;
+	word read;
+
+	if (size < (long)sizeof(long))
+		return;
+	csmemcpy(&tick, data, sizeof(long));
+	read = distributed_relayed_action_read(data + sizeof(long), end, &relayed);
+	if (!read)
+		return;
+	/* (as distributed_handle_actions gives a player the host's: the
+	client's own tick its update's number, which orders that player's alone) */
+	csmemset(&action, 0, sizeof(action));
+	action.control_flags = relayed.control_flags[0];
+	action.desired_facing.yaw = distributed_angle_unpack(relayed.yaw, FALSE);
+	action.desired_facing.pitch = distributed_angle_unpack(relayed.pitch, TRUE);
+	action.throttle.i = PIN((real)relayed.throttle_i / 127.0f, -1.0f, 1.0f);
+	action.throttle.j = PIN((real)relayed.throttle_j / 127.0f, -1.0f, 1.0f);
+	action.primary_trigger = (real)relayed.primary_trigger / 255.0f;
+	action.desired_weapon_index = relayed.desired_weapon_index;
+	action.desired_grenade_index = relayed.desired_grenade_index;
+	action.desired_zoom_level = relayed.desired_zoom_level;
+	update_client_handle_relayed_action(relayed.player_index, tick, &action, relayed.control_flags,
+		DISTRIBUTED_INPUT_HISTORY);
+}
+
 static void distributed_client_send_inputs(
 	void)
 {
@@ -2851,6 +2919,10 @@ static void distributed_client_send_inputs(
 		if (!update_client_distributed_input(local_player_index, &input->tick, &input->action, input->control_flags))
 			continue;
 		input->player_index = distributed_player_to_byte(player_index);
+		/* (a client recording a replay: its player's input, which the host
+		never sends it, as the host relays a player's) */
+		if (network_replay_recording_as_client())
+			distributed_record_own_action((short)DATUM_INDEX_TO_ABSOLUTE_INDEX(player_index), input);
 		input->structure_bsp_index = (byte)global_structure_bsp_index_get();
 		input->coop_no_friendly_fire = network_coop_active() && !network_coop_own_friendly_fire();
 		input->host_time = distributed_host_time;
@@ -3969,6 +4041,8 @@ void network_distributed_tick(
 	}
 	else if (connection == _game_connection_network_client)
 	{
+		/* (a client's recording of what it reads of its host: network_replay.c) */
+		network_replay_client_tick();
 		profile_scope(distributed_tick_note_own_positions_section, distributed_note_own_positions();)
 		if (game_time_get() % PING_REFRESH_TICKS == 0 && latency_meter_enabled())
 			distributed_refresh_pings();

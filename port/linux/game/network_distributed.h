@@ -269,6 +269,10 @@ recording: the machines a tick's state goes to */
 short distributed_viewing_machines(long *machine_indices, short maximum);
 /* (the host) the replay recorder's machine, NONE when none */
 long distributed_recorder_machine(void);
+/* (a replay's playback) a client's recording's own input of a tick
+(network_replay.h's _network_replay_own_actions), given its player as the
+host's relayed input is */
+void network_distributed_own_actions(byte const *data, long size);
 /* (the host) how long a message takes that client and its answer back, in
 ticks (and its jitter), as its players' input messages tell */
 real distributed_machine_round_trip_ticks(long machine_index);

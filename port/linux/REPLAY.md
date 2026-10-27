@@ -281,6 +281,21 @@ The Theater keeps the newest `network.replays_kept` replays (30; the
 oldest are deleted as a recording starts, 0 keeps them all), and DELETE
 REPLAY deletes the one chosen, at a second press.
 
+**A client's recordings.** A client of a network game records too, with
+the same setting (`network_replay_client_tick`, from its first tick): what
+it reads of its host, as it reads it (`network_replay_record_received`,
+`network_client_manager.c`: the host's datagrams to it, its reliable
+messages and the game's own), and its own players' input, which the host
+never sends it (kind 6: each tick's input as the host relays a player's,
+the client's tick its number: `network_distributed.c`'s
+`distributed_record_own_action`). Its game record is the game as it
+joined it. A playback gives that input to its player as the host's
+relayed input (`network_distributed_own_actions`), so the client's player
+is driven as the others are. Such a replay is the game as that client had
+it: the players far from its own, or out of sight, sent every second to
+sixth tick, and only the events the host sent it (damage near its
+players, every kill); smaller than a host's.
+
 **Taking them off the console, and putting others on.** Android's
 EXPORT REPLAYS copies them through the system's folder picker. The Switch
 and the PS5 have no file manager another app can open, so while the

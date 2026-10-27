@@ -469,6 +469,11 @@ static void playback_feed(
 			if (size == GET_MESSAGE_SIZE(playback.message[0]))
 				network_game_client_handle_message(client, playback.message, (short)size, &host);
 			break;
+		case _network_replay_own_actions:
+			/* (a client's recording: its own player's input, as the host
+			relays another's) */
+			network_distributed_own_actions((byte const *)playback.message, size);
+			break;
 		}
 	}
 	network_connection_port_set_last_read_unreliable(FALSE);

@@ -16,6 +16,14 @@ of sent; so are the distributed messages sent every client reliably, and
 the game's own messages to every machine (a player joining or leaving, the
 game's end). Nothing else changes: the clients are sent what they were.
 
+A client of the network game records too (network_replay_client_tick):
+what it reads of its host (network_replay_record_received: the host's
+datagrams to it, its reliable messages and the game's own), and its own
+players' input, which the host never sends it (network_replay_own_actions,
+kind 6, as the host relays a player's: network_distributed.c). Its replay
+is the game as that client had it: the players far from its own and out
+of sight less often, and only the events the host sent it.
+
 The records are the bytes as they would go out, after an uncompressed
 header through one zlib stream (format 3, zlib's fastest level: about a
 fifth of their size), synced every few seconds so that a file a crash cut
@@ -59,6 +67,10 @@ void main_build_identity(long *number, char *flavor, size_t flavor_size, char *r
 /* the build's version text, at the header's end (format 0's 32 bytes cut
 "OpenCE Android | local build (<commit>)" short) */
 #define REPLAY_VERSION_SIZE 96
+/* a message's type (message_header.h): the distributed netcode's, and the
+game's own */
+#define REPLAY_MESSAGE_TYPE_DATA 2
+#define REPLAY_MESSAGE_TYPE_PACKET 3
 /* a record's header: its kind, a byte left 0, its size and the tick */
 #define REPLAY_RECORD_HEADER_SIZE 8
 /* the file written out this often (ticks): what a crash loses */
@@ -77,6 +89,8 @@ static struct
 	then: a game is recorded whole or not at all, so the setting turned on
 	in a game applies from the next */
 	boolean considered;
+	/* the recording is a client's (network_replay_client_tick) */
+	boolean client;
 	long start_time;
 	long last_flush_time;
 	char path[REPLAY_PATH_SIZE];
@@ -190,10 +204,12 @@ static void replay_printable(
 }
 
 static boolean replay_start(
-	void)
+	boolean client)
 {
 	struct network_game_server *server = global_network_game_server_get();
-	struct network_game *game = server ? network_game_server_get_game(server) : NULL;
+	struct network_game_client *game_client = global_network_game_client_get();
+	struct network_game *game = client ? (game_client ? network_game_client_get_game(game_client) : NULL) :
+		server ? network_game_server_get_game(server) : NULL;
 	byte header[REPLAY_HEADER_SIZE];
 	char map[0x80] = "";
 	char map_for_name[48];
@@ -404,7 +420,59 @@ boolean network_replay_describe(
 boolean network_replay_recording(
 	void)
 {
-	return replay.file != NULL;
+	return replay.file != NULL && !replay.client;
+}
+
+boolean network_replay_recording_as_client(
+	void)
+{
+	return replay.file != NULL && replay.client;
+}
+
+void network_replay_client_tick(
+	void)
+{
+	if (replay.file)
+	{
+		/* (written out every few seconds, as the host's) */
+		replay.client = TRUE;
+		network_replay_host_tick();
+		return;
+	}
+	/* (not a replay's playback, which is a client too) */
+	if (replay.considered || network_replay_playing())
+		return;
+	replay.considered = TRUE;
+	if (config_boolean("network.record_replays"))
+	{
+		replay.client = TRUE;
+		if (!replay_start(TRUE))
+			replay.client = FALSE;
+	}
+}
+
+void network_replay_record_received(
+	void const *message,
+	long size,
+	boolean unreliable)
+{
+	word header;
+
+	if (!replay.file || !replay.client || size < (long)sizeof(word))
+		return;
+	csmemcpy(&header, message, sizeof(header));
+	switch (GET_MESSAGE_TYPE(header))
+	{
+	case REPLAY_MESSAGE_TYPE_DATA:
+		network_replay_record(unreliable ? _network_replay_datagram : _network_replay_reliable, message, size);
+		break;
+	case REPLAY_MESSAGE_TYPE_PACKET:
+		/* (the game's own, over the connection: not a datagram's
+		advertisement or pong) */
+		if (!unreliable)
+			network_replay_record(_network_replay_game_message, message, size);
+		break;
+	}
 }
 
 void network_replay_host_tick(
@@ -431,7 +499,10 @@ void network_replay_host_tick(
 		return;
 	replay.considered = TRUE;
 	if (config_boolean("network.record_replays"))
-		replay_start();
+	{
+		replay.client = FALSE;
+		replay_start(FALSE);
+	}
 }
 
 void network_replay_record(
@@ -485,4 +556,5 @@ void network_replay_stop(
 			replay.records[_network_replay_game_message], replay.bytes[_network_replay_game_message] / 1024);
 	}
 	replay.considered = FALSE;
+	replay.client = FALSE;
 }
