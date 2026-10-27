@@ -36,12 +36,20 @@ char const *tag_multiplayer_stock_name(
 char const *tag_multiplayer_stock_tag(
 	short weapon);
 
-/* the multiplayer profile a game hosted here plays
-(game.multiplayer_tag_profile: port_tag_mp_profiles' index, else NONE), and
-it chosen (NONE: none), written to config.toml */
+/* the multiplayer profile chosen last (game.multiplayer_tag_profile:
+port_tag_mp_profiles' index, else NONE), which the menus' TAG PROFILE
+screen starts on, and it chosen (NONE: none), written to config.toml */
 long tag_multiplayer_profile_chosen(
 	void);
 void tag_multiplayer_profile_choose(
+	long profile);
+/* the multiplayer profile the game hosted here plays (NONE: none), kept
+from when it was chosen for the game (the TAG PROFILE screen, before Server
+Setup) until the game ends: what config.toml says meanwhile changes nothing,
+so a game listed for every build stays so, and a modded one modded */
+long tag_multiplayer_game_profile(
+	void);
+void tag_multiplayer_game_profile_set(
 	long profile);
 /* whether a game on this level plays a multiplayer profile: one of the
 game's own multiplayer maps (not a campaign level, nor a Custom Edition
@@ -54,9 +62,10 @@ and told to each client in the lobby and in game; a client's download of
 it asked for */
 void tag_multiplayer_update(
 	void);
-/* (the host) whether its game plays a multiplayer profile: a modded game,
-which builds without the mod cannot play (halo_port_limits.h), and its
-advertisement's flag set */
+/* (the host) whether its game plays a multiplayer profile (one was chosen
+for it, on one of the game's own multiplayer maps, whether or not its share
+could be made): a modded game, which builds without the mod cannot play
+(halo_port_limits.h), and its advertisement's flag set */
 boolean tag_multiplayer_hosted(
 	void);
 void tag_multiplayer_advertisement(

@@ -213,10 +213,8 @@
 	<widget name="main_menu/multiplayer_type_select/server_settings/team_options_value" type="text" controller="1" width="280" height="22" font="ui\small_ui" color="#FF2896FF" align="center" text_y="5" text_flags="no_focus_test">
 	</widget>
 	<widget name="main_menu/multiplayer_type_select/server_settings/op_tag_profile" width="512" height="28" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/option_bkds" color="#FF2896FF">
-		<on event="a" run="ss tag profile next"/>
-		<on event="start" run="ss tag profile next"/>
-		<on event="right" run="ss tag profile next"/>
-		<on event="left" run="ss tag profile previous"/>
+		<on event="a" run="ss tag profile change"/>
+		<on event="start" run="ss tag profile change"/>
 		<on event="left_mouse" run="mouse emit accept event"/>
 		<child widget="main_menu/multiplayer_type_select/server_settings/tag_profile_label"/>
 		<child widget="main_menu/multiplayer_type_select/server_settings/tag_profile_value" x="230" y="1"/>
@@ -274,7 +272,7 @@
 		<string text="The skulls every player plays this level with."/>
 		<string text="Computer players in this game: how many, how\nwell they play, and their teams. Slayer only."/>
 		<string text="Listed for everyone through the brokers, and on\nthe master servers with your publisher key."/>
-		<string text="Weapons from a Tag Injector multiplayer profile:\nplayers download them from you."/>
+		<string text="Chosen for the whole game before this screen:\nwho can see it. A goes back to it."/>
 	</strings>
 	<widget name="main_menu/multiplayer_type_select/server_settings/coop_options/coop_options_screen" width="640" height="480" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/gradient">
 		<child widget="main_menu/multiplayer_type_select/server_settings/coop_options/header_coop_options"/>
@@ -835,6 +833,79 @@
 		<string text="In a team game, the bots join both teams, evening\nthem with the players."/>
 		<string text="In a team game, every bot is on the team the\nplayers are not on."/>
 	</strings>
+	<widget name="main_menu/multiplayer_type_select/server_settings/tag_profile/tag_profile_screen" width="640" height="480" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/gradient">
+		<on event="b" back="true"/>
+		<on event="back" back="true"/>
+		<child widget="main_menu/multiplayer_type_select/server_settings/header_server_settings"/>
+		<child widget="main_menu/multiplayer_type_select/server_settings/tag_profile/tag_profile_title"/>
+		<child widget="main_menu/multiplayer_type_select/server_settings/tag_profile/tag_profile_menu"/>
+	</widget>
+	<widget name="main_menu/multiplayer_type_select/server_settings/tag_profile/tag_profile_title" type="text" controller="1" left="68" top="74" width="504" height="22" text="TAG INJECTOR PROFILE" font="ui\large_ui" color="#FFFFFFFF">
+	</widget>
+	<widget name="main_menu/multiplayer_type_select/server_settings/tag_profile/tag_profile_help" type="text" controller="1" left="68" top="388" width="482" height="24" font="ui\small_ui" color="#FFFFFFFF">
+	</widget>
+	<widget name="main_menu/multiplayer_type_select/server_settings/tag_profile/tag_profile_menu" type="column_list" width="640" height="480" flags="pass_unhandled_to_focused_child up_down_tabs_children" description="main_menu/multiplayer_type_select/server_settings/tag_profile/tag_profile_help">
+		<data input="mp tag profiles update"/>
+		<on event="created" run="mp tag profiles init"/>
+		<child widget="main_menu/multiplayer_type_select/server_settings/tag_profile/tag_profile_0" x="54" y="100"/>
+		<child widget="main_menu/multiplayer_type_select/server_settings/tag_profile/tag_profile_1" x="54" y="131"/>
+		<child widget="main_menu/multiplayer_type_select/server_settings/tag_profile/tag_profile_2" x="54" y="162"/>
+		<child widget="main_menu/multiplayer_type_select/server_settings/tag_profile/tag_profile_3" x="54" y="193"/>
+		<child widget="main_menu/multiplayer_type_select/server_settings/tag_profile/tag_profile_4" x="54" y="224"/>
+		<child widget="main_menu/multiplayer_type_select/server_settings/tag_profile/tag_profile_5" x="54" y="255"/>
+		<child widget="main_menu/multiplayer_type_select/server_settings/tag_profile/tag_profile_6" x="54" y="286"/>
+		<child widget="main_menu/multiplayer_type_select/server_settings/tag_profile/tag_profile_7" x="54" y="317"/>
+		<child widget="main_menu/multiplayer_type_select/server_settings/tag_profile/tag_profile_8" x="54" y="348"/>
+		<child widget="main_menu/multiplayer_type_select/server_settings/tag_profile/tag_profile_button_bar" y="414"/>
+	</widget>
+	<widget name="main_menu/multiplayer_type_select/server_settings/tag_profile/tag_profile_button_bar" type="column_list" width="640" height="28" flags="pass_unhandled_to_focused_child left_right_tabs_items">
+		<child widget="common_button_cancel" x="510" y="1"/>
+	</widget>
+	<widget name="main_menu/multiplayer_type_select/server_settings/tag_profile/tag_profile_0" type="text" width="512" height="28" bitmap="bitmaps/option_bkds" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
+		<on event="a" run="mp tag profile choose"/>
+		<on event="start" run="mp tag profile choose"/>
+		<on event="left_mouse" run="mouse emit accept event"/>
+	</widget>
+	<widget name="main_menu/multiplayer_type_select/server_settings/tag_profile/tag_profile_1" type="text" width="512" height="28" bitmap="bitmaps/option_bkds" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
+		<on event="a" run="mp tag profile choose"/>
+		<on event="start" run="mp tag profile choose"/>
+		<on event="left_mouse" run="mouse emit accept event"/>
+	</widget>
+	<widget name="main_menu/multiplayer_type_select/server_settings/tag_profile/tag_profile_2" type="text" width="512" height="28" bitmap="bitmaps/option_bkds" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
+		<on event="a" run="mp tag profile choose"/>
+		<on event="start" run="mp tag profile choose"/>
+		<on event="left_mouse" run="mouse emit accept event"/>
+	</widget>
+	<widget name="main_menu/multiplayer_type_select/server_settings/tag_profile/tag_profile_3" type="text" width="512" height="28" bitmap="bitmaps/option_bkds" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
+		<on event="a" run="mp tag profile choose"/>
+		<on event="start" run="mp tag profile choose"/>
+		<on event="left_mouse" run="mouse emit accept event"/>
+	</widget>
+	<widget name="main_menu/multiplayer_type_select/server_settings/tag_profile/tag_profile_4" type="text" width="512" height="28" bitmap="bitmaps/option_bkds" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
+		<on event="a" run="mp tag profile choose"/>
+		<on event="start" run="mp tag profile choose"/>
+		<on event="left_mouse" run="mouse emit accept event"/>
+	</widget>
+	<widget name="main_menu/multiplayer_type_select/server_settings/tag_profile/tag_profile_5" type="text" width="512" height="28" bitmap="bitmaps/option_bkds" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
+		<on event="a" run="mp tag profile choose"/>
+		<on event="start" run="mp tag profile choose"/>
+		<on event="left_mouse" run="mouse emit accept event"/>
+	</widget>
+	<widget name="main_menu/multiplayer_type_select/server_settings/tag_profile/tag_profile_6" type="text" width="512" height="28" bitmap="bitmaps/option_bkds" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
+		<on event="a" run="mp tag profile choose"/>
+		<on event="start" run="mp tag profile choose"/>
+		<on event="left_mouse" run="mouse emit accept event"/>
+	</widget>
+	<widget name="main_menu/multiplayer_type_select/server_settings/tag_profile/tag_profile_7" type="text" width="512" height="28" bitmap="bitmaps/option_bkds" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
+		<on event="a" run="mp tag profile choose"/>
+		<on event="start" run="mp tag profile choose"/>
+		<on event="left_mouse" run="mouse emit accept event"/>
+	</widget>
+	<widget name="main_menu/multiplayer_type_select/server_settings/tag_profile/tag_profile_8" type="text" width="512" height="28" bitmap="bitmaps/option_bkds" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
+		<on event="a" run="mp tag profile choose"/>
+		<on event="start" run="mp tag profile choose"/>
+		<on event="left_mouse" run="mouse emit accept event"/>
+	</widget>
 	<widget name="main_menu/multiplayer_type_select/server_settings/invite_qr/invite_qr_screen" width="640" height="480" flags="pause_game" bitmap="bitmaps/gradient">
 		<on event="b" run="ss invite qr back"/>
 		<child widget="main_menu/multiplayer_type_select/server_settings/invite_qr/invite_qr_title"/>

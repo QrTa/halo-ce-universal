@@ -8136,6 +8136,11 @@ static struct
 	/* Server Setup's PASSWORD (a public internet game's; empty: none), kept
 	while the game runs, never written down */
 	char game_password[PASSWORD_LENGTH + 1];
+	/* whether the game's TAG PROFILE screen was shown (between the gametype
+	and Server Setup, whose TAG PROFILE row shows its choice), and the first
+	of its rows shown */
+	boolean tag_profile_shown;
+	short tag_profile_first;
 } multiplayer = { .maximum_players_index = NONE };
 
 /* ---- a text field (Direct Link's link, the game's name): the keyboard
@@ -8310,6 +8315,10 @@ static boolean multiplayer_host(struct widget_instance *widget, struct event_rec
 	multiplayer.game_private = !config_boolean("network.host_public");
 	p2p_set_hosting_public(multiplayer.mode == _multiplayer_mode_host_internet && !multiplayer.game_private);
 	multiplayer.cooperative_maximum_players_set = FALSE;
+	/* (no Tag Injector profile until the TAG PROFILE screen chooses one: a
+	game for every build) */
+	multiplayer.tag_profile_shown = FALSE;
+	tag_multiplayer_game_profile_set(NONE);
 	if (multiplayer.mode == _multiplayer_mode_host_local)
 		return ui_widget_port_host_local(widget, event, widget_deleted);
 	return ui_widget_port_host(widget, event, widget_deleted);
@@ -8873,14 +8882,153 @@ static void gametype_list_update(struct widget_instance *list)
 	profile_name_show(description);
 }
 
-/* "mp profile set for game" */
-static boolean gametype_choose(struct widget_instance *list)
+/* ---- the game's TAG PROFILE screen (tools/port_settings.py's
+_tag_profile_screen), between the gametype and Server Setup, with the Tag
+Injector on and a multiplayer profile made, on one of the game's own
+multiplayer maps: NONE (the game listed for every build), then the Tag
+Injector's multiplayer profiles (the game listed for builds with the mod
+alone, its players downloading the profile's weapons: tag_multiplayer.c).
+What is chosen stays the game's: Server Setup shows it, and B from there
+comes back here to choose again */
+
+#define TAG_PROFILE_ROWS 9
+#define TAG_PROFILE_SCREEN_NAME \
+	"pc\\main_menu\\multiplayer_type_select\\server_settings\\tag_profile\\tag_profile_screen"
+
+/* whether the game hosted asks for its profile: a multiplayer game on one
+of the game's own maps, with the Tag Injector on and a multiplayer profile
+made */
+static boolean tag_profile_asked(void)
+{
+	void *server = global_network_game_server_get();
+	struct network_game *game = server ? network_game_server_get_game(server) : NULL;
+
+	return game && config_boolean("game.tag_injection") && tag_multiplayer_map_takes(game->map.name) &&
+		port_tag_mp_profiles_scan() > 0;
+}
+
+/* the row (tag_profile_<n>) a widget is or is in, or NONE */
+static short tag_profile_row(struct widget_instance *widget)
+{
+	for (; widget; widget = widget->parent)
+	{
+		if (!strncmp(widget->name, "tag_profile_", 12) && widget->name[12] >= '0' && widget->name[12] <= '9')
+			return (short)atoi(widget->name + 12);
+	}
+	return NONE;
+}
+
+/* "mp tag profiles init": the profile chosen last focused, else NONE */
+static boolean tag_profiles_initialize(struct widget_instance *list)
+{
+	long chosen = tag_multiplayer_profile_chosen();
+	short place = (short)(chosen == NONE ? 0 : chosen + 1);
+
+	multiplayer.tag_profile_first = (short)MAX(0, place - (TAG_PROFILE_ROWS - 1));
+	focus_row(list, (short)(place - multiplayer.tag_profile_first));
+	return TRUE;
+}
+
+/* "mp tag profiles update": the rows (the list moving on at its ends while
+there are more past them), each NONE or a profile, and the help of the one
+chosen: who sees the game, and what it plays */
+static void tag_profiles_update(struct widget_instance *list)
+{
+	struct widget_instance *help = list->parameters.list.extended_description;
+	short count = (short)(port_tag_mp_profiles_count() + 1);
+	short focused = tag_profile_row(list->focused_child);
+	short *first = &multiplayer.tag_profile_first;
+	short index;
+
+	if (focused == TAG_PROFILE_ROWS - 1 && *first + TAG_PROFILE_ROWS < count && list_scrolls_at_end())
+	{
+		(*first)++;
+		focus_row(list, --focused);
+	}
+	else if (focused == 0 && *first > 0 && list_scrolls_at_end())
+	{
+		(*first)--;
+		focus_row(list, ++focused);
+	}
+	if (*first > 0 && *first + TAG_PROFILE_ROWS > count)
+		*first = (short)MAX(0, count - TAG_PROFILE_ROWS);
+	for (index = 0; index < TAG_PROFILE_ROWS; index++)
+	{
+		char name[24];
+		struct widget_instance *row;
+		short place = (short)(*first + index);
+		char text[200];
+		wchar_t wide[200];
+		short character;
+
+		snprintf(name, sizeof(name), "tag_profile_%d", index);
+		row = named(list, name, 0);
+		if (!row)
+			continue;
+		row->visible = place < count;
+		if (place >= count)
+			continue;
+		if (place)
+			upper_copy(text, sizeof(text), port_tag_mp_profiles_name(place - 1));
+		else
+			snprintf(text, sizeof(text), "NONE");
+		for (character = 0; text[character] && character < ROW_TEXT_LENGTH - 1; character++)
+			wide[character] = (wchar_t)(unsigned char)text[character];
+		wide[character] = 0;
+		text_set(row, wide);
+		if (index != focused || !help)
+			continue;
+		if (!place)
+			snprintf(text, sizeof(text), "The map's own weapons. Every player can see and\njoin the game, on any build.");
+		/* (the Tag Injector's bundles are Custom Edition maps': game.custom_edition) */
+		else if (!halo_custom_edition_tag_cache())
+			snprintf(text, sizeof(text), "Needs Custom Edition maps on (Settings > Gameplay).");
+		else
+		{
+			long profile = port_tag_profiles_find(port_tag_mp_profiles_option(place - 1, "profile"));
+
+			snprintf(text, sizeof(text), "Weapons of %s. Only players of this build see\nthe game; they download them from you.",
+				profile == NONE ? "a profile not there" : port_tag_profiles_name(profile));
+		}
+		for (character = 0; text[character] && character < (short)NUMBEROF(wide) - 1; character++)
+			wide[character] = (wchar_t)(unsigned char)text[character];
+		wide[character] = 0;
+		long_text_set(help, wide);
+	}
+}
+
+/* "mp tag profile choose" (A on a row): the game's profile (or none),
+then Server Setup, whose B comes back here */
+static boolean tag_profile_choose(struct widget_instance *widget, boolean *widget_deleted)
+{
+	short row = tag_profile_row(widget);
+	short place = row == NONE ? NONE : (short)(multiplayer.tag_profile_first + row);
+	long profile = place > 0 ? place - 1 : NONE;
+
+	if (place == NONE || place > port_tag_mp_profiles_count() || (profile != NONE && !halo_custom_edition_tag_cache()))
+		return campaign_fail();
+	tag_multiplayer_game_profile_set(profile);
+	tag_multiplayer_profile_choose(profile);
+	ui_play_audio_feedback_sound(SOUND_FORWARD);
+	return ui_widget_port_open(widget, SERVER_SETUP_NAME, widget_deleted);
+}
+
+/* "mp profile set for game": the gametype, then Server Setup, or first the
+game's TAG PROFILE screen (tag_profile_asked); the game plays no profile
+until that chooses one */
+static boolean gametype_choose(struct widget_instance *list, boolean *widget_deleted)
 {
 	gametype_list_update(list);
 	gametype_setup_end();
 	if (multiplayer.gametype_chosen >= multiplayer.bank_count)
 		return campaign_fail();
-	return ui_widget_port_gametype_choose(multiplayer.gametypes[multiplayer.bank[multiplayer.gametype_chosen]]);
+	if (!ui_widget_port_gametype_choose(multiplayer.gametypes[multiplayer.bank[multiplayer.gametype_chosen]]))
+		return FALSE;
+	tag_multiplayer_game_profile_set(NONE);
+	multiplayer.tag_profile_shown = tag_profile_asked();
+	if (multiplayer.tag_profile_shown)
+		return ui_widget_port_open(list, TAG_PROFILE_SCREEN_NAME, widget_deleted);
+	return TRUE;
 }
 
 /* ---- the server settings */
@@ -9088,19 +9236,20 @@ static void wide_to_text(wchar_t const *wide, char *text, short size)
 	text[index] = 0;
 }
 
-/* whether Server Setup's game plays a Tag Injector multiplayer profile: a
-multiplayer game on one of the game's own maps (tag_multiplayer.c) */
+/* whether Server Setup shows the game's TAG PROFILE: a multiplayer game
+whose TAG PROFILE screen was shown (tag_profile_asked), which chose it */
 static boolean server_settings_tag_profile_shown(void)
 {
 	void *server = global_network_game_server_get();
 	struct network_game *game = server ? network_game_server_get_game(server) : NULL;
 
-	return game && !hosting_cooperative() && tag_multiplayer_map_takes(game->map.name);
+	return game && !hosting_cooperative() && multiplayer.tag_profile_shown &&
+		tag_multiplayer_map_takes(game->map.name);
 }
 
 /* TAG PROFILE: shown for such a game, its value the multiplayer profile
-chosen (NONE), its help; and the rows shown packed, closer together where
-there would be more than the screen's twelve */
+the game plays (NONE: every build sees it), its help; and the rows shown
+packed, closer together where there would be more than the screen's twelve */
 static void server_settings_tag_profile_update(struct widget_instance *list)
 {
 	struct widget_instance *row = named(list, "op_tag_profile", 0);
@@ -9115,18 +9264,13 @@ static void server_settings_tag_profile_update(struct widget_instance *list)
 	if (!row || !shown)
 		return;
 	{
-		long profile = tag_multiplayer_profile_chosen();
+		long profile = tag_multiplayer_game_profile();
 		char value[ROW_TEXT_LENGTH];
 
-		/* (the Tag Injector's bundles are Custom Edition maps': game.custom_edition) */
-		if (profile != NONE && !halo_custom_edition_tag_cache())
-			snprintf(value, sizeof(value), "NEEDS CUSTOM EDITION MAPS ON");
-		else if (profile != NONE)
+		if (profile != NONE)
 			upper_copy(value, sizeof(value), port_tag_mp_profiles_name(profile));
-		else if (!port_tag_mp_profiles_count())
-			snprintf(value, sizeof(value), "NONE (MADE IN THE TAG INJECTOR)");
 		else
-			snprintf(value, sizeof(value), "NONE");
+			snprintf(value, sizeof(value), "NONE (EVERY BUILD)");
 		text_field_show(named(list, "tag_profile_value", 0), value, FALSE);
 	}
 	if (help && list->focused_child == row)
@@ -9144,24 +9288,17 @@ static void server_settings_tag_profile_update(struct widget_instance *list)
 	}
 }
 
-/* "ss tag profile next" and "ss tag profile previous": TAG PROFILE's
-multiplayer profile the next or the one before, NONE among them */
-static boolean server_settings_tag_profile_step(short step)
+/* "ss tag profile change" (A on TAG PROFILE): back to the TAG PROFILE
+screen, which Server Setup was opened from, to choose again */
+static boolean server_settings_tag_profile_change(struct widget_instance *widget, boolean *widget_deleted)
 {
-	long count = port_tag_mp_profiles_count();
-	long chosen = tag_multiplayer_profile_chosen();
-
 	if (!server_settings_tag_profile_shown())
 		return TRUE;
-	if (!count)
-	{
-		ui_play_audio_feedback_sound(SOUND_ERROR);
-		return TRUE;
-	}
-	/* (NONE before the first) */
-	chosen = (chosen + 1 + step + count + 1) % (count + 1) - 1;
-	tag_multiplayer_profile_choose(chosen);
-	ui_play_audio_feedback_sound(SOUND_CURSOR);
+	if (text_field_editing(NULL))
+		text_field_end(TRUE);
+	ui_play_audio_feedback_sound(SOUND_BACK);
+	ui_widget_port_go_back(widget);
+	*widget_deleted = TRUE;
 	return TRUE;
 }
 
@@ -13887,7 +14024,15 @@ boolean pc_menu_event_function_invoke(
 		}
 		else if (!strcmp(name, "mp profile set for game"))
 		{
-			return gametype_choose(widget);
+			return gametype_choose(widget, widget_deleted);
+		}
+		else if (!strcmp(name, "mp tag profiles init"))
+		{
+			return tag_profiles_initialize(widget);
+		}
+		else if (!strcmp(name, "mp tag profile choose"))
+		{
+			return tag_profile_choose(widget, widget_deleted);
 		}
 		else if (!strcmp(name, "server settings init"))
 		{
@@ -14031,9 +14176,9 @@ boolean pc_menu_event_function_invoke(
 		{
 			return server_campaign_screen(widget, !strcmp(name, "ss skulls"), widget_deleted);
 		}
-		else if (!strcmp(name, "ss tag profile next") || !strcmp(name, "ss tag profile previous"))
+		else if (!strcmp(name, "ss tag profile change"))
 		{
-			return server_settings_tag_profile_step(strstr(name, "previous") ? -1 : 1);
+			return server_settings_tag_profile_change(widget, widget_deleted);
 		}
 		else if (!strcmp(name, "single prev cl item activated"))
 		{
@@ -14429,6 +14574,8 @@ void pc_menu_game_data_function_invoke(
 		randomizer_screen_update(widget);
 	else if (!strcmp(name, "randomizer tag profiles update"))
 		randomizer_tag_profiles_update(widget);
+	else if (!strcmp(name, "mp tag profiles update"))
+		tag_profiles_update(widget);
 	else if (!strcmp(name, "skulls screen update"))
 		skulls_screen_update(widget);
 	else if (!strcmp(name, "gameplay screen update"))

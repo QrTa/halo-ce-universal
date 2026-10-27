@@ -3,9 +3,11 @@ TAG_MULTIPLAYER.C
 
 The Tag Injector in multiplayer (tag_multiplayer.h; docs/tag_injector.md,
 "In multiplayer"). A game hosted on one of the game's own multiplayer maps
-can play a multiplayer profile (Server Setup's TAG PROFILE:
-game.multiplayer_tag_profile), which names a profile of the Tag Injector's
-and how the game plays its weapons (port_tag_mp_profiles.c).
+can play a multiplayer profile (the menus' TAG PROFILE screen, before Server
+Setup; kept for the game: tag_multiplayer_game_profile), which names a
+profile of the Tag Injector's and how the game plays its weapons
+(port_tag_mp_profiles.c). The game is a modded one exactly when it plays
+one, as chosen, so a game listed for every build stays so.
 
 - The share. The host writes the profile's weapons on as one file (its
   archive, tag_injector/.shared/<id>.tagshare, named for its hash as map
@@ -72,6 +74,7 @@ and how the game plays its weapons (port_tag_mp_profiles.c).
 /* port_config.c's, port_tag_profiles.c's, port_tag_mp_profiles.c's,
 network_server_manager.c's, network_server_message_handler.c's, p2p_crypto.c's */
 int config_boolean(char const *name);
+int halo_server_mode(void);
 char const *config_string(char const *name);
 int config_write(char const *name, char const *value);
 unsigned long config_changes(void);
@@ -238,6 +241,11 @@ static struct
 	struct share remote;
 	boolean remote_heard;
 	char asked_id[TAG_MULTIPLAYER_ID_DIGITS + 1];
+	/* (the host) the multiplayer profile its game plays (its file's name:
+	"" for none), and whether it was chosen for this game (a dedicated
+	server's is config.toml's, as its game is hosted) */
+	char game_profile[256];
+	boolean game_profile_set;
 } tag_multiplayer;
 
 /* the level played with a share: its settings, as the host's multiplayer
@@ -560,7 +568,7 @@ static boolean host_build_pending(
 static void host_build(
 	void)
 {
-	long mp_profile = tag_multiplayer_profile_chosen();
+	long mp_profile = tag_multiplayer_game_profile();
 	long profile;
 
 	tag_multiplayer.built = TRUE;
@@ -596,7 +604,7 @@ static void host_update(
 		tag_multiplayer.look_again = FALSE;
 		tag_multiplayer.checked = TRUE;
 		port_tag_mp_profiles_scan();
-		signature = share_signature(tag_multiplayer_profile_chosen(), &profile);
+		signature = share_signature(tag_multiplayer_game_profile(), &profile);
 		/* (the first time at once; a change a moment after it settles) */
 		if (signature != tag_multiplayer.wanted_signature)
 		{
@@ -741,6 +749,33 @@ void tag_multiplayer_profile_choose(
 		error(_error_silent, "tag multiplayer: could not write game.multiplayer_tag_profile to config.toml");
 }
 
+long tag_multiplayer_game_profile(
+	void)
+{
+	char const *file = tag_multiplayer.game_profile;
+	long profile = file[0] ? port_tag_mp_profiles_find(file) : NONE;
+
+	/* (found again by a scan of before, and else scanned) */
+	if (profile == NONE && file[0])
+	{
+		port_tag_mp_profiles_scan();
+		profile = port_tag_mp_profiles_find(file);
+	}
+	return profile;
+}
+
+void tag_multiplayer_game_profile_set(
+	long profile)
+{
+	snprintf(tag_multiplayer.game_profile, sizeof(tag_multiplayer.game_profile), "%s",
+		profile == NONE ? "" : port_tag_mp_profiles_file(profile));
+	tag_multiplayer.game_profile_set = TRUE;
+	tag_multiplayer.look_again = TRUE;
+	error(_error_silent, "tag multiplayer: the game hosted plays %s%s%s", profile == NONE ? "no multiplayer profile" :
+		"the multiplayer profile ", profile == NONE ? "" : tag_multiplayer.game_profile,
+		profile == NONE ? " (listed for every build)" : " (listed for builds with the mod alone)");
+}
+
 boolean tag_multiplayer_map_takes(
 	char const *level_name)
 {
@@ -770,9 +805,19 @@ void tag_multiplayer_update(
 		tag_multiplayer.asked_id[0] = 0;
 		csmemset(tag_multiplayer.told_address, 0, sizeof(tag_multiplayer.told_address));
 		/* (the next game hosted reads its settings again: a share of the
-		same weapons is kept, not made again) */
+		same weapons is kept, not made again; and plays no profile until one
+		is chosen for it) */
 		tag_multiplayer.look_again = TRUE;
+		tag_multiplayer.game_profile[0] = 0;
+		tag_multiplayer.game_profile_set = FALSE;
 		return;
+	}
+	/* (a dedicated server, which no menu chooses for: config.toml's, as
+	its game is hosted, with the Tag Injector on) */
+	if (hosting() && !tag_multiplayer.game_profile_set && halo_server_mode())
+	{
+		tag_multiplayer_game_profile_set(config_boolean("game.tag_injection") ? tag_multiplayer_profile_chosen() :
+			NONE);
 	}
 	if (hosting())
 		host_update();
@@ -785,7 +830,9 @@ boolean tag_multiplayer_hosted(
 {
 	struct network_game *game = network_game_get_game();
 
-	return hosting() && tag_multiplayer.hosted.active && game &&
+	/* (as chosen, not as its share was made: a game listed for every build
+	is never made a modded one under its players, nor the other way) */
+	return hosting() && tag_multiplayer.game_profile[0] && game &&
 		game->variant.game_engine_index != game_engine_none && tag_multiplayer_map_takes(game->map.name);
 }
 
@@ -944,7 +991,7 @@ void tag_multiplayer_level_loaded(
 	static char const *const replaces[] = { "random", "position", "weapon", "manual" };
 	static char const *const loadouts[] = { "map", "random", "set" };
 	struct scenario *scenario = loading_scenario();
-	long mp_profile = hosting() ? tag_multiplayer_profile_chosen() : NONE;
+	long mp_profile = hosting() ? tag_multiplayer_game_profile() : NONE;
 	long index;
 	short weapon;
 

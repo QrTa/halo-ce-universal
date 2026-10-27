@@ -404,13 +404,30 @@ A multiplayer game plays a profile's weapons another way (below).
 A multiplayer game hosted on one of the game's own multiplayer maps (not a
 campaign level, nor a Custom Edition map) can play the weapons of a
 profile, as a multiplayer profile says (`port/linux/game/tag_multiplayer.c`).
-Server Setup's **TAG PROFILE** (shown for such a game) chooses it: A or
-right the next multiplayer profile, left the one before, NONE among them
-(`game.multiplayer_tag_profile`). It needs Custom Edition maps on
-(`game.custom_edition`) on every machine.
+With TAG INJECTION on and a multiplayer profile made, the gametype chosen
+for such a game opens a **TAG PROFILE** screen before Server Setup: NONE
+first, then the multiplayer profiles (the list starts on the one chosen
+last, `game.multiplayer_tag_profile`). What is chosen there is the game's
+until it ends, and decides who sees it:
 
-- **The share.** As the game is hosted (and a moment after TAG PROFILE
-  changes, outside a level), the host writes the profile's weapons on as
+- **NONE**: the map's own weapons. The game is a plain one, listed for and
+  joined by every build, upstream's too.
+- **A multiplayer profile**: a modded game (below), which only builds with
+  the mod see and join. It needs Custom Edition maps on
+  (`game.custom_edition`) on every machine; without them its row is
+  refused.
+
+Server Setup's **TAG PROFILE** row shows the choice, and A on it (or B)
+goes back to the screen to choose again; nothing else changes it while the
+game is hosted (config.toml's setting is only the next game's starting
+point), so players who joined a plain game are never put into a modded one,
+nor the other way. With TAG INJECTION off, no multiplayer profile, or
+another map, the screen is skipped and the game plays none. A dedicated
+server takes `game.multiplayer_tag_profile` (with `game.tag_injection` on)
+as its game is hosted.
+
+- **The share.** As the game is hosted (and a moment after the profile
+  chosen, or its files, change, outside a level), the host writes the profile's weapons on as
   one file, its archive (`tag_injector/.shared/<id>.tagshare`, named for
   its hash's first 16 hexadecimal digits): their tag files and the
   profile's pack and index as they are, nothing compressed again (the pack

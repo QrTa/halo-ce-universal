@@ -46,7 +46,7 @@ def test_server_setup_tag_profile():
     # (each run a name menu_tags.c knows: one it does not makes the game
     # refuse every menu file, and keep the Xbox's menus)
     known = (ROOT / "port/linux/game/menu_tags.c").read_text().split("port_function_names[] =", 1)[1].split("};", 1)[0]
-    for run in ("ss tag profile next", "ss tag profile previous"):
+    for run in ("ss tag profile change",):
         assert f'run="{run}"' in kept
         assert f'"{run}"' in functions
         assert f'"{run}"' in known
@@ -67,6 +67,43 @@ def test_server_setup_tag_profile():
     assert '{ "game.multiplayer_tag_profile", _config_string, "\\"\\""' in \
         (ROOT / "port/linux/src/port_config.c").read_text()
     assert 'config_write("game.multiplayer_tag_profile"' in TAG_MULTIPLAYER.read_text()
+
+
+def test_tag_profile_screen():
+    """The game's TAG PROFILE screen, between the gametype and Server Setup:
+    in the generated file, at the name menu_functions.c opens it by, its
+    runs known to menu_tags.c and handled; the gametype's OK opens it in
+    Server Setup's place, and its choice is the game's (not config.toml's),
+    which decides whether the game is a modded one."""
+    kept = (MENUS / "ce/main_menu.multiplayer_type_select.server_settings.xml").read_text()
+    functions = FUNCTIONS.read_text()
+    game = TAG_MULTIPLAYER.read_text()
+    screen = f"{MT}/server_settings/tag_profile/tag_profile_screen"
+    assert f'<widget name="{screen}"' in kept
+    opened = re.search(r'#define TAG_PROFILE_SCREEN_NAME \\\n\t"([^"]+)"', functions).group(1)
+    assert opened == "pc\\\\" + screen.replace("/", "\\\\")
+    rows = int(re.search(r"#define TAG_PROFILE_ROWS (\d+)", functions).group(1))
+    assert rows == port_settings.TAG_PROFILE_ROWS
+    for index in range(rows):
+        assert f'name="{MT}/server_settings/tag_profile/tag_profile_{index}"' in kept
+    menu_tags = (ROOT / "port/linux/game/menu_tags.c").read_text()
+    known = menu_tags.split("port_function_names[] =", 1)[1].split("};", 1)[0]
+    inputs = menu_tags.split("port_game_data_input_names[] =", 1)[1].split("};", 1)[0]
+    for run in ("mp tag profiles init", "mp tag profile choose"):
+        assert f'run="{run}"' in kept and f'"{run}"' in functions and f'"{run}"' in known
+    assert '<data input="mp tag profiles update"/>' in kept
+    assert '"mp tag profiles update"' in functions and '"mp tag profiles update"' in inputs
+    assert "return gametype_choose(widget, widget_deleted);" in functions
+    assert "ui_widget_port_open(list, TAG_PROFILE_SCREEN_NAME, widget_deleted)" in functions
+    # (the game's own, kept from the screen: the host builds and advertises
+    # by it, and a new game starts with none)
+    hosted = game.split("boolean tag_multiplayer_hosted(", 1)[1].split("\n}", 1)[0]
+    assert "tag_multiplayer.game_profile[0]" in hosted and "hosted.active" not in hosted
+    for function in ("static void host_build(", "static void host_update(", "void tag_multiplayer_level_loaded("):
+        body = game.split(function, 1)[1].split("\n}", 1)[0]
+        assert "tag_multiplayer_profile_chosen()" not in body, function
+    host = functions.split("static boolean multiplayer_host(", 1)[1].split("\n}", 1)[0]
+    assert "tag_multiplayer_game_profile_set(NONE);" in host
 
 
 def test_settings_values():

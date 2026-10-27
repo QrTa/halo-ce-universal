@@ -2548,18 +2548,17 @@ def _server_settings() -> list:
                                                  ("font", "ui\\small_ui"), ("color", "#FF2896FF"), ("align", "center"),
                                                  ("text_y", 5), ("text_flags", "no_focus_test")], [])
         rows.append((f"{base}/op_{key}", None, SETUP_OPTIONS_PLACE + index))
-    # TAG PROFILE (a multiplayer game's on the game's own maps:
-    # port/linux/game/tag_multiplayer.c), last: A and right the next of the
-    # Tag Injector's multiplayer profiles, left the one before; its value
-    # the one chosen, or NONE. menu_functions.c's server_settings_update
-    # shows it and packs the rows shown (TAG_PROFILE_SETUP)
+    # TAG PROFILE (a multiplayer game's on the game's own maps, after its
+    # TAG PROFILE screen: _tag_profile_screen), last: the Tag Injector's
+    # multiplayer profile the game plays, or NONE, which the game keeps (who
+    # sees it is chosen there, not changed under its players); A goes back
+    # to the screen. menu_functions.c's server_settings_update shows it and
+    # packs the rows shown (TAG_PROFILE_SETUP)
     key = TAG_PROFILE_SETUP[0]
     extra += _widget(f"{base}/op_{key}", [("width", 512), ("height", 28),
                                          ("flags", "pass_unhandled_to_focused_child"),
                                          ("bitmap", "bitmaps/option_bkds"), ("color", "#FF2896FF")],
-                     ['<on event="a" run="ss tag profile next"/>', '<on event="start" run="ss tag profile next"/>',
-                      '<on event="right" run="ss tag profile next"/>',
-                      '<on event="left" run="ss tag profile previous"/>',
+                     ['<on event="a" run="ss tag profile change"/>', '<on event="start" run="ss tag profile change"/>',
                       '<on event="left_mouse" run="mouse emit accept event"/>',
                       f'<child widget="{base}/{key}_label"/>', f'<child widget="{base}/{key}_value" x="230" y="1"/>'])
     extra += _widget(f"{base}/{key}_value", [("type", "text"), ("controller", 1), ("width", 280), ("height", 22),
@@ -2749,7 +2748,11 @@ BOTS_SETUP = ("bots_options", "BOTS",
 # maps: the Tag Injector's multiplayer profile it plays (its key, its title
 # and its row's help)
 TAG_PROFILE_SETUP = ("tag_profile", "TAG PROFILE",
-                     "Weapons from a Tag Injector multiplayer profile:\\nplayers download them from you.")
+                     "Chosen for the whole game before this screen:\\nwho can see it. A goes back to it.")
+# the game's TAG PROFILE screen (menu_functions.c's tag_profile_asked: the
+# Tag Injector on, a multiplayer profile made, one of the game's own
+# multiplayer maps), between the gametype and Server Setup: its rows
+TAG_PROFILE_ROWS = 9
 # (Server Setup's place of its options' rows, co-op's or the gametype's: after
 # MAP SHARING's)
 SETUP_OPTIONS_PLACE = 6
@@ -2759,6 +2762,49 @@ TITLES.update({f"{MT}/server_settings/{key}/header_{key}": title
 # (the rows of a co-op options screen in one place, the one shown: PER
 # PLAYER's and MULTIPLIER's, by EXTRA ENEMIES')
 SETUP_OPTION_SAME_PLACE = set()
+
+
+def _tag_profile_screen() -> list:
+    """the game's TAG PROFILE screen, which the gametype opens before Server
+    Setup when the game can play a Tag Injector multiplayer profile: NONE
+    (listed for every build) first, then the profiles (listed for builds
+    with the mod alone); A one for the game, then Server Setup ("mp tag
+    profile choose"), whose B comes back here; B back to the gametype"""
+    base = f"{MT}/server_settings/tag_profile"
+    lines = _widget(f"{base}/tag_profile_screen",
+                    [("width", 640), ("height", 480), ("flags", "pass_unhandled_to_focused_child"),
+                     ("bitmap", "bitmaps/gradient")],
+                    ['<on event="b" back="true"/>', '<on event="back" back="true"/>',
+                     f'<child widget="{MT}/server_settings/header_server_settings"/>',
+                     f'<child widget="{base}/tag_profile_title"/>',
+                     f'<child widget="{base}/tag_profile_menu"/>'])
+    lines += _widget(f"{base}/tag_profile_title",
+                     [("type", "text"), ("controller", 1), ("left", 68), ("top", 74), ("width", 504), ("height", 22),
+                      ("text", "TAG INJECTOR PROFILE"), ("font", "ui\\large_ui"), ("color", "#FFFFFFFF")], [])
+    lines += _widget(f"{base}/tag_profile_help",
+                     [("type", "text"), ("controller", 1), ("left", 68), ("top", 388), ("width", 482), ("height", 24),
+                      ("font", "ui\\small_ui"), ("color", "#FFFFFFFF")], [])
+    children = ['<data input="mp tag profiles update"/>', '<on event="created" run="mp tag profiles init"/>']
+    extra = []
+    for index in range(TAG_PROFILE_ROWS):
+        children.append(f'<child{attributes([("widget", f"{base}/tag_profile_{index}"), ("x", 54), ("y", 100 + index * 31)])}/>')
+        extra += _widget(f"{base}/tag_profile_{index}",
+                         [("type", "text"), ("width", 512), ("height", 28), ("bitmap", "bitmaps/option_bkds"),
+                          ("font", "ui\\large_ui"), ("color", "#FF2896FF"), ("text_x", 13), ("text_y", 4)],
+                         ['<on event="a" run="mp tag profile choose"/>',
+                          '<on event="start" run="mp tag profile choose"/>',
+                          '<on event="left_mouse" run="mouse emit accept event"/>'])
+    children.append(f'<child{attributes([("widget", f"{base}/tag_profile_button_bar"), ("y", 414)])}/>')
+    lines += _widget(f"{base}/tag_profile_menu",
+                     [("type", "column_list"), ("width", 640), ("height", 480),
+                      ("flags", "pass_unhandled_to_focused_child up_down_tabs_children"),
+                      ("description", f"{base}/tag_profile_help")], children)
+    lines += _widget(f"{base}/tag_profile_button_bar",
+                     [("type", "column_list"), ("width", 640), ("height", 28),
+                      ("flags", "pass_unhandled_to_focused_child left_right_tabs_items")],
+                     ['<child widget="common_button_cancel" x="510" y="1"/>'])
+    lines += extra
+    return lines
 
 
 def _setup_option_screen(base: str, key: str, rows: list) -> list:
@@ -3621,7 +3667,8 @@ def multiplayer_files() -> dict:
             "<!-- The port's multiplayer screens, in the PC version's style (tools/port_settings.py) -->", "<menus>"]
     return {
         f"{MT}/join_game".replace("/", ".") + ".port.xml": head + _join_game_extras() + ["</menus>", ""],
-        f"{MT}/server_settings".replace("/", ".") + ".xml": head + _server_settings() + _invite_qr_screen() +
+        f"{MT}/server_settings".replace("/", ".") + ".xml": head + _server_settings() + _tag_profile_screen() +
+        _invite_qr_screen() +
         ["</menus>", ""],
         f"{MT}/lobby".replace("/", ".") + ".xml": head + _lobby() + ["</menus>", ""],
         f"{MT}/coop".replace("/", ".") + ".xml": head + _coop() + ["</menus>", ""],

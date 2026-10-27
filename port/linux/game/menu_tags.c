@@ -409,9 +409,11 @@ static char const *const port_function_names[] =
 	/* (Server Setup's RANDOMIZER and SKULLS rows, a co-op game's: the
 	screens above, whose OK comes back to it) */
 	"ss randomizer", "ss skulls",
-	/* (Server Setup's TAG PROFILE, a multiplayer game's on the game's own
-	maps: the Tag Injector's multiplayer profile it plays, tag_multiplayer.c) */
-	"ss tag profile next", "ss tag profile previous",
+	/* (the game's TAG PROFILE screen, before Server Setup, a multiplayer
+	game's on the game's own maps: the Tag Injector's multiplayer profile it
+	plays, tag_multiplayer.c; and Server Setup's row showing it, which goes
+	back to the screen) */
+	"mp tag profiles init", "mp tag profile choose", "ss tag profile change",
 	/* (New Game's LEADERBOARD: the level's records, every profile's, or
 	the online leaderboard's) */
 	"port leaderboard init", "port leaderboard view",
@@ -455,6 +457,8 @@ static char const *const port_game_data_input_names[] =
 	"port renderer textbox",
 	/* (the campaign randomizer's saved profiles, and its screen's rows) */
 	"randomizer profiles update", "randomizer screen update", "randomizer tag profiles update",
+	/* (the game's TAG PROFILE screen's rows) */
+	"mp tag profiles update",
 	/* (the skulls screen's ticks and help; Gameplay's ALL SKULLS shown) */
 	"skulls screen update", "gameplay screen update",
 	/* (the main menu's Mods) */
