@@ -63,6 +63,9 @@ map, game type, when, its size, and whether this build can play it (its
 return) */
 boolean network_replay_describe(char const *name, char *text, long size);
 
+/* the replay of that name in the folder deleted; FALSE if it could not be */
+boolean network_replay_delete(char const *name);
+
 /* ---------- playback (network_replay_playback.c) */
 
 /* plays the replay at path (its game is loaded at the next frame); FALSE,
@@ -73,8 +76,12 @@ boolean network_replay_watch(char const *path, char *why, long why_size);
 /* whether a replay is being played (or its game loaded) */
 boolean network_replay_playing(void);
 
-/* the view of the player watched, for the frame's first window (main.c);
-NULL when no replay plays */
+/* the playback's view made for this frame (main.c, before the sound and
+the windows: each asks network_replay_camera for it) */
+void network_replay_playback_frame(void);
+
+/* the view, for the frame's first window (main.c) and the sound's listener
+(sound_manager.c); NULL when no replay plays, or before it has one */
 struct observer_result const *network_replay_camera(void);
 
 /* the line at the bottom of the screen: who is watched, and the buttons

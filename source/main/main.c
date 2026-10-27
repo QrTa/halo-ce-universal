@@ -3341,6 +3341,9 @@ static void main_game_render(
 
 	lock_global_random_seed();
 	collision_log_continue_period(TRUE);
+	/* port: a replay's playback's view, made once for the frame, before the
+	sound listens from it (port/linux/game/network_replay_playback.c) */
+	network_replay_playback_frame();
 	sound_render();
 	force_single_screen = game_engine_force_single_screen();
 	last_local_player_index = NONE;

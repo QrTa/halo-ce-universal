@@ -13,7 +13,9 @@ game's end) are bit-packed by network_messages.c and counted only as a
 whole.
 
 The file (port/linux/game/network_replay.c): a header of REPLAY_HEADER_SIZE
-bytes (216 in format 0, 280 from format 1), then records, each a kind byte, a zero byte, its size (16 bits) and
+bytes (216 in format 0, 280 from format 1), then records (from format 3 all
+of them one zlib stream, which is inflated first: as much of it as there
+is, of a file a crash cut short), each a kind byte, a zero byte, its size (16 bits) and
 the host's tick (32 bits), little-endian, then that many bytes.
 """
 
@@ -77,9 +79,12 @@ class Header:
 @dataclass
 class Replay:
     header: Header
+    # (the header and the records, inflated: format 3's records are a zlib
+    # stream in the file)
     data: bytes
     records: List[Tuple[int, int, bytes]] = field(default_factory=list)
     truncated: bool = False
+    file_size: int = 0
 
 
 def _text(raw: bytes) -> str:
@@ -96,7 +101,17 @@ def parse(data: bytes) -> Replay:
     header = Header(fmt, network_version, build, ticks or 30, struct.unpack("<i", struct.pack("<I", start))[0],
                     header_size, low | (high << 32), _text(data[40:168]), _text(data[168:184]),
                     _text(data[184:header_size]))
-    replay = Replay(header, data)
+    file_size = len(data)
+    stream_cut = False
+    if fmt >= 3:
+        inflater = zlib.decompressobj()
+        try:
+            body = inflater.decompress(data[header_size:])
+        except zlib.error as error:
+            raise ValueError(f"its records cannot be inflated ({error})")
+        stream_cut = not inflater.eof
+        data = data[:header_size] + body
+    replay = Replay(header, data, file_size=file_size, truncated=stream_cut)
     offset = header_size
     while offset < len(data):
         if offset + RECORD_HEADER.size > len(data):
@@ -180,6 +195,7 @@ def report(path: str, replay: Replay, stats: Stats) -> str:
     minutes = stats.seconds / 60 if stats.seconds else 0
     lines = [
         f"{path}",
+        f"  the file: {_size(replay.file_size)}" + (" (its records zlibbed in it, format 3)" if h.format >= 3 else ""),
         f"  {h.map} ({h.variant or 'no variant'}), network version {h.network_version}, build {h.build}"
         f" {h.version}, replay format {h.format}" + (" (cut short: the game did not finish writing it)"
                                                      if replay.truncated else ""),

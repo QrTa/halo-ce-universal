@@ -128,7 +128,7 @@ Little-endian. A header of 280 bytes (formats 1 and 2; format 0's was
 | Offset | Size | What |
 | --- | --- | --- |
 | 0 | 8 | `OCREPLAY` |
-| 8 | 4 | The format, 2 (1 had no game record; 0 a 216-byte header) |
+| 8 | 4 | The format, 3 (2's records were not compressed; 1 had no game record; 0 a 216-byte header) |
 | 12 | 4 | The network version (`HALO_PORT_NETWORK_VERSION`) |
 | 16 | 4 | The build's number |
 | 20 | 4 | Ticks a second (30) |
@@ -139,8 +139,10 @@ Little-endian. A header of 280 bytes (formats 1 and 2; format 0's was
 | 168 | 16 | The game variant's name |
 | 184 | 96 | The build's version text (to the header's end) |
 
-Then records to the end of the file. From format 2 the first is the
-game (kind 5): `struct network_game` as the host had it at its first
+Then records to the end of the file; from format 3 they are one zlib
+stream (zlib's fastest level, about a fifth of their size), synced every
+five seconds, so that a file a crash cut short reads to its last sync.
+From format 2 the first is the game (kind 5): `struct network_game` as the host had it at its first
 tick, its map, game type, players, random seed and PC options, which a
 playback loads the game from. Each record is a byte for the kind (1 to 5,
 the table above and the game), a byte 0, the size (16 bits), the host's tick (32 bits), then
@@ -253,15 +255,26 @@ replay from before format 2, or of another network version).
   sends nothing: `network_game_client_write` drops it, and the in-game
   idle asks for no connection.
 - **The view.** The game has no local player, so the frame's first
-  window takes the playback's camera (`main.c`): behind the player
+  window is local player 0's (as the Xbox's film playback's was), with
+  the playback's camera, made once a frame (`main.c`), which the sound
+  listens from too (`sound_manager.c`); no HUD is drawn
+  (`interface_draw_screen`). Y goes round three views: behind the player
   watched (or the vehicle they ride), where the frame draws them (render
-  interpolation), turning round behind them, kept this side of walls. A
-  (or right) watches the next player alive, X (or left) the one before;
-  one who dies is watched again when they spawn. A line at the bottom
-  says who (`interface_draw_fullscreen_overlays`).
-- **The end.** B (or Back) leaves; the replay's end, or the game's,
-  returns to the main menu four seconds later (`network_game_abort`).
+  interpolation), turning round behind them, kept this side of walls;
+  through their eyes, where they aim; and a free camera (the left stick
+  moves it, the right one turns it, the triggers take it down and up).
+- **The controls.** A (or the d-pad's right) watches the next player
+  alive, X (or left) the one before; one who dies is watched again when
+  they spawn. The d-pad's up plays faster (2, 4, 8 times) and down slower
+  (a half, a quarter, then a pause: `game_time_set_speed`). Back held
+  shows the scores, the watched player's row as a player's own. B leaves.
+  A line at the bottom says who is watched, the view and the speed.
+- **The end.** The replay's end, or the game's, returns to the main menu
+  four seconds later (`network_game_abort`).
 
-Not yet: sound follows no listener (none is local), there is no free
-camera or seeking (phase 2), and co-op levels' scripts have not been
+The Theater keeps the newest `network.replays_kept` replays (30; the
+oldest are deleted as a recording starts, 0 keeps them all), and DELETE
+REPLAY deletes the one chosen, at a second press.
+
+Not yet: seeking (phase 2), and co-op levels' scripts have not been
 tried.

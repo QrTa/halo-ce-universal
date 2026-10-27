@@ -697,6 +697,9 @@ static const struct config_setting config_settings[] =
 		"replays/ (what a client that sees everything is sent), which the main\n"
 		"menu's Theater plays (port/linux/REPLAY.md). Read at a game's start;\n"
 		"the overlay's System folder has it too." },
+	{ "network.replays_kept", _config_integer, "30", "HALO_NET_REPLAYS_KEPT", _environment_value, _platform_all,
+		"How many replays the replays/ folder keeps: the oldest are deleted as a\n"
+		"recording starts; 0 keeps them all." },
 	{ "network.allow_upnp", _config_boolean, "true", "HALO_NET_ALLOW_UPNP", _environment_value, _platform_all,
 		"Let internet play ask the router (UPnP) to forward its port, for\n"
 		"networks whose NAT stops connections: when a player joins this\n"

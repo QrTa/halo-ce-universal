@@ -4231,6 +4231,16 @@ static void game_engine_post_rasterize_in_game(
 	return;
 }
 
+/* port: a replay's playback's scores, with Back held: the full-screen
+scoreboard, the watched player's row as a player's own
+(port/linux/game/network_replay_playback.c) */
+void game_engine_port_rasterize_scores(
+	long player_index)
+{
+	if (game_engine || network_coop_active())
+		game_engine_rasterize_in_game_score(player_index, 1.0f);
+}
+
 long game_engine_player_get_team_index(
 	long player_index)
 {

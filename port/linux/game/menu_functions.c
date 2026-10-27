@@ -3107,8 +3107,11 @@ static struct
 	unsigned long refreshed;
 	boolean listed;
 	/* why the last WATCH could not play its replay, until another is
-	chosen */
+	chosen (and what DELETE did) */
 	char why[160];
+	/* DELETE's first press: the one it would delete at the second (its
+	name, empty for none) */
+	char deleting[NETWORK_REPLAY_NAME_SIZE];
 } theater;
 
 /* the folder's replays, again when it is time, the one chosen kept */
@@ -3276,6 +3279,39 @@ static boolean theater_choose(long by)
 	theater.chosen = (theater.chosen + by + theater.count) % theater.count;
 	strcpy(theater.chosen_name, theater.names[theater.chosen]);
 	theater.why[0] = 0;
+	theater.deleting[0] = 0;
+	return TRUE;
+}
+
+/* "port theater delete" (A on DELETE REPLAY): the first press asks, the
+second deletes the replay chosen (the one asked about, unless another was
+chosen since) */
+static boolean theater_delete(void)
+{
+	char const *name;
+
+	theater_refresh();
+	if (!theater.count)
+		return TRUE;
+	name = theater.names[theater.chosen];
+	if (strcmp(theater.deleting, name))
+	{
+		strcpy(theater.deleting, name);
+		snprintf(theater.why, sizeof(theater.why), "Press A again on DELETE REPLAY to delete it.");
+		return TRUE;
+	}
+	theater.deleting[0] = 0;
+	if (network_replay_delete(name))
+	{
+		snprintf(theater.why, sizeof(theater.why), "Deleted.");
+		platform_log("theater: %s deleted", name);
+		/* (the list again at once: the next one is chosen) */
+		theater.listed = FALSE;
+		theater.chosen_name[0] = 0;
+		theater_refresh();
+	}
+	else
+		snprintf(theater.why, sizeof(theater.why), "It could not be deleted.");
 	return TRUE;
 }
 
@@ -8581,6 +8617,10 @@ boolean pc_menu_event_function_invoke(
 		else if (!strcmp(name, "port theater watch"))
 		{
 			return theater_watch();
+		}
+		else if (!strcmp(name, "port theater delete"))
+		{
+			return theater_delete();
 		}
 		else if (!strcmp(name, "port theater next") || !strcmp(name, "port theater previous"))
 		{

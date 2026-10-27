@@ -325,10 +325,14 @@ The main menu adds two items of the port's: Mods (refer to
 [docs/mods.md](../../docs/mods.md)) and Theater, the replays this machine
 recorded of the games it hosted ([REPLAY.md](REPLAY.md)). Theater's WATCH
 plays one (left and right choose it, the newest first): the game as a
-client saw it, from behind any player (A the next, X the one before, B
-leaves). RECORD REPLAYS turns `network.record_replays` on or off, and the
-panel says how many replays there are, how large, where, and what the one
-chosen is. On Android, EXPORT REPLAYS opens the system's folder picker and
+client saw it. A watches the next player and X the one before; Y goes
+round three views (behind them, through their eyes, a free camera moved
+with the sticks and the triggers); the d-pad's up and down play it faster
+or slower, to a pause; Back held shows the scores; B leaves. DELETE REPLAY
+deletes the one chosen (A twice). RECORD REPLAYS turns
+`network.record_replays` on or off, and the panel says how many replays
+there are, how large, where, and what the one chosen is. The folder keeps
+the newest `network.replays_kept`. On Android, EXPORT REPLAYS opens the system's folder picker and
 copies the replays to the folder chosen (those it already holds, by name,
 are left out), as the app's own folder cannot be opened by other apps.
 
@@ -615,6 +619,7 @@ the setting for one start of the game. It has priority over the file.
 | `network.stun_servers` | Google and Cloudflare | `HALO_NET_STUN` | The public STUN servers (`host:port`, with commas between them) that give the internet address of a machine. |
 | `network.client_timeout_seconds` | `15` | `HALO_NET_CLIENT_TIMEOUT_SECONDS` | Hosting: the seconds the host waits for a machine it hears nothing from before it drops it (5 to 300; the stock game waits 15). The same seconds are how long each machine's reliable stream waits for its peer to read before it gives up, and how long a host in a game waits for its own network to come back (an address renewed, a wifi drop) before it ends the game; each machine reads its own setting. A longer wait keeps players whose connection stalls (a browser tab in the background), but a machine that is really gone leaves its players frozen for longer. |
 | `network.record_replays` | `false` | `HALO_NET_RECORD_REPLAYS` | Hosting: `true` records each network game this machine hosts (a player's game or a dedicated server's) to `replays/` in the data folder, one `.ocreplay` file a game: what a client that sees every player is sent. The main menu's Theater plays them; `tools/replay_stats.py` measures them. It is read when a game starts, so turning it on during a game (the overlay's System folder has Record Replays) records from the next one. Refer to [REPLAY.md](REPLAY.md). |
+| `network.replays_kept` | `30` | `HALO_NET_REPLAYS_KEPT` | How many replays `replays/` keeps: as a recording starts, the oldest past this many are deleted. `0` keeps them all. |
 | `network.public_address` | `""` | `HALO_NET_PUBLIC_ADDRESS` | Hosting: the internet address the joiners reach this machine at, `host[:port]` (the port forwarded to `network.tunnel_port`), for a server behind a NAT with one forwarded port. It is offered first, and its name is looked up again every 5 minutes. Empty: what STUN and UPnP find. |
 | `network.listings` | `"both"` | `HALO_NET_LISTINGS` | What the server browser lists. `"both"`: the dedicated servers of the master servers first, then the games players host (from the brokers). `"masters"`: the master servers' only. `"brokers"`: the brokers' only. Refer to "Server browser". |
 | `network.masters_file` | `"masters.txt"` | `HALO_NET_MASTERS_FILE` | The file of the master servers the server browser asks for dedicated servers, next to `config.toml` unless a full path: on each line an `https://` URL and the master's key (`ed25519:<hex>`), 4 at most. A file that names none (missing, or comments alone, as the release's) leaves the official master, built in (`https://master.opencommunityedition.com`). Refer to "Dedicated server". |

@@ -2419,11 +2419,12 @@ def _mods() -> list:
 # right how many replays there are, how large, where, and the one WATCH has
 # chosen (menu_functions.c's "port theater" functions). WATCH plays the
 # replay chosen with left and right, the newest first
-# (network_replay_playback.c); RECORD REPLAYS turns network.record_replays
+# (network_replay_playback.c); DELETE REPLAY deletes it, at a second press;
+# RECORD REPLAYS turns network.record_replays
 # on or off; EXPORT REPLAYS (Android's alone: the app's folder picker,
 # HaloActivity.exportReplays) copies them to a folder the player chooses
 
-THEATER_ROWS = [("watch", "WATCH", None), ("record", "RECORD REPLAYS", None),
+THEATER_ROWS = [("watch", "WATCH", None), ("delete", "DELETE REPLAY", None), ("record", "RECORD REPLAYS", None),
                 ("export", "EXPORT REPLAYS", "android")]
 
 

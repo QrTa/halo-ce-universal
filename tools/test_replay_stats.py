@@ -109,3 +109,27 @@ def test_report_runs():
     replay = replay_stats.parse(data)
     text = replay_stats.report("x.ocreplay", replay, replay_stats.measure(replay, NAMES))
     assert "bloodgulch (Slayer)" in text and "unit_states" in text
+
+
+def test_format_3_inflated():
+    import zlib
+    data, datagram, reliable = replay_bytes()
+    head = bytearray(data[:280])
+    struct.pack_into("<I", head, 8, 3)
+    compressed = bytes(head) + zlib.compress(data[280:], 1)
+    replay = replay_stats.parse(compressed)
+    assert replay.header.format == 3 and not replay.truncated
+    assert [record[2] for record in replay.records[:2]] == [datagram, reliable]
+    assert replay.file_size == len(compressed)
+
+
+def test_format_3_cut_short():
+    import zlib
+    data, _, _ = replay_bytes()
+    head = bytearray(data[:280])
+    struct.pack_into("<I", head, 8, 3)
+    compressor = zlib.compressobj(1)
+    body = compressor.compress(data[280:]) + compressor.flush(zlib.Z_SYNC_FLUSH)
+    replay = replay_stats.parse(bytes(head) + body)
+    assert replay.truncated and len(replay.records) == 3
+

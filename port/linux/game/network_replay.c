@@ -16,9 +16,13 @@ of sent; so are the distributed messages sent every client reliably, and
 the game's own messages to every machine (a player joining or leaving, the
 game's end). Nothing else changes: the clients are sent what they were.
 
-Phase 0 is for measuring: the records are the bytes as they would go out,
-uncompressed, and tools/replay_stats.py says how large they are, zlibbed and
-not, and which messages take the room. Nothing plays them yet (phase 1).
+The records are the bytes as they would go out, after an uncompressed
+header through one zlib stream (format 3, zlib's fastest level: about a
+fifth of their size), synced every few seconds so that a file a crash cut
+short plays to its last sync. tools/replay_stats.py says how large they
+are and which messages take the room; network_replay_playback.c plays them.
+The folder keeps the newest network.replays_kept (the oldest are deleted
+as a recording starts).
 */
 
 #include "cseries.h"
@@ -36,8 +40,12 @@ not, and which messages take the room. Nothing plays them yet (phase 1).
 #include <stdio.h>
 #include <string.h>
 #include <time.h>
+#include <xtl.h>
+
+#include "zlib.h" /* source/memory/zlib */
 
 int config_boolean(char const *name);
+long config_integer(char const *name);
 const char *platform_data_root(void);
 FILE *platform_fopen_host(char const *path, char const *mode);
 void platform_log(char const *format, ...);
@@ -46,7 +54,7 @@ void main_build_identity(long *number, char *flavor, size_t flavor_size, char *r
 
 /* the file's header (REPLAY.md, "The file"): its first bytes, and its format */
 #define REPLAY_MAGIC "OCREPLAY"
-#define REPLAY_FORMAT 2
+#define REPLAY_FORMAT 3
 #define REPLAY_HEADER_SIZE 280
 /* the build's version text, at the header's end (format 0's 32 bytes cut
 "OpenCE Android | local build (<commit>)" short) */
@@ -77,7 +85,69 @@ static struct
 	unsigned long bytes[NUMBER_OF_NETWORK_REPLAY_RECORDS];
 	unsigned long total_bytes;
 	char buffer[REPLAY_BUFFER_SIZE];
+	/* the records' stream (format 3), and what it has made not yet written */
+	z_stream stream;
+	byte compressed[REPLAY_BUFFER_SIZE];
 } replay;
+
+/* through the stream into the file: flush Z_NO_FLUSH, Z_SYNC_FLUSH (all of
+it written out, readable) or Z_FINISH; FALSE if the file could not take it */
+static boolean replay_deflate(
+	void const *data,
+	unsigned long size,
+	int flush)
+{
+	replay.stream.next_in = (Bytef *)data;
+	replay.stream.avail_in = (uInt)size;
+	for (;;)
+	{
+		int result;
+		unsigned long made;
+
+		replay.stream.next_out = replay.compressed;
+		replay.stream.avail_out = sizeof(replay.compressed);
+		result = deflate(&replay.stream, flush);
+		made = sizeof(replay.compressed) - replay.stream.avail_out;
+		if (result != Z_OK && result != Z_STREAM_END && result != Z_BUF_ERROR)
+			return FALSE;
+		if (made && fwrite(replay.compressed, made, 1, replay.file) != 1)
+			return FALSE;
+		/* (done: everything taken, and for a flush all of it made) */
+		if (result == Z_STREAM_END || (!replay.stream.avail_in && replay.stream.avail_out))
+			return TRUE;
+	}
+}
+
+/* the replays past the newest `kept` deleted (0 keeps them all) */
+static void replay_prune(
+	long kept)
+{
+	static char names[256][NETWORK_REPLAY_NAME_SIZE];
+	long count;
+	long index;
+
+	if (kept <= 0)
+		return;
+	count = network_replay_list(names, NUMBEROF(names));
+	for (index = kept; index < count; index++)
+	{
+		if (network_replay_delete(names[index]))
+			error(_error_log, "replay: %s deleted (network.replays_kept is %ld)", names[index], kept);
+	}
+}
+
+boolean network_replay_delete(
+	char const *name)
+{
+	char path[REPLAY_PATH_SIZE + NETWORK_REPLAY_NAME_SIZE];
+
+	/* (a name of the folder's, no further) */
+	if (!name || !name[0] || strchr(name, '/') || strchr(name, '\\'))
+		return FALSE;
+	network_replay_folder(path, REPLAY_PATH_SIZE);
+	snprintf(path + strlen(path), sizeof(path) - strlen(path), "/%s", name);
+	return DeleteFileA(path) != 0;
+}
 
 static unsigned long replay_get_long(
 	byte const *source)
@@ -138,6 +208,8 @@ static boolean replay_start(
 
 	if (!game)
 		return FALSE;
+	/* (room for this one: as many as network.replays_kept, with it) */
+	replay_prune(config_integer("network.replays_kept") - 1);
 	csmemset(header, 0, sizeof(header));
 	replay_printable(map, sizeof(map), game->map.name, FALSE);
 	for (index = 0; index < 11 && game->variant.human_readable_game_description[index]; index++)
@@ -173,7 +245,8 @@ static boolean replay_start(
 	csmemcpy(header + 40, map, MIN(sizeof(map), 128));
 	csmemcpy(header + 168, variant, sizeof(variant));
 	replay_printable((char *)header + 184, REPLAY_VERSION_SIZE, version, FALSE);
-	if (fwrite(header, sizeof(header), 1, replay.file) != 1)
+	csmemset(&replay.stream, 0, sizeof(replay.stream));
+	if (fwrite(header, sizeof(header), 1, replay.file) != 1 || deflateInit(&replay.stream, 1) != Z_OK)
 	{
 		error(_error_log, "replay: could not write to %s", replay.path);
 		fclose(replay.file);
@@ -342,6 +415,14 @@ void network_replay_host_tick(
 		if (game_time_get() - replay.last_flush_time >= REPLAY_FLUSH_TICKS)
 		{
 			replay.last_flush_time = game_time_get();
+			if (!replay_deflate(NULL, 0, Z_SYNC_FLUSH))
+			{
+				error(_error_log, "replay: could not write to %s; the recording stops", replay.path);
+				deflateEnd(&replay.stream);
+				fclose(replay.file);
+				replay.file = NULL;
+				return;
+			}
 			fflush(replay.file);
 		}
 		return;
@@ -367,9 +448,10 @@ void network_replay_record(
 	header[2] = (byte)size;
 	header[3] = (byte)(size >> 8);
 	replay_put_long(header + 4, (unsigned long)game_time_get());
-	if (fwrite(header, sizeof(header), 1, replay.file) != 1 || (size && fwrite(data, (size_t)size, 1, replay.file) != 1))
+	if (!replay_deflate(header, sizeof(header), Z_NO_FLUSH) || (size && !replay_deflate(data, (unsigned long)size, Z_NO_FLUSH)))
 	{
 		error(_error_log, "replay: could not write to %s; the recording stops", replay.path);
+		deflateEnd(&replay.stream);
 		fclose(replay.file);
 		replay.file = NULL;
 		return;
@@ -385,14 +467,18 @@ void network_replay_stop(
 	if (replay.file)
 	{
 		long ticks = game_time_get() - replay.start_time;
-		boolean written = fclose(replay.file) == 0;
+		boolean written = replay_deflate(NULL, 0, Z_FINISH);
+		long file_size;
 
+		deflateEnd(&replay.stream);
+		file_size = ftell(replay.file);
+		written = fclose(replay.file) == 0 && written;
 		replay.file = NULL;
 		error(_error_log,
-			"replay: %s %s: %ld seconds, %lu KB (%lu datagrams %lu KB, %lu reliable %lu KB, %lu to the recorder %lu KB, "
-			"%lu game messages %lu KB)",
+			"replay: %s %s: %ld seconds, %ld KB (%lu KB before compression: %lu datagrams %lu KB, %lu reliable %lu KB, "
+			"%lu to the recorder %lu KB, %lu game messages %lu KB)",
 			written ? "recorded" : "could not finish", replay.path, ticks / TICKS_PER_SECOND,
-			replay.total_bytes / 1024,
+			file_size / 1024, replay.total_bytes / 1024,
 			replay.records[_network_replay_datagram], replay.bytes[_network_replay_datagram] / 1024,
 			replay.records[_network_replay_reliable], replay.bytes[_network_replay_reliable] / 1024,
 			replay.records[_network_replay_reliable_to_machine], replay.bytes[_network_replay_reliable_to_machine] / 1024,

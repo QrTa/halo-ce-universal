@@ -18,12 +18,18 @@ their relayed input, corrected toward the host's states, the actors as the
 host ran them, the damage, scores and the game's end as the host decided
 them. The client sends nothing (network_game_client_write).
 
-The view is a camera behind the player watched (network_replay_camera,
-main.c's window), drawn where the frame draws the unit (render
-interpolation), kept on this side of walls. A (or the d-pad's right)
-watches the next player, X (or left) the one before, B (or Back) leaves; a
-line at the bottom says who is watched. The game's end, or the replay's,
-returns to the main menu a few seconds later.
+The view (network_replay_camera, made once a frame by
+network_replay_playback_frame: main.c's window and the sound's listener)
+is one of three, Y going round them: behind the player watched (or the
+vehicle they ride), drawn where the frame draws them (render
+interpolation), kept on this side of walls; through their eyes, where they
+aim; or a free camera, the left stick moving it, the right one turning it
+and the triggers taking it down and up. A (or the d-pad's right) watches
+the next player, X (or left) the one before; the d-pad's up plays faster
+and down slower, to a pause (game_time_set_speed); Back held shows the
+scores (the watched's row as a player's own); B leaves. A line at the
+bottom says who is watched, the view and the speed. The game's end, or the
+replay's, returns to the main menu a few seconds later.
 */
 
 #include "cseries.h"
@@ -55,18 +61,25 @@ returns to the main menu a few seconds later.
 #include <stdlib.h>
 #include <string.h>
 
+#include "zlib.h" /* source/memory/zlib */
+
 FILE *platform_fopen_host(char const *path, char const *mode);
 void network_distributed_handle_message(long machine_index, word const *message, word size);
 void network_connection_port_set_last_read_unreliable(boolean unreliable);
 boolean network_game_client_port_replay_begin(struct network_game const *game);
 boolean network_game_client_port_in_postgame(struct network_game_client *client);
 void network_game_abort(void);
+void render_interpolation_object_point(long object_index, real_point3d *point);
+real main_get_seconds_elapsed(void);
+void game_engine_port_rasterize_scores(long player_index);
 
 /* the file (network_replay.c, REPLAY.md's "The file") */
 #define REPLAY_MAGIC "OCREPLAY"
 #define REPLAY_RECORD_HEADER_SIZE 8
-/* the oldest format a playback reads: the first with the game's record */
+/* the oldest format a playback reads: the first with the game's record;
+and the first whose records are one zlib stream after the header */
 #define REPLAY_PLAYABLE_FORMAT 2
+#define REPLAY_COMPRESSED_FORMAT 3
 /* the largest replay read (all of it, at once) */
 #define REPLAY_MAXIMUM_FILE_SIZE (256 * 1024 * 1024)
 /* how long the main menu waits after the replay's end, or the game's */
@@ -84,6 +97,27 @@ watched's facing it makes a frame */
 #define CAMERA_FIELD_OF_VIEW DEGREES_TO_RADIANS(70.0f)
 /* (how far from a wall the camera stays) */
 #define CAMERA_WALL_MARGIN 0.2f
+/* the free camera: how fast it moves (world units a second), turns
+(radians a second, the stick all the way) and how far it pitches */
+#define FREE_CAMERA_SPEED 6.0f
+#define FREE_CAMERA_TURN 2.5f
+#define FREE_CAMERA_MAXIMUM_PITCH 1.5f
+/* a stick's or a trigger's dead middle, of its whole */
+#define STICK_DEAD_ZONE 0.15f
+
+/* the views Y goes round */
+enum
+{
+	_replay_view_behind,
+	_replay_view_eyes,
+	_replay_view_free,
+	NUMBER_OF_REPLAY_VIEWS
+};
+
+/* the speeds the d-pad's up and down go through (0 a pause), and the
+normal one's */
+static real const replay_speeds[] = { 0.0f, 0.25f, 0.5f, 1.0f, 2.0f, 4.0f, 8.0f };
+#define REPLAY_NORMAL_SPEED 3
 
 static struct
 {
@@ -108,9 +142,18 @@ static struct
 	long watched;
 	/* the buttons held at the last idle (each press counted once) */
 	boolean held[NUMBER_OF_GAMEPAD_BUTTONS];
-	/* the camera */
+	/* the view, the speed (replay_speeds'), and whether the scores are
+	shown (Back held) */
+	short view;
+	short speed;
+	boolean scores;
+	/* the camera, made once a frame; behind's turn; the free camera's
+	place and its turns */
 	boolean camera_valid;
 	real yaw;
+	real_point3d free_position;
+	real free_yaw;
+	real free_pitch;
 	struct observer_result camera;
 	/* a record's bytes, aligned as the handlers read them */
 	word message[0x10000 / sizeof(word)];
@@ -121,6 +164,69 @@ static unsigned long replay_get_long(
 {
 	return (unsigned long)source[0] | (unsigned long)source[1] << 8 | (unsigned long)source[2] << 16 |
 		(unsigned long)source[3] << 24;
+}
+
+/* the file's records (all after its header: one zlib stream, format 3)
+inflated, after its header, in a buffer of their own in place of the file's;
+as much of them as there is, of a file a crash cut short; FALSE if not even
+that */
+static boolean playback_inflate(
+	unsigned long header_size)
+{
+	z_stream stream;
+	unsigned long capacity = (unsigned long)playback.size * 6 + 0x10000;
+	unsigned long used = header_size;
+	byte *inflated;
+	int result;
+
+	if (capacity > REPLAY_MAXIMUM_FILE_SIZE)
+		capacity = REPLAY_MAXIMUM_FILE_SIZE;
+	if (!(inflated = (byte *)malloc(capacity)))
+		return FALSE;
+	csmemcpy(inflated, playback.data, header_size);
+	csmemset(&stream, 0, sizeof(stream));
+	if (inflateInit(&stream) != Z_OK)
+	{
+		free(inflated);
+		return FALSE;
+	}
+	stream.next_in = playback.data + header_size;
+	stream.avail_in = (uInt)(playback.size - (long)header_size);
+	for (;;)
+	{
+		stream.next_out = inflated + used;
+		stream.avail_out = (uInt)(capacity - used);
+		result = inflate(&stream, Z_NO_FLUSH);
+		used = capacity - stream.avail_out;
+		if (result == Z_STREAM_END || result != Z_OK || !stream.avail_in)
+			break;
+		/* (more room: twice as much, up to the largest taken) */
+		if (!stream.avail_out)
+		{
+			unsigned long larger = MIN(capacity * 2, REPLAY_MAXIMUM_FILE_SIZE);
+			byte *grown;
+
+			if (larger <= capacity || !(grown = (byte *)malloc(larger)))
+				break;
+			csmemcpy(grown, inflated, used);
+			free(inflated);
+			inflated = grown;
+			capacity = larger;
+		}
+	}
+	inflateEnd(&stream);
+	if (used <= header_size)
+	{
+		free(inflated);
+		return FALSE;
+	}
+	if (result != Z_STREAM_END)
+		error(_error_log, "replay: the file ends before its stream does (cut short): %lu bytes of records kept",
+			used - header_size);
+	free(playback.data);
+	playback.data = inflated;
+	playback.size = (long)used;
+	return TRUE;
 }
 
 static void playback_free(
@@ -138,6 +244,9 @@ static void playback_free(
 	playback.leaving = FALSE;
 	playback.synchronized = FALSE;
 	playback.watched = NONE;
+	playback.view = _replay_view_behind;
+	playback.speed = REPLAY_NORMAL_SPEED;
+	playback.scores = FALSE;
 	playback.camera_valid = FALSE;
 }
 
@@ -190,6 +299,12 @@ boolean network_replay_watch(
 	{
 		snprintf(why, (size_t)why_size, "This replay is of network version %lu; this build plays %d.",
 			network_version, HALO_PORT_NETWORK_VERSION);
+		playback_free();
+		return FALSE;
+	}
+	if (format >= REPLAY_COMPRESSED_FORMAT && !playback_inflate(header_size))
+	{
+		snprintf(why, (size_t)why_size, "The replay cannot be read.");
 		playback_free();
 		return FALSE;
 	}
@@ -387,8 +502,24 @@ boolean network_replay_playback_idle(
 	}
 	if (playback.leaving)
 		return TRUE;
-	if (playback_pressed(FIRST_GAMEPAD_ANALOG_BUTTON + _gamepad_analog_button_b) |
-		playback_pressed(_gamepad_binary_button_back))
+	if (playback_pressed(FIRST_GAMEPAD_ANALOG_BUTTON + _gamepad_analog_button_y))
+	{
+		playback.view = (short)((playback.view + 1) % NUMBER_OF_REPLAY_VIEWS);
+		/* (the free camera starts where the view was) */
+		if (playback.view == _replay_view_free && playback.camera_valid)
+		{
+			playback.free_position = playback.camera.position;
+			playback.free_yaw = (real)atan2(playback.camera.forward.j, playback.camera.forward.i);
+			playback.free_pitch = (real)asin(PIN(playback.camera.forward.k, -1.0f, 1.0f));
+		}
+	}
+	if (playback_pressed(_gamepad_binary_button_dpad_up) && playback.speed < (short)NUMBEROF(replay_speeds) - 1)
+		game_time_set_speed(replay_speeds[++playback.speed]);
+	if (playback_pressed(_gamepad_binary_button_dpad_down) && playback.speed > 0)
+		game_time_set_speed(replay_speeds[--playback.speed]);
+	playback_pressed(_gamepad_binary_button_back);
+	playback.scores = playback.held[_gamepad_binary_button_back];
+	if (playback_pressed(FIRST_GAMEPAD_ANALOG_BUTTON + _gamepad_analog_button_b))
 	{
 		error(_error_log, "replay: left at tick %ld", game_time_get());
 		playback.leaving = TRUE;
@@ -412,39 +543,129 @@ boolean network_replay_playback_idle(
 
 /* ---------- the view */
 
-struct observer_result const *network_replay_camera(
-	void)
+/* the camera at position looking along forward (made unit length), up
+square to it */
+static void playback_camera_set(
+	real_point3d const *position,
+	real_vector3d const *forward)
 {
-	struct player_datum *player;
-	long unit_index;
-	long followed;
-	struct object_datum *object;
+	real_vector3d look = *forward;
+	real length = (real)sqrt(look.i * look.i + look.j * look.j + look.k * look.k);
+	real along;
+
+	if (length < 0.0001f)
+		return;
+	look.i /= length;
+	look.j /= length;
+	look.k /= length;
+	csmemset(&playback.camera, 0, sizeof(playback.camera));
+	playback.camera.position = *position;
+	scenario_location_from_point(&playback.camera.location, &playback.camera.position);
+	playback.camera.forward = look;
+	/* (up: the world's, less what of it is along forward) */
+	along = look.k;
+	playback.camera.up.i = -look.i * along;
+	playback.camera.up.j = -look.j * along;
+	playback.camera.up.k = 1.0f - look.k * along;
+	length = (real)sqrt(playback.camera.up.i * playback.camera.up.i + playback.camera.up.j * playback.camera.up.j +
+		playback.camera.up.k * playback.camera.up.k);
+	if (length < 0.0001f)
+	{
+		playback.camera.up.i = 1.0f;
+		playback.camera.up.j = 0.0f;
+		playback.camera.up.k = 0.0f;
+	}
+	else
+	{
+		playback.camera.up.i /= length;
+		playback.camera.up.j /= length;
+		playback.camera.up.k /= length;
+	}
+	playback.camera.field_of_view = CAMERA_FIELD_OF_VIEW;
+	playback.camera_valid = TRUE;
+}
+
+/* a stick's part, or a trigger, of -1 to 1 (0 to 1), its dead middle 0 */
+static real playback_axis(
+	real value)
+{
+	if (value > -STICK_DEAD_ZONE && value < STICK_DEAD_ZONE)
+		return 0.0f;
+	return value > 0.0f ? (value - STICK_DEAD_ZONE) / (1.0f - STICK_DEAD_ZONE) :
+		(value + STICK_DEAD_ZONE) / (1.0f - STICK_DEAD_ZONE);
+}
+
+/* the free camera, moved by the first controller whose sticks are off
+their middle */
+static void playback_free_camera(
+	real seconds)
+{
+	real move_x = 0.0f, move_y = 0.0f, turn_x = 0.0f, turn_y = 0.0f, rise = 0.0f;
+	real_vector3d forward;
+	short controller;
+
+	for (controller = 0; controller < MAXIMUM_GAMEPADS; controller++)
+	{
+		struct gamepad_state const *gamepad = input_get_gamepad_state(controller);
+
+		if (!gamepad)
+			continue;
+		move_x += playback_axis(gamepad->sticks[_gamepad_stick_left].x / 32767.0f);
+		move_y += playback_axis(gamepad->sticks[_gamepad_stick_left].y / 32767.0f);
+		turn_x += playback_axis(gamepad->sticks[_gamepad_stick_right].x / 32767.0f);
+		turn_y += playback_axis(gamepad->sticks[_gamepad_stick_right].y / 32767.0f);
+		rise += playback_axis(gamepad->analog_buttons[_gamepad_analog_button_right_trigger] / 255.0f) -
+			playback_axis(gamepad->analog_buttons[_gamepad_analog_button_left_trigger] / 255.0f);
+	}
+	playback.free_yaw -= turn_x * FREE_CAMERA_TURN * seconds;
+	playback.free_pitch = PIN(playback.free_pitch + turn_y * FREE_CAMERA_TURN * seconds,
+		-FREE_CAMERA_MAXIMUM_PITCH, FREE_CAMERA_MAXIMUM_PITCH);
+	forward.i = (real)(cos(playback.free_yaw) * cos(playback.free_pitch));
+	forward.j = (real)(sin(playback.free_yaw) * cos(playback.free_pitch));
+	forward.k = (real)sin(playback.free_pitch);
+	/* (forward and back along where it looks, sideways level) */
+	playback.free_position.x += (forward.i * move_y + (real)sin(playback.free_yaw) * move_x) * FREE_CAMERA_SPEED * seconds;
+	playback.free_position.y += (forward.j * move_y - (real)cos(playback.free_yaw) * move_x) * FREE_CAMERA_SPEED * seconds;
+	playback.free_position.z += (forward.k * move_y + rise) * FREE_CAMERA_SPEED * seconds;
+	playback_camera_set(&playback.free_position, &forward);
+}
+
+/* through the eyes of the unit, where it aims; FALSE when it has none */
+static void playback_eyes_camera(
+	long unit_index)
+{
+	struct unit_datum *unit = unit_get(unit_index);
+	real_point3d eyes;
+	real_point3d origin;
+	real_point3d drawn;
+
+	unit_get_camera_position(unit_index, &eyes);
+	/* (moved as the frame draws the unit) */
+	object_get_origin(unit_index, &origin);
+	drawn = origin;
+	render_interpolation_object_point(unit_index, &drawn);
+	eyes.x += drawn.x - origin.x;
+	eyes.y += drawn.y - origin.y;
+	eyes.z += drawn.z - origin.z;
+	playback_camera_set(&eyes, &unit->unit.aiming_vector);
+}
+
+/* behind what the unit is (on foot, or the vehicle it rides) */
+static void playback_behind_camera(
+	long unit_index)
+{
+	struct object_datum *object = object_get(unit_index);
+	long followed = object->object.parent_object_index != NONE ? object->object.parent_object_index : unit_index;
+	real distance = followed == unit_index ? CAMERA_DISTANCE : CAMERA_VEHICLE_DISTANCE;
+	real height = followed == unit_index ? CAMERA_HEIGHT : CAMERA_VEHICLE_HEIGHT;
 	real_point3d focus;
+	real_point3d position;
 	real_vector3d back;
 	real_vector3d forward;
-	real yaw, turn, distance, height;
 	struct collision_result collision;
+	real yaw, turn;
 
-	if (!playback.playing)
-		return NULL;
-	player = playback.watched != NONE ? player_try_and_get(playback.watched) : NULL;
-	/* (the first player alive, before anyone is watched, or once the one
-	watched has left; one who died is watched again when they spawn, the
-	camera where it was until then) */
-	if (!player || (player->unit_index == NONE && !playback.camera_valid))
-	{
-		playback.watched = playback_next_player(NONE, FALSE);
-		player = playback.watched != NONE ? player_try_and_get(playback.watched) : NULL;
-	}
-	unit_index = player ? player->unit_index : NONE;
-	if (unit_index == NONE)
-		return playback.camera_valid ? &playback.camera : NULL;
-	/* (a rider is watched from behind its vehicle) */
-	object = object_get(unit_index);
-	followed = object->object.parent_object_index != NONE ? object->object.parent_object_index : unit_index;
 	object = object_get(followed);
-	distance = followed == unit_index ? CAMERA_DISTANCE : CAMERA_VEHICLE_DISTANCE;
-	height = followed == unit_index ? CAMERA_HEIGHT : CAMERA_VEHICLE_HEIGHT;
 	object_get_origin(followed, &focus);
 	render_interpolation_object_point(followed, &focus);
 	focus.z += height;
@@ -475,44 +696,89 @@ struct observer_result const *network_replay_camera(
 		back.j *= kept;
 		back.k *= kept;
 	}
-	csmemset(&playback.camera, 0, sizeof(playback.camera));
-	playback.camera.position.x = focus.x + back.i;
-	playback.camera.position.y = focus.y + back.j;
-	playback.camera.position.z = focus.z + back.k;
-	scenario_location_from_point(&playback.camera.location, &playback.camera.position);
-	playback.camera.forward = forward;
-	playback.camera.up.i = (real)(-cos(playback.yaw) * sin(CAMERA_PITCH));
-	playback.camera.up.j = (real)(-sin(playback.yaw) * sin(CAMERA_PITCH));
-	playback.camera.up.k = (real)cos(CAMERA_PITCH);
-	playback.camera.field_of_view = CAMERA_FIELD_OF_VIEW;
-	playback.camera_valid = TRUE;
-	return &playback.camera;
+	position.x = focus.x + back.i;
+	position.y = focus.y + back.j;
+	position.z = focus.z + back.k;
+	playback_camera_set(&position, &forward);
 }
 
-/* the line at the bottom: who is watched, and the buttons */
+void network_replay_playback_frame(
+	void)
+{
+	struct player_datum *player;
+	long unit_index;
+
+	if (!playback.playing)
+		return;
+	player = playback.watched != NONE ? player_try_and_get(playback.watched) : NULL;
+	/* (the first player alive, before anyone is watched, or once the one
+	watched has left; one who died is watched again when they spawn, the
+	camera where it was until then) */
+	if (!player || (player->unit_index == NONE && !playback.camera_valid))
+	{
+		playback.watched = playback_next_player(NONE, FALSE);
+		player = playback.watched != NONE ? player_try_and_get(playback.watched) : NULL;
+	}
+	unit_index = player ? player->unit_index : NONE;
+	if (playback.view == _replay_view_free && playback.camera_valid)
+		playback_free_camera(main_get_seconds_elapsed());
+	else if (unit_index == NONE)
+		return;
+	else if (playback.view == _replay_view_eyes)
+		playback_eyes_camera(unit_index);
+	else
+		playback_behind_camera(unit_index);
+}
+
+struct observer_result const *network_replay_camera(
+	void)
+{
+	return playback.playing && playback.camera_valid ? &playback.camera : NULL;
+}
+
+/* the line at the bottom: who is watched, the view, the speed and the
+buttons; and with Back held, the scores */
 void network_replay_playback_draw(
 	void)
 {
+	static wchar_t const *const view_names[NUMBER_OF_REPLAY_VIEWS] = { L"BEHIND", L"EYES", L"FREE CAMERA" };
 	long font_index;
 	struct font_header *font;
 	real_argb_color color;
 	rectangle2d bounds;
 	short height;
-	wchar_t text[128];
+	wchar_t text[192];
+	wchar_t speed[16];
 	struct player_datum *player;
 
 	if (!playback.playing)
 		return;
+	player = playback.watched != NONE ? player_try_and_get(playback.watched) : NULL;
+	if (playback.scores && player)
+	{
+		game_engine_port_rasterize_scores(playback.watched);
+		return;
+	}
 	font_index = hud_get_font_index();
 	if (font_index == NONE)
 		return;
-	player = playback.watched != NONE ? player_try_and_get(playback.watched) : NULL;
+	if (playback.speed == 0)
+		usnprintf(speed, NUMBEROF(speed) - 1, L"PAUSED");
+	else if (playback.speed == REPLAY_NORMAL_SPEED)
+		speed[0] = 0;
+	else if (replay_speeds[playback.speed] < 1.0f)
+		usnprintf(speed, NUMBEROF(speed) - 1, L"1/%dx", (int)(1.0f / replay_speeds[playback.speed] + 0.5f));
+	else
+		usnprintf(speed, NUMBEROF(speed) - 1, L"%dx", (int)replay_speeds[playback.speed]);
+	speed[NUMBEROF(speed) - 1] = 0;
 	if (playback.ended)
 		usnprintf(text, NUMBEROF(text) - 1, L"REPLAY OVER");
-	else if (player)
-		usnprintf(text, NUMBEROF(text) - 1, L"REPLAY: %.12s\r\nA: NEXT   X: PREVIOUS   B: LEAVE", player->name);
 	else
-		usnprintf(text, NUMBEROF(text) - 1, L"REPLAY\r\nB: LEAVE");
+	{
+		usnprintf(text, NUMBEROF(text) - 1,
+			L"%.12s   %s   %s\r\nA/X: PLAYER   Y: VIEW   UP/DOWN: SPEED   BACK: SCORES   B: LEAVE",
+			playback.view == _replay_view_free || !player ? L"REPLAY" : player->name, view_names[playback.view], speed);
+	}
 	text[NUMBEROF(text) - 1] = 0;
 	font = font_definition_get(font_index);
 	height = (short)(font->ascending_height + font->descending_height);
