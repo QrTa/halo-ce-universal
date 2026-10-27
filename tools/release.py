@@ -2,8 +2,14 @@
 """Collects what the local builds left into release/, ready to upload to a
 GitHub release:
 
+    python3 tools/release.py 110                # configures build 110, builds, packs
     python3 tools/release.py                    # the flavor build.ninja builds
     python3 tools/release.py --flavor release   # named so, whatever it builds
+
+Given a build number, it first runs configure.py as a release goes out:
+HALO_BUILD_NUMBER=<n> python3 configure.py --release --portable
+--windows-cross, against the MSVC toolchain xwin left in ~/xwin (--xwin; its
+newest VC/Tools/MSVC version).
 
     release/halo-switch-<flavor>.zip    halo.nro and halo_guest.elf
     release/halo-windows-<flavor>.zip   halo.exe and SDL3.dll
@@ -25,6 +31,7 @@ Each file's date is printed, so that a stale build is seen before it ships.
 """
 
 import argparse
+import os
 import re
 import shutil
 import subprocess
@@ -60,6 +67,26 @@ def built_number() -> int:
     return int(match.group(1)) if match else 0
 
 
+def configure(number: int, xwin: Path) -> bool:
+    # (xwin splat's layout: VC/Tools/MSVC/<version> and Windows Kits/10)
+    versions = sorted((xwin / "VC/Tools/MSVC").glob("*"),
+                      key=lambda path: [int(part) if part.isdigit() else 0
+                                        for part in path.name.split(".")])
+    sdk = xwin / "Windows Kits/10"
+    if not versions or not sdk.is_dir():
+        print(f"no MSVC toolchain in {xwin} (VC/Tools/MSVC/<version> and Windows Kits/10)",
+              file=sys.stderr)
+        return False
+    command = [sys.executable, "configure.py", "--release", "--portable", "--windows-cross",
+               "--windows-vctools-dir", str(versions[-1]), "--windows-sdk-dir", str(sdk)]
+    print(f"HALO_BUILD_NUMBER={number} {' '.join(command[1:])}")
+    environment = dict(os.environ, HALO_BUILD_NUMBER=str(number))
+    if subprocess.run(command, cwd=ROOT, env=environment).returncode != 0:
+        print("configure.py failed: no release", file=sys.stderr)
+        return False
+    return True
+
+
 def describe(path: Path) -> str:
     stamp = time.strftime("%Y-%m-%d %H:%M", time.localtime(path.stat().st_mtime))
     return f"{path.relative_to(ROOT)} ({stamp})"
@@ -89,7 +116,20 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--flavor", choices=["debug", "release"], default=None,
                         help="the name the files take (default: what build.ninja builds)")
+    parser.add_argument("number", type=int, nargs="?",
+                        help="the build number to configure for first (default: build.ninja's, "
+                        "configured already)")
+    parser.add_argument("--xwin", type=Path, default=Path.home() / "xwin",
+                        help="the MSVC toolchain the Windows build cross-compiles against "
+                        "(default: ~/xwin)")
     args = parser.parse_args()
+    if args.number is not None:
+        if args.number <= 0:
+            print("the build number must be above 0, or the builds never update",
+                  file=sys.stderr)
+            return 1
+        if not configure(args.number, args.xwin):
+            return 1
     flavor = args.flavor or built_flavor()
 
     number = built_number()
