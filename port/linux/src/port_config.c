@@ -698,6 +698,13 @@ static const struct config_setting config_settings[] =
 		"it (what a client that sees everything is sent); a client's, what its\n"
 		"host sends it (far players less often) and its own input. Read at a\n"
 		"game's start; the overlay's System folder has it too." },
+	{ "network.full_detail_to_clients", _config_boolean, "false", "HALO_NET_FULL_DETAIL_TO_CLIENTS",
+		_environment_value, _platform_all,
+		"Hosting: send every client every player every tick (not those far\n"
+		"from its own, or out of their sight, less often) and every damage\n"
+		"event (not only those near its players), so that a client's replay\n"
+		"holds all of the game. More to send: a client's download grows with\n"
+		"the players. Read each tick." },
 	{ "network.replays_kept", _config_integer, "30", "HALO_NET_REPLAYS_KEPT", _environment_value, _platform_all,
 		"How many replays the replays/ folder keeps: the oldest are deleted as a\n"
 		"recording starts; 0 keeps them all." },

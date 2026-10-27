@@ -269,6 +269,9 @@ recording: the machines a tick's state goes to */
 short distributed_viewing_machines(long *machine_indices, short maximum);
 /* (the host) the replay recorder's machine, NONE when none */
 long distributed_recorder_machine(void);
+/* (the host) network.full_detail_to_clients, as this tick read it: every
+client sent every player every tick and every damage event */
+boolean distributed_full_detail_to_clients(void);
 /* (a replay's playback) a client's recording's own input of a tick
 (network_replay.h's _network_replay_own_actions), given its player as the
 host's relayed input is */

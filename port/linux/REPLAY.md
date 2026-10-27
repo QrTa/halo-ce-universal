@@ -294,7 +294,12 @@ relayed input (`network_distributed_own_actions`), so the client's player
 is driven as the others are. Such a replay is the game as that client had
 it: the players far from its own, or out of sight, sent every second to
 sixth tick, and only the events the host sent it (damage near its
-players, every kill); smaller than a host's.
+players, every kill); smaller than a host's. A host of this build with
+`network.full_detail_to_clients` on (off by default) sends every client
+every player every tick and every damage event, as its own recorder is
+sent (`distributed_host_plan_players`, `distributed_event_goes_to`), so a
+client's replay of its game holds all of the players; an upstream host, or
+this one with it off, sends the usual.
 
 **Taking them off the console, and putting others on.** Android's
 EXPORT REPLAYS copies them through the system's folder picker. The Switch

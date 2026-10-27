@@ -2427,9 +2427,10 @@ static boolean distributed_event_goes_to(
 	short count = damage_event_destinations[event_index].player_count;
 	short index;
 
-	/* (the replay recorder has every event: network_replay.c) */
+	/* (the replay recorder has every event: network_replay.c; and with
+	network.full_detail_to_clients every client) */
 	if (count == NONE || damage_event_destinations[event_index].owner_machine_index == machine_index ||
-		machine_index == distributed_recorder_machine())
+		machine_index == distributed_recorder_machine() || distributed_full_detail_to_clients())
 	{
 		return TRUE;
 	}

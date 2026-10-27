@@ -124,6 +124,7 @@ void main_build_identity(long *number, char *flavor, size_t flavor_size, char *r
 	char *version, size_t version_size);
 int port_mods_list(char *text, unsigned long size);
 void console_warning(const char *format, ...);
+int config_boolean(char const *name);
 
 /* the host: a client's game run faster than its clock (a speed hack, which
 speeds up the machine's own clock: nothing on it can tell), found by its
@@ -748,6 +749,17 @@ static long distributed_shown_slowest_ping = NONE;
 /* a client: each player's ping as the host last told it (UNKNOWN_PING: not
 told) */
 static word distributed_player_pings[MAXIMUM_TRACKED_PLAYERS];
+
+/* the host: network.full_detail_to_clients, read once a tick: every client
+is sent every player every tick and every damage event, as the replay
+recorder is (a client's recording then holds all of the game) */
+static boolean distributed_full_detail;
+
+boolean distributed_full_detail_to_clients(
+	void)
+{
+	return distributed_full_detail;
+}
 
 /* the host: its clients' machines, found once a tick */
 static struct
@@ -3338,8 +3350,9 @@ static void distributed_host_plan_players(
 				period = HIDDEN_PLAYER_PERIOD_TICKS;
 				distributed_seen[machine_index][player_index] = TRUE;
 			}
-			/* (a client that has had no player alive watches anyone) */
-			else if (!own && viewer_count)
+			/* (a client that has had no player alive watches anyone; with
+			network.full_detail_to_clients, every client does, every tick) */
+			else if (!own && viewer_count && !distributed_full_detail)
 			{
 				real distances_squared[MAXIMUM_LOCAL_PLAYERS];
 				boolean sees[MAXIMUM_LOCAL_PLAYERS];
@@ -4011,6 +4024,7 @@ void network_distributed_tick(
 		/* (a replay's recording begins at the game's first tick, before
 		anything of it is sent: network_replay.c) */
 		network_replay_host_tick();
+		distributed_full_detail = config_boolean("network.full_detail_to_clients") != 0;
 		profile_scope(distributed_tick_apply_predictions_section, distributed_apply_predictions();)
 		profile_scope(distributed_tick_apply_vehicle_predictions_section, network_objects_apply_vehicle_predictions();)
 		profile_scope(distributed_tick_objects_host_tick_section, network_objects_host_tick();)

@@ -21,15 +21,15 @@ from xml.sax.saxutils import quoteattr
 PE = "main_menu/settings_select/player_setup/player_profile_edit"
 # the mods' screen, and its rows (_mods); the main menu's items
 # (ce/main_menu.xml), MAIN_MENU_ITEM_SPACING apart (the PC version's 36
-# leaves no room below Quit for a seventh): the PC version's four from
-# Campaign's place, then MODS in Credits' (Credits is left out:
-# tools/ce_menus.py's LEFT_OUT), THEATER (_theater), and Quit (its
-# CHILD_OFFSETS)
+# leaves no room below Quit for a seventh): Campaign and Multiplayer, THEATER
+# below it (_theater), the PC version's Profiles and Settings, MODS in
+# Credits' place (Credits is left out: tools/ce_menus.py's LEFT_OUT), and
+# Quit (their CHILD_OFFSETS); the list's order is its up and down's
 MODS = "main_menu/mods"
 MOD_ROWS = 11
 MAIN_MENU_ITEM_TOP = 247
 MAIN_MENU_ITEM_SPACING = 32
-MAIN_MENU_ITEMS = ["load_camp", "multiplayer", "profile", "settings", "mods", "theater", "quit_game"]
+MAIN_MENU_ITEMS = ["load_camp", "multiplayer", "theater", "profile", "settings", "mods", "quit_game"]
 
 
 def main_menu_item_place(item: str) -> tuple:
@@ -1096,10 +1096,13 @@ WIDGET_PATCHES = {
     f"{MT}/connected/connected_map_select_wrapper": {"set": {
         "flags": "pass_unhandled_to_focused_child pause_game main_menu_if_no_history tag_controller_index force_handle_mouse",
     }},
-    # (the main menu's MODS and THEATER, before Quit: _mods, _theater)
-    "main_menu/main_menu_select_list": {"insert_before": {"main_menu/main_menu_item_quit_game": [
-        f'<child widget="main_menu/main_menu_item_mods" x="{MODS_ITEM_PLACE[0]}" y="{MODS_ITEM_PLACE[1]}"/>',
-        f'<child widget="main_menu/main_menu_item_theater" x="{THEATER_ITEM_PLACE[0]}" y="{THEATER_ITEM_PLACE[1]}"/>']},
+    # (the main menu's THEATER, after Multiplayer, and MODS, before Quit:
+    # _theater, _mods)
+    "main_menu/main_menu_select_list": {"insert_before": {
+        "main_menu/main_menu_item_profile": [
+            f'<child widget="main_menu/main_menu_item_theater" x="{THEATER_ITEM_PLACE[0]}" y="{THEATER_ITEM_PLACE[1]}"/>'],
+        "main_menu/main_menu_item_quit_game": [
+            f'<child widget="main_menu/main_menu_item_mods" x="{MODS_ITEM_PLACE[0]}" y="{MODS_ITEM_PLACE[1]}"/>']},
         # (the main menu's X - the west face button: Y on a Switch, Square on
         # a PS5 - opens the news, the latest release's notes: _news_screen;
         # on the main menu alone)
