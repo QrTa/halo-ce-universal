@@ -200,6 +200,23 @@ best: compressing in the game (phase 3) can be cheap.
 | relayed_actions | 12% | the players' input |
 | the rest | 12% | the batches' and records' headers, inventories, objects made and deleted, statistics, the game type's state, damage |
 
+The second, from Android (format 1, objects at rest left out unless they
+change): Slayer on Rat Race, three players again, 50 seconds, every one of
+its 1,502 ticks there.
+
+| | Beaver Creek (format 0) | Rat Race (format 1) |
+| --- | --- | --- |
+| Raw | 594 KB (707 KB a minute) | 341 KB (409 KB a minute) |
+| zlib, level 1 | 135 KB | 122 KB |
+| zlib, level 9 | 121 KB | 110 KB |
+| object_states | 295 KB, 50% | 46 KB, 14% |
+| Ticks with no object state | none | 3 in 4 |
+
+Leaving the objects at rest out took the raw file down by 43%, but the
+zlibbed one by 9% only: zlib had found most of those repeats itself. The
+players are now most of the file (unit_states 43%, relayed_actions 20%),
+the same 58 bytes a player a tick as before.
+
 What grows with the players is about 58 bytes a player a tick: 16 players
 would be about 17 MB raw in ten minutes for them alone, about 3.5 MB
 zlibbed, beside what the objects take. Getting a 16-player game well under
