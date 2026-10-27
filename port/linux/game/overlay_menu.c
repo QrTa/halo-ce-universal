@@ -372,6 +372,9 @@ static struct overlay_entry overlay_system_entries[] =
 	OVERLAY_GLOBAL("Lens Flares", "rasterizer_lens_flares"),
 	OVERLAY_GLOBAL("Screen Effects", "rasterizer_screen_effects"),
 	OVERLAY_GLOBAL("Weather Particles", "weather"),
+	/* (a host's recording of its games: network_replay.c, port/linux/REPLAY.md) */
+	OVERLAY_TOGGLE_NOTE("Record Replays", _overlay_state_config, "config network.record_replays true",
+		"config network.record_replays false", "network.record_replays", "From the next game you host"),
 #if defined(HALO_SWITCH) || defined(HALO_PS5)
 	OVERLAY_TOGGLE_NOTE("Xbox Button Pictures", _overlay_state_config, "config display.xbox_buttons true",
 		"config display.xbox_buttons false", "display.xbox_buttons", "Applies at the next restart"),

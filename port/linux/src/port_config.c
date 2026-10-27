@@ -695,7 +695,8 @@ static const struct config_setting config_settings[] =
 		_platform_all,
 		"A host records each network game it hosts to the data folder's\n"
 		"replays/ (what a client that sees everything is sent, for measuring:\n"
-		"nothing plays them back yet; port/linux/REPLAY.md)." },
+		"nothing plays them back yet; port/linux/REPLAY.md). Read at a game's\n"
+		"start; the overlay's System folder has it too." },
 	{ "network.allow_upnp", _config_boolean, "true", "HALO_NET_ALLOW_UPNP", _environment_value, _platform_all,
 		"Let internet play ask the router (UPnP) to forward its port, for\n"
 		"networks whose NAT stops connections: when a player joins this\n"

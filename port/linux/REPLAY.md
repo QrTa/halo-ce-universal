@@ -69,7 +69,9 @@ Where the proposal differs from this netcode:
 `network.record_replays = true` (`HALO_NET_RECORD_REPLAYS=1`) makes a
 host record each network game it hosts, a player's or a dedicated
 server's, to `replays/` in the data folder. It is off by default: nothing
-plays the files yet.
+plays the files yet. The overlay's System folder has it (Record Replays).
+It is read at a game's first tick, so a game is recorded whole or not at
+all: turned on during a game, it records from the next.
 
 ### What is recorded
 

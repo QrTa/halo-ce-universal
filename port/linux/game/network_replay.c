@@ -60,9 +60,10 @@ fewer, larger ones */
 static struct
 {
 	FILE *file;
-	/* a recording was asked for this game and could not be made: not tried
-	again until the next */
-	boolean failed;
+	/* the game's first tick has been and network.record_replays was read
+	then: a game is recorded whole or not at all, so the setting turned on
+	in a game applies from the next */
+	boolean considered;
 	long start_time;
 	long last_flush_time;
 	char path[REPLAY_PATH_SIZE];
@@ -194,9 +195,11 @@ void network_replay_host_tick(
 		}
 		return;
 	}
-	if (replay.failed || !config_boolean("network.record_replays"))
+	if (replay.considered)
 		return;
-	replay.failed = !replay_start();
+	replay.considered = TRUE;
+	if (config_boolean("network.record_replays"))
+		replay_start();
 }
 
 void network_replay_record(
@@ -218,7 +221,6 @@ void network_replay_record(
 		error(_error_log, "replay: could not write to %s; the recording stops", replay.path);
 		fclose(replay.file);
 		replay.file = NULL;
-		replay.failed = TRUE;
 		return;
 	}
 	replay.records[kind]++;
@@ -245,5 +247,5 @@ void network_replay_stop(
 			replay.records[_network_replay_reliable_to_machine], replay.bytes[_network_replay_reliable_to_machine] / 1024,
 			replay.records[_network_replay_game_message], replay.bytes[_network_replay_game_message] / 1024);
 	}
-	replay.failed = FALSE;
+	replay.considered = FALSE;
 }
