@@ -272,9 +272,27 @@ replay from before format 2, or of another network version).
 - **The end.** The replay's end, or the game's, returns to the main menu
   four seconds later (`network_game_abort`).
 
+- **The announcer** speaks to the player watched as to a local player
+  (kills, sprees, the respawn countdown: `game_engine.c`'s
+  `game_engine_player_heard`), and through their eyes their own unit is
+  not drawn (`render_objects.c`'s `object_is_first_person_camera`).
+
 The Theater keeps the newest `network.replays_kept` replays (30; the
 oldest are deleted as a recording starts, 0 keeps them all), and DELETE
 REPLAY deletes the one chosen, at a second press.
+
+**Taking them off the console, and putting others on.** Android's
+EXPORT REPLAYS copies them through the system's folder picker. The Switch
+and the PS5 have no file manager another app can open, so while the
+Theater is up they serve a page on the local network
+(`port/linux/game/network_replay_page.c`, from port 8090; shown in the
+Theater as a QR code and an address, as Direct Link's page is, and off with
+`network.link_page`): the replays, each a download, and an upload (the
+page's script sends each file with `PUT /upload/<name>`). One connection at
+a time; a download is sent and an upload read a piece at a time over the
+frames (512 KB a frame at most), the upload into `<name>.part`, which
+becomes the replay only once it is whole and begins as a replay does; a
+name the folder has already is refused.
 
 Not yet: seeking (phase 2), and co-op levels' scripts have not been
 tried.

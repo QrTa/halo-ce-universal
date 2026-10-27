@@ -3318,6 +3318,8 @@ void main_loop_of_death(
 		telnet_console_process();
 		overlay_menu_update();
 		link_page_update();
+		/* port: the Theater's replay page (port/linux/game/network_replay_page.c) */
+		network_replay_page_update();
 		process_ui_widgets();
 		main_pregame_render();
 		main_rasterizer_throttle();
@@ -3609,6 +3611,8 @@ static boolean main_loop_iteration(
 		telnet_console_process();
 		overlay_menu_update();
 		link_page_update();
+		/* port: the Theater's replay page (port/linux/game/network_replay_page.c) */
+		network_replay_page_update();
 		profile_scope_exit(main_platform_events_section)
 
 		if (!shell_application_is_paused())

@@ -66,6 +66,16 @@ boolean network_replay_describe(char const *name, char *text, long size);
 /* the replay of that name in the folder deleted; FALSE if it could not be */
 boolean network_replay_delete(char const *name);
 
+/* ---------- the replay page (network_replay_page.c): the Switch's and the
+PS5's, on the local network while the Theater is up */
+
+/* the Theater's, each frame: the page while it is up */
+void network_replay_page_wanted(void);
+/* main_loop's, each frame */
+void network_replay_page_update(void);
+/* the page's address ("http://192.168.2.173:8090/"), "" while none is served */
+char const *network_replay_page_address(void);
+
 /* ---------- playback (network_replay_playback.c) */
 
 /* plays the replay at path (its game is loaded at the next frame); FALSE,
@@ -83,6 +93,14 @@ void network_replay_playback_frame(void);
 /* the view, for the frame's first window (main.c) and the sound's listener
 (sound_manager.c); NULL when no replay plays, or before it has one */
 struct observer_result const *network_replay_camera(void);
+
+/* the player watched in a replay's playback (a datum index), NONE when no
+replay plays: the announcer speaks to them (game_engine.c), and the view
+through their eyes draws them as a player's own (render_objects.c) */
+long network_replay_watched_player(void);
+
+/* whether the view is through the watched player's eyes */
+boolean network_replay_viewing_eyes(void);
 
 /* the line at the bottom of the screen: who is watched, and the buttons
 (interface.c) */

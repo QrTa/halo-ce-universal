@@ -12,6 +12,7 @@
 		<child widget="main_menu/new_select/sel_list_desc_bkd"/>
 		<child widget="main_menu/theater/theater_list"/>
 		<child widget="main_menu/theater/header_theater"/>
+		<child widget="main_menu/theater/theater_qr_text" platform="switch ps5"/>
 	</widget>
 	<widget name="main_menu/theater/header_theater" controller="1" left="35" top="11" width="363" height="59" bitmap="main_menu/theater/header_theater">
 	</widget>
@@ -64,6 +65,8 @@
 	<widget name="main_menu/theater/theater_replay" type="text" controller="1" width="280" height="22" font="ui\large_ui" color="#FF2896FF" align="right" text_y="4" text_flags="no_focus_test">
 	</widget>
 	<widget name="main_menu/theater/theater_value" type="text" controller="1" width="66" height="22" font="ui\large_ui" color="#FF2896FF" align="center" text_y="4" text_flags="no_focus_test">
+	</widget>
+	<widget name="main_menu/theater/theater_qr_text" type="text" controller="1" left="20" top="390" width="390" height="18" text="Scan it to download or upload replays." font="ui\small_ui" color="#FFFFFFFF" align="center" text_flags="no_focus_test">
 	</widget>
 	<widget name="main_menu/theater/theater_details" width="640" height="480">
 		<child widget="main_menu/theater/theater_details_text"/>

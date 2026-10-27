@@ -3194,6 +3194,10 @@ static void theater_update(struct widget_instance *list)
 	long count;
 
 	theater_refresh();
+#ifdef LINK_PAGE
+	/* (the replay page, while the Theater is up) */
+	network_replay_page_wanted();
+#endif
 	for (row = list->child; row; row = row->next)
 	{
 		if (strncmp(row->name, "op_theater_", 11))
@@ -3261,6 +3265,15 @@ static void theater_update(struct widget_instance *list)
 #if defined(HALO_ANDROID) && !defined(HALO_SWITCH)
 	theater_append_wrapped(text, sizeof(text), "EXPORT REPLAYS copies them to a folder you choose.");
 #else
+#ifdef LINK_PAGE
+	if (network_replay_page_address()[0])
+	{
+		theater_append_wrapped(text, sizeof(text),
+			"To download them or put others here, open this on a phone or a computer on this network:");
+		theater_append_wrapped(text, sizeof(text), network_replay_page_address());
+		theater_append_wrapped(text, sizeof(text), " ");
+	}
+#endif
 	theater_append_wrapped(text, sizeof(text), "They are in:");
 	network_replay_folder(line, sizeof(line));
 	theater_append_wrapped(text, sizeof(text), line);
@@ -6736,6 +6749,8 @@ enum
 	LINK_QR_MARGIN = 4,
 	_link_qr_address = 0,
 	_link_qr_invite,
+	/* (the Theater's, of its replay page's address: network_replay_page.c) */
+	_link_qr_replays,
 	NUMBER_OF_LINK_QRS
 };
 
@@ -7075,6 +7090,15 @@ void menu_functions_text_box_drawn(struct widget_instance *widget, rectangle2d c
 		link_qr_draw(bounds);
 	if (widget->name && !strcmp(widget->name, "invite_qr_text"))
 		invite_qr_draw(bounds);
+	/* (the Theater's replay page, over its line: UI units, the line from x
+	20 at y 390, 390 wide; the code below the rows, from y 200) */
+	if (widget->name && !strcmp(widget->name, "theater_qr_text"))
+	{
+		real scale = (real)(bounds->x1 - bounds->x0) / 390.0f;
+
+		link_qr_draw_at(_link_qr_replays, network_replay_page_address(), (short)(bounds->x0 + 195 * scale),
+			(short)(bounds->y0 - (390 - (200 + 385) / 2) * scale), (short)(170 * scale));
+	}
 #endif
 	/* (the news's rows: the font and width its notes are wrapped to) */
 	if (widget->name && !strcmp(widget->name, "news_line"))

@@ -730,6 +730,18 @@ void network_replay_playback_frame(
 		playback_behind_camera(unit_index);
 }
 
+long network_replay_watched_player(
+	void)
+{
+	return playback.playing ? playback.watched : NONE;
+}
+
+boolean network_replay_viewing_eyes(
+	void)
+{
+	return playback.playing && playback.view == _replay_view_eyes;
+}
+
 struct observer_result const *network_replay_camera(
 	void)
 {

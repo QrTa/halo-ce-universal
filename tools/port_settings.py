@@ -2440,7 +2440,8 @@ def _theater() -> list:
                      ['<on event="b" back="true"/>', '<on event="back" back="true"/>',
                       '<child widget="main_menu/new_select/sel_list_desc_bkd"/>',
                       f'<child widget="{base}/theater_list"/>',
-                      f'<child widget="{base}/header_theater"/>'])
+                      f'<child widget="{base}/header_theater"/>',
+                      f'<child widget="{base}/theater_qr_text" platform="switch ps5"/>'])
     lines += _header(f"{base}/header_theater", f"{base}/header_theater")
     rows = []
     for index, (key, _, platform) in enumerate(THEATER_ROWS):
@@ -2477,6 +2478,12 @@ def _theater() -> list:
     lines += _widget(f"{base}/theater_value",
                      [("type", "text"), ("controller", 1), ("width", 66), ("height", 22), ("font", "ui\\large_ui"),
                       ("color", "#FF2896FF"), ("align", "center"), ("text_y", 4), ("text_flags", "no_focus_test")], [])
+    # (the Switch's and the PS5's: the replay page's QR code, drawn over this
+    # line by menu_functions.c, network_replay_page.c)
+    lines += _widget(f"{base}/theater_qr_text",
+                     [("type", "text"), ("controller", 1), ("left", 20), ("top", 390), ("width", 390), ("height", 18),
+                      ("text", "Scan it to download or upload replays."), ("font", "ui\\small_ui"),
+                      ("color", "#FFFFFFFF"), ("align", "center"), ("text_flags", "no_focus_test")], [])
     # (in the lobby's frame, sel_list_desc_bkd's, as the mods' details)
     lines += _widget(f"{base}/theater_details", [("width", 640), ("height", 480)],
                      [f'<child widget="{base}/theater_details_text"/>'])

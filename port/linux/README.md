@@ -334,7 +334,11 @@ deletes the one chosen (A twice). RECORD REPLAYS turns
 there are, how large, where, and what the one chosen is. The folder keeps
 the newest `network.replays_kept`. On Android, EXPORT REPLAYS opens the system's folder picker and
 copies the replays to the folder chosen (those it already holds, by name,
-are left out), as the app's own folder cannot be opened by other apps.
+are left out), as the app's own folder cannot be opened by other apps. On
+the Switch and the PS5 the Theater shows a QR code and an address instead:
+a page on the local network, while the Theater is open, that downloads the
+replays and uploads others (`network.link_page` turns it off, with Direct
+Link's).
 
 The menus' text is in the language of the Custom Edition whose `loc.map` is
 in `custom_maps` (French, German, Italian, Spanish and so on), as that
