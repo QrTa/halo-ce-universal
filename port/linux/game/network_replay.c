@@ -56,6 +56,8 @@ void main_build_identity(long *number, char *flavor, size_t flavor_size, char *r
 fewer, larger ones */
 #define REPLAY_BUFFER_SIZE 0x10000
 #define REPLAY_PATH_SIZE 512
+/* a replay's file name ends so */
+#define REPLAY_EXTENSION ".ocreplay"
 
 static struct
 {
@@ -138,10 +140,10 @@ static boolean replay_start(
 	replay_printable(map_for_name, sizeof(map_for_name), base_name, TRUE);
 	if (local)
 		strftime(when, sizeof(when), "%Y%m%d-%H%M%S", local);
-	snprintf(replay.path, sizeof(replay.path), "%s/replays", platform_data_root());
+	network_replay_folder(replay.path, sizeof(replay.path));
 	posix_make_directory(replay.path);
-	snprintf(replay.path, sizeof(replay.path), "%s/replays/%s_%s.ocreplay", platform_data_root(), when,
-		map_for_name[0] ? map_for_name : "map");
+	snprintf(replay.path + strlen(replay.path), sizeof(replay.path) - strlen(replay.path), "/%s_%s%s", when,
+		map_for_name[0] ? map_for_name : "map", REPLAY_EXTENSION);
 	replay.file = platform_fopen_host(replay.path, "wb");
 	if (!replay.file)
 	{
@@ -175,6 +177,46 @@ static boolean replay_start(
 	replay.total_bytes = REPLAY_HEADER_SIZE;
 	error(_error_log, "replay: recording %s (%s) to %s", map, variant, replay.path);
 	return TRUE;
+}
+
+void network_replay_folder(
+	char *path,
+	long size)
+{
+	snprintf(path, (size_t)size, "%s/replays", platform_data_root());
+}
+
+void network_replay_summary(
+	long *count,
+	unsigned long long *bytes)
+{
+	char folder[REPLAY_PATH_SIZE];
+	char name[256];
+	void *directory;
+
+	*count = 0;
+	*bytes = 0;
+	network_replay_folder(folder, sizeof(folder));
+	directory = posix_directory_open(folder);
+	while (directory && posix_directory_next(directory, name, sizeof(name)))
+	{
+		size_t length = strlen(name);
+		char path[REPLAY_PATH_SIZE + 256];
+		struct posix_file_information information;
+
+		if (length <= strlen(REPLAY_EXTENSION) ||
+			strcmp(name + length - strlen(REPLAY_EXTENSION), REPLAY_EXTENSION))
+		{
+			continue;
+		}
+		snprintf(path, sizeof(path), "%s/%s", folder, name);
+		if (posix_stat(path, &information) != 0 || (information.flags & _posix_file_is_directory))
+			continue;
+		(*count)++;
+		*bytes += ((unsigned long long)information.size_high << 32) | information.size_low;
+	}
+	if (directory)
+		posix_directory_close(directory);
 }
 
 boolean network_replay_recording(

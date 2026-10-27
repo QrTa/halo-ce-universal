@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- The port's Theater screen, in the PC version's style (tools/port_settings.py) -->
+<menus>
+	<widget name="main_menu/main_menu_item_theater" type="text" width="256" height="33" bitmap="main_menu/menu_theater">
+		<on event="a" open="main_menu/theater/theater_screen"/>
+		<on event="start" open="main_menu/theater/theater_screen"/>
+		<on event="left_mouse" run="mouse emit accept event"/>
+	</widget>
+	<widget name="main_menu/theater/theater_screen" width="640" height="480" flags="pass_unhandled_to_focused_child pause_game" bitmap="bitmaps/gradient">
+		<on event="b" back="true"/>
+		<on event="back" back="true"/>
+		<child widget="main_menu/new_select/sel_list_desc_bkd"/>
+		<child widget="main_menu/theater/theater_list"/>
+		<child widget="main_menu/theater/header_theater"/>
+	</widget>
+	<widget name="main_menu/theater/header_theater" controller="1" left="35" top="11" width="363" height="59" bitmap="main_menu/theater/header_theater">
+	</widget>
+	<widget name="main_menu/theater/theater_list" type="column_list" width="640" height="480" flags="pass_unhandled_to_focused_child up_down_tabs_children" description="main_menu/theater/theater_details">
+		<data input="port theater update"/>
+		<child widget="main_menu/theater/op_theater_record" x="20" y="73"/>
+		<child widget="main_menu/theater/op_theater_export" x="20" y="103" platform="android"/>
+		<child widget="main_menu/theater/button_bar" y="414"/>
+	</widget>
+	<widget name="main_menu/theater/op_theater_record" width="390" height="28" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/sel_list_item_bkd_top" color="#FF2896FF">
+		<on event="a" run="port theater record"/>
+		<on event="start" run="port theater record"/>
+		<on event="left" run="port theater record"/>
+		<on event="right" run="port theater record"/>
+		<on event="left_mouse" run="mouse emit accept event"/>
+		<child widget="main_menu/theater/theater_label_record" x="12"/>
+		<child widget="main_menu/theater/theater_value" x="318"/>
+	</widget>
+	<widget name="main_menu/theater/theater_label_record" type="text" controller="1" width="300" height="22" text="RECORD REPLAYS" font="ui\large_ui" color="#FF2896FF" text_y="4">
+	</widget>
+	<widget name="main_menu/theater/op_theater_export" width="390" height="28" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/sel_list_item_bkd" color="#FF2896FF">
+		<on event="a" run="port theater export"/>
+		<on event="start" run="port theater export"/>
+		<on event="left_mouse" run="mouse emit accept event"/>
+		<child widget="main_menu/theater/theater_label_export" x="12"/>
+	</widget>
+	<widget name="main_menu/theater/theater_label_export" type="text" controller="1" width="300" height="22" text="EXPORT REPLAYS" font="ui\large_ui" color="#FF2896FF" text_y="4">
+	</widget>
+	<widget name="main_menu/theater/theater_value" type="text" controller="1" width="66" height="22" font="ui\large_ui" color="#FF2896FF" align="center" text_y="4" text_flags="no_focus_test">
+	</widget>
+	<widget name="main_menu/theater/theater_details" width="640" height="480">
+		<child widget="main_menu/theater/theater_details_text"/>
+	</widget>
+	<widget name="main_menu/theater/theater_details_text" type="text" controller="1" left="412" top="84" width="200" height="318" font="ui\small_ui" color="#FF2896FF">
+	</widget>
+	<widget name="main_menu/theater/button_bar" type="column_list" width="640" height="28" flags="pass_unhandled_to_focused_child left_right_tabs_items">
+		<child widget="main_menu/theater/button_back" x="510" y="1"/>
+	</widget>
+	<widget name="main_menu/theater/button_back" type="text" width="128" height="24" bitmap="bitmaps/text_button_background" text="BACK" font="ui\small_ui" color="#FFFFFFFF" align="center" text_y="2">
+		<on event="a" back="true"/>
+		<on event="start" back="true"/>
+		<on event="left_mouse" run="mouse emit accept event"/>
+	</widget>
+</menus>

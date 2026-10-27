@@ -38,4 +38,12 @@ void network_replay_record(byte kind, void const *data, long size);
 /* the recording's end: the map is unloaded (or a new game starts) */
 void network_replay_stop(void);
 
+/* the folder replays are written to (the data folder's replays/), into
+path */
+void network_replay_folder(char *path, long size);
+
+/* the replays in that folder: how many, and their bytes (the Theater
+screen, menu_functions.c) */
+void network_replay_summary(long *count, unsigned long long *bytes);
+
 #endif

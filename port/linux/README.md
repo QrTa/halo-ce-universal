@@ -321,6 +321,15 @@ change. The screens open, close and move between each other as the PC
 version's. `display.menus = "xbox"` gives the Xbox's menus, which start every
 kind of game.
 
+The main menu adds two items of the port's: Mods (refer to
+[docs/mods.md](../../docs/mods.md)) and Theater, the replays this machine
+recorded of the games it hosted ([REPLAY.md](REPLAY.md)). Theater's RECORD
+REPLAYS turns `network.record_replays` on or off, and its panel says how
+many replays there are, how large, and in which folder. On Android, EXPORT
+REPLAYS opens the system's folder picker and copies the replays to the
+folder chosen (those it already holds, by name, are left out), as the app's
+own folder cannot be opened by other apps. Nothing plays the replays yet.
+
 The menus' text is in the language of the Custom Edition whose `loc.map` is
 in `custom_maps` (French, German, Italian, Spanish and so on), as that
 edition shows it: each of the PC version's texts is that `loc.map`'s

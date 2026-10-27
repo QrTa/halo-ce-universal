@@ -88,6 +88,7 @@ their handlers open opens.
 #include "custom_edition_maps.h"
 #include "game_modes.h"
 #include "network_voice.h"
+#include "network_replay.h"
 #include "text/draw_string.h"
 /* (internet play's server browser: the platform layer's) */
 #include "../src/p2p.h"
@@ -109,6 +110,7 @@ void event_manager_post_button(short controller_index, short button_index);
 int config_text(char const *name, char *text, unsigned int size);
 int config_write(char const *name, char const *value);
 int config_boolean(char const *name);
+int config_write_boolean(const char *name, int value);
 int config_default(char const *name, char *text, unsigned int size);
 char const *config_string(char const *name);
 void platform_display_apply(void);
@@ -3077,6 +3079,132 @@ static boolean mods_save(void)
 	port_mods_save();
 	mods_apply();
 	return TRUE;
+}
+
+/* ---------- the main menu's Theater (port/linux/REPLAY.md): the replays a
+host records (network_replay.c). RECORD REPLAYS turns
+network.record_replays on or off (from the next game hosted), EXPORT
+REPLAYS (Android) copies them to a folder the player chooses, and the panel
+says how many there are, how large, and where */
+
+#define THEATER_TEXT_LENGTH 512
+/* the characters a line of the panel takes (its text box is the Mods
+panel's, mod_text_box_characters' _mod_details_text) */
+#define THEATER_LINE_CHARACTERS 30
+
+#if defined(HALO_ANDROID) && !defined(HALO_SWITCH)
+/* (the app's folder picker, which copies the folder's replays to the folder
+chosen: port/android/host/host_main.c, HaloActivity.exportReplays) */
+void host_android_export_replays(const char *folder);
+#endif
+
+/* the row (op_theater_<name>) a widget is or is in, else NULL */
+static struct widget_instance *theater_row(struct widget_instance *widget)
+{
+	for (; widget; widget = widget->parent)
+	{
+		if (!strncmp(widget->name, "op_theater_", 11))
+			return widget;
+	}
+	return NULL;
+}
+
+/* text after what `text` holds, broken into the panel's lines: at the
+characters' count, at a space or a slash when there is one in the line */
+static void theater_append_wrapped(char *text, size_t size, char const *more)
+{
+	size_t length = strlen(text);
+
+	while (*more && length + 2 < size)
+	{
+		size_t count = strlen(more);
+		size_t cut = count;
+
+		if (count > THEATER_LINE_CHARACTERS)
+		{
+			for (cut = THEATER_LINE_CHARACTERS; cut > 0 && more[cut] != ' ' && more[cut - 1] != '/'; cut--)
+			{
+			}
+			if (!cut)
+				cut = THEATER_LINE_CHARACTERS;
+		}
+		snprintf(text + length, size - length, "%s%.*s", length && text[length - 1] != '\n' ? "\n" : "", (int)cut, more);
+		length = strlen(text);
+		more += cut;
+		while (*more == ' ')
+			more++;
+	}
+}
+
+/* "port theater update": RECORD REPLAYS' ON or OFF, each row's background
+(the chosen one's outlined frame), and the panel */
+static void theater_update(struct widget_instance *list)
+{
+	struct widget_instance *row;
+	struct widget_instance *focused = theater_row(list->focused_child);
+	struct widget_instance *details = list->parameters.list.extended_description;
+	boolean recording = config_boolean("network.record_replays") != 0;
+	char text[THEATER_TEXT_LENGTH] = "";
+	char line[THEATER_TEXT_LENGTH];
+	wchar_t wide[THEATER_TEXT_LENGTH];
+	unsigned long long bytes;
+	long count;
+
+	for (row = list->child; row; row = row->next)
+	{
+		if (strncmp(row->name, "op_theater_", 11))
+			continue;
+		row->animation.current_frame_index = row == focused ? 1 : 0;
+		if (!strcmp(row->name, "op_theater_record"))
+			text_set(named(row, "theater_value", 0), recording ? L"ON" : L"OFF");
+	}
+	if (!details)
+		return;
+	network_replay_summary(&count, &bytes);
+	if (count)
+	{
+		snprintf(line, sizeof(line), "%ld replay%s, %llu.%llu MB", count, count == 1 ? "" : "s",
+			bytes / (1024 * 1024), bytes % (1024 * 1024) * 10 / (1024 * 1024));
+	}
+	else
+		snprintf(line, sizeof(line), "No replays yet");
+	theater_append_wrapped(text, sizeof(text), line);
+	theater_append_wrapped(text, sizeof(text), " ");
+	theater_append_wrapped(text, sizeof(text), recording ?
+		"The games you host are recorded, from the next one on." :
+		"Turn RECORD REPLAYS on to record the games you host, from the next one on.");
+	theater_append_wrapped(text, sizeof(text), " ");
+#if defined(HALO_ANDROID) && !defined(HALO_SWITCH)
+	theater_append_wrapped(text, sizeof(text), "EXPORT REPLAYS copies them to a folder you choose.");
+#else
+	theater_append_wrapped(text, sizeof(text), "They are in:");
+	network_replay_folder(line, sizeof(line));
+	theater_append_wrapped(text, sizeof(text), line);
+#endif
+	theater_append_wrapped(text, sizeof(text), " ");
+	theater_append_wrapped(text, sizeof(text), "Watching them comes in a later version.");
+	mods_wide_text(text, wide, NUMBEROF(wide));
+	text_set_length(named(details, "theater_details_text", 0), wide, NUMBEROF(wide));
+}
+
+/* "port theater record" (A, left or right on RECORD REPLAYS) */
+static boolean theater_record(void)
+{
+	return config_write_boolean("network.record_replays", !config_boolean("network.record_replays")) != 0;
+}
+
+/* "port theater export" (A on EXPORT REPLAYS, Android's alone) */
+static boolean theater_export(void)
+{
+#if defined(HALO_ANDROID) && !defined(HALO_SWITCH)
+	char folder[THEATER_TEXT_LENGTH];
+
+	network_replay_folder(folder, sizeof(folder));
+	host_android_export_replays(folder);
+	return TRUE;
+#else
+	return FALSE;
+#endif
 }
 
 /* ---------- Multiplayer (port/assets/menus' PLAN: Create Game > Internet
@@ -8337,6 +8465,14 @@ boolean pc_menu_event_function_invoke(
 		{
 			return mods_save();
 		}
+		else if (!strcmp(name, "port theater record"))
+		{
+			return theater_record();
+		}
+		else if (!strcmp(name, "port theater export"))
+		{
+			return theater_export();
+		}
 		else if (!strcmp(name, "controls screen init") || !strcmp(name, "controls screen defaults"))
 		{
 			return controls_load(!strcmp(name, "controls screen defaults"));
@@ -8525,6 +8661,8 @@ void pc_menu_game_data_function_invoke(
 		controls_update(widget);
 	else if (!strcmp(name, "port mods update"))
 		mods_update(widget);
+	else if (!strcmp(name, "port theater update"))
+		theater_update(widget);
 	else if (!strcmp(name, "color picker update"))
 		color_list_update(widget);
 	else if (!strcmp(name, "3wide player profile list update"))
