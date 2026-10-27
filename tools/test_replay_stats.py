@@ -133,3 +133,22 @@ def test_format_3_cut_short():
     replay = replay_stats.parse(bytes(head) + body)
     assert replay.truncated and len(replay.records) == 3
 
+
+def test_format_4_metadata():
+    import zlib
+    data, datagram, _ = replay_bytes()
+    head = bytearray(384)
+    head[:280] = data[:280]
+    struct.pack_into("<I", head, 8, 4)
+    struct.pack_into("<I", head, 28, 384)
+    struct.pack_into("<II", head, 280, 900, 1)
+    head[288:288 + 6] = "Lobby\u00e9".encode("utf-8")[:6]
+    head[352:352 + 5] = b"Carlo"
+    replay = replay_stats.parse(bytes(head) + zlib.compress(data[280:], 1))
+    h = replay.header
+    assert h.format == 4 and h.duration_ticks == 900 and h.client and h.player == "Carlo"
+    assert h.version == "OpenCE Android | local build (0123456789ab)"
+    assert replay.records[0][2] == datagram
+    text = replay_stats.report("x", replay, replay_stats.measure(replay, NAMES))
+    assert "30 seconds long" in text and "played by Carlo" in text
+

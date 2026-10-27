@@ -3272,12 +3272,15 @@ static void theater_update(struct widget_instance *list)
 		theater_append_wrapped(text, sizeof(text),
 			"To download them or put others here, open this on a phone or a computer on this network:");
 		theater_append_wrapped(text, sizeof(text), network_replay_page_address());
-		theater_append_wrapped(text, sizeof(text), " ");
 	}
+	else
 #endif
-	theater_append_wrapped(text, sizeof(text), "They are in:");
-	network_replay_folder(line, sizeof(line));
-	theater_append_wrapped(text, sizeof(text), line);
+	{
+		/* (where they are, when there is no page to say: room in the panel) */
+		theater_append_wrapped(text, sizeof(text), "They are in:");
+		network_replay_folder(line, sizeof(line));
+		theater_append_wrapped(text, sizeof(text), line);
+	}
 #endif
 	mods_wide_text(text, wide, NUMBEROF(wide));
 	text_set_length(named(details, "theater_details_text", 0), wide, NUMBEROF(wide));

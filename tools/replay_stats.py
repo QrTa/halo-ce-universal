@@ -20,6 +20,7 @@ the host's tick (32 bits), little-endian, then that many bytes.
 """
 
 import argparse
+import datetime
 import re
 import struct
 import sys
@@ -75,6 +76,12 @@ class Header:
     map: str
     variant: str
     version: str
+    # (format 4) the game's length in ticks, whether a client recorded it,
+    # the game's (server's) name and the recording player's
+    duration_ticks: int = 0
+    client: bool = False
+    server: str = ""
+    player: str = ""
 
 
 @dataclass
@@ -98,10 +105,17 @@ def parse(data: bytes) -> Replay:
     fmt, network_version, build, ticks, start, header_size, low, high = struct.unpack_from("<8I", data, 8)
     if header_size < 216 or header_size > len(data):
         raise ValueError(f"a header of {header_size} bytes")
-    # (the version text runs to the header's end: format 0's 32 bytes, 1's 96)
+    # (the version text: format 0's 32 bytes, 1 to 3's 96, to the header's end
+    # before format 4's fields)
+    version_end = 280 if fmt >= 4 and header_size >= 384 else header_size
     header = Header(fmt, network_version, build, ticks or 30, struct.unpack("<i", struct.pack("<I", start))[0],
                     header_size, low | (high << 32), _text(data[40:168]), _text(data[168:184]),
-                    _text(data[184:header_size]))
+                    _text(data[184:version_end]))
+    if fmt >= 4 and header_size >= 384:
+        header.duration_ticks, flags = struct.unpack_from("<II", data, 280)
+        header.client = bool(flags & 1)
+        header.server = data[288:352].split(b"\0", 1)[0].decode("utf-8", "replace")
+        header.player = data[352:384].split(b"\0", 1)[0].decode("utf-8", "replace")
     file_size = len(data)
     stream_cut = False
     if fmt >= 3:
@@ -201,6 +215,10 @@ def report(path: str, replay: Replay, stats: Stats) -> str:
         f" {h.version}, replay format {h.format}" + (" (cut short: the game did not finish writing it)"
                                                      if replay.truncated else ""),
         f"  {stats.seconds:,.0f} seconds, {len(replay.records):,} records",
+        *([f"  recorded {datetime.datetime.fromtimestamp(h.unix_time):%Y-%m-%d %H:%M}"
+           f", {h.duration_ticks / h.ticks_per_second:,.0f} seconds long (the header's)"
+           f", server {h.server or '?'}, {('played by ' if h.client else 'hosted by ') + h.player if h.player else 'by the server'}"]
+          if h.format >= 4 else []),
         "  size:" + "".join(f"\n    {label:<10}{_size(size):>12}" + (f"  {_size(size / minutes)}/minute,"
                                                                       f" {_size(size / minutes * 10)} for 10 minutes"
                                                                       if minutes else "")

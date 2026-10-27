@@ -121,23 +121,27 @@ tick to the host's work and nothing to the network.
 
 ### The file
 
-Little-endian. A header of 280 bytes (formats 1 and 2; format 0's was
-216, its version text 32 bytes, too few for `OpenCE Android | local build
-(<commit>)`):
+Little-endian. A header of 384 bytes (format 4; formats 1 to 3's ended at
+280, after the version text; format 0's was 216, its version text 32
+bytes, too few for `OpenCE Android | local build (<commit>)`):
 
 | Offset | Size | What |
 | --- | --- | --- |
 | 0 | 8 | `OCREPLAY` |
-| 8 | 4 | The format, 3 (2's records were not compressed; 1 had no game record; 0 a 216-byte header) |
+| 8 | 4 | The format, 4 (3 had no length, server or player; 2's records were not compressed; 1 had no game record; 0 a 216-byte header) |
 | 12 | 4 | The network version (`HALO_PORT_NETWORK_VERSION`) |
 | 16 | 4 | The build's number |
 | 20 | 4 | Ticks a second (30) |
 | 24 | 4 | The host's tick at the start |
-| 28 | 4 | The header's size (280): records start there |
+| 28 | 4 | The header's size (384): records start there |
 | 32 | 8 | When it started, seconds since 1970 |
 | 40 | 128 | The map's path, as the game names it (`levels\test\bloodgulch\bloodgulch`) |
 | 168 | 16 | The game variant's name |
-| 184 | 96 | The build's version text (to the header's end) |
+| 184 | 96 | The build's version text |
+| 280 | 4 | The game's length in ticks: written again at each of the file's syncs and at its end, so a file a crash cut short has its length to its last sync |
+| 284 | 4 | Flags: 1, a client recorded it (else its host) |
+| 288 | 64 | The game's name, the server's as its players see it (UTF-8) |
+| 352 | 32 | The name of the recording machine's first player (UTF-8; none for a dedicated server) |
 
 Then records to the end of the file; from format 3 they are one zlib
 stream (zlib's fastest level, about a fifth of their size), synced every

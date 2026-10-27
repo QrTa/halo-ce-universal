@@ -62,11 +62,22 @@ void main_build_identity(long *number, char *flavor, size_t flavor_size, char *r
 
 /* the file's header (REPLAY.md, "The file"): its first bytes, and its format */
 #define REPLAY_MAGIC "OCREPLAY"
-#define REPLAY_FORMAT 3
-#define REPLAY_HEADER_SIZE 280
+#define REPLAY_FORMAT 4
+#define REPLAY_HEADER_SIZE 384
 /* the build's version text, at the header's end (format 0's 32 bytes cut
 "OpenCE Android | local build (<commit>)" short) */
 #define REPLAY_VERSION_SIZE 96
+/* (format 4) after it: the game's length in ticks (written again as it is
+recorded: REPLAY_DURATION_OFFSET), flags (REPLAY_FLAG_CLIENT: a client's
+recording), the game's name (the server's, as its players see it) and the
+recording player's, in UTF-8 */
+#define REPLAY_DURATION_OFFSET 280
+#define REPLAY_FLAGS_OFFSET 284
+#define REPLAY_SERVER_OFFSET 288
+#define REPLAY_SERVER_SIZE 64
+#define REPLAY_PLAYER_OFFSET 352
+#define REPLAY_PLAYER_SIZE 32
+#define REPLAY_FLAG_CLIENT 1
 /* a message's type (message_header.h): the distributed netcode's, and the
 game's own */
 #define REPLAY_MESSAGE_TYPE_DATA 2
@@ -203,6 +214,62 @@ static void replay_printable(
 	destination[index] = 0;
 }
 
+/* the game's text (UTF-16, as the game has names) in UTF-8, at most size
+bytes with its end */
+static void replay_utf8(
+	char *destination,
+	long size,
+	wchar_t const *source,
+	long length)
+{
+	long used = 0;
+	long index;
+
+	for (index = 0; index < length && source[index]; index++)
+	{
+		unsigned long character = (unsigned short)source[index];
+		char bytes[3];
+		long count;
+
+		if (character < 0x80)
+		{
+			bytes[0] = (char)character;
+			count = 1;
+		}
+		else if (character < 0x800)
+		{
+			bytes[0] = (char)(0xC0 | (character >> 6));
+			bytes[1] = (char)(0x80 | (character & 0x3F));
+			count = 2;
+		}
+		else
+		{
+			bytes[0] = (char)(0xE0 | (character >> 12));
+			bytes[1] = (char)(0x80 | ((character >> 6) & 0x3F));
+			bytes[2] = (char)(0x80 | (character & 0x3F));
+			count = 3;
+		}
+		if (used + count >= size)
+			break;
+		csmemcpy(destination + used, bytes, (size_t)count);
+		used += count;
+	}
+	destination[used] = 0;
+}
+
+/* the game's length so far into the header (the file is left where it was
+written to, at its end) */
+static void replay_write_duration(
+	void)
+{
+	byte duration[4];
+
+	replay_put_long(duration, (unsigned long)(game_time_get() - replay.start_time));
+	if (fseek(replay.file, REPLAY_DURATION_OFFSET, SEEK_SET) == 0)
+		fwrite(duration, sizeof(duration), 1, replay.file);
+	fseek(replay.file, 0, SEEK_END);
+}
+
 static boolean replay_start(
 	boolean client)
 {
@@ -261,6 +328,17 @@ static boolean replay_start(
 	csmemcpy(header + 40, map, MIN(sizeof(map), 128));
 	csmemcpy(header + 168, variant, sizeof(variant));
 	replay_printable((char *)header + 184, REPLAY_VERSION_SIZE, version, FALSE);
+	/* (format 4: who recorded it, and where; its length as it goes) */
+	replay_put_long(header + REPLAY_FLAGS_OFFSET, client ? REPLAY_FLAG_CLIENT : 0);
+	replay_utf8((char *)header + REPLAY_SERVER_OFFSET, REPLAY_SERVER_SIZE, game->name, NUMBEROF(game->name));
+	{
+		/* (this machine's first player: a dedicated server has none) */
+		long player_index = local_player_get_player_index(local_player_get_next(NONE));
+		struct player_datum *player = player_index != NONE ? player_try_and_get(player_index) : NULL;
+
+		if (player)
+			replay_utf8((char *)header + REPLAY_PLAYER_OFFSET, REPLAY_PLAYER_SIZE, player->name, NUMBEROF(player->name));
+	}
 	csmemset(&replay.stream, 0, sizeof(replay.stream));
 	if (fwrite(header, sizeof(header), 1, replay.file) != 1 || deflateInit(&replay.stream, 1) != Z_OK)
 	{
@@ -398,9 +476,44 @@ boolean network_replay_describe(
 	variant[sizeof(variant) - 1] = 0;
 	base_name = strrchr(map, '\\');
 	base_name = base_name ? base_name + 1 : map;
-	/* (when: the name's first fifteen characters, YYYYMMDD-HHMMSS) */
-	snprintf(text, (size_t)size, "%s, %s\n%.4s-%.2s-%.2s %.2s:%.2s\n%llu KB", base_name, variant[0] ? variant : "?",
-		name, name + 4, name + 6, name + 9, name + 11, bytes / 1024);
+	/* (when: the header's, else the name's first fifteen characters,
+	YYYYMMDD-HHMMSS) */
+	{
+		time_t when = (time_t)replay_get_long(header + 32);
+		struct tm *local = when ? localtime(&when) : NULL;
+		char date[32];
+
+		if (local)
+			strftime(date, sizeof(date), "%Y-%m-%d %H:%M", local);
+		else
+			snprintf(date, sizeof(date), "%.4s-%.2s-%.2s %.2s:%.2s", name, name + 4, name + 6, name + 9, name + 11);
+		snprintf(text, (size_t)size, "%s, %s\n%s", base_name, variant[0] ? variant : "?", date);
+	}
+	/* (format 4: its length, where and by whom) */
+	if (format >= 4 && header_size >= REPLAY_HEADER_SIZE && read >= REPLAY_HEADER_SIZE)
+	{
+		unsigned long ticks = replay_get_long(header + REPLAY_DURATION_OFFSET);
+		unsigned long seconds = ticks / TICKS_PER_SECOND;
+		char server[REPLAY_SERVER_SIZE + 1];
+		char player[REPLAY_PLAYER_SIZE + 1];
+
+		csmemcpy(server, header + REPLAY_SERVER_OFFSET, REPLAY_SERVER_SIZE);
+		server[REPLAY_SERVER_SIZE] = 0;
+		csmemcpy(player, header + REPLAY_PLAYER_OFFSET, REPLAY_PLAYER_SIZE);
+		player[REPLAY_PLAYER_SIZE] = 0;
+		if (ticks)
+			snprintf(text + strlen(text), (size_t)size - strlen(text), "\n%lu:%02lu long", seconds / 60, seconds % 60);
+		if (server[0])
+			snprintf(text + strlen(text), (size_t)size - strlen(text), "\nServer: %s", server);
+		if (player[0])
+		{
+			snprintf(text + strlen(text), (size_t)size - strlen(text), "\n%s by %s",
+				replay_get_long(header + REPLAY_FLAGS_OFFSET) & REPLAY_FLAG_CLIENT ? "Played" : "Hosted", player);
+		}
+		else
+			snprintf(text + strlen(text), (size_t)size - strlen(text), "\nRecorded by the server");
+	}
+	snprintf(text + strlen(text), (size_t)size - strlen(text), "\n%llu KB", bytes / 1024);
 	if (format < 2 || header_size < 216)
 	{
 		snprintf(text + strlen(text), (size_t)size - strlen(text),
@@ -483,7 +596,9 @@ void network_replay_host_tick(
 		if (game_time_get() - replay.last_flush_time >= REPLAY_FLUSH_TICKS)
 		{
 			replay.last_flush_time = game_time_get();
-			if (!replay_deflate(NULL, 0, Z_SYNC_FLUSH))
+			if (replay_deflate(NULL, 0, Z_SYNC_FLUSH))
+				replay_write_duration();
+			else
 			{
 				error(_error_log, "replay: could not write to %s; the recording stops", replay.path);
 				deflateEnd(&replay.stream);
@@ -542,6 +657,7 @@ void network_replay_stop(
 		long file_size;
 
 		deflateEnd(&replay.stream);
+		replay_write_duration();
 		file_size = ftell(replay.file);
 		written = fclose(replay.file) == 0 && written;
 		replay.file = NULL;

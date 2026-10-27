@@ -267,15 +267,39 @@ static boolean replay_page_name(
 	return TRUE;
 }
 
+/* text for a page: its &, <, > and " as HTML has them, its line breaks
+(network_replay_describe's) as " · " */
+static void replay_page_escape(
+	char *destination,
+	size_t size,
+	char const *source)
+{
+	size_t used = 0;
+
+	for (; *source && used + 12 < size; source++)
+	{
+		char const *as = *source == '&' ? "&amp;" : *source == '<' ? "&lt;" : *source == '>' ? "&gt;" :
+			*source == '"' ? "&quot;" : *source == '\n' ? " &middot; " : NULL;
+
+		if (as)
+		{
+			memcpy(destination + used, as, strlen(as));
+			used += strlen(as);
+		}
+		else
+			destination[used++] = *source;
+	}
+	destination[used] = 0;
+}
+
 /* the page: the replays, each a download, and the upload */
 static void replay_page_list(
 	void)
 {
 	static char names[REPLAY_PAGE_LISTED][NETWORK_REPLAY_NAME_SIZE];
 	long count = network_replay_list(names, REPLAY_PAGE_LISTED);
-	size_t size = 4096 + (size_t)count * (3 * NETWORK_REPLAY_NAME_SIZE + 160);
+	size_t size = 4096 + (size_t)count * (3 * NETWORK_REPLAY_NAME_SIZE + 1024);
 	char *body = (char *)malloc(size);
-	char folder[REPLAY_PAGE_PATH_SIZE];
 	size_t length;
 	long index;
 
@@ -284,29 +308,27 @@ static void replay_page_list(
 		replay_page_close_client();
 		return;
 	}
-	network_replay_folder(folder, sizeof(folder));
 	length = (size_t)snprintf(body, size,
 		"<!doctype html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, "
 		"initial-scale=1\"><title>Halo: replays</title><style>body{font-family:system-ui,sans-serif;"
 		"background:#0b1a33;color:#e8eef8;margin:0;padding:24px 16px}main{max-width:640px;margin:auto}"
 		"h1{font-size:1.4em}h2{font-size:1.1em;margin-top:28px}a{color:#7cc0ff}ul{padding:0;list-style:none}"
-		"li{background:#13284a;margin:6px 0;padding:10px 12px;border-radius:8px;display:flex;"
-		"justify-content:space-between;gap:12px;flex-wrap:wrap}span{color:#9fb6d8}"
+		"li{background:#13284a;margin:6px 0;padding:10px 12px;border-radius:8px}span{color:#9fb6d8;display:block;"
+		"margin-top:4px;font-size:.9em}"
 		"button{padding:12px 18px;font-size:1em;border:0;border-radius:8px;background:#2896ff;color:#fff;margin-top:10px}"
 		"p.note{color:#9fb6d8}</style></head><body><main><h1>Replays on the " REPLAY_PAGE_CONSOLE "</h1>"
 		"<p class=\"note\">%ld replay%s. Tap one to download it.</p><ul>", count, count == 1 ? "" : "s");
 	for (index = 0; index < count && length < size; index++)
 	{
-		char path[REPLAY_PAGE_PATH_SIZE + NETWORK_REPLAY_NAME_SIZE];
-		struct posix_file_information information;
-		unsigned long kilobytes = 0;
+		char description[512];
+		char escaped[900];
 
-		snprintf(path, sizeof(path), "%s/%s", folder, names[index]);
-		if (posix_stat(path, &information) == 0)
-			kilobytes = information.size_low / 1024;
+		/* (its map, game type, when, length, server, player and size) */
+		network_replay_describe(names[index], description, sizeof(description));
+		replay_page_escape(escaped, sizeof(escaped), description);
 		length += (size_t)snprintf(body + length, size - length,
-			"<li><a href=\"/replays/%s\" download=\"%s\">%s</a><span>%lu KB</span></li>", names[index], names[index],
-			names[index], kilobytes);
+			"<li><a href=\"/replays/%s\" download=\"%s\">%s</a><span>%s</span></li>", names[index], names[index],
+			names[index], escaped);
 	}
 	if (length < size)
 	{
