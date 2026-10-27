@@ -126,7 +126,9 @@ static unsigned long replay_get_long(
 static void playback_free(
 	void)
 {
-	free(playback.data);
+	/* (the game's free takes no NULL: debug_memory.c) */
+	if (playback.data)
+		free(playback.data);
 	playback.data = NULL;
 	playback.size = 0;
 	playback.next = 0;
