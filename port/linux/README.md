@@ -321,24 +321,26 @@ change. The screens open, close and move between each other as the PC
 version's. `display.menus = "xbox"` gives the Xbox's menus, which start every
 kind of game.
 
-The main menu adds two items of the port's: Mods (refer to
-[docs/mods.md](../../docs/mods.md)) and Theater, the replays this machine
-recorded of the games it hosted ([REPLAY.md](REPLAY.md)). Theater's WATCH
-plays one (left and right choose it, the newest first): the game as a
-client saw it. A watches the next player and X the one before; Y goes
-round three views (behind them, through their eyes, a free camera moved
-with the sticks and the triggers); the d-pad's up and down play it faster
-or slower, to a pause; Back held shows the scores; B leaves. DELETE REPLAY
-deletes the one chosen (A twice). RECORD REPLAYS turns
-`network.record_replays` on or off, and the panel says how many replays
-there are, how large, where, and what the one chosen is. The folder keeps
-the newest `network.replays_kept`. On Android, EXPORT REPLAYS opens the system's folder picker and
-copies the replays to the folder chosen (those it already holds, by name,
-are left out), as the app's own folder cannot be opened by other apps. On
-the Switch and the PS5 the Theater shows a QR code and an address instead:
-a page on the local network, while the Theater is open, that downloads the
+The main menu adds two items of the port's: Theater, under Multiplayer,
+the replays this machine recorded of the network games it played
+([REPLAY.md](REPLAY.md)), and Mods (refer to
+[docs/mods.md](../../docs/mods.md)). Theater lists the replays, the newest
+first, each with its map, when and its length; A plays the one chosen,
+and the panel says what it is (its game type, server, who recorded it,
+its size). A replay is the game as it was played: A watches the next
+player and X the one before; Y goes round three views (behind them,
+through their eyes, a free camera moved with the sticks and the
+triggers); the d-pad's up and down play it faster or slower, to a pause;
+Back held shows the scores; B leaves. Its buttons: RECORD turns
+`network.record_replays` on or off; DELETE deletes the one chosen (pressed
+twice); on Android, EXPORT opens the system's folder picker and copies the
+replays to the folder chosen (those it already holds, by name, are left
+out), as the app's own folder cannot be opened by other apps. On the
+Switch and the PS5 the Theater shows a QR code and an address instead: a
+page on the local network, while the Theater is open, that downloads the
 replays and uploads others (`network.link_page` turns it off, with Direct
-Link's).
+Link's). The folder keeps the newest `network.replays_kept`, and a
+recording shorter than 5 seconds is deleted as it ends.
 
 The menus' text is in the language of the Custom Edition whose `loc.map` is
 in `custom_maps` (French, German, Italian, Spanish and so on), as that

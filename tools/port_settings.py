@@ -2417,18 +2417,20 @@ def _mods() -> list:
 
 
 # ---------- the Theater (port/linux/REPLAY.md): the main menu's THEATER,
-# the replays a host records (port/linux/game/network_replay.c), laid out as
-# the Mods screen is: its rows on the left, and in the lobby's frame on the
-# right how many replays there are, how large, where, and the one WATCH has
-# chosen (menu_functions.c's "port theater" functions). WATCH plays the
-# replay chosen with left and right, the newest first
-# (network_replay_playback.c); DELETE REPLAY deletes it, at a second press;
-# RECORD REPLAYS turns network.record_replays
-# on or off; EXPORT REPLAYS (Android's alone: the app's folder picker,
-# HaloActivity.exportReplays) copies them to a folder the player chooses
+# the replays a host or a client records (port/linux/game/network_replay.c),
+# laid out as the Mods screen is: on the left the replays, a row each, the
+# newest first (its map and when, and its length), scrolling over more, A
+# playing the one chosen (network_replay_playback.c); on the right, in the
+# lobby's frame, what the one chosen is; and the buttons: RECORD (ON or OFF,
+# network.record_replays), DELETE (the one chosen, at a second press), EXPORT
+# (Android's: the app's folder picker, HaloActivity.exportReplays) and BACK
+# (menu_functions.c's "port theater" functions). The Switch and the PS5 have
+# fewer rows: under them a QR code of their replay page
+# (network_replay_page.c)
 
-THEATER_ROWS = [("watch", "WATCH", None), ("delete", "DELETE REPLAY", None), ("record", "RECORD REPLAYS", None),
-                ("export", "EXPORT REPLAYS", "android")]
+THEATER_ROWS = 10
+THEATER_QR_ROWS = 6
+THEATER_ROW_TOP = 73
 
 
 def _theater() -> list:
@@ -2447,44 +2449,31 @@ def _theater() -> list:
                       f'<child widget="{base}/theater_qr_text" platform="switch ps5"/>'])
     lines += _header(f"{base}/header_theater", f"{base}/header_theater")
     rows = []
-    for index, (key, _, platform) in enumerate(THEATER_ROWS):
-        rows.append(f'<child{attributes([("widget", f"{base}/op_theater_{key}"), ("x", 20), ("y", 73 + 30 * index), ("platform", platform)])}/>')
+    for index in range(THEATER_ROWS):
+        rows.append(f'<child{attributes([("widget", f"{base}/op_replay_{index + 1}"), ("x", 20), ("y", THEATER_ROW_TOP + 30 * index), ("platform", "desktop android web" if index >= THEATER_QR_ROWS else None)])}/>')
     lines += _widget(f"{base}/theater_list", [("type", "column_list"), ("width", 640), ("height", 480),
                                               ("flags", "pass_unhandled_to_focused_child up_down_tabs_children"),
                                               ("description", f"{base}/theater_details")],
                      ['<data input="port theater update"/>', *rows, f'<child widget="{base}/button_bar" y="414"/>'])
-    for index, (key, text, _) in enumerate(THEATER_ROWS):
-        run = f"port theater {key}"
-        handlers = [f'<on event="a" run="{run}"/>', f'<on event="start" run="{run}"/>']
-        if key == "record":
-            handlers += [f'<on event="left" run="{run}"/>', f'<on event="right" run="{run}"/>']
-        if key == "watch":
-            handlers += ['<on event="left" run="port theater previous"/>',
-                         '<on event="right" run="port theater next"/>']
-        handlers += ['<on event="left_mouse" run="mouse emit accept event"/>',
-                     f'<child widget="{base}/theater_label_{key}" x="12"/>']
-        if key == "record":
-            handlers.append(f'<child widget="{base}/theater_value" x="318"/>')
-        if key == "watch":
-            handlers.append(f'<child widget="{base}/theater_replay" x="104"/>')
-        lines += _widget(f"{base}/op_theater_{key}",
+    for index in range(THEATER_ROWS):
+        lines += _widget(f"{base}/op_replay_{index + 1}",
                          [("width", 390), ("height", 28), ("flags", "pass_unhandled_to_focused_child"),
                           ("bitmap", "bitmaps/sel_list_item_bkd_top" if index == 0 else "bitmaps/sel_list_item_bkd"),
-                          ("color", "#FF2896FF")], handlers)
-        lines += _widget(f"{base}/theater_label_{key}",
-                         [("type", "text"), ("controller", 1), ("width", 300), ("height", 22), ("text", text),
-                          ("font", "ui\\large_ui"), ("color", "#FF2896FF"), ("text_y", 4)], [])
-    # (WATCH's replay: its map and when, menu_functions.c's theater_update)
-    lines += _widget(f"{base}/theater_replay",
-                     [("type", "text"), ("controller", 1), ("width", 280), ("height", 22), ("font", "ui\\large_ui"),
+                          ("color", "#FF2896FF")],
+                         ['<on event="a" run="port theater watch"/>', '<on event="start" run="port theater watch"/>',
+                          '<on event="left_mouse" run="mouse emit accept event"/>',
+                          f'<child widget="{base}/theater_replay_name" x="12"/>',
+                          f'<child widget="{base}/theater_replay_length" x="290"/>'])
+    lines += _widget(f"{base}/theater_replay_name",
+                     [("type", "text"), ("controller", 1), ("width", 276), ("height", 22), ("font", "ui\\large_ui"),
+                      ("color", "#FF2896FF"), ("text_y", 4)], [])
+    lines += _widget(f"{base}/theater_replay_length",
+                     [("type", "text"), ("controller", 1), ("width", 90), ("height", 22), ("font", "ui\\large_ui"),
                       ("color", "#FF2896FF"), ("align", "right"), ("text_y", 4), ("text_flags", "no_focus_test")], [])
-    lines += _widget(f"{base}/theater_value",
-                     [("type", "text"), ("controller", 1), ("width", 66), ("height", 22), ("font", "ui\\large_ui"),
-                      ("color", "#FF2896FF"), ("align", "center"), ("text_y", 4), ("text_flags", "no_focus_test")], [])
     # (the Switch's and the PS5's: the replay page's QR code, drawn over this
     # line by menu_functions.c, network_replay_page.c)
     lines += _widget(f"{base}/theater_qr_text",
-                     [("type", "text"), ("controller", 1), ("left", 20), ("top", 390), ("width", 390), ("height", 18),
+                     [("type", "text"), ("controller", 1), ("left", 20), ("top", 392), ("width", 390), ("height", 18),
                       ("text", "Scan it to download or upload replays."), ("font", "ui\\small_ui"),
                       ("color", "#FFFFFFFF"), ("align", "center"), ("text_flags", "no_focus_test")], [])
     # (in the lobby's frame, sel_list_desc_bkd's, as the mods' details)
@@ -2496,7 +2485,16 @@ def _theater() -> list:
     lines += _widget(f"{base}/button_bar",
                      [("type", "column_list"), ("width", 640), ("height", 28),
                       ("flags", "pass_unhandled_to_focused_child left_right_tabs_items")],
-                     [f'<child widget="{base}/button_back" x="510" y="1"/>'])
+                     [f'<child widget="{base}/button_record" y="1"/>',
+                      f'<child widget="{base}/button_delete" x="130" y="1"/>',
+                      f'<child widget="{base}/button_export" x="260" y="1" platform="android"/>',
+                      f'<child widget="{base}/button_back" x="510" y="1"/>'])
+    lines += _text_button(f"{base}/button_record", "RECORD: OFF", ['<on event="a" run="port theater record"/>',
+                                                                  '<on event="start" run="port theater record"/>'])
+    lines += _text_button(f"{base}/button_delete", "DELETE", ['<on event="a" run="port theater delete"/>',
+                                                             '<on event="start" run="port theater delete"/>'])
+    lines += _text_button(f"{base}/button_export", "EXPORT", ['<on event="a" run="port theater export"/>',
+                                                             '<on event="start" run="port theater export"/>'])
     lines += _text_button(f"{base}/button_back", "BACK", ['<on event="a" back="true"/>',
                                                          '<on event="start" back="true"/>'])
     return lines

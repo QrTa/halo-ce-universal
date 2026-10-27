@@ -3082,57 +3082,87 @@ static boolean mods_save(void)
 }
 
 /* ---------- the main menu's Theater (port/linux/REPLAY.md): the replays a
-host records (network_replay.c). RECORD REPLAYS turns
-network.record_replays on or off (from the next game hosted), EXPORT
-REPLAYS (Android) copies them to a folder the player chooses, and the panel
-says how many there are, how large, and where */
+host or a client records (network_replay.c), a row each, the newest first,
+scrolling over more (as the Mods screen's rows): A plays the one chosen
+(network_replay_playback.c), and the panel says what it is. RECORD turns
+network.record_replays on or off (from the next game), DELETE deletes the
+one chosen at a second press, and EXPORT (Android) copies them to a folder
+the player chooses */
 
 #define THEATER_TEXT_LENGTH 512
 /* the characters a line of the panel takes (its text box is the Mods
 panel's, mod_text_box_characters' _mod_details_text) */
 #define THEATER_LINE_CHARACTERS 30
-/* the replays WATCH chooses among (the newest), and how often the folder is
-looked at again while the screen is open (milliseconds) */
+/* the replays listed (the newest), the most rows (tools/port_settings.py's
+THEATER_ROWS: fewer on the Switch and the PS5, the rest of the screen their
+replay page's QR code), and how often the folder is looked at again while
+the screen is open (milliseconds) */
 #define THEATER_REPLAYS 64
+#define THEATER_ROWS 10
 #define THEATER_REFRESH_MILLISECONDS 2000
 
 static struct
 {
+	/* the folder's replays, and what each is (its header's, read once
+	for each new name) */
 	char names[THEATER_REPLAYS][NETWORK_REPLAY_NAME_SIZE];
+	struct network_replay_info infos[THEATER_REPLAYS];
 	long count;
-	/* the one chosen (0 the newest), its name (kept across a refresh),
-	and when the folder was last looked at */
-	long chosen;
+	/* the place on the list of the first row and of the one chosen last
+	(the buttons' DELETE's), and its name (kept across a refresh) */
+	short first;
+	short chosen;
 	char chosen_name[NETWORK_REPLAY_NAME_SIZE];
 	unsigned long refreshed;
 	boolean listed;
-	/* why the last WATCH could not play its replay, until another is
-	chosen (and what DELETE did) */
+	/* why the last A could not play its replay (and what DELETE did),
+	until another is chosen */
 	char why[160];
 	/* DELETE's first press: the one it would delete at the second (its
 	name, empty for none) */
 	char deleting[NETWORK_REPLAY_NAME_SIZE];
 } theater;
 
-/* the folder's replays, again when it is time, the one chosen kept */
+/* the folder's replays, again when it is time, the one chosen kept; a
+replay's header read only when its name is new */
 static void theater_refresh(void)
 {
+	static char names[THEATER_REPLAYS][NETWORK_REPLAY_NAME_SIZE];
+	static struct network_replay_info infos[THEATER_REPLAYS];
 	unsigned long now = system_milliseconds();
+	long count;
 	long index;
 
 	if (theater.listed && now - theater.refreshed < THEATER_REFRESH_MILLISECONDS)
 		return;
 	theater.listed = TRUE;
 	theater.refreshed = now;
-	theater.count = network_replay_list(theater.names, THEATER_REPLAYS);
+	count = network_replay_list(names, THEATER_REPLAYS);
+	for (index = 0; index < count; index++)
+	{
+		long known;
+
+		for (known = 0; known < theater.count && strcmp(theater.names[known], names[index]); known++)
+		{
+		}
+		if (known < theater.count)
+			infos[index] = theater.infos[known];
+		else
+			network_replay_info(names[index], &infos[index]);
+	}
+	csmemcpy(theater.names, names, sizeof(names));
+	csmemcpy(theater.infos, infos, sizeof(infos));
+	theater.count = count;
 	theater.chosen = 0;
 	for (index = 0; index < theater.count; index++)
 	{
 		if (!strcmp(theater.names[index], theater.chosen_name))
-			theater.chosen = index;
+			theater.chosen = (short)index;
 	}
 	if (theater.count)
 		strcpy(theater.chosen_name, theater.names[theater.chosen]);
+	if (theater.first > 0 && theater.first >= theater.count)
+		theater.first = (short)MAX(0, theater.count - 1);
 }
 
 #if defined(HALO_ANDROID) && !defined(HALO_SWITCH)
@@ -3141,15 +3171,23 @@ chosen: port/android/host/host_main.c, HaloActivity.exportReplays) */
 void host_android_export_replays(const char *folder);
 #endif
 
-/* the row (op_theater_<name>) a widget is or is in, else NULL */
+/* the row (op_replay_<n>) a widget is or is in, else NULL */
 static struct widget_instance *theater_row(struct widget_instance *widget)
 {
 	for (; widget; widget = widget->parent)
 	{
-		if (!strncmp(widget->name, "op_theater_", 11))
+		if (!strncmp(widget->name, "op_replay_", 10))
 			return widget;
 	}
 	return NULL;
+}
+
+/* the place on the list of the replay on a row, else NONE */
+static short theater_row_place(struct widget_instance *row)
+{
+	short place = row ? (short)(theater.first + atoi(row->name + 10) - 1) : NONE;
+
+	return place >= 0 && place < theater.count ? place : NONE;
 }
 
 /* text after what `text` holds, broken into the panel's lines: at the
@@ -3179,8 +3217,9 @@ static void theater_append_wrapped(char *text, size_t size, char const *more)
 	}
 }
 
-/* "port theater update": RECORD REPLAYS' ON or OFF, each row's background
-(the chosen one's outlined frame), and the panel */
+/* "port theater update": the rows (the list moving on at its ends while
+there are more replays past them), each replay's map, when and length, the
+chosen one's background, RECORD's ON or OFF, and the panel */
 static void theater_update(struct widget_instance *list)
 {
 	struct widget_instance *row;
@@ -3190,6 +3229,8 @@ static void theater_update(struct widget_instance *list)
 	char text[THEATER_TEXT_LENGTH] = "";
 	char line[THEATER_TEXT_LENGTH];
 	wchar_t wide[THEATER_TEXT_LENGTH];
+	short rows = 0;
+	short focused_index = focused ? (short)(atoi(focused->name + 10) - 1) : NONE;
 	unsigned long long bytes;
 	long count;
 
@@ -3200,29 +3241,57 @@ static void theater_update(struct widget_instance *list)
 #endif
 	for (row = list->child; row; row = row->next)
 	{
-		if (strncmp(row->name, "op_theater_", 11))
+		if (!strncmp(row->name, "op_replay_", 10))
+			rows++;
+	}
+	if (focused_index == rows - 1 && theater.first + rows < theater.count && list_scrolls_at_end())
+	{
+		theater.first++;
+		focus_row(list, --focused_index);
+	}
+	else if (focused_index == 0 && theater.first > 0 && list_scrolls_at_end())
+	{
+		theater.first--;
+		focus_row(list, ++focused_index);
+	}
+	if (theater.first > 0 && theater.first + rows > theater.count)
+		theater.first = (short)MAX(0, theater.count - rows);
+	if (focused_index != NONE && theater.first + focused_index < theater.count &&
+		theater.chosen != theater.first + focused_index)
+	{
+		theater.chosen = (short)(theater.first + focused_index);
+		strcpy(theater.chosen_name, theater.names[theater.chosen]);
+		theater.why[0] = 0;
+		theater.deleting[0] = 0;
+	}
+	for (row = list->child; row; row = row->next)
+	{
+		short place;
+		struct network_replay_info const *info;
+
+		if (strncmp(row->name, "op_replay_", 10))
 			continue;
 		row->animation.current_frame_index = row == focused ? 1 : 0;
-		if (!strcmp(row->name, "op_theater_record"))
-			text_set(named(row, "theater_value", 0), recording ? L"ON" : L"OFF");
-		else if (!strcmp(row->name, "op_theater_watch"))
+		place = theater_row_place(row);
+		row->visible = place != NONE;
+		if (place == NONE)
 		{
-			/* (the chosen one by its map and when: <when>_<map>.ocreplay) */
-			char const *name = theater.count ? theater.names[theater.chosen] : NULL;
-			char const *map = name ? strchr(name, '_') : NULL;
-			char shown[64];
-
-			if (!name)
-				snprintf(shown, sizeof(shown), "NONE");
-			else
-			{
-				snprintf(shown, sizeof(shown), "%.*s %.2s-%.2s", map ? (int)(strcspn(map + 1, ".")) : 0,
-					map ? map + 1 : "", name + 4, name + 6);
-			}
-			mods_wide_text(shown, wide, ROW_TEXT_LENGTH);
-			text_set(named(row, "theater_replay", 0), wide);
+			if (row == focused)
+				focus_row(list, theater.count ? (short)(theater.count - 1 - theater.first) : NONE);
+			continue;
 		}
+		info = &theater.infos[place];
+		snprintf(line, sizeof(line), "%s  %s", info->valid ? info->map : "?", info->short_date);
+		mods_wide_text(line, wide, ROW_TEXT_LENGTH);
+		text_set(named(row, "theater_replay_name", 0), wide);
+		if (info->seconds)
+			snprintf(line, sizeof(line), "%ld:%02ld", info->seconds / 60, info->seconds % 60);
+		else
+			line[0] = 0;
+		mods_wide_text(line, wide, ROW_TEXT_LENGTH);
+		text_set(named(row, "theater_replay_length", 0), wide);
 	}
+	text_set(named(list, "button_record", 0), recording ? L"RECORD: ON" : L"RECORD: OFF");
 	if (!details)
 		return;
 	network_replay_summary(&count, &bytes);
@@ -3240,9 +3309,7 @@ static void theater_update(struct widget_instance *list)
 		char description[THEATER_TEXT_LENGTH];
 		char const *part;
 
-		snprintf(line, sizeof(line), "Replay %ld of %ld:", theater.chosen + 1, theater.count);
-		theater_append_wrapped(text, sizeof(text), line);
-		network_replay_describe(theater.names[theater.chosen], description, sizeof(description));
+		network_replay_info_text(&theater.infos[theater.chosen], description, sizeof(description));
 		/* (line by line, each wrapped) */
 		for (part = description; *part;)
 		{
@@ -3259,18 +3326,16 @@ static void theater_update(struct widget_instance *list)
 		theater_append_wrapped(text, sizeof(text), " ");
 	}
 	theater_append_wrapped(text, sizeof(text), recording ?
-		"The network games you play are recorded, from the next one on: all of a game you host, "
-		"what your host sends you of one you join." :
-		"Turn RECORD REPLAYS on to record the network games you play, from the next one on.");
+		"The network games you play are recorded, from the next one on." :
+		"RECORD: OFF. Turn it on to record the network games you play, from the next one on.");
 	theater_append_wrapped(text, sizeof(text), " ");
 #if defined(HALO_ANDROID) && !defined(HALO_SWITCH)
-	theater_append_wrapped(text, sizeof(text), "EXPORT REPLAYS copies them to a folder you choose.");
+	theater_append_wrapped(text, sizeof(text), "EXPORT copies them to a folder you choose.");
 #else
 #ifdef LINK_PAGE
 	if (network_replay_page_address()[0])
 	{
-		theater_append_wrapped(text, sizeof(text),
-			"To download them or put others here, open this on a phone or a computer on this network:");
+		theater_append_wrapped(text, sizeof(text), "To download them or put others here, open on this network:");
 		theater_append_wrapped(text, sizeof(text), network_replay_page_address());
 	}
 	else
@@ -3286,23 +3351,9 @@ static void theater_update(struct widget_instance *list)
 	text_set_length(named(details, "theater_details_text", 0), wide, NUMBEROF(wide));
 }
 
-/* "port theater next" and "port theater previous" (right and left on
-WATCH): an older replay chosen, or a newer, wrapping round */
-static boolean theater_choose(long by)
-{
-	theater_refresh();
-	if (!theater.count)
-		return TRUE;
-	theater.chosen = (theater.chosen + by + theater.count) % theater.count;
-	strcpy(theater.chosen_name, theater.names[theater.chosen]);
-	theater.why[0] = 0;
-	theater.deleting[0] = 0;
-	return TRUE;
-}
-
-/* "port theater delete" (A on DELETE REPLAY): the first press asks, the
-second deletes the replay chosen (the one asked about, unless another was
-chosen since) */
+/* "port theater delete" (A on DELETE): the first press asks, the second
+deletes the replay chosen (the one asked about, unless another was chosen
+since) */
 static boolean theater_delete(void)
 {
 	char const *name;
@@ -3314,7 +3365,7 @@ static boolean theater_delete(void)
 	if (strcmp(theater.deleting, name))
 	{
 		strcpy(theater.deleting, name);
-		snprintf(theater.why, sizeof(theater.why), "Press A again on DELETE REPLAY to delete it.");
+		snprintf(theater.why, sizeof(theater.why), "Press DELETE again to delete it.");
 		return TRUE;
 	}
 	theater.deleting[0] = 0;
@@ -3332,30 +3383,35 @@ static boolean theater_delete(void)
 	return TRUE;
 }
 
-/* "port theater watch" (A on WATCH): the chosen replay played
+/* "port theater watch" (A on a replay's row): it played
 (network_replay_playback.c: its game loads at the next frame, and the menus
 close with it); why not, in the panel */
-static boolean theater_watch(void)
+static boolean theater_watch(struct widget_instance *widget)
 {
 	char path[THEATER_TEXT_LENGTH + NETWORK_REPLAY_NAME_SIZE];
+	short place = theater_row_place(theater_row(widget));
 
 	theater_refresh();
-	if (!theater.count)
+	if (place == NONE)
+		place = theater.chosen;
+	if (place < 0 || place >= theater.count)
 		return TRUE;
+	theater.chosen = place;
+	strcpy(theater.chosen_name, theater.names[place]);
 	network_replay_folder(path, THEATER_TEXT_LENGTH);
-	snprintf(path + strlen(path), sizeof(path) - strlen(path), "/%s", theater.names[theater.chosen]);
+	snprintf(path + strlen(path), sizeof(path) - strlen(path), "/%s", theater.names[place]);
 	if (!network_replay_watch(path, theater.why, sizeof(theater.why)))
 		platform_log("theater: %s: %s", path, theater.why);
 	return TRUE;
 }
 
-/* "port theater record" (A, left or right on RECORD REPLAYS) */
+/* "port theater record" (A on RECORD) */
 static boolean theater_record(void)
 {
 	return config_write_boolean("network.record_replays", !config_boolean("network.record_replays")) != 0;
 }
 
-/* "port theater export" (A on EXPORT REPLAYS, Android's alone) */
+/* "port theater export" (A on EXPORT, Android's alone) */
 static boolean theater_export(void)
 {
 #if defined(HALO_ANDROID) && !defined(HALO_SWITCH)
@@ -7095,13 +7151,14 @@ void menu_functions_text_box_drawn(struct widget_instance *widget, rectangle2d c
 	if (widget->name && !strcmp(widget->name, "invite_qr_text"))
 		invite_qr_draw(bounds);
 	/* (the Theater's replay page, over its line: UI units, the line from x
-	20 at y 390, 390 wide; the code below the rows, from y 200) */
+	20 at y 392, 390 wide; the code between the Switch's and the PS5's six
+	rows, to y 251, and it) */
 	if (widget->name && !strcmp(widget->name, "theater_qr_text"))
 	{
 		real scale = (real)(bounds->x1 - bounds->x0) / 390.0f;
 
 		link_qr_draw_at(_link_qr_replays, network_replay_page_address(), (short)(bounds->x0 + 195 * scale),
-			(short)(bounds->y0 - (390 - (200 + 385) / 2) * scale), (short)(170 * scale));
+			(short)(bounds->y0 - (392 - (258 + 388) / 2) * scale), (short)(126 * scale));
 	}
 #endif
 	/* (the news's rows: the font and width its notes are wrapped to) */
@@ -8644,16 +8701,13 @@ boolean pc_menu_event_function_invoke(
 		}
 		else if (!strcmp(name, "port theater watch"))
 		{
-			return theater_watch();
+			return theater_watch(widget);
 		}
 		else if (!strcmp(name, "port theater delete"))
 		{
 			return theater_delete();
 		}
-		else if (!strcmp(name, "port theater next") || !strcmp(name, "port theater previous"))
-		{
-			return theater_choose(!strcmp(name, "port theater next") ? 1 : -1);
-		}
+
 		else if (!strcmp(name, "port theater export"))
 		{
 			return theater_export();

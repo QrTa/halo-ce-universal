@@ -72,9 +72,38 @@ NETWORK_REPLAY_NAME_SIZE bytes); how many */
 #define NETWORK_REPLAY_NAME_SIZE 96
 long network_replay_list(char (*names)[NETWORK_REPLAY_NAME_SIZE], long maximum);
 
-/* what the replay of that name in the folder is, in lines of text: its
-map, game type, when, its size, and whether this build can play it (its
-return) */
+/* what a replay is, from its header */
+struct network_replay_info
+{
+	/* a replay's header (else why), and one this build plays (else why) */
+	boolean valid;
+	boolean playable;
+	char map[48];
+	char variant[16];
+	/* when (2026-10-28 02:16), and shorter (10-28 02:16) */
+	char date[24];
+	char short_date[16];
+	unsigned long long bytes;
+	/* (format 4) its length, the server's name, the recording player's,
+	and whether a client recorded it */
+	boolean has_metadata;
+	long seconds;
+	char server[65];
+	char player[33];
+	boolean client;
+	char why[96];
+};
+
+/* the replay of that name in the folder, from its header; whether this
+build can play it */
+boolean network_replay_info(char const *name, struct network_replay_info *info);
+
+/* what it is, in lines of text: its map, game type, when, length, server,
+player and size, and why it cannot be played */
+void network_replay_info_text(struct network_replay_info const *info, char *text, long size);
+
+/* the two of them: what the replay of that name in the folder is, in lines
+of text; whether this build can play it */
 boolean network_replay_describe(char const *name, char *text, long size);
 
 /* the replay of that name in the folder deleted; FALSE if it could not be */

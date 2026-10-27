@@ -236,9 +236,13 @@ messages split by type before they are compressed.
 
 ## Phase 1: playback
 
-The Theater's WATCH plays the replay chosen with left and right (the
-newest first; the panel says what it is, or why it cannot be played: a
-replay from before format 2, or of another network version).
+The Theater (under Multiplayer in the main menu) lists the replays, a row
+each, the newest first (its map, when and length, from its header, read
+once for each new file), scrolling over more; A plays the one chosen, and
+the panel says what it is, or why it cannot be played (a replay from
+before format 2, or of another network version). Its buttons are RECORD,
+DELETE (pressed twice), EXPORT (Android) and BACK. A recording shorter than
+5 seconds is deleted as it ends.
 `port/linux/game/network_replay_playback.c`:
 
 - **As a client with no player and no host.** The file is read whole.
@@ -283,7 +287,7 @@ replay from before format 2, or of another network version).
 
 The Theater keeps the newest `network.replays_kept` replays (30; the
 oldest are deleted as a recording starts, 0 keeps them all), and DELETE
-REPLAY deletes the one chosen, at a second press.
+deletes the one chosen, at a second press.
 
 **A client's recordings.** A client of a network game records too, with
 the same setting (`network_replay_client_tick`, from its first tick): what

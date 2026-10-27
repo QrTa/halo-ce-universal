@@ -399,8 +399,7 @@ static char const *const port_function_names[] =
 	"port news init", "port news close", "port news up", "port news down", "port news page up",
 	"port news page down",
 	/* (the main menu's Theater: menu_functions.c) */
-	"port theater record", "port theater export", "port theater watch", "port theater next",
-	"port theater previous", "port theater delete",
+	"port theater record", "port theater export", "port theater watch", "port theater delete",
 };
 
 /* the PC version's game data functions that the Xbox's have not, from

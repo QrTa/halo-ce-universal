@@ -84,6 +84,8 @@ game's own */
 #define REPLAY_MESSAGE_TYPE_PACKET 3
 /* a record's header: its kind, a byte left 0, its size and the tick */
 #define REPLAY_RECORD_HEADER_SIZE 8
+/* a recording shorter than this (ticks) is deleted as it ends */
+#define REPLAY_MINIMUM_TICKS (5 * TICKS_PER_SECOND)
 /* the file written out this often (ticks): what a crash loses */
 #define REPLAY_FLUSH_TICKS (5 * TICKS_PER_SECOND)
 /* the file's buffer: on the Switch each write waits for the card, so
@@ -439,95 +441,129 @@ long network_replay_list(
 	return count;
 }
 
-boolean network_replay_describe(
+boolean network_replay_info(
 	char const *name,
-	char *text,
-	long size)
+	struct network_replay_info *info)
 {
 	char path[REPLAY_PATH_SIZE + NETWORK_REPLAY_NAME_SIZE];
 	byte header[REPLAY_HEADER_SIZE];
 	struct posix_file_information information;
-	unsigned long long bytes = 0;
 	unsigned long format, network_version, header_size;
-	char map[0x80], variant[16];
+	char map[0x80];
 	char const *base_name;
 	FILE *file;
 	size_t read;
 
+	csmemset(info, 0, sizeof(*info));
 	network_replay_folder(path, sizeof(path));
 	snprintf(path + strlen(path), sizeof(path) - strlen(path), "/%s", name);
 	if (posix_stat(path, &information) == 0)
-		bytes = ((unsigned long long)information.size_high << 32) | information.size_low;
+		info->bytes = ((unsigned long long)information.size_high << 32) | information.size_low;
 	file = platform_fopen_host(path, "rb");
 	read = file ? fread(header, 1, sizeof(header), file) : 0;
 	if (file)
 		fclose(file);
 	if (read < 216 || memcmp(header, REPLAY_MAGIC, 8))
 	{
-		snprintf(text, (size_t)size, "%s\nNot a replay.", name);
+		snprintf(info->why, sizeof(info->why), "Not a replay.");
 		return FALSE;
 	}
+	info->valid = TRUE;
 	format = replay_get_long(header + 8);
 	network_version = replay_get_long(header + 12);
 	header_size = replay_get_long(header + 28);
 	csmemcpy(map, header + 40, sizeof(map));
 	map[sizeof(map) - 1] = 0;
-	csmemcpy(variant, header + 168, sizeof(variant));
-	variant[sizeof(variant) - 1] = 0;
 	base_name = strrchr(map, '\\');
 	base_name = base_name ? base_name + 1 : map;
+	snprintf(info->map, sizeof(info->map), "%s", base_name);
+	csmemcpy(info->variant, header + 168, sizeof(info->variant) - 1);
+	info->variant[sizeof(info->variant) - 1] = 0;
 	/* (when: the header's, else the name's first fifteen characters,
 	YYYYMMDD-HHMMSS) */
 	{
 		time_t when = (time_t)replay_get_long(header + 32);
 		struct tm *local = when ? localtime(&when) : NULL;
-		char date[32];
 
 		if (local)
-			strftime(date, sizeof(date), "%Y-%m-%d %H:%M", local);
+		{
+			strftime(info->date, sizeof(info->date), "%Y-%m-%d %H:%M", local);
+			strftime(info->short_date, sizeof(info->short_date), "%m-%d %H:%M", local);
+		}
 		else
-			snprintf(date, sizeof(date), "%.4s-%.2s-%.2s %.2s:%.2s", name, name + 4, name + 6, name + 9, name + 11);
-		snprintf(text, (size_t)size, "%s, %s\n%s", base_name, variant[0] ? variant : "?", date);
+		{
+			snprintf(info->date, sizeof(info->date), "%.4s-%.2s-%.2s %.2s:%.2s", name, name + 4, name + 6, name + 9,
+				name + 11);
+			snprintf(info->short_date, sizeof(info->short_date), "%.2s-%.2s %.2s:%.2s", name + 4, name + 6, name + 9,
+				name + 11);
+		}
 	}
 	/* (format 4: its length, where and by whom) */
 	if (format >= 4 && header_size >= REPLAY_HEADER_SIZE && read >= REPLAY_HEADER_SIZE)
 	{
-		unsigned long ticks = replay_get_long(header + REPLAY_DURATION_OFFSET);
-		unsigned long seconds = ticks / TICKS_PER_SECOND;
-		char server[REPLAY_SERVER_SIZE + 1];
-		char player[REPLAY_PLAYER_SIZE + 1];
-
-		csmemcpy(server, header + REPLAY_SERVER_OFFSET, REPLAY_SERVER_SIZE);
-		server[REPLAY_SERVER_SIZE] = 0;
-		csmemcpy(player, header + REPLAY_PLAYER_OFFSET, REPLAY_PLAYER_SIZE);
-		player[REPLAY_PLAYER_SIZE] = 0;
-		if (ticks)
-			snprintf(text + strlen(text), (size_t)size - strlen(text), "\n%lu:%02lu long", seconds / 60, seconds % 60);
-		if (server[0])
-			snprintf(text + strlen(text), (size_t)size - strlen(text), "\nServer: %s", server);
-		if (player[0])
-		{
-			snprintf(text + strlen(text), (size_t)size - strlen(text), "\n%s by %s",
-				replay_get_long(header + REPLAY_FLAGS_OFFSET) & REPLAY_FLAG_CLIENT ? "Played" : "Hosted", player);
-		}
-		else
-			snprintf(text + strlen(text), (size_t)size - strlen(text), "\nRecorded by the server");
+		info->seconds = (long)(replay_get_long(header + REPLAY_DURATION_OFFSET) / TICKS_PER_SECOND);
+		csmemcpy(info->server, header + REPLAY_SERVER_OFFSET, REPLAY_SERVER_SIZE);
+		info->server[REPLAY_SERVER_SIZE] = 0;
+		csmemcpy(info->player, header + REPLAY_PLAYER_OFFSET, REPLAY_PLAYER_SIZE);
+		info->player[REPLAY_PLAYER_SIZE] = 0;
+		info->client = (replay_get_long(header + REPLAY_FLAGS_OFFSET) & REPLAY_FLAG_CLIENT) != 0;
+		info->has_metadata = TRUE;
 	}
-	snprintf(text + strlen(text), (size_t)size - strlen(text), "\n%llu KB", bytes / 1024);
 	if (format < 2 || header_size < 216)
 	{
-		snprintf(text + strlen(text), (size_t)size - strlen(text),
-			"\nRecorded before replays could be played back: it cannot be watched.");
+		snprintf(info->why, sizeof(info->why), "Recorded before replays could be played back: it cannot be watched.");
 		return FALSE;
 	}
 	if (network_version != HALO_PORT_NETWORK_VERSION)
 	{
-		snprintf(text + strlen(text), (size_t)size - strlen(text),
-			"\nRecorded by a build of network version %lu: this one plays %d.", network_version,
-			HALO_PORT_NETWORK_VERSION);
+		snprintf(info->why, sizeof(info->why), "Recorded by a build of network version %lu: this one plays %d.",
+			network_version, HALO_PORT_NETWORK_VERSION);
 		return FALSE;
 	}
+	info->playable = TRUE;
 	return TRUE;
+}
+
+void network_replay_info_text(
+	struct network_replay_info const *info,
+	char *text,
+	long size)
+{
+	if (!info->valid)
+	{
+		snprintf(text, (size_t)size, "%s", info->why);
+		return;
+	}
+	snprintf(text, (size_t)size, "%s, %s\n%s", info->map, info->variant[0] ? info->variant : "?", info->date);
+	if (info->has_metadata)
+	{
+		if (info->seconds)
+		{
+			snprintf(text + strlen(text), (size_t)size - strlen(text), "\n%ld:%02ld long", info->seconds / 60,
+				info->seconds % 60);
+		}
+		if (info->server[0])
+			snprintf(text + strlen(text), (size_t)size - strlen(text), "\nServer: %s", info->server);
+		if (info->player[0])
+			snprintf(text + strlen(text), (size_t)size - strlen(text), "\n%s by %s", info->client ? "Played" : "Hosted", info->player);
+		else
+			snprintf(text + strlen(text), (size_t)size - strlen(text), "\nRecorded by the server");
+	}
+	snprintf(text + strlen(text), (size_t)size - strlen(text), "\n%llu KB", info->bytes / 1024);
+	if (info->why[0])
+		snprintf(text + strlen(text), (size_t)size - strlen(text), "\n%s", info->why);
+}
+
+boolean network_replay_describe(
+	char const *name,
+	char *text,
+	long size)
+{
+	struct network_replay_info info;
+	boolean playable = network_replay_info(name, &info);
+
+	network_replay_info_text(&info, text, size);
+	return playable;
 }
 
 boolean network_replay_recording(
@@ -661,6 +697,16 @@ void network_replay_stop(
 		file_size = ftell(replay.file);
 		written = fclose(replay.file) == 0 && written;
 		replay.file = NULL;
+		/* (a game of a few seconds, left at once, is no replay) */
+		if (ticks < REPLAY_MINIMUM_TICKS)
+		{
+			DeleteFileA(replay.path);
+			error(_error_log, "replay: %s was %ld ticks long, under %d seconds: deleted", replay.path, ticks,
+				REPLAY_MINIMUM_TICKS / TICKS_PER_SECOND);
+			replay.considered = FALSE;
+			replay.client = FALSE;
+			return;
+		}
 		error(_error_log,
 			"replay: %s %s: %ld seconds, %ld KB (%lu KB before compression: %lu datagrams %lu KB, %lu reliable %lu KB, "
 			"%lu to the recorder %lu KB, %lu game messages %lu KB)",
