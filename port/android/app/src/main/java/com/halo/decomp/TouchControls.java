@@ -1264,7 +1264,7 @@ public final class TouchControls extends View implements SensorEventListener, In
             canvas.drawText("Drag the controls, then push Save", logicalWidth / 2, toolbarY() + 58, paint);
         } else {
             toolbarItem(canvas, logicalWidth / 2, TOOLBAR_RADIUS, hidden ? "Touch" : "Hide");
-            toolbarItem(canvas, optionsX(), OPTIONS_RADIUS, "Options");
+            toolbarItem(canvas, optionsX() - 468, OPTIONS_RADIUS, "Options");
         }
     }
 
